@@ -20,7 +20,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     fastgltf
     GIT_REPOSITORY https://github.com/spnda/fastgltf.git
-    GIT_TAG        b1ee8da31b4ff3fe9d073a5c2f59dbe31a982c9b
+    GIT_TAG        822217ebb598e48218e0e95ec5868c2d957cfd64
 )
 
 FetchContent_Declare(
@@ -70,14 +70,6 @@ FetchContent_MakeAvailable(ktx)
 
 # Disable warnings for libktx
 target_compile_options(ktx
-    PRIVATE
-    $<$<OR:$<CXX_COMPILER_ID:AppleClang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:
-    -Wno-everything>
-    $<$<CXX_COMPILER_ID:MSVC>:
-    -w>
-)
-
-target_compile_options(fastgltf
     PRIVATE
     $<$<OR:$<CXX_COMPILER_ID:AppleClang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:
     -Wno-everything>

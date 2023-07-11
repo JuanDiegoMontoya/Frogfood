@@ -496,29 +496,13 @@ namespace Utility
     return materials;
   }
 
-  // compute the object-space bounding box
-  Box3D GetBoundingBox(std::span<const Vertex> vertices)
-  {
-    glm::vec3 min{1e20f};
-    glm::vec3 max{-1e20f};
-    for (const auto& vertex : vertices)
-    {
-      min = glm::min(min, vertex.position);
-      max = glm::max(max, vertex.position);
-    }
-
-    return Box3D{
-      .offset = (min + max) / 2.0f,
-      .halfExtent = (max - min) / 2.0f,
-    };
-  }
-
   struct CpuMesh
   {
     std::vector<Vertex> vertices;
     std::vector<index_t> indices;
     uint32_t materialIdx;
     glm::mat4 transform;
+    Box3D boundingBox;
   };
 
   struct LoadModelResult
@@ -607,11 +591,38 @@ namespace Utility
           auto vertices = ConvertVertexBufferFormat(asset, primitive);
           auto indices = ConvertIndexBufferFormat(asset, primitive);
 
+          auto& positionAccessor = asset.accessors[primitive.findAttribute("POSITION")->second];
+
+          glm::vec3 bboxMin{};
+          if (auto* dv = std::get_if<std::pmr::vector<double>>(&positionAccessor.min))
+          {
+            bboxMin = { (*dv)[0], (*dv)[1], (*dv)[2] };
+          }
+          if (auto* iv = std::get_if<std::pmr::vector<int64_t>>(&positionAccessor.min))
+          {
+            bboxMin = { (*iv)[0], (*iv)[1], (*iv)[2] };
+          }
+
+          glm::vec3 bboxMax{};
+          if (auto* dv = std::get_if<std::pmr::vector<double>>(&positionAccessor.max))
+          {
+            bboxMax = { (*dv)[0], (*dv)[1], (*dv)[2] };
+          }
+          if (auto* iv = std::get_if<std::pmr::vector<int64_t>>(&positionAccessor.max))
+          {
+            bboxMax = { (*iv)[0], (*iv)[1], (*iv)[2] };
+          }
+
+          Box3D bbox;
+          bbox.offset = (bboxMin + bboxMax) / 2.0f;
+          bbox.halfExtent = (bboxMax - bboxMin) / 2.0f;
+
           scene.meshes.emplace_back(CpuMesh{
-            std::move(vertices),
-            std::move(indices),
-            baseMaterialIndex + std::max(uint32_t(primitive.materialIndex.value()), uint32_t(0)),
-            globalTransform,
+            .vertices = std::move(vertices),
+            .indices = std::move(indices),
+            .materialIdx = baseMaterialIndex + std::max(uint32_t(primitive.materialIndex.value()), uint32_t(0)),
+            .transform = globalTransform,
+            .boundingBox = bbox,
           });
         }
       }
@@ -666,7 +677,7 @@ namespace Utility
         .indexCount = static_cast<uint32_t>(mesh.indices.size()),
         .materialIdx = mesh.materialIdx,
         .transform = mesh.transform,
-        .boundingBox = GetBoundingBox(mesh.vertices),
+        .boundingBox = mesh.boundingBox,
       });
 
       std::vector<Vertex> tempVertices = std::move(mesh.vertices);

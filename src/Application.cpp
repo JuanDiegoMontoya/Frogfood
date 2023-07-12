@@ -102,13 +102,13 @@ public:
     Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     if (app->cursorJustEnteredWindow)
     {
-      app->previousCursorPos = {currentCursorX, currentCursorY};
+      app->cursorPos = {currentCursorX, currentCursorY};
       app->cursorJustEnteredWindow = false;
     }
 
     app->cursorFrameOffset +=
-        glm::dvec2{currentCursorX - app->previousCursorPos.x, app->previousCursorPos.y - currentCursorY};
-    app->previousCursorPos = {currentCursorX, currentCursorY};
+        glm::dvec2{currentCursorX - app->cursorPos.x, app->cursorPos.y - currentCursorY};
+    app->cursorPos = {currentCursorX, currentCursorY};
   }
 
   static void CursorEnterCallback(GLFWwindow* window, int entered)
@@ -132,7 +132,7 @@ public:
     if (newWidth > 0 && newHeight > 0)
     {
       app->OnWindowResize(app->windowWidth, app->windowHeight);
-      app->Draw(0);
+      app->Draw(0.016);
     }
   }
 };
@@ -304,8 +304,8 @@ void Application::Run()
     if (!cursorIsActive)
     {
       glfwSetCursorPos(window, 0, 0);
-      previousCursorPos.x = 0;
-      previousCursorPos.y = 0;
+      cursorPos.x = 0;
+      cursorPos.y = 0;
     }
 
     // Update the main mainCamera.

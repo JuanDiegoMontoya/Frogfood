@@ -15,8 +15,8 @@
   #include "src/ffx-fsr2-api/gl/ffx_fsr2_gl.h"
 #endif
 
-#include <glad/gl.h>
 #include <GLFW/glfw3.h>
+#include <glad/gl.h>
 
 #include <stb_image.h>
 
@@ -40,12 +40,6 @@
 
 /* 03_gltf_viewer
  *
- * A simple model viewer for glTF scene files. This example build upon 02_deferred, which implements deferred rendering
- * and reflective shadow maps (RSM). Also implemented in this example are point lights.
- *
- * The app has three optional arguments that must appear in order.
- * If a later option is used, the previous options must be use used as well.
- *
  * Options
  * Filename (string) : name of the glTF file you wish to view.
  * Scale (real)      : uniform scale factor in case the model is tiny or huge. Default: 1.0
@@ -53,7 +47,45 @@
  *
  * If no options are specified, the default scene will be loaded.
  *
- * TODO: add clustered light culling
+ * TODO rendering:
+ * Core:
+ * [X] glTF loader
+ * [X] FSR 2
+ * [ ] PBR punctual lights
+ * [ ] Skinned animation
+ *
+ * Low-level
+ * [ ] Add clustered light culling
+ * [ ] Visibility buffer
+ * [ ] Frustum culling
+ * [ ] Raster occlusion culling
+ * [ ] Hi-z occlusion culling
+ *
+ * Atmosphere
+ * [ ] Sky
+ * [ ] Volumetric fog
+ * [ ] Clouds
+ *
+ * Effects:
+ * [ ] Bloom
+ *
+ * Resolve:
+ * [ ] Auto exposure
+ * [ ] Auto whitepoint
+ * [ ] Local tonemapping
+ *
+ * Tryhard:
+ * [ ] Path tracer
+ * [ ] DDGI
+ * [ ] Surfel GI
+ *
+ * TODO UI:
+ * [ ] Render into an ImGui window
+ * [ ] Install a font + header from here: https://github.com/juliettef/IconFontCppHeaders
+ * [ ] Figure out an epic layout
+ * [ ] Config file so stuff doesn't reset every time
+ * [ ] Model browser
+ * [ ] Command console
  */
 
 static glm::uint pcg_hash(glm::uint seed)
@@ -244,6 +276,8 @@ private:
   float sunStrength = 15;
   glm::vec3 sunColor = {1, 1, 1};
 
+  float aspectRatio = 1;
+
   // Resources tied to the swapchain/output size
   struct Frame
   {
@@ -321,8 +355,13 @@ private:
 
   // Magnifier
   bool magnifierLock = false;
-  float magnifierScale = 0.0173f;
+  float magnifierZoom = 1;
   glm::vec2 lastCursorPos = {};
+
+  // Resizing from UI is deferred until next frame so texture handles remain valid when ImGui is rendered
+  bool shouldResize = false;
+  uint32_t nextWindowWidth{};
+  uint32_t nextWindowHeight{};
 };
 
 GltfViewerApplication::GltfViewerApplication(const Application::CreateInfo& createInfo,
@@ -373,14 +412,19 @@ GltfViewerApplication::GltfViewerApplication(const Application::CreateInfo& crea
   if (!filename)
   {
     //Utility::LoadModelFromFile(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
-    //Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
+    // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
 
-    Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::mat4{.25}, true);
-    //Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::mat4{.25}, true);
-    //Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::mat4{.25}, true);
-    //Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::mat4{.25}, true);
+    Utility::LoadModelFromFile(scene,
+                               "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb",
+                               glm::mat4{.25},
+                               true);
 
-    //Utility::LoadModelFromFile(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::mat4{0.5f}, true);
+    // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded
+    // schtuff/sponza_curtains_compressed.glb", glm::mat4{.25}, true); Utility::LoadModelFromFile(scene,
+    // "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::mat4{.25}, true); Utility::LoadModelFromFile(scene,
+    // "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::mat4{.25}, true);
+
+    // Utility::LoadModelFromFile(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::mat4{0.5f}, true);
   }
   else
   {
@@ -505,6 +549,12 @@ void GltfViewerApplication::OnUpdate([[maybe_unused]] double dt)
   {
     shadingUniforms.random = {0, 0};
   }
+
+  if (shouldResize)
+  {
+    OnWindowResize(nextWindowWidth, nextWindowHeight);
+    shouldResize = false;
+  }
 }
 
 static glm::vec2 GetJitterOffset(uint32_t frameIndex, uint32_t renderWidth, uint32_t renderHeight, uint32_t windowWidth)
@@ -552,7 +602,7 @@ void GltfViewerApplication::OnRender([[maybe_unused]] double dt)
   constexpr float cameraFovY = glm::radians(70.f);
   const auto jitterOffset = fsr2Enable ? GetJitterOffset(frameIndex, renderWidth, renderHeight, windowWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
-  const auto projUnjittered = glm::perspectiveNO(cameraFovY, renderWidth / (float)renderHeight, cameraNear, cameraFar);
+  const auto projUnjittered = glm::perspectiveNO(cameraFovY, aspectRatio, cameraNear, cameraFar);
   const auto projJittered = jitterMatrix * projUnjittered;
 
   // Set global uniforms
@@ -680,18 +730,17 @@ void GltfViewerApplication::OnRender([[maybe_unused]] double dt)
       }
     });
 
-  auto rsmCameraUniforms = RSM::CameraUniforms{
-    .viewProj = projUnjittered * mainCamera.GetViewMatrix(),
-    .invViewProj = glm::inverse(viewProjUnjittered),
-    .proj = projUnjittered,
-    .cameraPos = glm::vec4(mainCamera.position, 0),
-    .viewDir = mainCamera.GetForwardDir(),
-    .jitterOffset = jitterOffset,
-    .lastFrameJitterOffset =
-      fsr2Enable ? GetJitterOffset(frameIndex - 1, renderWidth, renderHeight, windowWidth) : glm::vec2{},
-  };
-
   {
+    auto rsmCameraUniforms = RSM::CameraUniforms{
+      .viewProj = projUnjittered * mainCamera.GetViewMatrix(),
+      .invViewProj = glm::inverse(viewProjUnjittered),
+      .proj = projUnjittered,
+      .cameraPos = glm::vec4(mainCamera.position, 0),
+      .viewDir = mainCamera.GetForwardDir(),
+      .jitterOffset = jitterOffset,
+      .lastFrameJitterOffset =
+        fsr2Enable ? GetJitterOffset(frameIndex - 1, renderWidth, renderHeight, windowWidth) : glm::vec2{},
+    };
     static Fwog::TimerQueryAsync timer(5);
     if (auto t = timer.PopTimestamp())
     {
@@ -825,9 +874,10 @@ void GltfViewerApplication::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 
+  // TODO: Conditionally render to the screen when an option to hide the UI is selected
   Fwog::RenderToSwapchain(
     {
-      .name = "Shading",
+      .name = "Copy to swapchain",
       .viewport =
         Fwog::Viewport{
           .drawRect{.offset = {0, 0}, .extent = {windowWidth, windowHeight}},
@@ -867,7 +917,8 @@ void GltfViewerApplication::OnGui([[maybe_unused]] double dt)
   ImGui::SetNextWindowBgAlpha(0.0f);
 
   ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
-  window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+  window_flags |=
+    ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
   window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -876,7 +927,7 @@ void GltfViewerApplication::OnGui([[maybe_unused]] double dt)
   ImGui::Begin("DockSpace Demo", nullptr, window_flags);
   ImGui::PopStyleVar(3);
 
-  ImGuiID            dockspace_id = ImGui::GetID("Dockspace");
+  ImGuiID dockspace_id = ImGui::GetID("Dockspace");
   ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
   ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
   ImGui::End();
@@ -905,7 +956,9 @@ void GltfViewerApplication::OnGui([[maybe_unused]] double dt)
 #ifdef FROGRENDER_FSR2_ENABLE
   if (ImGui::Checkbox("Enable FSR 2", &fsr2Enable))
   {
-    OnWindowResize(windowWidth, windowHeight);
+    shouldResize = true;
+    nextWindowWidth = windowWidth;
+    nextWindowHeight = windowHeight;
   }
 
   if (!fsr2Enable)
@@ -932,7 +985,9 @@ void GltfViewerApplication::OnGui([[maybe_unused]] double dt)
   if (ratio != fsr2Ratio)
   {
     fsr2Ratio = ratio;
-    OnWindowResize(windowWidth, windowHeight);
+    shouldResize = true;
+    nextWindowWidth = windowWidth;
+    nextWindowHeight = windowHeight;
   }
 
   if (!fsr2Enable)
@@ -1022,33 +1077,83 @@ void GltfViewerApplication::OnGui([[maybe_unused]] double dt)
     ("Magnifier: " + std::string(magnifierLock ? "Locked (L, Space)" : "Unlocked (L, Space)") + "###mag").c_str());
   if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadSubtract, 10000, 1))
   {
-    magnifierScale *= 1.5f;
+    magnifierZoom = std::max(magnifierZoom / 1.5f, 1.0f);
   }
   if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadAdd, 10000, 1))
   {
-    magnifierScale /= 1.5f;
+    magnifierZoom = std::min(magnifierZoom * 1.5f, 50.0f);
   }
-  float scale = 1.0f / magnifierScale;
-  ImGui::SliderFloat("Scale (+, -)", &scale, 2.0f, 250.0f, "%.0f", ImGuiSliderFlags_Logarithmic);
-  magnifierScale = 1.0f / scale;
+
+  ImGui::SliderFloat("Zoom (+, -)", &magnifierZoom, 1.0f, 50.0f, "%.2fx", ImGuiSliderFlags_Logarithmic);
   if (ImGui::GetKeyPressedAmount(ImGuiKey_L, 10000, 1) || ImGui::GetKeyPressedAmount(ImGuiKey_Space, 10000, 1))
   {
     magnifierLock = !magnifierLock;
   }
+
+  constexpr auto bbFlags =
+    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoDecoration;
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+  ImGui::Begin("Viewport", nullptr, bbFlags);
+
+  const auto viewportContentSize = ImGui::GetContentRegionAvail();
+
+  const auto viewportContentOffset = []
+  {
+    auto vMin = ImGui::GetWindowContentRegionMin();
+    vMin.x += ImGui::GetWindowPos().x;
+    vMin.y += ImGui::GetWindowPos().y;
+    return vMin;
+  }();
+
+  aspectRatio = viewportContentSize.x / viewportContentSize.y;
+
+  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowResUnorm.value().Handle())),
+               viewportContentSize,
+               {0, 1},
+               {1, 0});
+  ImGui::End();
+  ImGui::PopStyleVar();
+
+  // The actual size of the magnifier widget
+  constexpr auto magnifierSize = ImVec2(400, 400);
+
+  // The dimensions of the region viewed by the magnifier, equal to the magnifier's size (1x zoom) or less
+  const auto magnifierExtent = ImVec2(std::min(viewportContentSize.x, magnifierSize.x / magnifierZoom),
+                                      std::min(viewportContentSize.y, magnifierSize.y / magnifierZoom));
+
+  // Get window coords
   double x{}, y{};
   glfwGetCursorPos(window, &x, &y);
+
+  // Window to viewport
+  x -= viewportContentOffset.x;
+  y -= viewportContentOffset.y;
+
+  // Clamp to smaller region within the viewport so magnifier doesn't view OOB pixels
+  x = std::clamp(float(x), magnifierExtent.x / 2.f, viewportContentSize.x - magnifierExtent.x / 2.f);
+  y = std::clamp(float(y), magnifierExtent.y / 2.f, viewportContentSize.y - magnifierExtent.y / 2.f);
+
+  // Use stored cursor pos if magnifier is locked
   glm::vec2 mp = magnifierLock ? lastCursorPos : glm::vec2{x, y};
   lastCursorPos = mp;
-  mp.y = windowHeight - mp.y;
-  mp /= glm::vec2(windowWidth, windowHeight);
-  float ar = (float)windowWidth / (float)windowHeight;
-  glm::vec2 uv0{mp.x - magnifierScale, mp.y + magnifierScale * ar};
-  glm::vec2 uv1{mp.x + magnifierScale, mp.y - magnifierScale * ar};
-  uv0 = glm::clamp(uv0, glm::vec2(0), glm::vec2(1));
-  uv1 = glm::clamp(uv1, glm::vec2(0), glm::vec2(1));
+
+  // Y flip (+Y is up for textures)
+  mp.y = viewportContentSize.y - mp.y;
+
+  // Mouse position in UV space
+  mp /= glm::vec2(viewportContentSize.x, viewportContentSize.y);
+  glm::vec2 magnifierHalfExtentUv = {
+    magnifierExtent.x / 2.f / viewportContentSize.x,
+    -magnifierExtent.y / 2.f / viewportContentSize.y,
+  };
+
+  // Calculate the min and max UV of the magnifier window
+  glm::vec2 uv0{mp - magnifierHalfExtentUv};
+  glm::vec2 uv1{mp + magnifierHalfExtentUv};
+
   glTextureParameteri(frame.colorLdrWindowResUnorm.value().Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowResUnorm.value().Handle())),
-               ImVec2(400, 400),
+               magnifierSize,
                ImVec2(uv0.x, uv0.y),
                ImVec2(uv1.x, uv1.y));
   ImGui::End();

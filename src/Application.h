@@ -70,12 +70,13 @@ protected:
   uint32_t windowWidth{};
   uint32_t windowHeight{};
 
+  glm::dvec2 cursorPos{};
+
 private:
   friend class ApplicationAccess;
 
   void Draw(double dt);
 
-  glm::dvec2 previousCursorPos{};
   glm::dvec2 cursorFrameOffset{};
   bool cursorJustEnteredWindow = true;
   bool graveHeldLastFrame = false;

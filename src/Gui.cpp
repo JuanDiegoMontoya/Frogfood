@@ -3,8 +3,10 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
-#include <GLFW/glfw3.h>
 #include <glad/gl.h>
+#include <GLFW/glfw3.h>
+
+#include <algorithm>
 
 void FrogRenderer::InitGui()
 {

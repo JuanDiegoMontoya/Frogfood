@@ -120,18 +120,15 @@ public:
     }
   }
 
-  static void WindowResizeCallback(GLFWwindow* window, int, int)
+  static void FramebufferResizeCallback(GLFWwindow* window, int newWidth, int newHeight)
   {
     Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
-    int newWidth{};
-    int newHeight{};
-    glfwGetFramebufferSize(window, &newWidth, &newHeight);
     app->windowWidth = static_cast<uint32_t>(newWidth);
     app->windowHeight = static_cast<uint32_t>(newHeight);
 
     if (newWidth > 0 && newHeight > 0)
     {
-      app->OnWindowResize(app->windowWidth, app->windowHeight);
+      app->shouldResizeNextFrame = true;
       app->Draw(0.016);
     }
   }
@@ -194,7 +191,7 @@ Application::Application(const CreateInfo& createInfo)
 
   glfwSetCursorPosCallback(window, ApplicationAccess::CursorPosCallback);
   glfwSetCursorEnterCallback(window, ApplicationAccess::CursorEnterCallback);
-  glfwSetFramebufferSizeCallback(window, ApplicationAccess::WindowResizeCallback);
+  glfwSetFramebufferSizeCallback(window, ApplicationAccess::FramebufferResizeCallback);
 
   // Initialize OpenGL.
   int version = gladLoadGL(glfwGetProcAddress);

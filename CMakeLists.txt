@@ -16,7 +16,12 @@ add_executable(frogRender
 	src/SceneLoader.h
 	src/RsmTechnique.h
 	src/RsmTechnique.cpp
-	vendor/stb_image.cpp)
+	vendor/stb_image.cpp
+	src/Gui.cpp
+	src/FrogRenderer.h
+	src/FrogRenderer.cpp
+	src/PCG.h
+	)
 
 # enable asan for debug builds
 if (DEBUG)

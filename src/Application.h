@@ -72,6 +72,9 @@ protected:
 
   glm::dvec2 cursorPos{};
 
+  // Resizing from UI is deferred until next frame so texture handles remain valid when ImGui is rendered
+  bool shouldResizeNextFrame = false;
+
 private:
   friend class ApplicationAccess;
 

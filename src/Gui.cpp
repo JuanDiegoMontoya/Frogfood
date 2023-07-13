@@ -99,32 +99,19 @@ void FrogRenderer::GuiDrawDockspace()
   ImGui::End();
 }
 
-void FrogRenderer::OnGui([[maybe_unused]] double dt)
+void FrogRenderer::GuiDrawFsrWindow()
 {
-  GuiDrawDockspace();
-
-  ImGui::ShowDemoWindow();
-
-  ImGui::GetStyle().WindowMenuButtonPosition = ImGuiDir_None;
-
-  ImGui::Begin("glTF Viewer");
-  ImGui::Text("Framerate: %.0f Hertz", 1 / dt);
-  ImGui::Text("Indirect Illumination: %f ms", illuminationTime);
-  ImGui::Text("FSR 2: %f ms", fsr2Time);
-
-  ImGui::SliderFloat("Sun Angle", &sunPosition, -2.7f, 0.5f);
-  ImGui::SliderFloat("Sun Angle 2", &sunPosition2, -3.142f, 3.142f);
-  ImGui::ColorEdit3("Sun Color", &sunColor[0], ImGuiColorEditFlags_Float);
-  ImGui::SliderFloat("Sun Strength", &sunStrength, 0, 20);
-
-  ImGui::Separator();
-
-  frame.rsm->DrawGui();
-
-  ImGui::Separator();
-
-  ImGui::Text("FSR 2");
+  ImGui::Begin("FSR 2");
 #ifdef FROGRENDER_FSR2_ENABLE
+  if (fsr2Enable)
+  {
+    ImGui::Text("Performance: %f ms", fsr2Performance);
+  }
+  else
+  {
+    ImGui::Text("Performance: ---");
+  }
+
   if (ImGui::Checkbox("Enable FSR 2", &fsr2Enable))
   {
     shouldResizeNextFrame = true;
@@ -165,6 +152,47 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
 #else
   ImGui::Text("Compile with FROGRENDER_FSR2_ENABLE defined to see FSR 2 options");
 #endif
+  ImGui::End();
+}
+
+void FrogRenderer::OnGui([[maybe_unused]] double dt)
+{
+  GuiDrawDockspace();
+
+  ImGui::ShowDemoWindow();
+
+  ImGui::Begin("Reflective Shadow Maps");
+  ImGui::Text("Performance: %f ms", rsmPerformance);
+  frame.rsm->DrawGui();
+  ImGui::End();
+
+  ImGui::GetStyle().WindowMenuButtonPosition = ImGuiDir_None;
+
+  GuiDrawFsrWindow();
+
+  ImGui::Begin("glTF Viewer");
+  ImGui::Text("Framerate: %.0f Hertz", 1 / dt);
+
+  if (ImGui::Checkbox("Use GUI viewport size", &useGuiViewportSizeForRendering))
+  {
+    if (useGuiViewportSizeForRendering == false)
+    {
+      int x, y;
+      glfwGetFramebufferSize(window, &x, &y);
+      windowWidth = static_cast<uint32_t>(x);
+      windowHeight = static_cast<uint32_t>(y);
+      shouldResizeNextFrame = true;
+    }
+  }
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+  {
+    ImGui::SetTooltip("If set, the internal render resolution is equal to the viewport.\nOtherwise, it will be the window's framebuffer size,\nresulting in potentially non-square pixels in the viewport");
+  }
+
+  ImGui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
+  ImGui::SliderFloat("Sun Elevation", &sunElevation, -3.1415f, 3.1415f);
+  ImGui::ColorEdit3("Sun Color", &sunColor[0], ImGuiColorEditFlags_Float);
+  ImGui::SliderFloat("Sun Strength", &sunStrength, 0, 20);
 
   ImGui::Separator();
 
@@ -225,17 +253,21 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   ImGui::EndTabBar();
   ImGui::End();
 
+  // Draw viewport
   constexpr auto viewportFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
   ImGui::Begin("Viewport", nullptr, viewportFlags);
 
   const auto viewportContentSize = ImGui::GetContentRegionAvail();
 
-  if (viewportContentSize.x != windowWidth || viewportContentSize.y != windowHeight)
+  if (useGuiViewportSizeForRendering)
   {
-    windowWidth = (uint32_t)viewportContentSize.x;
-    windowHeight = (uint32_t)viewportContentSize.y;
-    shouldResizeNextFrame = true;
+    if (viewportContentSize.x != windowWidth || viewportContentSize.y != windowHeight)
+    {
+      windowWidth = (uint32_t)viewportContentSize.x;
+      windowHeight = (uint32_t)viewportContentSize.y;
+      shouldResizeNextFrame = true;
+    }
   }
 
   const auto viewportContentOffset = []() -> glm::vec2

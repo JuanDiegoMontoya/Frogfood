@@ -308,8 +308,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormal, frame.gNormalPrev);
 
-  shadingUniforms.sunDir =
-    glm::normalize(glm::rotate(sunPosition, glm::vec3{1, 0, 0}) * glm::rotate(sunPosition2, glm::vec3(0, 1, 0)) * glm::vec4{-.1, -.3, -.6, 0});
+  shadingUniforms.sunDir = glm::vec4(sin(sunElevation) * cos(sunAzimuth), cos(sunElevation), sin(sunElevation) * sin(sunAzimuth), 0);
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
 
 #ifdef FROGRENDER_FSR2_ENABLE
@@ -477,7 +476,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     static Fwog::TimerQueryAsync timer(5);
     if (auto t = timer.PopTimestamp())
     {
-      illuminationTime = *t / 10e5;
+      rsmPerformance = *t / 10e5;
     }
     Fwog::TimerScoped scopedTimer(timer);
     frame.rsm->ComputeIndirectLighting(shadingUniforms.sunViewProj,
@@ -540,7 +539,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
                     static Fwog::TimerQueryAsync timer(5);
                     if (auto t = timer.PopTimestamp())
                     {
-                      fsr2Time = *t / 10e5;
+                      fsr2Performance = *t / 10e5;
                     }
                     Fwog::TimerScoped scopedTimer(timer);
 

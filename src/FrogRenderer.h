@@ -74,21 +74,24 @@ private:
   void InitGui();
   void GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize);
   void GuiDrawDockspace();
+  void GuiDrawFsrWindow();
 
   // constants
   static constexpr int gShadowmapWidth = 2048;
   static constexpr int gShadowmapHeight = 2048;
 
-  double illuminationTime = 0;
-  double fsr2Time = 0;
+  double rsmPerformance = 0;
+  double fsr2Performance = 0;
 
   // scene parameters
-  float sunPosition = -1.127f;
-  float sunPosition2 = 0;
+  float sunElevation = -2.881f;
+  float sunAzimuth = 0;
   float sunStrength = 50;
   glm::vec3 sunColor = {1, 1, 1};
 
   float aspectRatio = 1;
+
+  bool useGuiViewportSizeForRendering = true;
 
   // Resources tied to the swapchain/output size
   struct Frame

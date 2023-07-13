@@ -11,7 +11,7 @@
 #define MESHLET_ID_MASK ((1u << MESHLET_ID_BITS) - 1u)
 #define MESHLET_PER_WG (WG_SIZE / MAX_PRIMITIVES)
 
-layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+layout (local_size_x = WG_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 struct Meshlet {
   uint vertexOffset;

@@ -202,7 +202,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   primitiveBuffer = Fwog::TypedBuffer<uint8_t>(scene.primitives);
   transformBuffer = Fwog::TypedBuffer<glm::mat4>(scene.transforms);
   mesheletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(scene.meshlets.size());
+  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(scene.primitives.size() * 3);
 
   std::vector<ObjectUniforms> meshUniforms;
   for (size_t i = 0; i < scene.transforms.size(); i++)

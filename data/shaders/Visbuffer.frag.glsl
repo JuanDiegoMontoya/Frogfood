@@ -8,7 +8,7 @@
 
 layout (location = 0) in flat uint i_meshletId;
 
-layout (location = 0) out float o_pixel;
+layout (location = 0) out uint o_pixel;
 
 void main() {
   o_pixel = (i_meshletId << MESHLET_PRIMITIVE_BITS) | (uint(gl_PrimitiveID) & MESHLET_PRIMITIVE_MASK);

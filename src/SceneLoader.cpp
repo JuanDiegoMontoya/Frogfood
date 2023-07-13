@@ -736,12 +736,12 @@ namespace Utility
     {
       const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxIndices, maxPrimitives);
       std::vector<meshopt_Meshlet> rawMeshlets(maxMeshlets);
-      std::vector<uint32_t> meshletindices(maxMeshlets * maxIndices);
+      std::vector<uint32_t> meshletIndices(maxMeshlets * maxIndices);
       std::vector<uint8_t> meshletPrimitives(maxMeshlets * maxPrimitives * 3);
 
       const auto meshletCount = meshopt_buildMeshlets(
         rawMeshlets.data(),
-        meshletindices.data(),
+        meshletIndices.data(),
         meshletPrimitives.data(),
         mesh.indices.data(),
         mesh.indices.size(),
@@ -753,11 +753,11 @@ namespace Utility
         coneWeight);
 
       auto& lastMeshlet = rawMeshlets.back();
-      meshletindices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
+      meshletIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
       meshletPrimitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
       rawMeshlets.resize(meshletCount);
 
-      for (auto id = baseMeshletId; const auto& meshlet : rawMeshlets)
+      for (const auto& meshlet : rawMeshlets)
       {
         scene.meshlets.emplace_back(Meshlet {
           .vertexOffset = vertexOffset,
@@ -771,11 +771,11 @@ namespace Utility
       }
       transforms.emplace_back(mesh.transform);
       vertexOffset += mesh.vertices.size();
-      indexOffset += meshletindices.size();
+      indexOffset += meshletIndices.size();
       primitiveOffset += meshletPrimitives.size();
 
       scene.vertices.insert(scene.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
-      scene.indices.insert(scene.indices.end(), meshletindices.begin(), meshletindices.end());
+      scene.indices.insert(scene.indices.end(), meshletIndices.begin(), meshletIndices.end());
       scene.primitives.insert(scene.primitives.end(), meshletPrimitives.begin(), meshletPrimitives.end());
     }
     scene.transforms.insert(scene.transforms.end(), transforms.begin(), transforms.end());

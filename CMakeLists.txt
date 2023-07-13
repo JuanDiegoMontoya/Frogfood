@@ -21,7 +21,7 @@ add_executable(frogRender
 	src/FrogRenderer.h
 	src/FrogRenderer.cpp
 	src/PCG.h
-	)
+)
 
 # enable asan for debug builds
 if (DEBUG)
@@ -70,8 +70,24 @@ if (FROGRENDER_FSR2_ENABLE)
 else()
     set(FSR2_LIBS "")
 endif()
-target_include_directories(frogRender PUBLIC ${FSR2_SOURCE} vendor)
-target_link_libraries(frogRender PRIVATE glfw lib_glad fwog glm lib_imgui ${FSR2_LIBS} ktx fastgltf)
+
+target_include_directories(frogRender
+	PUBLIC
+	${FSR2_SOURCE}
+	vendor
+)
+target_link_libraries(frogRender
+	PRIVATE
+	glfw
+	lib_glad
+	fwog
+	glm
+	lib_imgui
+	${FSR2_LIBS}
+	ktx
+	fastgltf
+	meshoptimizer
+)
 add_dependencies(frogRender copy_shaders copy_models copy_textures)
 
 if (MSVC)

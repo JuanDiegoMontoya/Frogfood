@@ -35,6 +35,12 @@ FetchContent_Declare(
     GIT_TAG        70ecc990215e333d1517148608f2cfbcc04e1ea1
 )
 
+FetchContent_Declare(
+    meshoptimizer
+    GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
+    GIT_TAG        v0.19
+)
+
 option(KTX_FEATURE_TESTS "" OFF)
 option(KTX_FEATURE_VULKAN "" OFF)
 option(KTX_FEATURE_GL_UPLOAD "" OFF)
@@ -63,10 +69,7 @@ if(FROGRENDER_FSR2_ENABLE)
     FetchContent_MakeAvailable(fsr2)
 endif()
 
-FetchContent_MakeAvailable(glm)
-FetchContent_MakeAvailable(fwog)
-FetchContent_MakeAvailable(fastgltf)
-FetchContent_MakeAvailable(ktx)
+FetchContent_MakeAvailable(glm fwog fastgltf ktx meshoptimizer)
 
 # Disable warnings for libktx
 target_compile_options(ktx

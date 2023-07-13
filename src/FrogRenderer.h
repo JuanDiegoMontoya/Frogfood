@@ -100,6 +100,7 @@ private:
     // main view visbuffer
     std::optional<Fwog::Texture> visbuffer;
     std::optional<Fwog::Texture> visDepth;
+    std::optional<Fwog::Texture> visResolve;
 
     // g-buffer textures
     std::optional<Fwog::Texture> gAlbedo;
@@ -154,6 +155,7 @@ private:
 
   Fwog::ComputePipeline meshletGeneratePipeline;
   Fwog::GraphicsPipeline visbufferPipeline;
+  Fwog::GraphicsPipeline visbufferResolvePipeline;
   Fwog::GraphicsPipeline scenePipeline;
   Fwog::GraphicsPipeline rsmScenePipeline;
   Fwog::GraphicsPipeline shadingPipeline;

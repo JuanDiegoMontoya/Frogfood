@@ -715,7 +715,6 @@ namespace Utility
     const auto baseVertexOffset = scene.vertices.size();
     const auto baseIndexOffset = scene.indices.size();
     const auto basePrimitiveOffset = scene.primitives.size();
-    const auto baseMeshletId = static_cast<uint32_t>(scene.meshlets.size());
     const auto baseInstanceId = static_cast<uint32_t>(scene.transforms.size());
 
     auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, binary, baseMaterialIndex);
@@ -752,7 +751,7 @@ namespace Utility
         maxPrimitives,
         coneWeight);
 
-      auto& lastMeshlet = rawMeshlets.back();
+      auto& lastMeshlet = rawMeshlets[meshletCount - 1];
       meshletIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
       meshletPrimitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
       rawMeshlets.resize(meshletCount);

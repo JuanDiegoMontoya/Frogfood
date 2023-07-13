@@ -76,9 +76,21 @@ static Fwog::GraphicsPipeline CreateVisbufferPipeline()
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
     .fragmentShader = &fs,
-    .vertexInputState = {},
     .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
     .depthState = {.depthTestEnable = true, .depthWriteEnable = true},
+  });
+}
+
+static Fwog::GraphicsPipeline CreateVisbufferResolvePipeline()
+{
+  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/FullScreenTri.vert.glsl"));
+  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/VisbufferResolve.frag.glsl"));
+
+  return Fwog::GraphicsPipeline({
+    .vertexShader = &vs,
+    .fragmentShader = &fs,
+    .vertexInputState = {},
+    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
   });
 }
 
@@ -148,6 +160,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     // Create the pipelines used in the application
     meshletGeneratePipeline(CreateMeshletGeneratePipeline()),
     visbufferPipeline(CreateVisbufferPipeline()),
+    visbufferResolvePipeline(CreateVisbufferResolvePipeline()),
     scenePipeline(CreateScenePipeline()),
     rsmScenePipeline(CreateShadowPipeline()),
     shadingPipeline(CreateShadingPipeline()),
@@ -281,6 +294,7 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
 
   frame.visbuffer = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R32_UINT, "visbuffer");
   frame.visDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "visDepth");
+  frame.visResolve = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "visResolve");
 
   // create gbuffer textures and render info
   frame.gAlbedo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "gAlbedo");
@@ -423,7 +437,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   auto visbufferAttachment = Fwog::RenderColorAttachment{
     .texture = frame.visbuffer.value(),
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = { 0u }
+    .clearValue = { ~0u, ~0u, ~0u, ~0u }
   };
   auto visbufferDepthAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = frame.visDepth.value(),
@@ -454,6 +468,32 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*mesheletIndirectCommand, 0, 1, 0);
+    });
+
+  auto visbufferResolveAttachment = Fwog::RenderColorAttachment{
+    .texture = frame.visResolve.value(),
+    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+    .clearValue = {0.f, 0.f, 0.f, 0.f},
+  };
+
+  Fwog::Render(
+    {
+      .name = "Resolve Visbuffer Pass",
+      .viewport =
+        {
+          Fwog::Viewport
+          {
+            .drawRect = {{0, 0}, {renderWidth, renderHeight}},
+            .depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
+          },
+        },
+      .colorAttachments = { &visbufferResolveAttachment, 1 },
+    },
+    [&]
+    {
+      Fwog::Cmd::BindImage(0, frame.visbuffer.value(), 0);
+      Fwog::Cmd::BindGraphicsPipeline(visbufferResolvePipeline);
+      Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 
   /*// Render scene geometry to the g-buffer

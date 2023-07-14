@@ -189,7 +189,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   if (!filename)
   {
-    //Utility::LoadModelFromFile(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
+    // Utility::LoadModelFromFile(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
     Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
 
     // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
@@ -364,9 +364,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
 
 #ifdef FROGRENDER_FSR2_ENABLE
-  //const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
+  // const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
 #else
-  //const float fsr2LodBias = 0;
+  // const float fsr2LodBias = 0;
 #endif
 
   Fwog::SamplerState ss;
@@ -414,31 +414,24 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   shadingUniforms.sunViewProj = shadingUniforms.sunProj * shadingUniforms.sunView;
   shadingUniformsBuffer.UpdateData(shadingUniforms);
 
-  mesheletIndirectCommand->UpdateData(Fwog::DrawIndexedIndirectCommand{
-    .instanceCount = 1
-  });
+  mesheletIndirectCommand->UpdateData(Fwog::DrawIndexedIndirectCommand{.instanceCount = 1});
 
   Fwog::Compute("Meshlet Generate Pass",
-    [&]
-    {
-      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer(1, *primitiveBuffer);
-      Fwog::Cmd::BindStorageBuffer(2, *instancedMeshletBuffer);
-      Fwog::Cmd::BindStorageBuffer(3, *mesheletIndirectCommand);
-      Fwog::Cmd::BindUniformBuffer(4, globalUniformsBuffer);
-      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
-      Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
-      Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
-      Fwog::MemoryBarrier(
-        Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT |
-        Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT);
-    });
+                [&]
+                {
+                  Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
+                  Fwog::Cmd::BindStorageBuffer(1, *primitiveBuffer);
+                  Fwog::Cmd::BindStorageBuffer(2, *instancedMeshletBuffer);
+                  Fwog::Cmd::BindStorageBuffer(3, *mesheletIndirectCommand);
+                  Fwog::Cmd::BindUniformBuffer(4, globalUniformsBuffer);
+                  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
+                  Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
+                  Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
+                  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT);
+                });
 
-  auto visbufferAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.visbuffer.value(),
-    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = { ~0u, ~0u, ~0u, ~0u }
-  };
+  auto visbufferAttachment =
+    Fwog::RenderColorAttachment{.texture = frame.visbuffer.value(), .loadOp = Fwog::AttachmentLoadOp::CLEAR, .clearValue = {~0u, ~0u, ~0u, ~0u}};
   auto visbufferDepthAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = frame.visDepth.value(),
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
@@ -449,13 +442,12 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       .name = "Main Visbuffer Pass",
       .viewport =
         {
-          Fwog::Viewport
-          {
+          Fwog::Viewport{
             .drawRect = {{0, 0}, {renderWidth, renderHeight}},
             .depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
           },
         },
-      .colorAttachments = { &visbufferAttachment, 1 },
+      .colorAttachments = {&visbufferAttachment, 1},
       .depthAttachment = visbufferDepthAttachment,
     },
     [&]
@@ -481,13 +473,12 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       .name = "Resolve Visbuffer Pass",
       .viewport =
         {
-          Fwog::Viewport
-          {
+          Fwog::Viewport{
             .drawRect = {{0, 0}, {renderWidth, renderHeight}},
             .depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
           },
         },
-      .colorAttachments = { &visbufferResolveAttachment, 1 },
+      .colorAttachments = {&visbufferResolveAttachment, 1},
     },
     [&]
     {

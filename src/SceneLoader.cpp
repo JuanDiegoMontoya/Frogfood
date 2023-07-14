@@ -175,11 +175,9 @@ namespace Utility
         std::unique_ptr<ktxTexture2, decltype([](ktxTexture2* p) { ktxTexture_Destroy(ktxTexture(p)); })> ktx = {};
       };
 
-      auto MakeRawImageData =
-        [](const void* data, std::size_t dataSize, fastgltf::MimeType mimeType, std::string_view name) -> RawImageData
+      auto MakeRawImageData = [](const void* data, std::size_t dataSize, fastgltf::MimeType mimeType, std::string_view name) -> RawImageData
       {
-        FWOG_ASSERT(mimeType == fastgltf::MimeType::JPEG || mimeType == fastgltf::MimeType::PNG ||
-                    mimeType == fastgltf::MimeType::KTX2);
+        FWOG_ASSERT(mimeType == fastgltf::MimeType::JPEG || mimeType == fastgltf::MimeType::PNG || mimeType == fastgltf::MimeType::KTX2);
         auto dataCopy = std::make_unique<std::byte[]>(dataSize);
         std::copy_n(static_cast<const std::byte*>(data), dataSize, dataCopy.get());
 
@@ -194,85 +192,80 @@ namespace Utility
       // Load and decode image data locally, in parallel
       auto rawImageData = std::vector<RawImageData>(asset.images.size());
 
-      std::transform(
-        std::execution::par,
-        asset.images.begin(),
-        asset.images.end(),
-        rawImageData.begin(),
-        [&](const fastgltf::Image& image)
-        {
-          auto rawImage = [&]
-          {
-            if (const auto* filePath = std::get_if<fastgltf::sources::URI>(&image.data))
-            {
-              FWOG_ASSERT(filePath->fileByteOffset == 0); // We don't support file offsets
-              FWOG_ASSERT(filePath->uri.isLocalPath());   // We're only capable of loading local files
+      std::transform(std::execution::par,
+                     asset.images.begin(),
+                     asset.images.end(),
+                     rawImageData.begin(),
+                     [&](const fastgltf::Image& image)
+                     {
+                       auto rawImage = [&]
+                       {
+                         if (const auto* filePath = std::get_if<fastgltf::sources::URI>(&image.data))
+                         {
+                           FWOG_ASSERT(filePath->fileByteOffset == 0); // We don't support file offsets
+                           FWOG_ASSERT(filePath->uri.isLocalPath());   // We're only capable of loading local files
 
-              auto fileData = Application::LoadBinaryFile(filePath->uri.path());
+                           auto fileData = Application::LoadBinaryFile(filePath->uri.path());
 
-              return MakeRawImageData(fileData.first.get(), fileData.second, filePath->mimeType, image.name);
-            }
+                           return MakeRawImageData(fileData.first.get(), fileData.second, filePath->mimeType, image.name);
+                         }
 
-            if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
-            {
-              return MakeRawImageData(vector->bytes.data(), vector->bytes.size(), vector->mimeType, image.name);
-            }
+                         if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
+                         {
+                           return MakeRawImageData(vector->bytes.data(), vector->bytes.size(), vector->mimeType, image.name);
+                         }
 
-            if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
-            {
-              auto& bufferView = asset.bufferViews[view->bufferViewIndex];
-              auto& buffer = asset.buffers[bufferView.bufferIndex];
-              if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&buffer.data))
-              {
-                return MakeRawImageData(vector->bytes.data() + bufferView.byteOffset,
-                                        bufferView.byteLength,
-                                        view->mimeType,
-                                        image.name);
-              }
-            }
+                         if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
+                         {
+                           auto& bufferView = asset.bufferViews[view->bufferViewIndex];
+                           auto& buffer = asset.buffers[bufferView.bufferIndex];
+                           if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&buffer.data))
+                           {
+                             return MakeRawImageData(vector->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
+                           }
+                         }
 
-            return RawImageData{};
-          }();
+                         return RawImageData{};
+                       }();
 
-          if (rawImage.isKtx)
-          {
-            ktxTexture2* ktx{};
-            if (auto result =
-                  ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t*>(rawImage.encodedPixelData.get()),
-                                               rawImage.encodedPixelSize,
-                                               KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-                                               &ktx);
-                result != KTX_SUCCESS)
-            {
-              FWOG_UNREACHABLE;
-            }
+                       if (rawImage.isKtx)
+                       {
+                         ktxTexture2* ktx{};
+                         if (auto result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t*>(rawImage.encodedPixelData.get()),
+                                                                        rawImage.encodedPixelSize,
+                                                                        KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+                                                                        &ktx);
+                             result != KTX_SUCCESS)
+                         {
+                           FWOG_UNREACHABLE;
+                         }
 
-            rawImage.width = ktx->baseWidth;
-            rawImage.height = ktx->baseHeight;
-            rawImage.components = ktxTexture2_GetNumComponents(ktx);
-            rawImage.ktx.reset(ktx);
-          }
-          else
-          {
-            int x, y, comp;
-            auto* pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(rawImage.encodedPixelData.get()),
-                                                 static_cast<int>(rawImage.encodedPixelSize),
-                                                 &x,
-                                                 &y,
-                                                 &comp,
-                                                 4);
+                         rawImage.width = ktx->baseWidth;
+                         rawImage.height = ktx->baseHeight;
+                         rawImage.components = ktxTexture2_GetNumComponents(ktx);
+                         rawImage.ktx.reset(ktx);
+                       }
+                       else
+                       {
+                         int x, y, comp;
+                         auto* pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(rawImage.encodedPixelData.get()),
+                                                              static_cast<int>(rawImage.encodedPixelSize),
+                                                              &x,
+                                                              &y,
+                                                              &comp,
+                                                              4);
 
-            FWOG_ASSERT(pixels != nullptr);
+                         FWOG_ASSERT(pixels != nullptr);
 
-            rawImage.width = x;
-            rawImage.height = y;
-            // rawImage.components = comp;
-            rawImage.components = 4; // If forced 4 components
-            rawImage.data.reset(pixels);
-          }
+                         rawImage.width = x;
+                         rawImage.height = y;
+                         // rawImage.components = comp;
+                         rawImage.components = 4; // If forced 4 components
+                         rawImage.data.reset(pixels);
+                       }
 
-          return rawImage;
-        });
+                       return rawImage;
+                     });
 
       // Upload image data to GPU
       auto loadedImages = std::vector<Fwog::Texture>();
@@ -328,10 +321,8 @@ namespace Utility
           FWOG_ASSERT(image.pixel_type == GL_UNSIGNED_BYTE);
           FWOG_ASSERT(image.bits == 8);
 
-          auto textureData = Fwog::CreateTexture2DMip(dims,
-                                                      Fwog::Format::R8G8B8A8_UNORM,
-                                                      uint32_t(1 + floor(log2(glm::max(dims.width, dims.height)))),
-                                                      image.name);
+          auto textureData =
+            Fwog::CreateTexture2DMip(dims, Fwog::Format::R8G8B8A8_UNORM, uint32_t(1 + floor(log2(glm::max(dims.width, dims.height)))), image.name);
 
           auto updateInfo = Fwog::TextureUpdateInfo{
             .level = 0,
@@ -388,16 +379,12 @@ namespace Utility
     std::vector<glm::vec3> positions;
     auto& positionAccessor = model.accessors[primitive.findAttribute("POSITION")->second];
     positions.resize(positionAccessor.count);
-    fastgltf::iterateAccessorWithIndex<glm::vec3>(model,
-                                                  positionAccessor,
-                                                  [&](glm::vec3 position, std::size_t idx) { positions[idx] = position; });
+    fastgltf::iterateAccessorWithIndex<glm::vec3>(model, positionAccessor, [&](glm::vec3 position, std::size_t idx) { positions[idx] = position; });
 
     std::vector<glm::vec3> normals;
     auto& normalAccessor = model.accessors[primitive.findAttribute("NORMAL")->second];
     normals.resize(normalAccessor.count);
-    fastgltf::iterateAccessorWithIndex<glm::vec3>(model,
-                                                  normalAccessor,
-                                                  [&](glm::vec3 normal, std::size_t idx) { normals[idx] = normal; });
+    fastgltf::iterateAccessorWithIndex<glm::vec3>(model, normalAccessor, [&](glm::vec3 normal, std::size_t idx) { normals[idx] = normal; });
 
     std::vector<glm::vec2> texcoords;
 
@@ -406,10 +393,7 @@ namespace Utility
     {
       auto& texcoordAccessor = model.accessors[primitive.findAttribute("TEXCOORD_0")->second];
       texcoords.resize(texcoordAccessor.count);
-      fastgltf::iterateAccessorWithIndex<glm::vec2>(model,
-                                                    texcoordAccessor,
-                                                    [&](glm::vec2 texcoord, std::size_t idx)
-                                                    { texcoords[idx] = texcoord; });
+      fastgltf::iterateAccessorWithIndex<glm::vec2>(model, texcoordAccessor, [&](glm::vec2 texcoord, std::size_t idx) { texcoords[idx] = texcoord; });
     }
     else
     {
@@ -486,8 +470,10 @@ namespace Utility
         const auto& baseColorTexture = model.textures[baseColorTextureIndex];
         auto& image = images[baseColorTexture.imageIndex.value()];
         material.gpuMaterial.flags |= MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
-        material.albedoTextureSampler = {image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
-                                         LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()])};
+        material.albedoTextureSampler = {
+          image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
+          LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
+        };
       }
 
       material.gpuMaterial.baseColorFactor = baseColorFactor;
@@ -513,14 +499,11 @@ namespace Utility
     std::vector<Material> materials;
   };
 
-  std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path,
-                                                       glm::mat4 rootTransform,
-                                                       bool binary,
-                                                       uint32_t baseMaterialIndex)
+  std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool binary, uint32_t baseMaterialIndex)
   {
     using fastgltf::Extensions;
-    constexpr auto gltfExtensions = Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization |
-      Extensions::EXT_meshopt_compression | Extensions::KHR_lights_punctual;
+    constexpr auto gltfExtensions =
+      Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization | Extensions::EXT_meshopt_compression | Extensions::KHR_lights_punctual;
     auto parser = fastgltf::Parser(gltfExtensions);
 
     auto data = fastgltf::GltfDataBuffer();
@@ -528,9 +511,9 @@ namespace Utility
 
     Timer timer;
 
-    auto maybeAsset = [&] {
-      constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages |
-        fastgltf::Options::LoadGLBBuffers;
+    auto maybeAsset = [&]
+    {
+      constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages | fastgltf::Options::LoadGLBBuffers;
       if (binary)
       {
         return parser.loadBinaryGLTF(&data, path.parent_path(), options);
@@ -538,15 +521,15 @@ namespace Utility
 
       return parser.loadGLTF(&data, path.parent_path(), options);
     }();
-    
+
     if (auto err = maybeAsset.error(); err != fastgltf::Error::None)
     {
       std::cout << "glTF error: " << static_cast<uint64_t>(err) << '\n';
       return std::nullopt;
     }
-    
+
     auto& asset = maybeAsset.get();
-    
+
     // Let's not deal with glTFs containing multiple scenes right now
     FWOG_ASSERT(asset.scenes.size() == 1);
 
@@ -598,21 +581,21 @@ namespace Utility
           glm::vec3 bboxMin{};
           if (auto* dv = std::get_if<std::pmr::vector<double>>(&positionAccessor.min))
           {
-            bboxMin = { (*dv)[0], (*dv)[1], (*dv)[2] };
+            bboxMin = {(*dv)[0], (*dv)[1], (*dv)[2]};
           }
           if (auto* iv = std::get_if<std::pmr::vector<int64_t>>(&positionAccessor.min))
           {
-            bboxMin = { (*iv)[0], (*iv)[1], (*iv)[2] };
+            bboxMin = {(*iv)[0], (*iv)[1], (*iv)[2]};
           }
 
           glm::vec3 bboxMax{};
           if (auto* dv = std::get_if<std::pmr::vector<double>>(&positionAccessor.max))
           {
-            bboxMax = { (*dv)[0], (*dv)[1], (*dv)[2] };
+            bboxMax = {(*dv)[0], (*dv)[1], (*dv)[2]};
           }
           if (auto* iv = std::get_if<std::pmr::vector<int64_t>>(&positionAccessor.max))
           {
-            bboxMax = { (*iv)[0], (*iv)[1], (*iv)[2] };
+            bboxMax = {(*iv)[0], (*iv)[1], (*iv)[2]};
           }
 
           Box3D bbox;
@@ -738,18 +721,17 @@ namespace Utility
       std::vector<uint32_t> meshletIndices(maxMeshlets * maxIndices);
       std::vector<uint8_t> meshletPrimitives(maxMeshlets * maxPrimitives * 3);
 
-      const auto meshletCount = meshopt_buildMeshlets(
-        rawMeshlets.data(),
-        meshletIndices.data(),
-        meshletPrimitives.data(),
-        mesh.indices.data(),
-        mesh.indices.size(),
-        reinterpret_cast<const float*>(mesh.vertices.data()),
-        mesh.vertices.size(),
-        sizeof(Vertex),
-        maxIndices,
-        maxPrimitives,
-        coneWeight);
+      const auto meshletCount = meshopt_buildMeshlets(rawMeshlets.data(),
+                                                      meshletIndices.data(),
+                                                      meshletPrimitives.data(),
+                                                      mesh.indices.data(),
+                                                      mesh.indices.size(),
+                                                      reinterpret_cast<const float*>(mesh.vertices.data()),
+                                                      mesh.vertices.size(),
+                                                      sizeof(Vertex),
+                                                      maxIndices,
+                                                      maxPrimitives,
+                                                      coneWeight);
 
       auto& lastMeshlet = rawMeshlets[meshletCount - 1];
       meshletIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
@@ -758,7 +740,7 @@ namespace Utility
 
       for (const auto& meshlet : rawMeshlets)
       {
-        scene.meshlets.emplace_back(Meshlet {
+        scene.meshlets.emplace_back(Meshlet{
           .vertexOffset = vertexOffset,
           .indexOffset = indexOffset + meshlet.vertex_offset,
           .primitiveOffset = primitiveOffset + meshlet.triangle_offset,
@@ -781,7 +763,7 @@ namespace Utility
 
     for (auto&& material : loadedScene->materials)
     {
-      scene.materials.emplace_back(Material {
+      scene.materials.emplace_back(Material{
         .gpuMaterial = material.gpuMaterial,
         .albedoTextureSampler = std::move(material.albedoTextureSampler),
       });

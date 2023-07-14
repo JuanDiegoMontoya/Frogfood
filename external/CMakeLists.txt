@@ -47,6 +47,7 @@ option(KTX_FEATURE_GL_UPLOAD "" OFF)
 option(KTX_FEATURE_VK_UPLOAD "" OFF)
 option(KTX_FEATURE_WRITE "" OFF)
 option(KTX_FEATURE_TOOLS "" OFF)
+option(KTX_FEATURE_STATIC_LIBRARY "" ON)
 FetchContent_Declare(
     ktx
     GIT_REPOSITORY https://github.com/KhronosGroup/KTX-Software.git

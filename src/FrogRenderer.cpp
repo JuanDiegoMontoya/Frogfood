@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h>
 
 #include <stb_image.h>
+#include <stb_include.h>
 
 #include <glm/gtx/transform.hpp>
 #include <glm/mat4x4.hpp>
@@ -23,6 +24,18 @@
 #include <memory>
 #include <optional>
 #include <string>
+
+static Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesystem::path& path)
+{
+  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path))
+  {
+    throw std::runtime_error("Path does not refer to a file");
+  }
+  auto pathStr = path.string();
+  auto parentPathStr = path.parent_path().string();
+  auto processedSource = std::unique_ptr<char, decltype([](char* p) { free(p); })>(stb_include_file(pathStr.c_str(), nullptr, parentPathStr.c_str(), nullptr));
+  return Fwog::Shader(stage, processedSource.get());
+}
 
 static constexpr std::array<Fwog::VertexInputBindingDescription, 3> sceneInputBindingDescs{
   Fwog::VertexInputBindingDescription{
@@ -61,7 +74,7 @@ static Fwog::GraphicsPipeline CreateScenePipeline()
 
 static Fwog::ComputePipeline CreateMeshletGeneratePipeline()
 {
-  auto comp = Fwog::Shader(Fwog::PipelineStage::COMPUTE_SHADER, Application::LoadFile("shaders/Visbuffer.comp.glsl"));
+  auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/Visbuffer.comp.glsl");
 
   return Fwog::ComputePipeline({
     .shader = &comp,
@@ -70,8 +83,8 @@ static Fwog::ComputePipeline CreateMeshletGeneratePipeline()
 
 static Fwog::GraphicsPipeline CreateVisbufferPipeline()
 {
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/Visbuffer.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/Visbuffer.frag.glsl"));
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/visbuffer/Visbuffer.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/Visbuffer.frag.glsl");
 
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
@@ -83,8 +96,8 @@ static Fwog::GraphicsPipeline CreateVisbufferPipeline()
 
 static Fwog::GraphicsPipeline CreateVisbufferResolvePipeline()
 {
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/FullScreenTri.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/VisbufferResolve.frag.glsl"));
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/VisbufferResolve.frag.glsl");
 
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
@@ -421,9 +434,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
                 {
                   Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
                   Fwog::Cmd::BindStorageBuffer(1, *primitiveBuffer);
-                  Fwog::Cmd::BindStorageBuffer(2, *instancedMeshletBuffer);
-                  Fwog::Cmd::BindStorageBuffer(3, *mesheletIndirectCommand);
-                  Fwog::Cmd::BindUniformBuffer(4, globalUniformsBuffer);
+                  Fwog::Cmd::BindStorageBuffer(3, *instancedMeshletBuffer);
+                  Fwog::Cmd::BindStorageBuffer(6, *mesheletIndirectCommand);
+                  Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
                   Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
                   Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
                   Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
@@ -452,10 +465,10 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     [&]
     {
       Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer(1, *vertexBuffer);
-      Fwog::Cmd::BindStorageBuffer(2, *indexBuffer);
-      Fwog::Cmd::BindStorageBuffer(3, *transformBuffer);
-      Fwog::Cmd::BindUniformBuffer(4, globalUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer(2, *vertexBuffer);
+      Fwog::Cmd::BindStorageBuffer(3, *indexBuffer);
+      Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
+      Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
       Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*mesheletIndirectCommand, 0, 1, 0);

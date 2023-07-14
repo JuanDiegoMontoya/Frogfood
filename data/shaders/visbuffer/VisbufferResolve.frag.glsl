@@ -1,15 +1,8 @@
 #version 460 core
-#extension GL_EXT_shader_explicit_arithmetic_types : enable
-#extension GL_NV_gpu_shader5 : enable
+#extension GL_GOOGLE_include_directive : enable
+#include "Common.h.glsl"
 
 #define M_GOLDEN_CONJ 0.6180339887498948482045868343656
-
-#define MAX_INDICES 64
-#define MAX_PRIMITIVES 64
-#define MESHLET_ID_BITS 26u
-#define MESHLET_PRIMITIVE_BITS 6u
-#define MESHLET_PRIMITIVE_MASK ((1u << MESHLET_PRIMITIVE_BITS) - 1u)
-#define MESHLET_ID_MASK ((1u << MESHLET_ID_BITS) - 1u)
 
 layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
 

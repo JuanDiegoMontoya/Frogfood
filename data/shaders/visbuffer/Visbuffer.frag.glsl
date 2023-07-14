@@ -1,10 +1,6 @@
 #version 460 core
-#define MAX_INDICES 64
-#define MAX_PRIMITIVES 64
-#define MESHLET_ID_BITS 26u
-#define MESHLET_PRIMITIVE_BITS 6u
-#define MESHLET_PRIMITIVE_MASK ((1u << MESHLET_PRIMITIVE_BITS) - 1u)
-#define MESHLET_ID_MASK ((1u << MESHLET_ID_BITS) - 1u)
+#extension GL_GOOGLE_include_directive : enable
+#include "Common.h.glsl"
 
 layout (early_fragment_tests) in;
 

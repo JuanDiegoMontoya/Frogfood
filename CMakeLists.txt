@@ -71,6 +71,8 @@ else()
     set(FSR2_LIBS "")
 endif()
 
+target_compile_definitions(frogRender PUBLIC FWOG_DEFAULT_CLIP_DEPTH_RANGE_ZERO_TO_ONE)
+
 target_include_directories(frogRender
 	PUBLIC
 	${FSR2_SOURCE}

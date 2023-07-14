@@ -387,7 +387,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   constexpr float cameraFovY = glm::radians(70.f);
   const auto jitterOffset = fsr2Enable ? GetJitterOffset(frameIndex, renderWidth, renderHeight, windowWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
-  const auto projUnjittered = glm::perspectiveNO(cameraFovY, aspectRatio, cameraNear, cameraFar);
+  const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
   const auto projJittered = jitterMatrix * projUnjittered;
 
   // Set global uniforms
@@ -444,7 +444,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         {
           Fwog::Viewport{
             .drawRect = {{0, 0}, {renderWidth, renderHeight}},
-            .depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
           },
         },
       .colorAttachments = {&visbufferAttachment, 1},
@@ -475,7 +474,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         {
           Fwog::Viewport{
             .drawRect = {{0, 0}, {renderWidth, renderHeight}},
-            .depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
           },
         },
       .colorAttachments = {&visbufferResolveAttachment, 1},
@@ -513,7 +511,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       .viewport =
         Fwog::Viewport{
           .drawRect = {{0, 0}, {renderWidth, renderHeight}},
-          .depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
+          //.depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
         },
       .colorAttachments = cgAttachments,
       .depthAttachment = gDepthAttachment,

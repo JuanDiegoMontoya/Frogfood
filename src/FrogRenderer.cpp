@@ -364,9 +364,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
 
 #ifdef FROGRENDER_FSR2_ENABLE
-  const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
+  //const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
 #else
-  const float fsr2LodBias = 0;
+  //const float fsr2LodBias = 0;
 #endif
 
   Fwog::SamplerState ss;
@@ -391,7 +391,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const auto projJittered = jitterMatrix * projUnjittered;
 
   // Set global uniforms
-  const uint32_t meshletCount = scene.meshlets.size();
+  const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
   mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
@@ -414,7 +414,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   shadingUniforms.sunViewProj = shadingUniforms.sunProj * shadingUniforms.sunView;
   shadingUniformsBuffer.UpdateData(shadingUniforms);
 
-  mesheletIndirectCommand->UpdateData({
+  mesheletIndirectCommand->UpdateData(Fwog::DrawIndexedIndirectCommand{
     .instanceCount = 1
   });
 

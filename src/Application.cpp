@@ -46,6 +46,7 @@ namespace
         id == 131204 || // Texture cannot be used for texture mapping
         id == 131222 ||
         id == 131154 || // NV: pixel transfer is synchronized with 3D rendering
+        id == 131220 || // NV: A fragment shader is required to render to an integer framebuffer
         id == 0         // gl{Push, Pop}DebugGroup
       )
       return;

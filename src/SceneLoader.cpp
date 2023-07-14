@@ -721,9 +721,9 @@ namespace Utility
     if (!loadedScene)
       return false;
 
-    uint32_t vertexOffset = baseVertexOffset;
-    uint32_t indexOffset = baseIndexOffset;
-    uint32_t primitiveOffset = basePrimitiveOffset;
+    uint32_t vertexOffset = (uint32_t)baseVertexOffset;
+    uint32_t indexOffset = (uint32_t)baseIndexOffset;
+    uint32_t primitiveOffset = (uint32_t)basePrimitiveOffset;
     std::vector<glm::mat4> transforms;
     transforms.reserve(loadedScene->meshes.size());
 
@@ -769,9 +769,9 @@ namespace Utility
         });
       }
       transforms.emplace_back(mesh.transform);
-      vertexOffset += mesh.vertices.size();
-      indexOffset += meshletIndices.size();
-      primitiveOffset += meshletPrimitives.size();
+      vertexOffset += (uint32_t)mesh.vertices.size();
+      indexOffset += (uint32_t)meshletIndices.size();
+      primitiveOffset += (uint32_t)meshletPrimitives.size();
 
       scene.vertices.insert(scene.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
       scene.indices.insert(scene.indices.end(), meshletIndices.begin(), meshletIndices.end());

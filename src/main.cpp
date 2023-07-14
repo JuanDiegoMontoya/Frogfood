@@ -86,7 +86,7 @@ int main(int argc, const char* const* argv)
     return -1;
   }
 
-  auto appInfo = Application::CreateInfo{.name = "FrogRender", .vsync = false};
+  auto appInfo = Application::CreateInfo{.name = "FrogRender", .vsync = true};
   auto app = FrogRenderer(appInfo, filename, scale, binary);
   app.Run();
 

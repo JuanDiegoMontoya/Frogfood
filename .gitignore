@@ -34,3 +34,4 @@
 /.vs
 /out/build
 *.natvis
+/build

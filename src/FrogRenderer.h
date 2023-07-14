@@ -30,6 +30,7 @@ private:
     glm::mat4 invViewProj;
     glm::mat4 proj;
     glm::vec4 cameraPos;
+    uint32_t meshletCount;
   };
 
   struct ShadingUniforms
@@ -96,6 +97,11 @@ private:
   // Resources tied to the swapchain/output size
   struct Frame
   {
+    // main view visbuffer
+    std::optional<Fwog::Texture> visbuffer;
+    std::optional<Fwog::Texture> visDepth;
+    std::optional<Fwog::Texture> visResolve;
+
     // g-buffer textures
     std::optional<Fwog::Texture> gAlbedo;
     std::optional<Fwog::Texture> gNormal;
@@ -134,8 +140,22 @@ private:
   Fwog::TypedBuffer<ShadingUniforms> shadingUniformsBuffer;
   Fwog::TypedBuffer<ShadowUniforms> shadowUniformsBuffer;
   Fwog::TypedBuffer<Utility::GpuMaterial> materialUniformsBuffer;
+
+  // Meshlet stuff
+  std::optional<Fwog::TypedBuffer<Utility::Meshlet>> meshletBuffer;
+  std::optional<Fwog::TypedBuffer<Utility::Vertex>> vertexBuffer;
+  std::optional<Fwog::TypedBuffer<uint32_t>> indexBuffer;
+  std::optional<Fwog::TypedBuffer<uint8_t>> primitiveBuffer;
+  std::optional<Fwog::TypedBuffer<glm::mat4>> transformBuffer;
+  // Output
+  std::optional<Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>> mesheletIndirectCommand;
+  std::optional<Fwog::TypedBuffer<uint32_t>> instancedMeshletBuffer;
+
   Fwog::TypedBuffer<glm::mat4> rsmUniforms;
 
+  Fwog::ComputePipeline meshletGeneratePipeline;
+  Fwog::GraphicsPipeline visbufferPipeline;
+  Fwog::GraphicsPipeline visbufferResolvePipeline;
   Fwog::GraphicsPipeline scenePipeline;
   Fwog::GraphicsPipeline rsmScenePipeline;
   Fwog::GraphicsPipeline shadingPipeline;
@@ -143,7 +163,7 @@ private:
   Fwog::GraphicsPipeline debugTexturePipeline;
 
   // Scene
-  Utility::Scene scene;
+  Utility::SceneMeshlet scene;
   std::optional<Fwog::TypedBuffer<Light>> lightBuffer;
   std::optional<Fwog::TypedBuffer<ObjectUniforms>> meshUniformBuffer;
 

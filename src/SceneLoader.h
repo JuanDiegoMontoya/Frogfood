@@ -99,6 +99,29 @@ namespace Utility
     std::vector<Fwog::SamplerState> samplers;
   };
 
+  struct Meshlet
+  {
+    uint32_t vertexOffset = 0;
+    uint32_t indexOffset = 0;
+    uint32_t primitiveOffset = 0;
+    uint32_t indexCount = 0;
+    uint32_t primitiveCount = 0;
+    // TODO: One material per meshlet or one material per meshlet instance?
+    uint32_t materialId = 0;
+    uint32_t instanceId = 0;
+    // TODO: AABB
+  };
+
+  struct SceneMeshlet
+  {
+    std::vector<Meshlet> meshlets;
+    std::vector<Vertex> vertices;
+    std::vector<index_t> indices;
+    std::vector<uint8_t> primitives;
+    std::vector<Material> materials;
+    std::vector<glm::mat4> transforms;
+  };
+
   bool LoadModelFromFile(Scene& scene, 
     std::string_view fileName, 
     glm::mat4 rootTransform = glm::mat4{ 1 }, 
@@ -108,4 +131,9 @@ namespace Utility
     std::string_view fileName, 
     glm::mat4 rootTransform = glm::mat4{ 1 }, 
     bool binary = false);
+
+  bool LoadModelFromFileMeshlet(SceneMeshlet& scene,
+    std::string_view fileName,
+    glm::mat4 rootTransform,
+    bool binary);
 }

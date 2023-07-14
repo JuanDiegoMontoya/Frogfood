@@ -49,6 +49,7 @@
 
 #include "FrogRenderer.h"
 
+#include <cstring>
 #include <charconv>
 #include <stdexcept>
 
@@ -71,7 +72,7 @@ int main(int argc, const char* const* argv)
     if (argc > 3)
     {
       int val = 0;
-      auto [ptr, ec] = std::from_chars(argv[3], argv[3] + strlen(argv[3]), val);
+      auto [ptr, ec] = std::from_chars(argv[3], argv[3] + std::strlen(argv[3]), val);
       binary = static_cast<bool>(val);
       if (ec != std::errc{})
       {

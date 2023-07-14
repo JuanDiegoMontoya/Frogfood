@@ -27,6 +27,8 @@
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
 
+#include <meshoptimizer.h>
+
 namespace Utility
 {
   namespace // helpers
@@ -702,6 +704,87 @@ namespace Utility
         bindlessMaterial.baseColorTextureHandle = texture.GetBindlessHandle(Fwog::Sampler(sampler));
       }
       scene.materials.emplace_back(bindlessMaterial);
+    }
+
+    return true;
+  }
+
+  bool LoadModelFromFileMeshlet(SceneMeshlet& scene, std::string_view fileName, glm::mat4 rootTransform, bool binary)
+  {
+    const auto baseMaterialIndex = static_cast<uint32_t>(scene.materials.size());
+    const auto baseVertexOffset = scene.vertices.size();
+    const auto baseIndexOffset = scene.indices.size();
+    const auto basePrimitiveOffset = scene.primitives.size();
+    const auto baseInstanceId = static_cast<uint32_t>(scene.transforms.size());
+
+    auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, binary, baseMaterialIndex);
+    if (!loadedScene)
+      return false;
+
+    uint32_t vertexOffset = baseVertexOffset;
+    uint32_t indexOffset = baseIndexOffset;
+    uint32_t primitiveOffset = basePrimitiveOffset;
+    std::vector<glm::mat4> transforms;
+    transforms.reserve(loadedScene->meshes.size());
+
+    // TODO: maybe customizeable (not recommended though)
+    constexpr auto maxIndices = 64u;
+    constexpr auto maxPrimitives = 64u;
+    constexpr auto coneWeight = 0.0f;
+    for (const auto& mesh : loadedScene->meshes)
+    {
+      const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxIndices, maxPrimitives);
+      std::vector<meshopt_Meshlet> rawMeshlets(maxMeshlets);
+      std::vector<uint32_t> meshletIndices(maxMeshlets * maxIndices);
+      std::vector<uint8_t> meshletPrimitives(maxMeshlets * maxPrimitives * 3);
+
+      const auto meshletCount = meshopt_buildMeshlets(
+        rawMeshlets.data(),
+        meshletIndices.data(),
+        meshletPrimitives.data(),
+        mesh.indices.data(),
+        mesh.indices.size(),
+        reinterpret_cast<const float*>(mesh.vertices.data()),
+        mesh.vertices.size(),
+        sizeof(Vertex),
+        maxIndices,
+        maxPrimitives,
+        coneWeight);
+
+      auto& lastMeshlet = rawMeshlets[meshletCount - 1];
+      meshletIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
+      meshletPrimitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
+      rawMeshlets.resize(meshletCount);
+
+      for (const auto& meshlet : rawMeshlets)
+      {
+        scene.meshlets.emplace_back(Meshlet {
+          .vertexOffset = vertexOffset,
+          .indexOffset = indexOffset + meshlet.vertex_offset,
+          .primitiveOffset = primitiveOffset + meshlet.triangle_offset,
+          .indexCount = meshlet.vertex_count,
+          .primitiveCount = meshlet.triangle_count,
+          .materialId = mesh.materialIdx,
+          .instanceId = baseInstanceId + static_cast<uint32_t>(transforms.size()),
+        });
+      }
+      transforms.emplace_back(mesh.transform);
+      vertexOffset += mesh.vertices.size();
+      indexOffset += meshletIndices.size();
+      primitiveOffset += meshletPrimitives.size();
+
+      scene.vertices.insert(scene.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
+      scene.indices.insert(scene.indices.end(), meshletIndices.begin(), meshletIndices.end());
+      scene.primitives.insert(scene.primitives.end(), meshletPrimitives.begin(), meshletPrimitives.end());
+    }
+    scene.transforms.insert(scene.transforms.end(), transforms.begin(), transforms.end());
+
+    for (auto&& material : loadedScene->materials)
+    {
+      scene.materials.emplace_back(Material {
+        .gpuMaterial = material.gpuMaterial,
+        .albedoTextureSampler = std::move(material.albedoTextureSampler),
+      });
     }
 
     return true;

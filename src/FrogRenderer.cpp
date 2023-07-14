@@ -1,4 +1,5 @@
 #include "FrogRenderer.h"
+#include "Fwog/Context.h"
 
 #include <Fwog/BasicTypes.h>
 #include <Fwog/Buffer.h>
@@ -55,6 +56,41 @@ static Fwog::GraphicsPipeline CreateScenePipeline()
     .vertexInputState = {sceneInputBindingDescs},
     .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
     .depthState = {.depthTestEnable = true, .depthWriteEnable = true},
+  });
+}
+
+static Fwog::ComputePipeline CreateMeshletGeneratePipeline()
+{
+  auto comp = Fwog::Shader(Fwog::PipelineStage::COMPUTE_SHADER, Application::LoadFile("shaders/Visbuffer.comp.glsl"));
+
+  return Fwog::ComputePipeline({
+    .shader = &comp,
+  });
+}
+
+static Fwog::GraphicsPipeline CreateVisbufferPipeline()
+{
+  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/Visbuffer.vert.glsl"));
+  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/Visbuffer.frag.glsl"));
+
+  return Fwog::GraphicsPipeline({
+    .vertexShader = &vs,
+    .fragmentShader = &fs,
+    .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
+    .depthState = {.depthTestEnable = true, .depthWriteEnable = true},
+  });
+}
+
+static Fwog::GraphicsPipeline CreateVisbufferResolvePipeline()
+{
+  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/FullScreenTri.vert.glsl"));
+  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/VisbufferResolve.frag.glsl"));
+
+  return Fwog::GraphicsPipeline({
+    .vertexShader = &vs,
+    .fragmentShader = &fs,
+    .vertexInputState = {},
+    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
   });
 }
 
@@ -122,6 +158,9 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     materialUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     rsmUniforms(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     // Create the pipelines used in the application
+    meshletGeneratePipeline(CreateMeshletGeneratePipeline()),
+    visbufferPipeline(CreateVisbufferPipeline()),
+    visbufferResolvePipeline(CreateVisbufferResolvePipeline()),
     scenePipeline(CreateScenePipeline()),
     rsmScenePipeline(CreateShadowPipeline()),
     shadingPipeline(CreateShadingPipeline()),
@@ -150,11 +189,12 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   if (!filename)
   {
-    // Utility::LoadModelFromFile(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
+    //Utility::LoadModelFromFile(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
+    Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
 
     // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
 
-    Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::mat4{.5}, false);
+    // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::mat4{.5}, false);
 
     // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb",
     // glm::mat4{.25}, true); Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded
@@ -166,13 +206,21 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   }
   else
   {
-    Utility::LoadModelFromFile(scene, *filename, glm::scale(glm::vec3{scale}), binary);
+    Utility::LoadModelFromFileMeshlet(scene, *filename, glm::scale(glm::vec3{scale}), binary);
   }
 
+  meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(scene.meshlets);
+  vertexBuffer = Fwog::TypedBuffer<Utility::Vertex>(scene.vertices);
+  indexBuffer = Fwog::TypedBuffer<uint32_t>(scene.indices);
+  primitiveBuffer = Fwog::TypedBuffer<uint8_t>(scene.primitives);
+  transformBuffer = Fwog::TypedBuffer<glm::mat4>(scene.transforms);
+  mesheletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(scene.primitives.size() * 3);
+
   std::vector<ObjectUniforms> meshUniforms;
-  for (size_t i = 0; i < scene.meshes.size(); i++)
+  for (size_t i = 0; i < scene.transforms.size(); i++)
   {
-    meshUniforms.push_back({scene.meshes[i].transform});
+    meshUniforms.push_back({scene.transforms[i]});
   }
 
   //////////////////////////////////////// Clustered rendering stuff
@@ -243,6 +291,10 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
     renderWidth = newWidth;
     renderHeight = newHeight;
   }
+
+  frame.visbuffer = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R32_UINT, "visbuffer");
+  frame.visDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "visDepth");
+  frame.visResolve = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "visResolve");
 
   // create gbuffer textures and render info
   frame.gAlbedo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "gAlbedo");
@@ -339,6 +391,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const auto projJittered = jitterMatrix * projUnjittered;
 
   // Set global uniforms
+  const uint32_t meshletCount = scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
   mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
@@ -347,6 +400,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   mainCameraUniforms.invViewProj = glm::inverse(mainCameraUniforms.viewProj);
   mainCameraUniforms.proj = projJittered;
   mainCameraUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
+  mainCameraUniforms.meshletCount = meshletCount;
 
   globalUniformsBuffer.UpdateData(mainCameraUniforms);
 
@@ -360,7 +414,89 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   shadingUniforms.sunViewProj = shadingUniforms.sunProj * shadingUniforms.sunView;
   shadingUniformsBuffer.UpdateData(shadingUniforms);
 
-  // Render scene geometry to the g-buffer
+  mesheletIndirectCommand->UpdateData({
+    .instanceCount = 1
+  });
+
+  Fwog::Compute("Meshlet Generate Pass",
+    [&]
+    {
+      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer(1, *primitiveBuffer);
+      Fwog::Cmd::BindStorageBuffer(2, *instancedMeshletBuffer);
+      Fwog::Cmd::BindStorageBuffer(3, *mesheletIndirectCommand);
+      Fwog::Cmd::BindUniformBuffer(4, globalUniformsBuffer);
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
+      Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
+      Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
+      Fwog::MemoryBarrier(
+        Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT |
+        Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT);
+    });
+
+  auto visbufferAttachment = Fwog::RenderColorAttachment{
+    .texture = frame.visbuffer.value(),
+    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+    .clearValue = { ~0u, ~0u, ~0u, ~0u }
+  };
+  auto visbufferDepthAttachment = Fwog::RenderDepthStencilAttachment{
+    .texture = frame.visDepth.value(),
+    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+    .clearValue = {.depth = 1.0f},
+  };
+  Fwog::Render(
+    {
+      .name = "Main Visbuffer Pass",
+      .viewport =
+        {
+          Fwog::Viewport
+          {
+            .drawRect = {{0, 0}, {renderWidth, renderHeight}},
+            .depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
+          },
+        },
+      .colorAttachments = { &visbufferAttachment, 1 },
+      .depthAttachment = visbufferDepthAttachment,
+    },
+    [&]
+    {
+      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer(1, *vertexBuffer);
+      Fwog::Cmd::BindStorageBuffer(2, *indexBuffer);
+      Fwog::Cmd::BindStorageBuffer(3, *transformBuffer);
+      Fwog::Cmd::BindUniformBuffer(4, globalUniformsBuffer);
+      Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
+      Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
+      Fwog::Cmd::DrawIndexedIndirect(*mesheletIndirectCommand, 0, 1, 0);
+    });
+
+  auto visbufferResolveAttachment = Fwog::RenderColorAttachment{
+    .texture = frame.visResolve.value(),
+    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+    .clearValue = {0.f, 0.f, 0.f, 0.f},
+  };
+
+  Fwog::Render(
+    {
+      .name = "Resolve Visbuffer Pass",
+      .viewport =
+        {
+          Fwog::Viewport
+          {
+            .drawRect = {{0, 0}, {renderWidth, renderHeight}},
+            .depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
+          },
+        },
+      .colorAttachments = { &visbufferResolveAttachment, 1 },
+    },
+    [&]
+    {
+      Fwog::Cmd::BindImage(0, frame.visbuffer.value(), 0);
+      Fwog::Cmd::BindGraphicsPipeline(visbufferResolvePipeline);
+      Fwog::Cmd::Draw(3, 1, 0, 0);
+    });
+
+  /*// Render scene geometry to the g-buffer
   auto gAlbedoAttachment = Fwog::RenderColorAttachment{
     .texture = frame.gAlbedo.value(),
     .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
@@ -414,11 +550,11 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::BindIndexBuffer(mesh.indexBuffer, Fwog::IndexType::UNSIGNED_INT);
         Fwog::Cmd::DrawIndexed(static_cast<uint32_t>(mesh.indexBuffer.Size()) / sizeof(uint32_t), 1, 0, 0, i);
       }
-    });
+    });*/
 
   rsmUniforms.UpdateData(shadingUniforms.sunViewProj);
 
-  // Shadow map (RSM) scene pass
+  /*// Shadow map (RSM) scene pass
   auto rcolorAttachment = Fwog::RenderColorAttachment{
     .texture = rsmFlux,
     .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
@@ -490,7 +626,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
                                        frame.gDepthPrev.value(),
                                        frame.gNormalPrev.value(),
                                        frame.gMotion.value());
-  }
+  }*/
 
   // clear cluster indices atomic counter
   // clusterIndicesBuffer.ClearSubData(0, sizeof(uint32_t), Fwog::Format::R32_UINT, Fwog::UploadFormat::R, Fwog::UploadType::UINT, &zero);
@@ -504,7 +640,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   // shading pass (full screen tri)
 
-  auto shadingColorAttachment = Fwog::RenderColorAttachment{
+  /*auto shadingColorAttachment = Fwog::RenderColorAttachment{
     .texture = frame.colorHdrRenderRes.value(),
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
     .clearValue = {.1f, .3f, .5f, 0.0f},
@@ -633,5 +769,5 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::BindSampledImage(0, *tex, nearestSampler);
         Fwog::Cmd::Draw(3, 1, 0, 0);
       }
-    });
+    });*/
 }

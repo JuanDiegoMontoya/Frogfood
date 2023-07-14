@@ -202,13 +202,7 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
 
   auto SliderUint = [](const char* label, uint32_t* v, uint32_t v_min, uint32_t v_max) -> bool
   {
-    int tempv = static_cast<int>(*v);
-    if (ImGui::SliderInt(label, &tempv, static_cast<int>(v_min), static_cast<int>(v_max)))
-    {
-      *v = static_cast<uint32_t>(tempv);
-      return true;
-    }
-    return false;
+    return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u");
   };
 
   int shadowMode = shadowUniforms.shadowMode;

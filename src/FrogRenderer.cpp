@@ -440,7 +440,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
                   Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
                   Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
                   Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
-                  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT);
+                  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
                 });
 
   auto visbufferAttachment =

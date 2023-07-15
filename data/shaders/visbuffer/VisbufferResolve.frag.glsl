@@ -1,27 +1,179 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
-#include "Common.h.glsl"
 
 #define M_GOLDEN_CONJ 0.6180339887498948482045868343656
+#include "Common.h.glsl"
 
-layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
+layout (early_fragment_tests) in;
+
+struct PartialDerivatives
+{
+  vec3 lambda;
+  vec3 ddx;
+  vec3 ddy;
+};
+
+struct UvGradient
+{
+    vec2 uv;
+    vec2 ddx;
+    vec2 ddy;
+};
+
+layout (early_fragment_tests) in;
 
 layout (location = 0) in vec2 i_uv;
+layout (location = 1) in flat uint i_materialId;
 
 layout (location = 0) out vec4 o_pixel;
 
-vec3 hsv_to_rgb(in vec3 hsv) {
+layout (location = 0) uniform sampler2D baseColorTexture;
+
+layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
+
+PartialDerivatives ComputeDerivatives(in vec4[3] clip, in vec2 ndcUv, in vec2 resolution)
+{
+  PartialDerivatives result;
+  const vec3 invW = 1.0 / vec3(clip[0].w, clip[1].w, clip[2].w);
+  const vec2 ndc0 = clip[0].xy * invW[0];
+  const vec2 ndc1 = clip[1].xy * invW[1];
+  const vec2 ndc2 = clip[2].xy * invW[2];
+
+  const float invDet = 1.0 / determinant(mat2(ndc2 - ndc1, ndc0 - ndc1));
+  result.ddx = vec3(ndc1.y - ndc2.y, ndc2.y - ndc0.y, ndc0.y - ndc1.y) * invDet * invW;
+  result.ddy = vec3(ndc2.x - ndc1.x, ndc0.x - ndc2.x, ndc1.x - ndc0.x) * invDet * invW;
+
+  float ddxSum = dot(result.ddx, vec3(1.0));
+  float ddySum = dot(result.ddy, vec3(1.0));
+
+  const vec2 deltaV = ndcUv - ndc0;
+  const float interpInvW = invW.x + deltaV.x * ddxSum + deltaV.y * ddySum;
+  const float interpW = 1.0 / interpInvW;
+
+  result.lambda = vec3(
+    interpW * (deltaV.x * result.ddx.x + deltaV.y * result.ddy.x + invW.x),
+    interpW * (deltaV.x * result.ddx.y + deltaV.y * result.ddy.y),
+    interpW * (deltaV.x * result.ddx.z + deltaV.y * result.ddy.z)
+  );
+
+  result.ddx *= 2.0 / resolution.x;
+  result.ddy *= 2.0 / resolution.y;
+  ddxSum *= 2.0 / resolution.x;
+  ddySum *= 2.0 / resolution.y;
+
+  const float interpDdxW = 1.0 / (interpInvW + ddxSum);
+  const float interpDdyW = 1.0 / (interpInvW + ddySum);
+
+  result.ddx = interpDdxW * (result.lambda * interpInvW + result.ddx) - result.lambda;
+  result.ddy = interpDdyW * (result.lambda * interpInvW + result.ddy) - result.lambda;
+  return result;
+}
+
+vec3 Interpolate(in PartialDerivatives derivatives, in float[3] values)
+{
+  const vec3 v = vec3(values[0], values[1], values[2]);
+  return vec3(
+    dot(v, derivatives.lambda),
+    dot(v, derivatives.ddx),
+    dot(v, derivatives.ddy)
+  );
+}
+
+vec3 HsvToRgb(in vec3 hsv)
+{
     const vec3 rgb = clamp(abs(mod(hsv.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
     return hsv.z * mix(vec3(1.0), rgb, hsv.y);
 }
 
-void main() {
+vec3[3] VisbufferLoadPosition(in Meshlet meshlet, in uint primitiveId)
+{
+  const uint vertexOffset = meshlet.vertexOffset;
+  const uint indexOffset = meshlet.indexOffset;
+  const uint primitiveOffset = meshlet.primitiveOffset;
+  const uint[] primitiveIds = uint[](
+    primitives[primitiveOffset + primitiveId * 3 + 0],
+    primitives[primitiveOffset + primitiveId * 3 + 1],
+    primitives[primitiveOffset + primitiveId * 3 + 2]
+  );
+  const uint[] indexIds = uint[](
+    indices[indexOffset + primitiveIds[0]],
+    indices[indexOffset + primitiveIds[1]],
+    indices[indexOffset + primitiveIds[2]]
+  );
+  return vec3[3](
+    PackedToVec3(vertices[vertexOffset + indexIds[0]].position),
+    PackedToVec3(vertices[vertexOffset + indexIds[1]].position),
+    PackedToVec3(vertices[vertexOffset + indexIds[2]].position)
+  );
+}
+
+vec2[3] VisbufferLoadUv(in Meshlet meshlet, in uint primitiveId)
+{
+  const uint vertexOffset = meshlet.vertexOffset;
+  const uint indexOffset = meshlet.indexOffset;
+  const uint primitiveOffset = meshlet.primitiveOffset;
+  const uint[] primitiveIds = uint[](
+    primitives[primitiveOffset + primitiveId * 3 + 0],
+    primitives[primitiveOffset + primitiveId * 3 + 1],
+    primitives[primitiveOffset + primitiveId * 3 + 2]
+  );
+  const uint[] indexIds = uint[](
+    indices[indexOffset + primitiveIds[0]],
+    indices[indexOffset + primitiveIds[1]],
+    indices[indexOffset + primitiveIds[2]]
+  );
+  return vec2[3](
+    PackedToVec2(vertices[vertexOffset + indexIds[0]].uv),
+    PackedToVec2(vertices[vertexOffset + indexIds[1]].uv),
+    PackedToVec2(vertices[vertexOffset + indexIds[2]].uv)
+  );
+}
+
+UvGradient MakeUvGradient(in PartialDerivatives derivatives, in vec2[3] uvs)
+{
+  const vec3[] interpUvs = vec3[](
+    Interpolate(derivatives, float[](uvs[0].x, uvs[1].x, uvs[2].x)),
+    Interpolate(derivatives, float[](uvs[0].y, uvs[1].y, uvs[2].y))
+  );
+
+  return UvGradient(
+    vec2(interpUvs[0].x, interpUvs[1].x),
+    vec2(interpUvs[0].y, interpUvs[1].y),
+    vec2(interpUvs[0].z, interpUvs[1].z)
+  );
+}
+
+vec3 SampleBaseColor(in GpuMaterial material, in UvGradient uvGrad)
+{
+  if (!bool(material.flags & MATERIAL_HAS_BASE_COLOR))
+  {
+    return material.baseColorFactor.rgb;
+  }
+  return
+    material.baseColorFactor.rgb *
+    textureGrad(baseColorTexture, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
+}
+
+void main()
+{
   const ivec2 position = ivec2(gl_FragCoord.xy);
   const uint payload = imageLoad(visbuffer, position).x;
-  if (payload == ~0u) {
-    discard;
-  }
   const uint meshletId = (payload >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
   const uint primitiveId = payload & MESHLET_PRIMITIVE_MASK;
-  o_pixel = vec4(hsv_to_rgb(vec3(float(primitiveId) * M_GOLDEN_CONJ, 0.875, 0.85)), 1.0);
+  const Meshlet meshlet = meshlets[meshletId];
+  const GpuMaterial material = materials[meshlet.materialId];
+  const mat4 transform = transforms[meshlet.instanceId];
+
+  const vec2 resolution = vec2(imageSize(visbuffer));
+  const vec3[] rawPosition = VisbufferLoadPosition(meshlet, primitiveId);
+  const vec2[] rawUv = VisbufferLoadUv(meshlet, primitiveId);
+  const vec4[] clipPosition = vec4[](
+    viewProj * transform * vec4(rawPosition[0], 1.0),
+    viewProj * transform * vec4(rawPosition[1], 1.0),
+    viewProj * transform * vec4(rawPosition[2], 1.0)
+  );
+  const PartialDerivatives partialDerivatives = ComputeDerivatives(clipPosition, i_uv * 2.0 - 1.0, resolution);
+  const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);
+  const vec3 normal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));
+  o_pixel = vec4(SampleBaseColor(material, uvGrad), 1.0);
 }

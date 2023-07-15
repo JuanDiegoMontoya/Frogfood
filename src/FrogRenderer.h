@@ -100,6 +100,7 @@ private:
     // main view visbuffer
     std::optional<Fwog::Texture> visbuffer;
     std::optional<Fwog::Texture> visDepth;
+    std::optional<Fwog::Texture> materialDepth;
     std::optional<Fwog::Texture> visResolve;
 
     // g-buffer textures
@@ -139,7 +140,6 @@ private:
   Fwog::TypedBuffer<GlobalUniforms> globalUniformsBuffer;
   Fwog::TypedBuffer<ShadingUniforms> shadingUniformsBuffer;
   Fwog::TypedBuffer<ShadowUniforms> shadowUniformsBuffer;
-  Fwog::TypedBuffer<Utility::GpuMaterial> materialUniformsBuffer;
 
   // Meshlet stuff
   std::optional<Fwog::TypedBuffer<Utility::Meshlet>> meshletBuffer;
@@ -147,6 +147,7 @@ private:
   std::optional<Fwog::TypedBuffer<uint32_t>> indexBuffer;
   std::optional<Fwog::TypedBuffer<uint8_t>> primitiveBuffer;
   std::optional<Fwog::TypedBuffer<glm::mat4>> transformBuffer;
+  std::optional<Fwog::TypedBuffer<Utility::GpuMaterial>> materialStorageBuffer;
   // Output
   std::optional<Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>> mesheletIndirectCommand;
   std::optional<Fwog::TypedBuffer<uint32_t>> instancedMeshletBuffer;
@@ -155,6 +156,7 @@ private:
 
   Fwog::ComputePipeline meshletGeneratePipeline;
   Fwog::GraphicsPipeline visbufferPipeline;
+  Fwog::GraphicsPipeline materialDepthPipeline;
   Fwog::GraphicsPipeline visbufferResolvePipeline;
   Fwog::GraphicsPipeline scenePipeline;
   Fwog::GraphicsPipeline rsmScenePipeline;

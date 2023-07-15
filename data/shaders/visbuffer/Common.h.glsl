@@ -38,9 +38,21 @@ vec3 PackedToVec3(in PackedVec3 v)
 struct Vertex
 {
   PackedVec3 position;
-  uint normal;
+  uint normal; // Octrahedral encoding: decode with unpackSnorm2x16 and OctToFloat32x3
   PackedVec2 uv;
 };
+
+vec2 SignNotZero(vec2 v)
+{
+  return vec2((v.x >= 0.0) ? +1.0 : -1.0, (v.y >= 0.0) ? +1.0 : -1.0);
+}
+
+vec3 OctToFloat32x3(vec2 e)
+{
+  vec3 v = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
+  if (v.z < 0.0) v.xy = (1.0 - abs(v.yx)) * SignNotZero(v.xy);
+  return normalize(v);
+}
 
 struct Meshlet
 {

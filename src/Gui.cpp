@@ -138,6 +138,7 @@ void FrogRenderer::GuiDrawFsrWindow()
     ratio = 2.0f;
   if (ImGui::RadioButton("Ultra Performance (3.0x)", ratio == 3.0f))
     ratio = 3.0f;
+  ImGui::SliderFloat("Upscale Ratio", &ratio, 1.0f, 3.0f, "%.2f");
   ImGui::SliderFloat("RCAS Strength", &fsr2Sharpness, 0, 1);
 
   if (ratio != fsr2Ratio)
@@ -278,7 +279,8 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   aspectRatio = viewportContentSize.x / viewportContentSize.y;
 
   //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
-  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.visResolve.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
+  //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.visResolve.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
+  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedo.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
   ImGui::End();
   ImGui::PopStyleVar();
 

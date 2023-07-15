@@ -224,7 +224,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
     // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
 
-    // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::mat4{.5}, false);
+    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::mat4{.5}, false);
 
     // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb",
     // glm::mat4{.25}, true); Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded
@@ -401,12 +401,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   shadingUniforms.sunDir = glm::vec4(sin(sunElevation) * cos(sunAzimuth), cos(sunElevation), sin(sunElevation) * sin(sunAzimuth), 0);
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
-
-#ifdef FROGRENDER_FSR2_ENABLE
-  // const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
-#else
-  // const float fsr2LodBias = 0;
-#endif
+  
+  const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
 
   Fwog::SamplerState ss;
 
@@ -525,12 +521,27 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 
-  auto visbufferResolveAttachment =
-    Fwog::RenderColorAttachment{.texture = frame.visResolve.value(), .loadOp = Fwog::AttachmentLoadOp::CLEAR, .clearValue = { 0.0f }};
+  //auto visbufferResolveAttachment =
+  //  Fwog::RenderColorAttachment{.texture = frame.visResolve.value(), .loadOp = Fwog::AttachmentLoadOp::CLEAR, .clearValue = { 0.0f }};
   auto visbufferResolveDepthAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = frame.materialDepth.value(),
     .loadOp = Fwog::AttachmentLoadOp::LOAD,
   };
+  auto gAlbedoAttachment = Fwog::RenderColorAttachment{
+    .texture = frame.gAlbedo.value(),
+    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+  };
+  auto gNormalAttachment = Fwog::RenderColorAttachment{
+    .texture = frame.gNormal.value(),
+    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+  };
+  auto gMotionAttachment = Fwog::RenderColorAttachment{
+    .texture = frame.gMotion.value(),
+    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+    .clearValue = {0.f, 0.f, 0.f, 0.f},
+  };
+  auto gBufferAttachments = {gAlbedoAttachment, gNormalAttachment, gMotionAttachment};
+
   Fwog::Render(
     {
       .name = "Resolve Visbuffer Pass",
@@ -540,7 +551,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
             .drawRect = {{0, 0}, {renderWidth, renderHeight}},
           },
         },
-      .colorAttachments = {&visbufferResolveAttachment, 1},
+      //.colorAttachments = {&visbufferResolveAttachment, 1},
+      .colorAttachments = gBufferAttachments,
       .depthAttachment = visbufferResolveDepthAttachment,
     },
     [&]
@@ -556,11 +568,12 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindStorageBuffer(7, *materialStorageBuffer);
       for (uint32_t materialId = 0; materialId < scene.materials.size(); ++materialId)
       {
-        const auto& material = scene.materials[materialId];
+        auto& material = scene.materials[materialId];
         if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE)
         {
-          const auto& textureSampler = material.albedoTextureSampler.value();
-          Fwog::Cmd::BindSampledImage(0, textureSampler.texture, Fwog::Sampler(textureSampler.sampler));
+          auto& [texture, sampler] = material.albedoTextureSampler.value();
+          sampler.lodBias = fsr2LodBias;
+          Fwog::Cmd::BindSampledImage(0, texture, Fwog::Sampler(sampler));
         }
         Fwog::Cmd::Draw(3, 1, 0, materialId);
       }

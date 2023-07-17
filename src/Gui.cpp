@@ -285,9 +285,9 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
 
   aspectRatio = viewportContentSize.x / viewportContentSize.y;
 
-  //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
+  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
   //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.visResolve.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
-  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedo.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
+  //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedo.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
   ImGui::End();
   ImGui::PopStyleVar();
 

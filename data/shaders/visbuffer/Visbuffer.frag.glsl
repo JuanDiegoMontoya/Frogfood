@@ -6,6 +6,7 @@ layout (early_fragment_tests) in;
 
 layout (location = 0) in flat uint i_meshletId;
 layout (location = 1) in flat uint i_primitiveId;
+//layout (location = 2) in vec2 i_uv;
 
 layout (location = 0) out uint o_pixel;
 

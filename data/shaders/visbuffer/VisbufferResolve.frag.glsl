@@ -184,7 +184,7 @@ vec2 MakeSmoothMotion(in PartialDerivatives derivatives, vec4[3] worldPosition)
   );
 
   vec4 smoothCurPos = InterpolateVec4(derivatives, v_curPos);
-  vec4 smoothOldPos = InterpolateVec4(derivatives, v_curPos);
+  vec4 smoothOldPos = InterpolateVec4(derivatives, v_oldPos);
   return ((smoothOldPos.xy / smoothOldPos.w) - (smoothCurPos.xy / smoothCurPos.w)) * 0.5;
 }
 

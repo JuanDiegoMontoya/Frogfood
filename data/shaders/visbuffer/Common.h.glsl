@@ -112,7 +112,7 @@ layout (std430, binding = 4) restrict readonly buffer TransformBuffer
   mat4 transforms[];
 };
 
-layout (binding = 5) uniform UBO
+layout (binding = 5, std140) uniform PerFrameUniforms
 {
   mat4 viewProj;
   mat4 oldViewProjUnjittered;

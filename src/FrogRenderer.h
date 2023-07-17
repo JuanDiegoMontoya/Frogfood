@@ -101,7 +101,6 @@ private:
   {
     // Main view visbuffer
     std::optional<Fwog::Texture> visbuffer;
-    std::optional<Fwog::Texture> visDepth;
     std::optional<Fwog::Texture> materialDepth;
 
     // G-buffer textures
@@ -206,6 +205,6 @@ private:
 
   // Magnifier
   bool magnifierLock = false;
-  float magnifierZoom = 1;
+  float magnifierZoom = 4;
   glm::vec2 magnifierLastCursorPos = {};
 };

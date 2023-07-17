@@ -15,7 +15,7 @@
  *
  * Low-level
  * [ ] Add clustered light culling
- * [ ] Visibility buffer
+ * [X] Visibility buffer
  * [ ] Frustum culling
  * [ ] Raster occlusion culling
  * [ ] Hi-z occlusion culling

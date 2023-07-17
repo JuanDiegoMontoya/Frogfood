@@ -11,7 +11,7 @@ layout(location = 0) in vec2 v_uv;
 
 layout(location = 0) out vec3 o_color;
 
-layout(binding = 0, std140) uniform UBO0
+layout (binding = 0, std140) uniform PerFrameUniforms
 {
   mat4 viewProj;
   mat4 oldViewProjUnjittered;
@@ -19,6 +19,7 @@ layout(binding = 0, std140) uniform UBO0
   mat4 invViewProj;
   mat4 proj;
   vec4 cameraPos;
+  uint meshletCount;
 };
 
 layout(binding = 1, std140) uniform ShadingUniforms
@@ -262,7 +263,7 @@ void main()
 
   //vec3 ambient = vec3(.03) * albedo;
   vec3 ambient = /*vec3(.01) * albedo*/ + textureLod(s_rsmIndirect, v_uv, 0).rgb;
-  vec3 finalColor = shadow * (diffuse + specular) + ambient;
+  vec3 finalColor = /*shadow * */ (diffuse + specular) + ambient;
   
   finalColor += LocalLightIntensity(fragWorldPos, normal, viewDir, albedo);
 

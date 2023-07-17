@@ -4,6 +4,7 @@
 
 layout (location = 0) out flat uint o_meshletId;
 layout (location = 1) out flat uint o_primitiveId;
+//layout (location = 2) out vec2 o_uv;
 
 void main()
 {
@@ -16,11 +17,14 @@ void main()
 
   const uint primitive = uint(primitives[primitiveOffset + primitiveId]);
   const uint index = indices[indexOffset + primitive];
-  const vec3 position = PackedToVec3(vertices[vertexOffset + index].position);
+  const Vertex vertex = vertices[vertexOffset + index];
+  const vec3 position = PackedToVec3(vertex.position);
+  //const vec2 uv = PackedToVec2(vertex.uv);
   const mat4 transform = transforms[instanceId];
 
   o_meshletId = meshletId;
   o_primitiveId = primitiveId / 3;
+  //o_uv = uv;
 
   gl_Position = viewProj * transform * vec4(position, 1.0);
 }

@@ -330,7 +330,6 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
 
   // Visibility buffer textures
   frame.visbuffer = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R32_UINT, "visbuffer");
-  frame.visDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "visDepth");
   frame.materialDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "materialDepth");
 
   // Create gbuffer textures and render info
@@ -470,7 +469,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   auto visbufferAttachment =
     Fwog::RenderColorAttachment{.texture = frame.visbuffer.value(), .loadOp = Fwog::AttachmentLoadOp::CLEAR, .clearValue = {~0u, ~0u, ~0u, ~0u}};
   auto visbufferDepthAttachment = Fwog::RenderDepthStencilAttachment{
-    .texture = frame.visDepth.value(),
+    .texture = frame.gDepth.value(),
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
     .clearValue = {.depth = 1.0f},
   };
@@ -527,18 +526,18 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   Fwog::RenderColorAttachment gBufferAttachments[] = {
     {
       .texture = frame.gAlbedo.value(),
-      .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+      .loadOp = Fwog::AttachmentLoadOp::DONT_CARE
     },
     {
       .texture = frame.gMetallicRoughnessAo.value(),
       .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
     },
     {
-      .texture = frame.gEmission.value(),
+      .texture = frame.gNormal.value(),
       .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
     },
     {
-      .texture = frame.gNormal.value(),
+      .texture = frame.gEmission.value(),
       .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
     },
     {
@@ -765,7 +764,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   // shading pass (full screen tri)
 
-  /*auto shadingColorAttachment = Fwog::RenderColorAttachment{
+  auto shadingColorAttachment = Fwog::RenderColorAttachment{
     .texture = frame.colorHdrRenderRes.value(),
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
     .clearValue = {.1f, .3f, .5f, 0.0f},
@@ -841,8 +840,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
                       printf("FSR 2 error: %d\n", err);
                     }
                   });
+    Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
   }
-  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
 #endif
 
   const auto ppAttachment = Fwog::RenderColorAttachment{
@@ -894,5 +893,5 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::BindSampledImage(0, *tex, nearestSampler);
         Fwog::Cmd::Draw(3, 1, 0, 0);
       }
-    });*/
+    });
 }

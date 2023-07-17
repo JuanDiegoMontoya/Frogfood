@@ -6,6 +6,23 @@
 
 layout (early_fragment_tests) in;
 
+layout (location = 0) in vec2 i_uv;
+layout (location = 1) in flat uint i_materialId;
+
+layout (location = 0) out vec4 o_albedo;
+layout (location = 1) out vec3 o_metallicRoughnessAo;
+layout (location = 2) out vec3 o_normal;
+layout (location = 3) out vec3 o_emission;
+layout (location = 4) out vec2 o_motion;
+
+layout (location = 0) uniform sampler2D s_baseColor;
+layout (location = 1) uniform sampler2D s_metallicRoughness;
+layout (location = 2) uniform sampler2D s_normal;
+layout (location = 3) uniform sampler2D s_occlusion;
+layout (location = 4) uniform sampler2D s_emission;
+
+layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
+
 struct PartialDerivatives
 {
   vec3 lambda; // Barycentric coord for those whomst be wonderin'
@@ -19,19 +36,6 @@ struct UvGradient
   vec2 ddx;
   vec2 ddy;
 };
-
-layout (early_fragment_tests) in;
-
-layout (location = 0) in vec2 i_uv;
-layout (location = 1) in flat uint i_materialId;
-
-layout (location = 0) out vec4 o_albedo;
-layout (location = 1) out vec3 o_normal;
-layout (location = 2) out vec2 o_motion;
-
-layout (location = 0) uniform sampler2D baseColorTexture;
-
-layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
 
 PartialDerivatives ComputeDerivatives(in vec4[3] clip, in vec2 ndcUv, in vec2 resolution)
 {
@@ -192,7 +196,49 @@ vec3 SampleBaseColor(in GpuMaterial material, in UvGradient uvGrad)
   }
   return
     material.baseColorFactor.rgb *
-    textureGrad(baseColorTexture, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
+    textureGrad(s_baseColor, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
+}
+
+vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad, vec3 faceNormal, mat3 tbn)
+{
+  if (!bool(material.flags & MATERIAL_HAS_NORMAL))
+  {
+    return faceNormal;
+  }
+  vec3 tangentNormal = textureGrad(s_baseColor, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb * 2.0 - 1.0;
+  return tbn * faceNormal;
+}
+
+vec2 SampleMetallicRoughness(in GpuMaterial material, in UvGradient uvGrad)
+{
+  vec2 metallicRoughnessFactor = vec2(material.metallicFactor, material.roughnessFactor);
+  if (!bool(material.flags & MATERIAL_HAS_METALLIC_ROUGHNESS))
+  {
+    return metallicRoughnessFactor;
+  }
+  return
+    metallicRoughnessFactor *
+    textureGrad(s_metallicRoughness, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rg;
+}
+
+float SampleOcclusion(in GpuMaterial material, in UvGradient uvGrad)
+{
+  if (!bool(material.flags & MATERIAL_HAS_OCCLUSION))
+  {
+    return 1.0;
+  }
+  return textureGrad(s_occlusion, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).r;
+}
+
+vec3 SampleEmission(in GpuMaterial material, in UvGradient uvGrad)
+{
+  if (!bool(material.flags & MATERIAL_HAS_EMISSION))
+  {
+    return material.emissiveFactor * material.emissiveStrength;
+  }
+  return
+    material.emissiveFactor * material.emissiveStrength *
+    textureGrad(s_emission, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
 }
 
 void main()
@@ -225,6 +271,10 @@ void main()
   //const vec3 normal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));
 
   o_albedo = vec4(SampleBaseColor(material, uvGrad), 1.0);
-  o_normal = MakeSmoothNormal(partialDerivatives, rawNormal);
+  o_metallicRoughnessAo = vec3(
+    SampleMetallicRoughness(material, uvGrad),
+    SampleOcclusion(material, uvGrad));
+  o_normal = normalize(MakeSmoothNormal(partialDerivatives, rawNormal));
+  o_emission = SampleEmission(material, uvGrad);
   o_motion = MakeSmoothMotion(partialDerivatives, worldPosition);
 }

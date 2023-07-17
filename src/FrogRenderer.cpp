@@ -105,7 +105,7 @@ static Fwog::GraphicsPipeline CreateMaterialDepthPipeline()
     .fragmentShader = &fs,
     .vertexInputState = {},
     .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
-    .depthState = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = Fwog::CompareOp::ALWAYS}
+    .depthState = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = Fwog::CompareOp::ALWAYS},
   });
 }
 
@@ -119,7 +119,7 @@ static Fwog::GraphicsPipeline CreateVisbufferResolvePipeline()
     .fragmentShader = &fs,
     .vertexInputState = {},
     .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
-    .depthState = {.depthTestEnable = true, .depthWriteEnable = false, .depthCompareOp = Fwog::CompareOp::EQUAL}
+    .depthState = {.depthTestEnable = true, .depthWriteEnable = false, .depthCompareOp = Fwog::CompareOp::EQUAL},
   });
 }
 
@@ -220,17 +220,16 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   {
     // Utility::LoadModelFromFile(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
     Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
-    //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::mat4{.125}, false);
+    // Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::mat4{.125}, false);
 
     // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
 
     // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::mat4{.5}, false);
 
-    // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb",
-    // glm::mat4{.25}, true); Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded
-    // schtuff/sponza_curtains_compressed.glb", glm::mat4{.25}, true); Utility::LoadModelFromFile(scene,
-    // "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::mat4{.25}, true); Utility::LoadModelFromFile(scene,
-    // "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::mat4{.25}, true);
+    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::mat4{.25}, true);
+    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::mat4{.25}, true);
+    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::mat4{.25}, true);
+    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::mat4{.25}, true);
 
     // Utility::LoadModelFromFile(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::mat4{0.5f}, true);
   }
@@ -253,7 +252,6 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     return m.gpuMaterial;
   });
   materialStorageBuffer = Fwog::TypedBuffer<Utility::GpuMaterial>(materials);
-
 
   std::vector<ObjectUniforms> meshUniforms;
   for (size_t i = 0; i < scene.transforms.size(); i++)
@@ -330,18 +328,20 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
     renderHeight = newHeight;
   }
 
+  // Visibility buffer textures
   frame.visbuffer = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R32_UINT, "visbuffer");
   frame.visDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "visDepth");
   frame.materialDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "materialDepth");
-  frame.visResolve = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "visResolve");
 
-  // create gbuffer textures and render info
+  // Create gbuffer textures and render info
   frame.gAlbedo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "gAlbedo");
+  frame.gMetallicRoughnessAo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8_UNORM, "gMetallicRoughnessAo");
   frame.gNormal = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16B16_SNORM, "gNormal");
+  frame.gEmission = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R11G11B10_FLOAT, "gEmission");
   frame.gDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "gDepth");
+  frame.gMotion = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16_FLOAT, "gMotion");
   frame.gNormalPrev = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16B16_SNORM);
   frame.gDepthPrev = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT);
-  frame.gMotion = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16_FLOAT, "gMotion");
   frame.colorHdrRenderRes = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R11G11B10_FLOAT, "colorHdrRenderRes");
   frame.colorHdrWindowRes = Fwog::CreateTexture2D({newWidth, newHeight}, Fwog::Format::R11G11B10_FLOAT, "colorHdrWindowRes");
   frame.colorLdrWindowRes = Fwog::CreateTexture2D({newWidth, newHeight}, Fwog::Format::R8G8B8A8_UNORM, "colorLdrWindowRes");
@@ -357,6 +357,8 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
 
   // create debug views
   frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
+  frame.gRoughnessMetallicAoSwizzled = frame.gMetallicRoughnessAo->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
+  frame.gEmissionSwizzled = frame.gEmission->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gNormalSwizzled = frame.gNormal->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gRsmIlluminanceSwizzled = frame.rsm->GetIndirectLighting().CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
@@ -401,7 +403,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   shadingUniforms.sunDir = glm::vec4(sin(sunElevation) * cos(sunAzimuth), cos(sunElevation), sin(sunElevation) * sin(sunAzimuth), 0);
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
-  
+
   const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
 
   Fwog::SamplerState ss;
@@ -451,18 +453,19 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   mesheletIndirectCommand->UpdateData(Fwog::DrawIndexedIndirectCommand{.instanceCount = 1});
 
-  Fwog::Compute("Meshlet Generate Pass",
-                [&]
-                {
-                  Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-                  Fwog::Cmd::BindStorageBuffer(3, *instancedMeshletBuffer);
-                  Fwog::Cmd::BindStorageBuffer(6, *mesheletIndirectCommand);
-                  Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
-                  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
-                  Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
-                  Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
-                  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
-                });
+  Fwog::Compute(
+    "Meshlet Generate Pass",
+    [&]
+    {
+      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer(3, *instancedMeshletBuffer);
+      Fwog::Cmd::BindStorageBuffer(6, *mesheletIndirectCommand);
+      Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
+      Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
+      Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
+    });
 
   auto visbufferAttachment =
     Fwog::RenderColorAttachment{.texture = frame.visbuffer.value(), .loadOp = Fwog::AttachmentLoadOp::CLEAR, .clearValue = {~0u, ~0u, ~0u, ~0u}};
@@ -521,26 +524,34 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 
-  //auto visbufferResolveAttachment =
-  //  Fwog::RenderColorAttachment{.texture = frame.visResolve.value(), .loadOp = Fwog::AttachmentLoadOp::CLEAR, .clearValue = { 0.0f }};
+  Fwog::RenderColorAttachment gBufferAttachments[] = {
+    {
+      .texture = frame.gAlbedo.value(),
+      .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+    },
+    {
+      .texture = frame.gMetallicRoughnessAo.value(),
+      .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+    },
+    {
+      .texture = frame.gEmission.value(),
+      .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+    },
+    {
+      .texture = frame.gNormal.value(),
+      .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+    },
+    {
+      .texture = frame.gMotion.value(),
+      .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+      .clearValue = {0.f, 0.f, 0.f, 0.f},
+    },
+  };
+
   auto visbufferResolveDepthAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = frame.materialDepth.value(),
     .loadOp = Fwog::AttachmentLoadOp::LOAD,
   };
-  auto gAlbedoAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.gAlbedo.value(),
-    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-  };
-  auto gNormalAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.gNormal.value(),
-    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-  };
-  auto gMotionAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.gMotion.value(),
-    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = {0.f, 0.f, 0.f, 0.f},
-  };
-  auto gBufferAttachments = {gAlbedoAttachment, gNormalAttachment, gMotionAttachment};
 
   Fwog::Render(
     {
@@ -551,7 +562,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
             .drawRect = {{0, 0}, {renderWidth, renderHeight}},
           },
         },
-      //.colorAttachments = {&visbufferResolveAttachment, 1},
       .colorAttachments = gBufferAttachments,
       .depthAttachment = visbufferResolveDepthAttachment,
     },
@@ -566,15 +576,47 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
       Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
       Fwog::Cmd::BindStorageBuffer(7, *materialStorageBuffer);
+
+      // Render a full-screen tri for each material, but only fragments with matching material (stored in depth) are shaded
       for (uint32_t materialId = 0; materialId < scene.materials.size(); ++materialId)
       {
         auto& material = scene.materials[materialId];
+
         if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE)
         {
           auto& [texture, sampler] = material.albedoTextureSampler.value();
           sampler.lodBias = fsr2LodBias;
           Fwog::Cmd::BindSampledImage(0, texture, Fwog::Sampler(sampler));
         }
+
+        if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE)
+        {
+          auto& [texture, sampler] = material.metallicRoughnessTextureSampler.value();
+          sampler.lodBias = fsr2LodBias;
+          Fwog::Cmd::BindSampledImage(1, texture, Fwog::Sampler(sampler));
+        }
+
+        if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_NORMAL_TEXTURE)
+        {
+          auto& [texture, sampler] = material.normalTextureSampler.value();
+          sampler.lodBias = fsr2LodBias;
+          Fwog::Cmd::BindSampledImage(2, texture, Fwog::Sampler(sampler));
+        }
+
+        if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_OCCLUSION_TEXTURE)
+        {
+          auto& [texture, sampler] = material.occlusionTextureSampler.value();
+          sampler.lodBias = fsr2LodBias;
+          Fwog::Cmd::BindSampledImage(3, texture, Fwog::Sampler(sampler));
+        }
+
+        if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_EMISSION_TEXTURE)
+        {
+          auto& [texture, sampler] = material.emissiveTextureSampler.value();
+          sampler.lodBias = fsr2LodBias;
+          Fwog::Cmd::BindSampledImage(4, texture, Fwog::Sampler(sampler));
+        }
+
         Fwog::Cmd::Draw(3, 1, 0, materialId);
       }
     });

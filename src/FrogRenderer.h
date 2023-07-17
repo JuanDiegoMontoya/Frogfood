@@ -92,31 +92,46 @@ private:
 
   float aspectRatio = 1;
 
+  // True: output size will be equal to GUI viewport resolution
+  // False: output size will be equal to window resolution
   bool useGuiViewportSizeForRendering = true;
 
-  // Resources tied to the swapchain/output size
+  // Resources tied to the output resolution
   struct Frame
   {
-    // main view visbuffer
+    // Main view visbuffer
     std::optional<Fwog::Texture> visbuffer;
     std::optional<Fwog::Texture> visDepth;
     std::optional<Fwog::Texture> materialDepth;
-    std::optional<Fwog::Texture> visResolve;
 
-    // g-buffer textures
+    // G-buffer textures
     std::optional<Fwog::Texture> gAlbedo;
+    std::optional<Fwog::Texture> gMetallicRoughnessAo;
     std::optional<Fwog::Texture> gNormal;
+    std::optional<Fwog::Texture> gEmission;
+    std::optional<Fwog::Texture> gMotion;
     std::optional<Fwog::Texture> gDepth;
+
+    // Previous-frame G-buffer textures used for temporal effects
     std::optional<Fwog::Texture> gNormalPrev;
     std::optional<Fwog::Texture> gDepthPrev;
-    std::optional<Fwog::Texture> gMotion;
+
+    // Post-lighting
     std::optional<Fwog::Texture> colorHdrRenderRes;
+
+    // Post-upscale (skipped if render res == window res)
     std::optional<Fwog::Texture> colorHdrWindowRes;
+
+    // Final tonemapped color
     std::optional<Fwog::Texture> colorLdrWindowRes;
+
+    // Per-technique frame resources
     std::optional<RSM::RsmTechnique> rsm;
 
     // For debug drawing with ImGui
     std::optional<Fwog::TextureView> gAlbedoSwizzled;
+    std::optional<Fwog::TextureView> gRoughnessMetallicAoSwizzled;
+    std::optional<Fwog::TextureView> gEmissionSwizzled;
     std::optional<Fwog::TextureView> gNormalSwizzled;
     std::optional<Fwog::TextureView> gDepthSwizzled;
     std::optional<Fwog::TextureView> gRsmIlluminanceSwizzled;

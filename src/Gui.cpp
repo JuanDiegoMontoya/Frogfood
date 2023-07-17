@@ -230,12 +230,19 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   if (ImGui::BeginTabItem("G-Buffers"))
   {
     float aspect = float(renderWidth) / renderHeight;
+
     ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedoSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
     ImGui::SameLine();
     ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gNormalSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+
+    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gRoughnessMetallicAoSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    ImGui::SameLine();
+    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gEmissionSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+
     ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gDepthSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
     ImGui::SameLine();
     ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gRsmIlluminanceSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+
     ImGui::EndTabItem();
   }
   if (ImGui::BeginTabItem("RSM Buffers"))

@@ -13,7 +13,11 @@
 #define MESHLET_MATERIAL_ID_MASK ((1u << MESHLET_MATERIAL_ID_BITS) - 1u)
 #define MESHLET_PRIMITIVE_MASK ((1u << MESHLET_PRIMITIVE_BITS) - 1u)
 
-#define MATERIAL_HAS_BASE_COLOR (1u << 0u)
+#define MATERIAL_HAS_BASE_COLOR         (1u << 0u)
+#define MATERIAL_HAS_METALLIC_ROUGHNESS (1u << 1u)
+#define MATERIAL_HAS_NORMAL             (1u << 2u)
+#define MATERIAL_HAS_OCCLUSION          (1u << 3u)
+#define MATERIAL_HAS_EMISSION           (1u << 4u)
 
 struct PackedVec2
 {
@@ -69,9 +73,11 @@ struct GpuMaterial
 {
   uint flags;
   float alphaCutoff;
-  uint pad01;
-  uint pad02;
+  float metallicFactor;
+  float roughnessFactor;
   vec4 baseColorFactor;
+  vec3 emissiveFactor;
+  float emissiveStrength;
 };
 
 layout (std430, binding = 0) restrict readonly buffer MeshletDataBuffer

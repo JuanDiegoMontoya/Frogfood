@@ -13,6 +13,7 @@
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include "ktx.h"
 
@@ -455,29 +456,77 @@ namespace Utility
     {
       FWOG_ASSERT(loaderMaterial.pbrData.has_value());
 
-      glm::vec4 baseColorFactor{};
-      for (int i = 0; i < 4; i++)
-      {
-        loaderMaterial.pbrData->baseColorFactor;
-        baseColorFactor[i] = static_cast<float>(loaderMaterial.pbrData->baseColorFactor[i]);
-      }
-
       Material material;
 
-      if (loaderMaterial.pbrData->baseColorTexture.has_value())
+      if (loaderMaterial.occlusionTexture.has_value())
       {
-        auto baseColorTextureIndex = loaderMaterial.pbrData->baseColorTexture->textureIndex;
-        const auto& baseColorTexture = model.textures[baseColorTextureIndex];
-        auto& image = images[baseColorTexture.imageIndex.value()];
-        material.gpuMaterial.flags |= MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
-        material.albedoTextureSampler = {
-          image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
-          LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
+        material.gpuMaterial.flags |= MaterialFlagBit::HAS_OCCLUSION_TEXTURE;
+        auto occlusionTextureIndex = loaderMaterial.occlusionTexture->textureIndex;
+        const auto& occlusionTexture = model.textures[occlusionTextureIndex];
+        auto& image = images[occlusionTexture.imageIndex.value()];
+        material.occlusionTextureSampler = {
+          image.CreateFormatView(image.GetCreateInfo().format),
+          LoadSampler(model.samplers[occlusionTexture.samplerIndex.value()]),
         };
       }
 
-      material.gpuMaterial.baseColorFactor = baseColorFactor;
-      material.gpuMaterial.alphaCutoff = static_cast<float>(loaderMaterial.alphaCutoff);
+      if (loaderMaterial.emissiveTexture.has_value())
+      {
+        material.gpuMaterial.flags |= MaterialFlagBit::HAS_EMISSION_TEXTURE;
+        auto emissiveTextureIndex = loaderMaterial.emissiveTexture->textureIndex;
+        const auto& emissiveTexture = model.textures[emissiveTextureIndex];
+        auto& image = images[emissiveTexture.imageIndex.value()];
+        material.emissiveTextureSampler = {
+          image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
+          LoadSampler(model.samplers[emissiveTexture.samplerIndex.value()]),
+        };
+      }
+
+      if (loaderMaterial.normalTexture.has_value())
+      {
+        material.gpuMaterial.flags |= MaterialFlagBit::HAS_NORMAL_TEXTURE;
+        auto normalTextureIndex = loaderMaterial.normalTexture->textureIndex;
+        const auto& normalTexture = model.textures[normalTextureIndex];
+        auto& image = images[normalTexture.imageIndex.value()];
+        material.normalTextureSampler = {
+          image.CreateFormatView(image.GetCreateInfo().format),
+          LoadSampler(model.samplers[normalTexture.samplerIndex.value()]),
+        };
+      }
+
+      if (loaderMaterial.pbrData.has_value())
+      {
+        if (loaderMaterial.pbrData->baseColorTexture.has_value())
+        {
+          material.gpuMaterial.flags |= MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
+          auto baseColorTextureIndex = loaderMaterial.pbrData->baseColorTexture->textureIndex;
+          const auto& baseColorTexture = model.textures[baseColorTextureIndex];
+          auto& image = images[baseColorTexture.imageIndex.value()];
+          material.albedoTextureSampler = {
+            image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
+            LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
+          };
+        }
+
+        if (loaderMaterial.pbrData->metallicRoughnessTexture.has_value())
+        {
+          material.gpuMaterial.flags |= MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE;
+          auto metallicRoughnessTextureIndex = loaderMaterial.pbrData->metallicRoughnessTexture->textureIndex;
+          const auto& metallicRoughnessTexture = model.textures[metallicRoughnessTextureIndex];
+          auto& image = images[metallicRoughnessTexture.imageIndex.value()];
+          material.metallicRoughnessTextureSampler = {
+            image.CreateFormatView(image.GetCreateInfo().format),
+            LoadSampler(model.samplers[metallicRoughnessTexture.samplerIndex.value()]),
+          };
+        }
+
+        material.gpuMaterial.baseColorFactor = glm::make_vec4(loaderMaterial.pbrData->baseColorFactor.data());
+        material.gpuMaterial.metallicFactor = loaderMaterial.pbrData->metallicFactor;
+        material.gpuMaterial.roughnessFactor = loaderMaterial.pbrData->roughnessFactor;
+      }
+      material.gpuMaterial.emissiveFactor = glm::make_vec3(loaderMaterial.emissiveFactor.data());
+      material.gpuMaterial.alphaCutoff = loaderMaterial.alphaCutoff;
+      material.gpuMaterial.emissiveStrength = loaderMaterial.emissiveStrength.value_or(1.0f);
       materials.emplace_back(std::move(material));
     }
 
@@ -502,8 +551,8 @@ namespace Utility
   std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool binary, uint32_t baseMaterialIndex)
   {
     using fastgltf::Extensions;
-    constexpr auto gltfExtensions =
-      Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization | Extensions::EXT_meshopt_compression | Extensions::KHR_lights_punctual;
+    constexpr auto gltfExtensions = Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization | Extensions::EXT_meshopt_compression |
+                                    Extensions::KHR_lights_punctual | Extensions::KHR_materials_emissive_strength;
     auto parser = fastgltf::Parser(gltfExtensions);
 
     auto data = fastgltf::GltfDataBuffer();
@@ -511,7 +560,7 @@ namespace Utility
 
     Timer timer;
 
-    auto maybeAsset = [&]
+    auto maybeAsset = [&]() -> fastgltf::Expected<fastgltf::Asset>
     {
       constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages | fastgltf::Options::LoadGLBBuffers;
       if (binary)
@@ -760,14 +809,8 @@ namespace Utility
       scene.primitives.insert(scene.primitives.end(), meshletPrimitives.begin(), meshletPrimitives.end());
     }
     scene.transforms.insert(scene.transforms.end(), transforms.begin(), transforms.end());
-
-    for (auto&& material : loadedScene->materials)
-    {
-      scene.materials.emplace_back(Material{
-        .gpuMaterial = material.gpuMaterial,
-        .albedoTextureSampler = std::move(material.albedoTextureSampler),
-      });
-    }
+    
+    std::ranges::move(loadedScene->materials, std::back_inserter(scene.materials));
 
     return true;
   }

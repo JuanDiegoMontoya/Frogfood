@@ -37,7 +37,11 @@ namespace Utility
 
   enum class MaterialFlagBit
   {
-    HAS_BASE_COLOR_TEXTURE = 1 << 0,
+    HAS_BASE_COLOR_TEXTURE         = 1 << 0,
+    HAS_METALLIC_ROUGHNESS_TEXTURE = 1 << 1,
+    HAS_NORMAL_TEXTURE             = 1 << 2,
+    HAS_OCCLUSION_TEXTURE          = 1 << 3,
+    HAS_EMISSION_TEXTURE           = 1 << 4,
   };
   FWOG_DECLARE_FLAG_TYPE(MaterialFlags, MaterialFlagBit, uint32_t)
 
@@ -45,9 +49,11 @@ namespace Utility
   {
     MaterialFlags flags{};
     float alphaCutoff{};
-    uint32_t pad01{};
-    uint32_t pad02{};
-    glm::vec4 baseColorFactor{};
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
+    glm::vec4 baseColorFactor = {1, 1, 1, 1};
+    glm::vec3 emissiveFactor = {0, 0, 0};
+    float emissiveStrength = 1.0f;
   };
 
   struct GpuMaterialBindless
@@ -62,6 +68,10 @@ namespace Utility
   {
     GpuMaterial gpuMaterial{};
     std::optional<CombinedTextureSampler> albedoTextureSampler;
+    std::optional<CombinedTextureSampler> metallicRoughnessTextureSampler;
+    std::optional<CombinedTextureSampler> normalTextureSampler;
+    std::optional<CombinedTextureSampler> occlusionTextureSampler;
+    std::optional<CombinedTextureSampler> emissiveTextureSampler;
   };
 
   struct Mesh

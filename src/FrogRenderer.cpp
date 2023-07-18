@@ -620,65 +620,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       }
     });
 
-  /*// Render scene geometry to the g-buffer
-  auto gAlbedoAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.gAlbedo.value(),
-    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-  };
-  auto gNormalAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.gNormal.value(),
-    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-  };
-  auto gMotionAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.gMotion.value(),
-    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = {0.f, 0.f, 0.f, 0.f},
-  };
-  auto gDepthAttachment = Fwog::RenderDepthStencilAttachment{
-    .texture = frame.gDepth.value(),
-    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = {.depth = 1.0f},
-  };
-  Fwog::RenderColorAttachment cgAttachments[] = {gAlbedoAttachment, gNormalAttachment, gMotionAttachment};
-  Fwog::Render(
-    {
-      .name = "Base Pass",
-      .viewport =
-        Fwog::Viewport{
-          .drawRect = {{0, 0}, {renderWidth, renderHeight}},
-          //.depthRange = Fwog::ClipDepthRange::NEGATIVE_ONE_TO_ONE,
-        },
-      .colorAttachments = cgAttachments,
-      .depthAttachment = gDepthAttachment,
-    },
-    [&]
-    {
-      Fwog::Cmd::BindGraphicsPipeline(scenePipeline);
-      Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
-      Fwog::Cmd::BindUniformBuffer(2, materialUniformsBuffer);
-
-      Fwog::Cmd::BindStorageBuffer(1, *meshUniformBuffer);
-      for (uint32_t i = 0; i < static_cast<uint32_t>(scene.meshes.size()); i++)
-      {
-        const auto& mesh = scene.meshes[i];
-        const auto& material = scene.materials[mesh.materialIdx];
-        materialUniformsBuffer.UpdateData(material.gpuMaterial);
-        if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE)
-        {
-          const auto& textureSampler = material.albedoTextureSampler.value();
-          auto sampler = textureSampler.sampler;
-          sampler.lodBias = fsr2LodBias;
-          Fwog::Cmd::BindSampledImage(0, textureSampler.texture, Fwog::Sampler(sampler));
-        }
-        Fwog::Cmd::BindVertexBuffer(0, mesh.vertexBuffer, 0, sizeof(Utility::Vertex));
-        Fwog::Cmd::BindIndexBuffer(mesh.indexBuffer, Fwog::IndexType::UNSIGNED_INT);
-        Fwog::Cmd::DrawIndexed(static_cast<uint32_t>(mesh.indexBuffer.Size()) / sizeof(uint32_t), 1, 0, 0, i);
-      }
-    });*/
-
-  rsmUniforms.UpdateData(shadingUniforms.sunViewProj);
 
   /*// Shadow map (RSM) scene pass
+  rsmUniforms.UpdateData(shadingUniforms.sunViewProj);
   auto rcolorAttachment = Fwog::RenderColorAttachment{
     .texture = rsmFlux,
     .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
@@ -752,18 +696,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
                                        frame.gMotion.value());
   }*/
 
-  // clear cluster indices atomic counter
-  // clusterIndicesBuffer.ClearSubData(0, sizeof(uint32_t), Fwog::Format::R32_UINT, Fwog::UploadFormat::R, Fwog::UploadType::UINT, &zero);
-
-  // record active clusters
-  // TODO
-
-  // light culling+cluster assignment
-
-  //
-
   // shading pass (full screen tri)
-
   auto shadingColorAttachment = Fwog::RenderColorAttachment{
     .texture = frame.colorHdrRenderRes.value(),
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,

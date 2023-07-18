@@ -506,6 +506,7 @@ namespace Utility
             image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
             LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
           };
+          material.gpuMaterial.baseColorTextureHandle = material.albedoTextureSampler->texture.GetBindlessHandle(Fwog::Sampler(material.albedoTextureSampler->sampler));
         }
 
         if (loaderMaterial.pbrData->metallicRoughnessTexture.has_value())

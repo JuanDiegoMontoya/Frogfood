@@ -3,6 +3,13 @@
 
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
 #extension GL_NV_gpu_shader5 : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+
+#ifdef GL_EXT_nonuniform_qualifier
+#define NonUniformIndex(x) nonuniformEXT(x)
+#else
+#define NonUniformIndex(x) (x)
+#endif
 
 #define MAX_INDICES 64
 #define MAX_PRIMITIVES 64
@@ -78,6 +85,7 @@ struct GpuMaterial
   vec4 baseColorFactor;
   vec3 emissiveFactor;
   float emissiveStrength;
+  uvec2 baseColorTextureHandle;
 };
 
 layout (std430, binding = 0) restrict readonly buffer MeshletDataBuffer
@@ -121,6 +129,7 @@ layout (binding = 5, std140) uniform PerFrameUniforms
   mat4 proj;
   vec4 cameraPos;
   uint meshletCount;
+  float bindlessSamplerLodBias;
 };
 
 layout (std430, binding = 6) restrict buffer IndirectDrawCommand

@@ -218,20 +218,19 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   if (!filename)
   {
-    // Utility::LoadModelFromFile(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
     Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
     // Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::mat4{.125}, false);
 
-    // Utility::LoadModelFromFile(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
+    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
 
     // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::mat4{.5}, false);
 
-    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::mat4{.25}, true);
-    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::mat4{.25}, true);
-    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::mat4{.25}, true);
-    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::mat4{.25}, true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::mat4{.25}, true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::mat4{.25}, true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::mat4{.25}, true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::mat4{.25}, true);
 
-    // Utility::LoadModelFromFile(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::mat4{0.5f}, true);
+    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::mat4{0.5f}, true);
   }
   else
   {
@@ -437,6 +436,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   mainCameraUniforms.proj = projJittered;
   mainCameraUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
   mainCameraUniforms.meshletCount = meshletCount;
+  mainCameraUniforms.bindlessSamplerLodBias = fsr2LodBias;
 
   globalUniformsBuffer.UpdateData(mainCameraUniforms);
 

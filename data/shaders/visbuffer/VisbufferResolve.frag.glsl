@@ -188,15 +188,15 @@ vec2 MakeSmoothMotion(in PartialDerivatives derivatives, vec4[3] worldPosition)
   return ((smoothOldPos.xy / smoothOldPos.w) - (smoothCurPos.xy / smoothCurPos.w)) * 0.5;
 }
 
-vec3 SampleBaseColor(in GpuMaterial material, in UvGradient uvGrad)
+vec4 SampleBaseColor(in GpuMaterial material, in UvGradient uvGrad)
 {
   if (!bool(material.flags & MATERIAL_HAS_BASE_COLOR))
   {
-    return material.baseColorFactor.rgb;
+    return material.baseColorFactor.rgba;
   }
   return
-    material.baseColorFactor.rgb *
-    textureGrad(s_baseColor, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
+    material.baseColorFactor.rgba *
+    textureGrad(s_baseColor, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgba;
 }
 
 vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad, vec3 faceNormal, mat3 tbn)
@@ -270,7 +270,7 @@ void main()
   const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);
   //const vec3 normal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));
 
-  o_albedo = vec4(SampleBaseColor(material, uvGrad), 1.0);
+  o_albedo = vec4(SampleBaseColor(material, uvGrad).rgb, 1.0);
   o_metallicRoughnessAo = vec3(
     SampleMetallicRoughness(material, uvGrad),
     SampleOcclusion(material, uvGrad));

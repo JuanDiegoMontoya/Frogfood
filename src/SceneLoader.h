@@ -54,6 +54,8 @@ namespace Utility
     glm::vec4 baseColorFactor = {1, 1, 1, 1};
     glm::vec3 emissiveFactor = {0, 0, 0};
     float emissiveStrength = 1.0f;
+    uint64_t baseColorTextureHandle{};
+    uint32_t _padding[2];
   };
 
   struct GpuMaterialBindless
@@ -76,7 +78,6 @@ namespace Utility
 
   struct Mesh
   {
-    //const GeometryBuffers* buffers;
     Fwog::Buffer vertexBuffer;
     Fwog::Buffer indexBuffer;
     uint32_t materialIdx{};

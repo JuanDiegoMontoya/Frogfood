@@ -31,6 +31,8 @@ private:
     glm::mat4 proj;
     glm::vec4 cameraPos;
     uint32_t meshletCount;
+    float bindlessSamplerLodBias;
+    uint32_t _padding[2];
   };
 
   struct ShadingUniforms

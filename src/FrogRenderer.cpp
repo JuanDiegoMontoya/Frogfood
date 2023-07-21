@@ -38,6 +38,31 @@ static Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std:
   return Fwog::Shader(stage, processedSource.get());
 }
 
+static constexpr uint32_t previousPower2(uint32_t x)
+{
+  uint32_t v = 1;
+  while ((v << 1) < x)
+  {
+    v <<= 1;
+  }
+  return v;
+}
+
+static void MakeFrustumPlanes(const glm::mat4& viewProj, glm::vec4(&planes)[6])
+{
+  for (auto i = 0; i < 4; ++i) { planes[0][i] = viewProj[i][3] + viewProj[i][0]; }
+  for (auto i = 0; i < 4; ++i) { planes[1][i] = viewProj[i][3] - viewProj[i][0]; }
+  for (auto i = 0; i < 4; ++i) { planes[2][i] = viewProj[i][3] + viewProj[i][1]; }
+  for (auto i = 0; i < 4; ++i) { planes[3][i] = viewProj[i][3] - viewProj[i][1]; }
+  for (auto i = 0; i < 4; ++i) { planes[4][i] = viewProj[i][3] + viewProj[i][2]; }
+  for (auto i = 0; i < 4; ++i) { planes[5][i] = viewProj[i][3] - viewProj[i][2]; }
+
+  for (auto& plane : planes) {
+      plane = glm::normalize(plane);
+      plane.w = -plane.w;
+  }
+}
+
 static constexpr std::array<Fwog::VertexInputBindingDescription, 3> sceneInputBindingDescs{
   Fwog::VertexInputBindingDescription{
     .location = 0,
@@ -76,6 +101,24 @@ static Fwog::GraphicsPipeline CreateScenePipeline()
 static Fwog::ComputePipeline CreateMeshletGeneratePipeline()
 {
   auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/Visbuffer.comp.glsl");
+
+  return Fwog::ComputePipeline({
+    .shader = &comp,
+  });
+}
+
+static Fwog::ComputePipeline CreateHzbCopyPipeline()
+{
+  auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBCopy.comp.glsl");
+
+  return Fwog::ComputePipeline({
+    .shader = &comp,
+  });
+}
+
+static Fwog::ComputePipeline CreateHzbReducePipeline()
+{
+  auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBReduce.comp.glsl");
 
   return Fwog::ComputePipeline({
     .shader = &comp,
@@ -187,6 +230,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     rsmUniforms(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     // Create the pipelines used in the application
     meshletGeneratePipeline(CreateMeshletGeneratePipeline()),
+    hzbCopyPipeline(CreateHzbCopyPipeline()),
+    hzbReducePipeline(CreateHzbReducePipeline()),
     visbufferPipeline(CreateVisbufferPipeline()),
     materialDepthPipeline(CreateMaterialDepthPipeline()),
     visbufferResolvePipeline(CreateVisbufferResolvePipeline()),
@@ -327,6 +372,13 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
   // Visibility buffer textures
   frame.visbuffer = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R32_UINT, "visbuffer");
   frame.materialDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "materialDepth");
+  {
+    const uint32_t hzbWidth = previousPower2(renderWidth);
+    const uint32_t hzbHeight = previousPower2(renderHeight);
+    const uint32_t hzbMips = 1 + static_cast<uint32_t>(glm::floor(glm::log2(static_cast<float>(glm::max(hzbWidth, hzbHeight)))));
+    frame.hzb = Fwog::CreateTexture2DMip({hzbWidth, hzbHeight}, Fwog::Format::R32_FLOAT, hzbMips, "HZB");
+  }
+
 
   // Create gbuffer textures and render info
   frame.gAlbedo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "gAlbedo");
@@ -379,7 +431,11 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
   }
 }
 
-static glm::vec2 GetJitterOffset(uint32_t frameIndex, uint32_t renderWidth, uint32_t renderHeight, uint32_t windowWidth)
+static glm::vec2 GetJitterOffset(
+  [[maybe_unused]] uint32_t frameIndex,
+  [[maybe_unused]] uint32_t renderWidth,
+  [[maybe_unused]] uint32_t renderHeight,
+  [[maybe_unused]] uint32_t windowWidth)
 {
 #ifdef FROGRENDER_FSR2_ENABLE
   float jitterX{};
@@ -414,6 +470,12 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   ss.compareOp = Fwog::CompareOp::LESS;
   auto shadowSampler = Fwog::Sampler(ss);
 
+  ss = {};
+  ss.minFilter = Fwog::Filter::NEAREST;
+  ss.magFilter = Fwog::Filter::NEAREST;
+  ss.mipmapFilter = Fwog::Filter::NEAREST;
+  auto hzbSampler = Fwog::Sampler(ss);
+
   constexpr float cameraNear = 0.1f;
   constexpr float cameraFar = 100.0f;
   constexpr float cameraFovY = glm::radians(70.f);
@@ -434,6 +496,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   mainCameraUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
   mainCameraUniforms.meshletCount = meshletCount;
   mainCameraUniforms.bindlessSamplerLodBias = fsr2LodBias;
+  MakeFrustumPlanes(viewProjUnjittered, mainCameraUniforms.frustumPlanes);
 
   globalUniformsBuffer.UpdateData(mainCameraUniforms);
 
@@ -455,8 +518,10 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     {
       Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
       Fwog::Cmd::BindStorageBuffer(3, *instancedMeshletBuffer);
+      Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
       Fwog::Cmd::BindStorageBuffer(6, *mesheletIndirectCommand);
       Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
+      Fwog::Cmd::BindSampledImage(0, *frame.hzb, hzbSampler);
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
       Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
       Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
@@ -493,6 +558,28 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*mesheletIndirectCommand, 0, 1, 0);
+    });
+
+  Fwog::Compute(
+    "HZB Build Pass",
+    [&]
+    {
+      Fwog::Cmd::BindImage(0, *frame.hzb, 0);
+      Fwog::Cmd::BindSampledImage(1, *frame.gDepth, hzbSampler);
+      Fwog::Cmd::BindComputePipeline(hzbCopyPipeline);
+      uint32_t hzbCurrentWidth = frame.hzb->GetCreateInfo().extent.width;
+      uint32_t hzbCurrentHeight = frame.hzb->GetCreateInfo().extent.height;
+      const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
+      Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
+      Fwog::Cmd::BindComputePipeline(hzbReducePipeline);
+      for (uint32_t level = 1; level < hzbLevels; ++level) {
+        Fwog::Cmd::BindImage(0, *frame.hzb, level - 1);
+        Fwog::Cmd::BindImage(1, *frame.hzb, level);
+        hzbCurrentWidth = std::max(1u, hzbCurrentWidth >> 1);
+        hzbCurrentHeight = std::max(1u, hzbCurrentHeight >> 1);
+        Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
+      }
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
     });
 
   auto materialDepthAttachment = Fwog::RenderDepthStencilAttachment{

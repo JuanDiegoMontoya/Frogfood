@@ -25,8 +25,8 @@ namespace Utility
 
   struct Box3D
   {
-    glm::vec3 offset;
-    glm::vec3 halfExtent;
+    glm::vec3 min;
+    glm::vec3 max;
   };
 
   struct CombinedTextureSampler
@@ -140,7 +140,8 @@ namespace Utility
     // TODO: One material per meshlet or one material per meshlet instance?
     uint32_t materialId = 0;
     uint32_t instanceId = 0;
-    // TODO: AABB
+    float aabbMin[3] = {};
+    float aabbMax[3] = {};
   };
 
   struct SceneMeshlet

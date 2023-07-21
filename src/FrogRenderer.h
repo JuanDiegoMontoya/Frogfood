@@ -30,6 +30,7 @@ private:
     glm::mat4 invViewProj;
     glm::mat4 proj;
     glm::vec4 cameraPos;
+    glm::vec4 frustumPlanes[6];
     uint32_t meshletCount;
     float bindlessSamplerLodBias;
     uint32_t _padding[2];
@@ -96,6 +97,7 @@ private:
     // Main view visbuffer
     std::optional<Fwog::Texture> visbuffer;
     std::optional<Fwog::Texture> materialDepth;
+    std::optional<Fwog::Texture> hzb;
 
     // G-buffer textures
     std::optional<Fwog::Texture> gAlbedo;
@@ -104,6 +106,7 @@ private:
     std::optional<Fwog::Texture> gEmission;
     std::optional<Fwog::Texture> gMotion;
     std::optional<Fwog::Texture> gDepth;
+
 
     // Previous-frame G-buffer textures used for temporal effects
     std::optional<Fwog::Texture> gNormalPrev;
@@ -163,6 +166,8 @@ private:
   Fwog::TypedBuffer<glm::mat4> rsmUniforms;
 
   Fwog::ComputePipeline meshletGeneratePipeline;
+  Fwog::ComputePipeline hzbCopyPipeline;
+  Fwog::ComputePipeline hzbReducePipeline;
   Fwog::GraphicsPipeline visbufferPipeline;
   Fwog::GraphicsPipeline materialDepthPipeline;
   Fwog::GraphicsPipeline visbufferResolvePipeline;

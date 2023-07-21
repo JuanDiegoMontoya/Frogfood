@@ -673,8 +673,8 @@ namespace Utility
           }
 
           Box3D bbox;
-          bbox.offset = (bboxMin + bboxMax) / 2.0f;
-          bbox.halfExtent = (bboxMax - bboxMin) / 2.0f;
+          bbox.min = bboxMin;
+          bbox.max = bboxMax;
 
           scene.meshes.emplace_back(CpuMesh{
             .vertices = std::move(vertices),
@@ -865,6 +865,15 @@ namespace Utility
 
       for (const auto& meshlet : rawMeshlets)
       {
+        auto min = glm::vec3(std::numeric_limits<float>::max());
+        auto max = glm::vec3(std::numeric_limits<float>::lowest());
+        for (uint32_t i = 0; i < meshlet.triangle_count * 3; ++i)
+        {
+          const auto& vertex = mesh.vertices[meshletIndices[meshlet.vertex_offset + meshletPrimitives[meshlet.triangle_offset + i]]];
+          min = glm::min(min, vertex.position);
+          max = glm::max(max, vertex.position);
+        }
+
         scene.meshlets.emplace_back(Meshlet{
           .vertexOffset = vertexOffset,
           .indexOffset = indexOffset + meshlet.vertex_offset,
@@ -873,6 +882,8 @@ namespace Utility
           .primitiveCount = meshlet.triangle_count,
           .materialId = mesh.materialIdx,
           .instanceId = baseInstanceId + static_cast<uint32_t>(transforms.size()),
+          .aabbMin = { min.x, min.y, min.z },
+          .aabbMax = { max.x, max.y, max.z },
         });
       }
       transforms.emplace_back(mesh.transform);

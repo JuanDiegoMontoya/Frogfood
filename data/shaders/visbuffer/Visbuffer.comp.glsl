@@ -53,10 +53,10 @@ bool IsMeshletOccluded(in vec3 aabbMin, in vec3 aabbMax, in mat4 transform)
   const float height = (box_uvs.w - box_uvs.y) * hzb_size.y;
   const float level = floor(log2(max(width, height)));
   const float[] depth = float[](
-    textureLod(hzb, box_uvs.xy, level),
-    textureLod(hzb, box_uvs.zy, level),
-    textureLod(hzb, box_uvs.xw, level),
-    textureLod(hzb, box_uvs.zw, level));
+    textureLod(hzb, box_uvs.xy, level).x,
+    textureLod(hzb, box_uvs.zy, level).x,
+    textureLod(hzb, box_uvs.xw, level).x,
+    textureLod(hzb, box_uvs.zw, level).x);
   const float min_hzb = min(min(min(depth[0], depth[1]), depth[2]), depth[3]);
   return min_z > min_hzb;
 }

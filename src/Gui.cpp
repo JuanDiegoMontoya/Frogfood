@@ -158,6 +158,16 @@ void FrogRenderer::GuiDrawFsrWindow()
   ImGui::End();
 }
 
+void FrogRenderer::GuiDrawDebugWindow()
+{
+  ImGui::Begin("Debug");
+
+  ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
+  ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
+
+  ImGui::End();
+}
+
 void FrogRenderer::OnGui([[maybe_unused]] double dt)
 {
   GuiDrawDockspace();
@@ -292,4 +302,6 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   ImGui::PopStyleVar();
 
   GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y});
+
+  GuiDrawDebugWindow();
 }

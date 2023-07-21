@@ -714,13 +714,12 @@ namespace Utility
 
         glm::quat rotation = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
         glm::vec3 translation = glm::make_vec3(translationArray.data());
-        glm::vec3 scale = glm::make_vec3(scaleArray.data());
 
         gpuLight.color = glm::make_vec3(light.color.data());
         // We rotate (0, 0, -1) because that is the default, un-rotated direction of spot and directional lights according to the glTF spec
         gpuLight.direction = glm::normalize(rotation) * glm::vec3(0, 0, -1);
         gpuLight.intensity = light.intensity;
-        gpuLight.position = translation / scale;
+        gpuLight.position = translation;
         // If not present, range is infinite
         gpuLight.range = light.range.value_or(std::numeric_limits<float>::infinity());
         gpuLight.innerConeAngle = light.innerConeAngle.value_or(0);

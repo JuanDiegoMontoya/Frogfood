@@ -49,7 +49,7 @@ vec3 PackedToVec3(in PackedVec3 v)
 struct Vertex
 {
   PackedVec3 position;
-  uint normal; // Octrahedral encoding: decode with unpackSnorm2x16 and OctToFloat32x3
+  uint normal; // Octahedral encoding: decode with unpackSnorm2x16 and OctToFloat32x3
   PackedVec2 uv;
 };
 

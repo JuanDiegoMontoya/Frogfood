@@ -350,25 +350,19 @@ namespace Utility
 
       if (auto* trs = std::get_if<fastgltf::Node::TRS>(&node.transform))
       {
+        // Do not use glm::make_quat because glm and glTF use different quaternion component layouts
         auto rotation = glm::quat{trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
-        auto scale = glm::vec3{trs->scale[0], trs->scale[1], trs->scale[2]};
-        auto translation = glm::vec3{trs->translation[0], trs->translation[1], trs->translation[2]};
+        const auto scale = glm::make_vec3(trs->scale.data());
+        const auto translation = glm::make_vec3(trs->translation.data());
 
-        glm::mat4 rotationMat = glm::mat4_cast(rotation);
+        const glm::mat4 rotationMat = glm::mat4_cast(rotation);
 
         // T * R * S
         transform = glm::scale(glm::translate(translation) * rotationMat, scale);
       }
       else if (auto* mat = std::get_if<fastgltf::Node::TransformMatrix>(&node.transform))
       {
-        const auto& m = *mat;
-        // clang-format off
-        transform = { 
-          m[0], m[1], m[2], m[3], 
-          m[4], m[5], m[6], m[7], 
-          m[8], m[9], m[10], m[11], 
-          m[12], m[13], m[14], m[15], };
-        // clang-format on
+        transform = glm::make_mat4(mat->data());
       }
       // else node has identity transform
 
@@ -455,8 +449,6 @@ namespace Utility
 
     for (const auto& loaderMaterial : model.materials)
     {
-      FWOG_ASSERT(loaderMaterial.pbrData.has_value());
-
       Material material;
 
       if (loaderMaterial.occlusionTexture.has_value())
@@ -494,39 +486,37 @@ namespace Utility
           LoadSampler(model.samplers[normalTexture.samplerIndex.value()]),
         };
       }
-
-      if (loaderMaterial.pbrData.has_value())
+      
+      if (loaderMaterial.pbrData.baseColorTexture.has_value())
       {
-        if (loaderMaterial.pbrData->baseColorTexture.has_value())
-        {
-          material.gpuMaterial.flags |= MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
-          auto baseColorTextureIndex = loaderMaterial.pbrData->baseColorTexture->textureIndex;
-          const auto& baseColorTexture = model.textures[baseColorTextureIndex];
-          auto& image = images[baseColorTexture.imageIndex.value()];
-          material.albedoTextureSampler = {
-            image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
-            LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
-          };
-          material.gpuMaterial.baseColorTextureHandle =
-            material.albedoTextureSampler->texture.GetBindlessHandle(Fwog::Sampler(material.albedoTextureSampler->sampler));
-        }
-
-        if (loaderMaterial.pbrData->metallicRoughnessTexture.has_value())
-        {
-          material.gpuMaterial.flags |= MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE;
-          auto metallicRoughnessTextureIndex = loaderMaterial.pbrData->metallicRoughnessTexture->textureIndex;
-          const auto& metallicRoughnessTexture = model.textures[metallicRoughnessTextureIndex];
-          auto& image = images[metallicRoughnessTexture.imageIndex.value()];
-          material.metallicRoughnessTextureSampler = {
-            image.CreateFormatView(image.GetCreateInfo().format),
-            LoadSampler(model.samplers[metallicRoughnessTexture.samplerIndex.value()]),
-          };
-        }
-
-        material.gpuMaterial.baseColorFactor = glm::make_vec4(loaderMaterial.pbrData->baseColorFactor.data());
-        material.gpuMaterial.metallicFactor = loaderMaterial.pbrData->metallicFactor;
-        material.gpuMaterial.roughnessFactor = loaderMaterial.pbrData->roughnessFactor;
+        material.gpuMaterial.flags |= MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
+        auto baseColorTextureIndex = loaderMaterial.pbrData.baseColorTexture->textureIndex;
+        const auto& baseColorTexture = model.textures[baseColorTextureIndex];
+        auto& image = images[baseColorTexture.imageIndex.value()];
+        material.albedoTextureSampler = {
+          image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
+          LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
+        };
+        material.gpuMaterial.baseColorTextureHandle =
+          material.albedoTextureSampler->texture.GetBindlessHandle(Fwog::Sampler(material.albedoTextureSampler->sampler));
       }
+
+      if (loaderMaterial.pbrData.metallicRoughnessTexture.has_value())
+      {
+        material.gpuMaterial.flags |= MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE;
+        auto metallicRoughnessTextureIndex = loaderMaterial.pbrData.metallicRoughnessTexture->textureIndex;
+        const auto& metallicRoughnessTexture = model.textures[metallicRoughnessTextureIndex];
+        auto& image = images[metallicRoughnessTexture.imageIndex.value()];
+        material.metallicRoughnessTextureSampler = {
+          image.CreateFormatView(image.GetCreateInfo().format),
+          LoadSampler(model.samplers[metallicRoughnessTexture.samplerIndex.value()]),
+        };
+      }
+
+      material.gpuMaterial.baseColorFactor = glm::make_vec4(loaderMaterial.pbrData.baseColorFactor.data());
+      material.gpuMaterial.metallicFactor = loaderMaterial.pbrData.metallicFactor;
+      material.gpuMaterial.roughnessFactor = loaderMaterial.pbrData.roughnessFactor;
+
       material.gpuMaterial.emissiveFactor = glm::make_vec3(loaderMaterial.emissiveFactor.data());
       material.gpuMaterial.alphaCutoff = loaderMaterial.alphaCutoff;
       material.gpuMaterial.emissiveStrength = loaderMaterial.emissiveStrength.value_or(1.0f);
@@ -644,8 +634,8 @@ namespace Utility
 
       // std::cout << "Node: " << node->name << '\n';
 
-      glm::mat4 localTransform = NodeToMat4(*node);
-      glm::mat4 globalTransform = parentGlobalTransform * localTransform;
+      const glm::mat4 localTransform = NodeToMat4(*node);
+      const glm::mat4 globalTransform = parentGlobalTransform * localTransform;
 
       for (auto childNodeIndex : node->children)
       {
@@ -696,9 +686,9 @@ namespace Utility
         }
       }
 
-      if (node->lightsIndex.has_value())
+      if (node->lightIndex.has_value())
       {
-        const auto& light = asset.lights[node->lightsIndex.value()];
+        const auto& light = asset.lights[*node->lightIndex];
 
         GpuLight gpuLight{};
 
@@ -714,20 +704,23 @@ namespace Utility
         {
           gpuLight.type = LightType::POINT;
         }
+        
+        std::array<float, 16> globalTransformArray{};
+        std::copy_n(&globalTransform[0][0], 16, globalTransformArray.data());
+        std::array<float, 3> scaleArray{};
+        std::array<float, 4> rotationArray{};
+        std::array<float, 3> translationArray{};
+        fastgltf::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
 
-        glm::vec3 scale;
-        glm::quat rotation;
-        glm::vec3 translation;
-        glm::vec3 skew;
-        glm::vec4 perspective;
-        glm::decompose(globalTransform, scale, rotation, translation, skew, perspective);
+        glm::quat rotation = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
+        glm::vec3 translation = glm::make_vec3(translationArray.data());
+        glm::vec3 scale = glm::make_vec3(scaleArray.data());
 
         gpuLight.color = glm::make_vec3(light.color.data());
-        // Quaternions effectively encode angle + axis, but we only care about the axis for lights
-        // Also, the conjugate of the rotation is taken because glm::decompose gives us the wrong rotation
-        gpuLight.direction = glm::axis(glm::conjugate(rotation));
+        // We rotate (0, 0, -1) because that is the default, un-rotated direction of spot and directional lights according to the glTF spec
+        gpuLight.direction = glm::normalize(rotation) * glm::vec3(0, 0, -1);
         gpuLight.intensity = light.intensity;
-        gpuLight.position = translation;
+        gpuLight.position = translation / scale;
         // If not present, range is infinite
         gpuLight.range = light.range.value_or(std::numeric_limits<float>::infinity());
         gpuLight.innerConeAngle = light.innerConeAngle.value_or(0);

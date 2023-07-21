@@ -61,14 +61,6 @@ private:
     float sourceAngleRad = 0.05f;
   };
 
-  struct alignas(16) Light
-  {
-    glm::vec4 position;
-    glm::vec3 intensity;
-    float invRadius;
-    // uint32_t type; // 0 = point, 1 = spot
-  };
-
   void OnWindowResize(uint32_t newWidth, uint32_t newHeight) override;
   void OnUpdate(double dt) override;
   void OnRender(double dt) override;
@@ -182,7 +174,9 @@ private:
 
   // Scene
   Utility::SceneMeshlet scene;
-  std::optional<Fwog::TypedBuffer<Light>> lightBuffer;
+
+  // Punctual lights
+  std::optional<Fwog::TypedBuffer<Utility::GpuLight>> lightBuffer;
   std::optional<Fwog::TypedBuffer<ObjectUniforms>> meshUniformBuffer;
 
   // Post processing

@@ -219,6 +219,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   if (!filename)
   {
     Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
+    //Utility::LoadModelFromFileMeshlet(scene, "models/light_test.glb", glm::mat4{.125}, true);
     // Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::mat4{.125}, false);
 
     // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
@@ -236,6 +237,10 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   {
     Utility::LoadModelFromFileMeshlet(scene, *filename, glm::scale(glm::vec3{scale}), binary);
   }
+  
+  lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights);
+
+  printf("Loaded %zu lights\n", scene.lights.size());
 
   meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(scene.meshlets);
   vertexBuffer = Fwog::TypedBuffer<Utility::Vertex>(scene.vertices);
@@ -258,15 +263,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     meshUniforms.push_back({scene.transforms[i]});
   }
 
-  //////////////////////////////////////// Clustered rendering stuff
-  std::vector<Light> lights;
-  // lights.push_back(Light{ .position = { 3, 2, 0, 0 }, .intensity = { .2f, .8f, 1.0f }, .invRadius = 1.0f / 4.0f });
-  // lights.push_back(Light{ .position = { 3, -2, 0, 0 }, .intensity = { .7f, .8f, 0.1f }, .invRadius = 1.0f / 2.0f });
-  // lights.push_back(Light{ .position = { 3, 2, 0, 0 }, .intensity = { 1.2f, .8f, .1f }, .invRadius = 1.0f / 6.0f });
-
   meshUniformBuffer.emplace(meshUniforms, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-
-  lightBuffer.emplace(lights, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   // clusterTexture({.imageType = Fwog::ImageType::TEX_3D,
   //                                      .format = Fwog::Format::R16G16_UINT,

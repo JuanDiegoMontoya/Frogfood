@@ -48,21 +48,32 @@ layout(binding = 2, std140) uniform ShadowUniforms
   float sourceAngleRad;
 }shadowUniforms;
 
-struct Light
+#define LIGHT_TYPE_DIRECTIONAL 0
+#define LIGHT_TYPE_POINT 1
+#define LIGHT_TYPE_SPOT 2
+
+struct GpuLight
 {
-  vec4 position;
-  vec3 intensity;
-  float invRadius;
+  vec3 color;
+  uint type;
+  vec3 direction;  // Directional and spot only
+  // Point and spot lights use candela (lm/sr) while directional use lux (lm/m^2)
+  float intensity;
+  vec3 position;        // Point and spot only
+  float range;          // Point and spot only
+  float innerConeAngle; // Spot only
+  float outerConeAngle; // Spot only
+  uint _padding[2];
 };
 
 layout(binding = 0, std430) readonly buffer LightBuffer
 {
-  Light lights[];
+  GpuLight lights[];
 }lightBuffer;
 
 vec3 UnprojectUV(float depth, vec2 uv, mat4 invXProj)
 {
-  float z = depth * 2.0 - 1.0; // OpenGL Z convention
+  float z = depth;// * 2.0 - 1.0; // OpenGL Z convention
   vec4 ndc = vec4(uv * 2.0 - 1.0, z, 1.0);
   vec4 world = invXProj * ndc;
   return world.xyz / world.w;
@@ -218,7 +229,7 @@ vec3 LocalLightIntensity(vec3 fragWorldPos, vec3 N, vec3 V, vec3 albedo)
 
   for (int i = 0; i < lightBuffer.lights.length(); i++)
   {
-    Light light = lightBuffer.lights[i];
+    GpuLight light = lightBuffer.lights[i];
     vec3 L = normalize(light.position.xyz - fragWorldPos);
     float NoL = max(dot(N, L), 0.0);
     vec3 diffuse = albedo * NoL * light.intensity;
@@ -227,8 +238,20 @@ vec3 LocalLightIntensity(vec3 fragWorldPos, vec3 N, vec3 V, vec3 albedo)
     float spec = pow(max(dot(N, H), 0.0), 64.0);
     vec3 specular = albedo * spec * light.intensity;
 
-    vec3 localColor = diffuse + specular;
-    localColor *= GetSquareFalloffAttenuation(light.position.xyz - fragWorldPos, light.invRadius);
+    vec3 localColor = (diffuse + specular) * light.color;
+
+    localColor *= GetSquareFalloffAttenuation(light.position - fragWorldPos, 1.0 / light.range);
+
+    if (light.type == LIGHT_TYPE_SPOT)
+    {
+      float lightAngleScale = 1.0f / max(0.001, cos(light.innerConeAngle) - cos(light.outerConeAngle));
+      float lightAngleOffset = -cos(light.outerConeAngle) * lightAngleScale;
+
+      float cd = dot(-light.direction, L);
+      float angularAttenuation = clamp(cd * lightAngleScale + lightAngleOffset, 0.0, 1.0);
+      angularAttenuation *= angularAttenuation;
+      localColor *= angularAttenuation;
+    }
 
     color += localColor;
   }

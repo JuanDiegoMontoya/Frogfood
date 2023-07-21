@@ -12,8 +12,9 @@
 #include <stack>
 
 #include <glm/gtc/quaternion.hpp>
-#include <glm/gtx/transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/transform.hpp>
 
 #include "ktx.h"
 
@@ -506,7 +507,8 @@ namespace Utility
             image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
             LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
           };
-          material.gpuMaterial.baseColorTextureHandle = material.albedoTextureSampler->texture.GetBindlessHandle(Fwog::Sampler(material.albedoTextureSampler->sampler));
+          material.gpuMaterial.baseColorTextureHandle =
+            material.albedoTextureSampler->texture.GetBindlessHandle(Fwog::Sampler(material.albedoTextureSampler->sampler));
         }
 
         if (loaderMaterial.pbrData->metallicRoughnessTexture.has_value())
@@ -534,6 +536,37 @@ namespace Utility
     return materials;
   }
 
+  std::vector<GpuLight> LoadLights(const fastgltf::Asset& model)
+  {
+    std::vector<GpuLight> lights;
+    lights.reserve(model.lights.size());
+
+    for (const auto& light : model.lights)
+    {
+      GpuLight gpuLight{};
+
+      gpuLight.color = glm::make_vec3(light.color.data());
+      gpuLight.intensity = light.intensity;
+
+      if (light.type == fastgltf::LightType::Directional)
+      {
+        gpuLight.type = LightType::DIRECTIONAL;
+      }
+      else if (light.type == fastgltf::LightType::Spot)
+      {
+        gpuLight.type = LightType::SPOT;
+      }
+      else
+      {
+        gpuLight.type = LightType::POINT;
+      }
+
+      lights.push_back(gpuLight);
+    }
+
+    return lights;
+  }
+
   struct CpuMesh
   {
     std::vector<Vertex> vertices;
@@ -547,6 +580,7 @@ namespace Utility
   {
     std::vector<CpuMesh> meshes;
     std::vector<Material> materials;
+    std::vector<GpuLight> lights;
   };
 
   std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool binary, uint32_t baseMaterialIndex)
@@ -655,11 +689,51 @@ namespace Utility
           scene.meshes.emplace_back(CpuMesh{
             .vertices = std::move(vertices),
             .indices = std::move(indices),
-            .materialIdx = baseMaterialIndex + std::max(uint32_t(primitive.materialIndex.value()), uint32_t(0)),
+            .materialIdx = primitive.materialIndex.has_value() ? baseMaterialIndex + uint32_t(primitive.materialIndex.value()) : 0,
             .transform = globalTransform,
             .boundingBox = bbox,
           });
         }
+      }
+
+      if (node->lightsIndex.has_value())
+      {
+        const auto& light = asset.lights[node->lightsIndex.value()];
+
+        GpuLight gpuLight{};
+
+        if (light.type == fastgltf::LightType::Directional)
+        {
+          gpuLight.type = LightType::DIRECTIONAL;
+        }
+        else if (light.type == fastgltf::LightType::Spot)
+        {
+          gpuLight.type = LightType::SPOT;
+        }
+        else
+        {
+          gpuLight.type = LightType::POINT;
+        }
+
+        glm::vec3 scale;
+        glm::quat rotation;
+        glm::vec3 translation;
+        glm::vec3 skew;
+        glm::vec4 perspective;
+        glm::decompose(globalTransform, scale, rotation, translation, skew, perspective);
+
+        gpuLight.color = glm::make_vec3(light.color.data());
+        // Quaternions effectively encode angle + axis, but we only care about the axis for lights
+        // Also, the conjugate of the rotation is taken because glm::decompose gives us the wrong rotation
+        gpuLight.direction = glm::axis(glm::conjugate(rotation));
+        gpuLight.intensity = light.intensity;
+        gpuLight.position = translation;
+        // If not present, range is infinite
+        gpuLight.range = light.range.value_or(std::numeric_limits<float>::infinity());
+        gpuLight.innerConeAngle = light.innerConeAngle.value_or(0);
+        gpuLight.outerConeAngle = light.outerConeAngle.value_or(0);
+
+        scene.lights.push_back(gpuLight);
       }
     }
 
@@ -744,6 +818,14 @@ namespace Utility
 
   bool LoadModelFromFileMeshlet(SceneMeshlet& scene, std::string_view fileName, glm::mat4 rootTransform, bool binary)
   {
+    // If the scene has no materials, give it a default material
+    if (scene.materials.empty())
+    {
+      scene.materials.emplace_back(GpuMaterial{
+        .metallicFactor = 0,
+      });
+    }
+
     const auto baseMaterialIndex = static_cast<uint32_t>(scene.materials.size());
     const auto baseVertexOffset = scene.vertices.size();
     const auto baseIndexOffset = scene.indices.size();
@@ -810,8 +892,9 @@ namespace Utility
       scene.primitives.insert(scene.primitives.end(), meshletPrimitives.begin(), meshletPrimitives.end());
     }
     scene.transforms.insert(scene.transforms.end(), transforms.begin(), transforms.end());
-    
+
     std::ranges::move(loadedScene->materials, std::back_inserter(scene.materials));
+    std::ranges::move(loadedScene->lights, std::back_inserter(scene.lights));
 
     return true;
   }

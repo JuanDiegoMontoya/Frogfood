@@ -560,7 +560,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
-  mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
+  if (updateCullingFrustum) {
+    mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
+  }
   mainCameraUniforms.viewProjUnjittered = viewProjUnjittered;
   mainCameraUniforms.viewProj = viewProj;
   mainCameraUniforms.invViewProj = glm::inverse(mainCameraUniforms.viewProj);

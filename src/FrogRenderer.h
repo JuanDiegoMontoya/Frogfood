@@ -6,6 +6,8 @@
 
 #include <Fwog/Texture.h>
 
+#include <array>
+
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
   #include "src/ffx-fsr2-api/gl/ffx_fsr2_gl.h"

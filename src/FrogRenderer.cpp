@@ -560,7 +560,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
-  if (updateCullingFrustum) {
+  // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
+  if (executeMeshletGeneration)
+  {
     mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
   }
   mainCameraUniforms.viewProjUnjittered = viewProjUnjittered;
@@ -656,7 +658,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
         Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
         Fwog::Cmd::BindComputePipeline(hzbReducePipeline);
-        for (uint32_t level = 1; level < hzbLevels; ++level) {
+        for (uint32_t level = 1; level < hzbLevels; ++level)
+        {
           Fwog::Cmd::BindImage(0, *frame.hzb, level - 1);
           Fwog::Cmd::BindImage(1, *frame.hzb, level);
           hzbCurrentWidth = std::max(1u, hzbCurrentWidth >> 1);

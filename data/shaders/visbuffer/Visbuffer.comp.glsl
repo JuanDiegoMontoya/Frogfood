@@ -33,9 +33,9 @@ bool IsMeshletOccluded(in vec3 aabbMin, in vec3 aabbMax, in mat4 transform)
     aabbMin + vec3(0.0, aabbSize.yz),
     aabbMin + vec3(aabbSize.x, 0.0, aabbSize.z),
     aabbMin + aabbSize);
-  float min_z = 0.0;
-  vec2 min_xy = vec2(1.0);
-  vec2 max_xy = vec2(0.0);
+  float minZ = 1.0;
+  vec2 minXY = vec2(1.0);
+  vec2 maxXY = vec2(0.0);
   for (uint i = 0; i < 8; ++i)
   {
     vec4 clip = oldViewProjUnjittered * transform * vec4(aabbCorners[i], 1.0);
@@ -43,22 +43,22 @@ bool IsMeshletOccluded(in vec3 aabbMin, in vec3 aabbMax, in mat4 transform)
     clip /= clip.w;
     clip.xy = clamp(clip.xy, -1.0, 1.0);
     clip.xy = clip.xy * 0.5 + 0.5;
-    min_xy = min(min_xy, clip.xy);
-    max_xy = max(max_xy, clip.xy);
-    min_z = clamp(min(min_z, clip.z), 0.0, 1.0);
+    minXY = min(minXY, clip.xy);
+    maxXY = max(maxXY, clip.xy);
+    minZ = clamp(min(minZ, clip.z), 0.0, 1.0);
   }
-  const vec4 box_uvs = vec4(min_xy, max_xy);
-  const vec2 hzb_size = vec2(textureSize(hzb, 0));
-  const float width = (box_uvs.z - box_uvs.x) * hzb_size.x;
-  const float height = (box_uvs.w - box_uvs.y) * hzb_size.y;
+  const vec4 boxUvs = vec4(minXY, maxXY);
+  const vec2 hzbSize = vec2(textureSize(hzb, 0));
+  const float width = (boxUvs.z - boxUvs.x) * hzbSize.x;
+  const float height = (boxUvs.w - boxUvs.y) * hzbSize.y;
   const float level = floor(log2(max(width, height)));
   const float[] depth = float[](
-    textureLod(hzb, box_uvs.xy, level).x,
-    textureLod(hzb, box_uvs.zy, level).x,
-    textureLod(hzb, box_uvs.xw, level).x,
-    textureLod(hzb, box_uvs.zw, level).x);
-  const float min_hzb = min(min(min(depth[0], depth[1]), depth[2]), depth[3]);
-  return min_z > min_hzb;
+    textureLod(hzb, boxUvs.xy, level).x,
+    textureLod(hzb, boxUvs.zy, level).x,
+    textureLod(hzb, boxUvs.xw, level).x,
+    textureLod(hzb, boxUvs.zw, level).x);
+  const float maxHZB = max(max(max(depth[0], depth[1]), depth[2]), depth[3]);
+  return minZ >= maxHZB;
 }
 
 bool IsMeshletVisible(in uint meshletId)
@@ -93,8 +93,8 @@ bool IsMeshletVisible(in uint meshletId)
       return false;
     }
   }
-  //return !IsMeshletOccluded(aabbMin, aabbMax, transform);
-  return true;
+  return !IsMeshletOccluded(aabbMin, aabbMax, transform);
+  //return true;
 }
 
 void main()

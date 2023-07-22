@@ -298,8 +298,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   if (!filename)
   {
-    //Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.125}), true);
-    Utility::LoadModelFromFileMeshlet(scene, "models/light_test.glb", glm::scale(glm::vec3{.125}), true);
+    Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.125}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "models/light_test.glb", glm::scale(glm::vec3{.125}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.125}), true);
@@ -560,7 +560,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
-  mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
+  if (updateCullingFrustum) {
+    mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
+  }
   mainCameraUniforms.viewProjUnjittered = viewProjUnjittered;
   mainCameraUniforms.viewProj = viewProj;
   mainCameraUniforms.invViewProj = glm::inverse(mainCameraUniforms.viewProj);
@@ -636,27 +638,30 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::DrawIndexedIndirect(*mesheletIndirectCommand, 0, 1, 0);
     });
 
-  Fwog::Compute(
-    "HZB Build Pass",
-    [&]
-    {
-      Fwog::Cmd::BindImage(0, *frame.hzb, 0);
-      Fwog::Cmd::BindSampledImage(1, *frame.gDepth, hzbSampler);
-      Fwog::Cmd::BindComputePipeline(hzbCopyPipeline);
-      uint32_t hzbCurrentWidth = frame.hzb->GetCreateInfo().extent.width;
-      uint32_t hzbCurrentHeight = frame.hzb->GetCreateInfo().extent.height;
-      const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
-      Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
-      Fwog::Cmd::BindComputePipeline(hzbReducePipeline);
-      for (uint32_t level = 1; level < hzbLevels; ++level) {
-        Fwog::Cmd::BindImage(0, *frame.hzb, level - 1);
-        Fwog::Cmd::BindImage(1, *frame.hzb, level);
-        hzbCurrentWidth = std::max(1u, hzbCurrentWidth >> 1);
-        hzbCurrentHeight = std::max(1u, hzbCurrentHeight >> 1);
+  if (updateCullingFrustum)
+  {
+    Fwog::Compute("HZB Build Pass",
+      [&]
+      {
+        Fwog::Cmd::BindImage(0, *frame.hzb, 0);
+        Fwog::Cmd::BindSampledImage(1, *frame.gDepth, hzbSampler);
+        Fwog::Cmd::BindComputePipeline(hzbCopyPipeline);
+        uint32_t hzbCurrentWidth = frame.hzb->GetCreateInfo().extent.width;
+        uint32_t hzbCurrentHeight = frame.hzb->GetCreateInfo().extent.height;
+        const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
         Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
-      }
-      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
-    });
+        Fwog::Cmd::BindComputePipeline(hzbReducePipeline);
+        for (uint32_t level = 1; level < hzbLevels; ++level)
+        {
+          Fwog::Cmd::BindImage(0, *frame.hzb, level - 1);
+          Fwog::Cmd::BindImage(1, *frame.hzb, level);
+          hzbCurrentWidth = std::max(1u, hzbCurrentWidth >> 1);
+          hzbCurrentHeight = std::max(1u, hzbCurrentHeight >> 1);
+          Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
+        }
+        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
+      });
+  }
 
   auto materialDepthAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = frame.materialDepth.value(),

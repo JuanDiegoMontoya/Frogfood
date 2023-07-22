@@ -32,7 +32,7 @@ private:
     glm::mat4 invViewProj;
     glm::mat4 proj;
     glm::vec4 cameraPos;
-    std::array<glm::vec4, 6> frustumPlanes;
+    glm::vec4 frustumPlanes[6];
     uint32_t meshletCount;
     float bindlessSamplerLodBias;
     uint32_t _padding[2];

@@ -20,7 +20,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     fastgltf
     GIT_REPOSITORY https://github.com/spnda/fastgltf.git
-    GIT_TAG        822217ebb598e48218e0e95ec5868c2d957cfd64
+    GIT_TAG        c15b151c204de0af45c97940a0750c3169407752
 )
 
 FetchContent_Declare(
@@ -32,7 +32,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     fwog
     GIT_REPOSITORY https://github.com/JuanDiegoMontoya/Fwog.git
-    GIT_TAG        bb1d98bd3c8e05df240e1a23ce7d21ac81b06ac1
+    GIT_TAG        v0.2.1
 )
 
 FetchContent_Declare(

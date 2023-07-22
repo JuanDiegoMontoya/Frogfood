@@ -15,7 +15,6 @@
 #include <stb_include.h>
 
 #include <glm/gtx/transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -49,9 +48,8 @@ static constexpr uint32_t previousPower2(uint32_t x)
   return v;
 }
 
-static std::array<glm::vec4, 6> MakeFrustumPlanes(const glm::mat4& viewProj)
+static void MakeFrustumPlanes(const glm::mat4& viewProj, glm::vec4(&planes)[6])
 {
-  auto planes = std::array<glm::vec4, 6>();
   for (auto i = 0; i < 4; ++i) { planes[0][i] = viewProj[i][3] + viewProj[i][0]; }
   for (auto i = 0; i < 4; ++i) { planes[1][i] = viewProj[i][3] - viewProj[i][0]; }
   for (auto i = 0; i < 4; ++i) { planes[2][i] = viewProj[i][3] + viewProj[i][1]; }
@@ -59,11 +57,18 @@ static std::array<glm::vec4, 6> MakeFrustumPlanes(const glm::mat4& viewProj)
   for (auto i = 0; i < 4; ++i) { planes[4][i] = viewProj[i][3] + viewProj[i][2]; }
   for (auto i = 0; i < 4; ++i) { planes[5][i] = viewProj[i][3] - viewProj[i][2]; }
 
-  for (auto i = 0; i < 6; ++i) {
-    planes[i] /= glm::length(glm::vec3(planes[i]));
-    planes[i].w = -planes[i].w;
+  for (auto& plane : planes) {
+      plane = glm::normalize(plane);
+      plane.w = -plane.w;
   }
-  return planes;
+}
+
+// Zero-origin unprojection. E.g., pass sampled depth, screen UV, and invViewProj to get a world-space pos
+static glm::vec3 UnprojectUV_ZO(float depth, glm::vec2 uv, const glm::mat4& invXProj)
+{
+  glm::vec4 ndc = glm::vec4(uv * 2.0f - 1.0f, depth, 1.0f);
+  glm::vec4 world = invXProj * ndc;
+  return glm::vec3(world) / world.w;
 }
 
 static constexpr std::array<Fwog::VertexInputBindingDescription, 3> sceneInputBindingDescs{
@@ -217,6 +222,32 @@ static Fwog::GraphicsPipeline CreateDebugTexturePipeline()
   });
 }
 
+static Fwog::GraphicsPipeline CreateDebugLinesPipeline()
+{
+  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/Debug.vert.glsl"));
+  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/Flat.frag.glsl"));
+
+  auto inputBinding = Fwog::VertexInputBindingDescription{
+    .location = 0,
+    .binding = 0,
+    .format = Fwog::Format::R32G32B32_FLOAT,
+    .offset = 0,
+  };
+
+  return Fwog::GraphicsPipeline({
+    .vertexShader = &vs,
+    .fragmentShader = &fs,
+    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::LINE_LIST},
+    .vertexInputState = {{&inputBinding, 1}},
+    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+    .depthState =
+      {
+        .depthTestEnable = true,
+        .depthWriteEnable = false,
+      },
+  });
+}
+
 FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optional<std::string_view> filename, float scale, bool binary)
   : Application(createInfo),
     // Create RSM textures
@@ -242,7 +273,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     rsmScenePipeline(CreateShadowPipeline()),
     shadingPipeline(CreateShadingPipeline()),
     postprocessingPipeline(CreatePostprocessingPipeline()),
-    debugTexturePipeline(CreateDebugTexturePipeline())
+    debugTexturePipeline(CreateDebugTexturePipeline()),
+    debugLinesPipeline(CreateDebugLinesPipeline())
 {
   int x = 0;
   int y = 0;
@@ -261,29 +293,36 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   cursorIsActive = true;
 
-  cameraSpeed = 2.5f;
+  cameraSpeed = 3.5f;
   mainCamera.position.y = 1;
 
   if (!filename)
   {
-    Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::mat4{.125}, true);
-    // Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::mat4{.125}, false);
+    //Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.125}), true);
+    Utility::LoadModelFromFileMeshlet(scene, "models/light_test.glb", glm::scale(glm::vec3{.125}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
-    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::mat4{.125}, true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.125}), true);
 
-    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::mat4{.5}, false);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}), false);
 
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::mat4{.25}, true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::mat4{.25}, true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::mat4{.25}, true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::mat4{.25}, true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{.25}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{.25}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::scale(glm::vec3{.25}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::scale(glm::vec3{.25}), true);
 
-    // Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::mat4{0.5f}, true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{0.5f}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{.5}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_inverted_cube.glb", glm::scale(glm::vec3{.25}), true);
   }
   else
   {
     Utility::LoadModelFromFileMeshlet(scene, *filename, glm::scale(glm::vec3{scale}), binary);
   }
+  
+  lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights);
+
+  printf("Loaded %zu lights\n", scene.lights.size());
 
   meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(scene.meshlets);
   vertexBuffer = Fwog::TypedBuffer<Utility::Vertex>(scene.vertices);
@@ -306,15 +345,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     meshUniforms.push_back({scene.transforms[i]});
   }
 
-  //////////////////////////////////////// Clustered rendering stuff
-  std::vector<Light> lights;
-  // lights.push_back(Light{ .position = { 3, 2, 0, 0 }, .intensity = { .2f, .8f, 1.0f }, .invRadius = 1.0f / 4.0f });
-  // lights.push_back(Light{ .position = { 3, -2, 0, 0 }, .intensity = { .7f, .8f, 0.1f }, .invRadius = 1.0f / 2.0f });
-  // lights.push_back(Light{ .position = { 3, 2, 0, 0 }, .intensity = { 1.2f, .8f, .1f }, .invRadius = 1.0f / 6.0f });
-
   meshUniformBuffer.emplace(meshUniforms, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-
-  lightBuffer.emplace(lights, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   // clusterTexture({.imageType = Fwog::ImageType::TEX_3D,
   //                                      .format = Fwog::Format::R16G16_UINT,
@@ -421,6 +452,41 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
 {
   frameIndex++;
 
+  debugLines.clear();
+
+  if (debugDisplayMainFrustum)
+  {
+    auto invViewProj = glm::inverse(debugMainViewProj);
+
+    // Get frustum corners in world space
+    auto tln = UnprojectUV_ZO(0, {0, 1}, invViewProj);
+    auto trn = UnprojectUV_ZO(0, {1, 1}, invViewProj);
+    auto bln = UnprojectUV_ZO(0, {0, 0}, invViewProj);
+    auto brn = UnprojectUV_ZO(0, {1, 0}, invViewProj);
+
+    auto tlf = UnprojectUV_ZO(1, {0, 1}, invViewProj);
+    auto trf = UnprojectUV_ZO(1, {1, 1}, invViewProj);
+    auto blf = UnprojectUV_ZO(1, {0, 0}, invViewProj);
+    auto brf = UnprojectUV_ZO(1, {1, 0}, invViewProj);
+
+    // Connect-the-dots
+    // Near and far "squares"
+    debugLines.emplace_back(tln, trn);
+    debugLines.emplace_back(bln, brn);
+    debugLines.emplace_back(tln, bln);
+    debugLines.emplace_back(trn, brn);
+    debugLines.emplace_back(tlf, trf);
+    debugLines.emplace_back(blf, brf);
+    debugLines.emplace_back(tlf, blf);
+    debugLines.emplace_back(trf, brf);
+
+    // Lines connecting near and far planes
+    debugLines.emplace_back(tln, tlf);
+    debugLines.emplace_back(trn, trf);
+    debugLines.emplace_back(bln, blf);
+    debugLines.emplace_back(brn, brf);
+  }
+
   if (fsr2Enable)
   {
     shadingUniforms.random = {PCG::RandFloat(seed), PCG::RandFloat(seed)};
@@ -487,7 +553,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   constexpr float cameraFovY = glm::radians(70.f);
   const auto jitterOffset = fsr2Enable ? GetJitterOffset(frameIndex, renderWidth, renderHeight, windowWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
-  const auto projUnjittered = glm::perspective(cameraFovY, float(renderWidth) / float(renderHeight), cameraNear, cameraFar);
+  const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
   const auto projJittered = jitterMatrix * projUnjittered;
 
   // Set global uniforms
@@ -502,7 +568,11 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   mainCameraUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
   mainCameraUniforms.meshletCount = meshletCount;
   mainCameraUniforms.bindlessSamplerLodBias = fsr2LodBias;
-  mainCameraUniforms.frustumPlanes = MakeFrustumPlanes(viewProj);
+  if (updateCullingFrustum)
+  {
+    MakeFrustumPlanes(viewProjUnjittered, mainCameraUniforms.frustumPlanes);
+    debugMainViewProj = viewProjUnjittered;
+  }
 
   globalUniformsBuffer.UpdateData(mainCameraUniforms);
 
@@ -811,6 +881,34 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindUniformBuffer(2, shadowUniformsBuffer);
       Fwog::Cmd::BindStorageBuffer(0, *lightBuffer);
       Fwog::Cmd::Draw(3, 1, 0, 0);
+    });
+
+  // After shading, we render debug geometry
+  auto debugColorAttachment = Fwog::RenderColorAttachment{
+    .texture = frame.colorHdrRenderRes.value(),
+    .loadOp = Fwog::AttachmentLoadOp::LOAD,
+  };
+  auto debugDepthAttachment = Fwog::RenderDepthStencilAttachment{
+    .texture = frame.gDepth.value(),
+    .loadOp = Fwog::AttachmentLoadOp::LOAD,
+  };
+  Fwog::Render(
+    {
+      .name = "Debug Geometry",
+      .colorAttachments = {&debugColorAttachment, 1},
+      .depthAttachment = debugDepthAttachment,
+    },
+    [&]
+    {
+      // Lines
+      if (!debugLines.empty())
+      {
+        auto vertexBuffer = Fwog::TypedBuffer<Line>(debugLines);
+        Fwog::Cmd::BindGraphicsPipeline(debugLinesPipeline);
+        Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
+        Fwog::Cmd::BindVertexBuffer(0, vertexBuffer, 0, sizeof(glm::vec3));
+        Fwog::Cmd::Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
+      }
     });
 
 #ifdef FROGRENDER_FSR2_ENABLE

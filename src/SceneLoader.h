@@ -66,6 +66,26 @@ namespace Utility
     glm::vec4 baseColorFactor{};
   };
 
+  enum class LightType : uint32_t
+  {
+    DIRECTIONAL = 0,
+    POINT       = 1,
+    SPOT        = 2
+  };
+  struct GpuLight
+  {
+    glm::vec3 color;
+    LightType type;
+    glm::vec3 direction;  // Directional and spot only
+    // Point and spot lights use candela (lm/sr) while directional use lux (lm/m^2)
+    float intensity;
+    glm::vec3 position;   // Point and spot only
+    float range;          // Point and spot only
+    float innerConeAngle; // Spot only
+    float outerConeAngle; // Spot only
+    uint32_t _padding[2];
+  };
+
   struct Material
   {
     GpuMaterial gpuMaterial{};
@@ -132,6 +152,7 @@ namespace Utility
     std::vector<uint8_t> primitives;
     std::vector<Material> materials;
     std::vector<glm::mat4> transforms;
+    std::vector<GpuLight> lights;
   };
 
   bool LoadModelFromFile(Scene& scene, 

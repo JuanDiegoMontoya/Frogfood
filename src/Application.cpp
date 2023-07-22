@@ -315,18 +315,23 @@ void Application::Run()
       const float dtf = static_cast<float>(dt);
       const glm::vec3 forward = mainCamera.GetForwardDir();
       const glm::vec3 right = glm::normalize(glm::cross(forward, {0, 1, 0}));
+      float tempCameraSpeed = cameraSpeed;
+      if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+        tempCameraSpeed *= 4.0f;
+      if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+        tempCameraSpeed *= 0.25f;
       if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        mainCamera.position += forward * dtf * cameraSpeed;
+        mainCamera.position += forward * dtf * tempCameraSpeed;
       if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        mainCamera.position -= forward * dtf * cameraSpeed;
+        mainCamera.position -= forward * dtf * tempCameraSpeed;
       if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        mainCamera.position += right * dtf * cameraSpeed;
+        mainCamera.position += right * dtf * tempCameraSpeed;
       if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        mainCamera.position -= right * dtf * cameraSpeed;
+        mainCamera.position -= right * dtf * tempCameraSpeed;
       if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-        mainCamera.position.y -= dtf * cameraSpeed;
+        mainCamera.position.y -= dtf * tempCameraSpeed;
       if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-        mainCamera.position.y += dtf * cameraSpeed;
+        mainCamera.position.y += dtf * tempCameraSpeed;
       mainCamera.yaw += static_cast<float>(cursorFrameOffset.x * cursorSensitivity);
       mainCamera.pitch += static_cast<float>(cursorFrameOffset.y * cursorSensitivity);
       mainCamera.pitch = glm::clamp(mainCamera.pitch, -glm::half_pi<float>() + 1e-4f, glm::half_pi<float>() - 1e-4f);

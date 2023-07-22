@@ -158,6 +158,16 @@ void FrogRenderer::GuiDrawFsrWindow()
   ImGui::End();
 }
 
+void FrogRenderer::GuiDrawDebugWindow()
+{
+  ImGui::Begin("Debug");
+
+  ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
+  ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
+
+  ImGui::End();
+}
+
 void FrogRenderer::OnGui([[maybe_unused]] double dt)
 {
   GuiDrawDockspace();
@@ -195,7 +205,7 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   ImGui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
   ImGui::SliderFloat("Sun Elevation", &sunElevation, -3.1415f, 3.1415f);
   ImGui::ColorEdit3("Sun Color", &sunColor[0], ImGuiColorEditFlags_Float);
-  ImGui::SliderFloat("Sun Strength", &sunStrength, 0, 20);
+  ImGui::SliderFloat("Sun Strength", &sunStrength, 0, 50);
 
   ImGui::Separator();
 
@@ -292,4 +302,6 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   ImGui::PopStyleVar();
 
   GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y});
+
+  GuiDrawDebugWindow();
 }

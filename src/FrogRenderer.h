@@ -6,6 +6,8 @@
 
 #include <Fwog/Texture.h>
 
+#include <array>
+
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
   #include "src/ffx-fsr2-api/gl/ffx_fsr2_gl.h"
@@ -30,7 +32,7 @@ private:
     glm::mat4 invViewProj;
     glm::mat4 proj;
     glm::vec4 cameraPos;
-    glm::vec4 frustumPlanes[6];
+    std::array<glm::vec4, 6> frustumPlanes;
     uint32_t meshletCount;
     float bindlessSamplerLodBias;
     uint32_t _padding[2];

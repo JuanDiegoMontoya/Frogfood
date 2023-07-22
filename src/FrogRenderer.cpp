@@ -15,6 +15,7 @@
 #include <stb_include.h>
 
 #include <glm/gtx/transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -48,8 +49,9 @@ static constexpr uint32_t previousPower2(uint32_t x)
   return v;
 }
 
-static void MakeFrustumPlanes(const glm::mat4& viewProj, glm::vec4(&planes)[6])
+static std::array<glm::vec4, 6> MakeFrustumPlanes(const glm::mat4& viewProj)
 {
+  auto planes = std::array<glm::vec4, 6>();
   for (auto i = 0; i < 4; ++i) { planes[0][i] = viewProj[i][3] + viewProj[i][0]; }
   for (auto i = 0; i < 4; ++i) { planes[1][i] = viewProj[i][3] - viewProj[i][0]; }
   for (auto i = 0; i < 4; ++i) { planes[2][i] = viewProj[i][3] + viewProj[i][1]; }
@@ -57,10 +59,11 @@ static void MakeFrustumPlanes(const glm::mat4& viewProj, glm::vec4(&planes)[6])
   for (auto i = 0; i < 4; ++i) { planes[4][i] = viewProj[i][3] + viewProj[i][2]; }
   for (auto i = 0; i < 4; ++i) { planes[5][i] = viewProj[i][3] - viewProj[i][2]; }
 
-  for (auto& plane : planes) {
-      plane = glm::normalize(plane);
-      plane.w = -plane.w;
+  for (auto i = 0; i < 6; ++i) {
+    planes[i] /= glm::length(glm::vec3(planes[i]));
+    planes[i].w = -planes[i].w;
   }
+  return planes;
 }
 
 static constexpr std::array<Fwog::VertexInputBindingDescription, 3> sceneInputBindingDescs{
@@ -484,7 +487,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   constexpr float cameraFovY = glm::radians(70.f);
   const auto jitterOffset = fsr2Enable ? GetJitterOffset(frameIndex, renderWidth, renderHeight, windowWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
-  const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
+  const auto projUnjittered = glm::perspective(cameraFovY, float(renderWidth) / float(renderHeight), cameraNear, cameraFar);
   const auto projJittered = jitterMatrix * projUnjittered;
 
   // Set global uniforms
@@ -499,7 +502,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   mainCameraUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
   mainCameraUniforms.meshletCount = meshletCount;
   mainCameraUniforms.bindlessSamplerLodBias = fsr2LodBias;
-  MakeFrustumPlanes(viewProjUnjittered, mainCameraUniforms.frustumPlanes);
+  mainCameraUniforms.frustumPlanes = MakeFrustumPlanes(viewProj);
 
   globalUniformsBuffer.UpdateData(mainCameraUniforms);
 

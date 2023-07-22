@@ -18,7 +18,7 @@ bool IsAABBInsidePlane(in vec3 center, in vec3 extent, in vec4 plane)
 {
   const vec3 normal = plane.xyz;
   const float radius = dot(extent, abs(normal));
-  return (dot(normal, center) - plane.w) >= -radius;
+  return -radius <= (dot(normal, center) - plane.w);
 }
 
 bool IsMeshletOccluded(in vec3 aabbMin, in vec3 aabbMax, in mat4 transform)
@@ -57,22 +57,22 @@ bool IsMeshletOccluded(in vec3 aabbMin, in vec3 aabbMax, in mat4 transform)
     textureLod(hzb, box_uvs.zy, level),
     textureLod(hzb, box_uvs.xw, level),
     textureLod(hzb, box_uvs.zw, level));
-  const float min_hzb = min(min(min(depth[0], depth[1]), depth[2]), depth[3]);
-  return min_z > min_hzb;
+  const float max_hzb = max(max(max(depth[0], depth[1]), depth[2]), depth[3]);
+  return min_z >= max_hzb;
 }
 
 bool IsMeshletVisible(in uint meshletId)
 {
   const uint instanceId = meshlets[meshletId].instanceId;
-  const mat4 transform = transforms[instanceId];
+  const mat4 model = transforms[instanceId];
   const vec3 aabbMin = PackedToVec3(meshlets[meshletId].aabbMin);
   const vec3 aabbMax = PackedToVec3(meshlets[meshletId].aabbMax);
-  const vec3 aabbCenter = (aabbMin + aabbMax) / 2.0;
+  const vec3 aabbCenter = (aabbMax + aabbMin) / 2.0;
   const vec3 aabbExtent = aabbMax - aabbCenter;
-  const vec3 worldAabbCenter = vec3(transform * vec4(aabbCenter, 1.0));
-  const vec3 right = vec3(transform[0]) * aabbExtent.x;
-  const vec3 up = vec3(transform[1]) * aabbExtent.y;
-  const vec3 forward = vec3(-transform[2]) * aabbExtent.z;
+  const vec3 worldAabbCenter = vec3(model * vec4(aabbCenter, 1.0));
+  const vec3 right = vec3(model[0]) * aabbExtent.x;
+  const vec3 up = vec3(model[1]) * aabbExtent.y;
+  const vec3 forward = vec3(-model[2]) * aabbExtent.z;
 
   const vec3 worldExtent = vec3(
     abs(dot(vec3(1.0, 0.0, 0.0), right)) +
@@ -93,8 +93,7 @@ bool IsMeshletVisible(in uint meshletId)
       return false;
     }
   }
-  //return !IsMeshletOccluded(aabbMin, aabbMax, transform);
-  return true;
+  return !IsMeshletOccluded(aabbMin, aabbMax, model);
 }
 
 void main()

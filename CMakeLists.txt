@@ -92,6 +92,8 @@ target_link_libraries(frogRender
 )
 add_dependencies(frogRender copy_shaders copy_models copy_textures)
 
+target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE)
+
 if (MSVC)
     target_compile_definitions(frogRender PUBLIC STBI_MSC_SECURE_CRT)
 endif()

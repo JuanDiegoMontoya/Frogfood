@@ -14,11 +14,12 @@
  * [ ] Skinned animation
  *
  * Low-level
- * [ ] Add clustered light culling
  * [X] Visibility buffer
- * [ ] Frustum culling
+ * [X] Frustum culling
+ * [X] Hi-z occlusion culling
+ * [ ] Clustered light culling
  * [ ] Raster occlusion culling
- * [ ] Hi-z occlusion culling
+ * [ ] Multi-view
  *
  * Atmosphere
  * [ ] Sky

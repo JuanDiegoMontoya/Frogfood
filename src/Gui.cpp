@@ -164,6 +164,13 @@ void FrogRenderer::GuiDrawDebugWindow()
 
   ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
   ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
+  ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+  {
+    ImGui::SetTooltip("If unchecked, the hi-z buffer is cleared every frame, essentially forcing this test to pass");
+  }
+
+  ImGui::Checkbox("Execute Meshlet Generation", &executeMeshletGeneration);
 
   ImGui::End();
 }

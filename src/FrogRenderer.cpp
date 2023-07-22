@@ -298,8 +298,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   if (!filename)
   {
-    //Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.125}), true);
-    Utility::LoadModelFromFileMeshlet(scene, "models/light_test.glb", glm::scale(glm::vec3{.125}), true);
+    Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.125}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "models/light_test.glb", glm::scale(glm::vec3{.125}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.125}), true);
@@ -329,7 +329,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   indexBuffer = Fwog::TypedBuffer<uint32_t>(scene.indices);
   primitiveBuffer = Fwog::TypedBuffer<uint8_t>(scene.primitives);
   transformBuffer = Fwog::TypedBuffer<glm::mat4>(scene.transforms);
-  mesheletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+  meshletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>();
   instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(scene.primitives.size() * 3);
 
   std::vector<Utility::GpuMaterial> materials(scene.materials.size());
@@ -586,23 +586,32 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   shadingUniforms.sunViewProj = shadingUniforms.sunProj * shadingUniforms.sunView;
   shadingUniformsBuffer.UpdateData(shadingUniforms);
 
-  mesheletIndirectCommand->UpdateData(Fwog::DrawIndexedIndirectCommand{.instanceCount = 1});
-
-  Fwog::Compute(
-    "Meshlet Generate Pass",
-    [&]
-    {
-      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer(3, *instancedMeshletBuffer);
-      Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
-      Fwog::Cmd::BindStorageBuffer(6, *mesheletIndirectCommand);
-      Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
-      Fwog::Cmd::BindSampledImage(0, *frame.hzb, hzbSampler);
-      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
-      Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
-      Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
-      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
+  if (executeMeshletGeneration)
+  {
+    // Clear all the fields to zero, then set the instance count to one (this way should be more efficient than a CPU-side buffer update)
+    meshletIndirectCommand->FillData();
+    meshletIndirectCommand->FillData({
+      .offset = offsetof(Fwog::DrawIndexedIndirectCommand, instanceCount),
+      .size = sizeof(uint32_t),
+      .data = 1,
     });
+
+    Fwog::Compute(
+      "Meshlet Generate Pass",
+      [&]
+      {
+        Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
+        Fwog::Cmd::BindStorageBuffer(3, *instancedMeshletBuffer);
+        Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
+        Fwog::Cmd::BindStorageBuffer(6, *meshletIndirectCommand);
+        Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
+        Fwog::Cmd::BindSampledImage(0, *frame.hzb, hzbSampler);
+        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
+        Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
+        Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
+        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
+      });
+  }
 
   auto visbufferAttachment =
     Fwog::RenderColorAttachment{.texture = frame.visbuffer.value(), .loadOp = Fwog::AttachmentLoadOp::CLEAR, .clearValue = {~0u, ~0u, ~0u, ~0u}};
@@ -614,12 +623,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   Fwog::Render(
     {
       .name = "Main Visbuffer Pass",
-      .viewport =
-        {
-          Fwog::Viewport{
-            .drawRect = {{0, 0}, {renderWidth, renderHeight}},
-          },
-        },
+      .viewport = {Fwog::Viewport{.drawRect = {{0, 0}, {renderWidth, renderHeight}}}},
       .colorAttachments = {&visbufferAttachment, 1},
       .depthAttachment = visbufferDepthAttachment,
     },
@@ -633,30 +637,42 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
       Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
-      Fwog::Cmd::DrawIndexedIndirect(*mesheletIndirectCommand, 0, 1, 0);
+      Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
     });
 
-  Fwog::Compute(
-    "HZB Build Pass",
-    [&]
-    {
-      Fwog::Cmd::BindImage(0, *frame.hzb, 0);
-      Fwog::Cmd::BindSampledImage(1, *frame.gDepth, hzbSampler);
-      Fwog::Cmd::BindComputePipeline(hzbCopyPipeline);
-      uint32_t hzbCurrentWidth = frame.hzb->GetCreateInfo().extent.width;
-      uint32_t hzbCurrentHeight = frame.hzb->GetCreateInfo().extent.height;
-      const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
-      Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
-      Fwog::Cmd::BindComputePipeline(hzbReducePipeline);
-      for (uint32_t level = 1; level < hzbLevels; ++level) {
-        Fwog::Cmd::BindImage(0, *frame.hzb, level - 1);
-        Fwog::Cmd::BindImage(1, *frame.hzb, level);
-        hzbCurrentWidth = std::max(1u, hzbCurrentWidth >> 1);
-        hzbCurrentHeight = std::max(1u, hzbCurrentHeight >> 1);
+  if (generateHizBuffer)
+  {
+    Fwog::Compute(
+      "HZB Build Pass",
+      [&]
+      {
+        Fwog::Cmd::BindImage(0, *frame.hzb, 0);
+        Fwog::Cmd::BindSampledImage(1, *frame.gDepth, hzbSampler);
+        Fwog::Cmd::BindComputePipeline(hzbCopyPipeline);
+        uint32_t hzbCurrentWidth = frame.hzb->GetCreateInfo().extent.width;
+        uint32_t hzbCurrentHeight = frame.hzb->GetCreateInfo().extent.height;
+        const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
         Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
-      }
-      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
-    });
+        Fwog::Cmd::BindComputePipeline(hzbReducePipeline);
+        for (uint32_t level = 1; level < hzbLevels; ++level) {
+          Fwog::Cmd::BindImage(0, *frame.hzb, level - 1);
+          Fwog::Cmd::BindImage(1, *frame.hzb, level);
+          hzbCurrentWidth = std::max(1u, hzbCurrentWidth >> 1);
+          hzbCurrentHeight = std::max(1u, hzbCurrentHeight >> 1);
+          Fwog::Cmd::Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
+        }
+        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
+      });
+  }
+  else
+  {
+    const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
+    for (uint32_t level = 0; level < hzbLevels; level++)
+    {
+      constexpr float one = 1;
+      frame.hzb->ClearImage({.level = level, .data = &one});
+    }
+  }
 
   auto materialDepthAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = frame.materialDepth.value(),
@@ -903,10 +919,10 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       // Lines
       if (!debugLines.empty())
       {
-        auto vertexBuffer = Fwog::TypedBuffer<Line>(debugLines);
+        auto lineVertexBuffer = Fwog::TypedBuffer<Line>(debugLines);
         Fwog::Cmd::BindGraphicsPipeline(debugLinesPipeline);
         Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
-        Fwog::Cmd::BindVertexBuffer(0, vertexBuffer, 0, sizeof(glm::vec3));
+        Fwog::Cmd::BindVertexBuffer(0, lineVertexBuffer, 0, sizeof(glm::vec3));
         Fwog::Cmd::Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
       }
     });

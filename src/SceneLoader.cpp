@@ -13,7 +13,6 @@
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/transform.hpp>
 
 #include "ktx.h"
@@ -30,6 +29,10 @@
 #include <fastgltf/types.hpp>
 
 #include <meshoptimizer.h>
+
+// If DEBUG_DISABLE_BINDLESS_TEXTURES is defined, then bindless textures will not be used.
+// This breaks alpha tested geometry, but is worth it when the alternative is not being able to use RenderDoc.
+//#define DEBUG_DISABLE_BINDLESS_TEXTURES
 
 namespace Utility
 {
@@ -497,8 +500,11 @@ namespace Utility
           image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format)),
           LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
         };
-        material.gpuMaterial.baseColorTextureHandle =
-          material.albedoTextureSampler->texture.GetBindlessHandle(Fwog::Sampler(material.albedoTextureSampler->sampler));
+#ifndef DEBUG_DISABLE_BINDLESS_TEXTURES
+        material.gpuMaterial.baseColorTextureHandle = material.albedoTextureSampler->texture.GetBindlessHandle(Fwog::Sampler(material.albedoTextureSampler->sampler));
+#else
+        material.gpuMaterial.baseColorTextureHandle = 0;
+#endif
       }
 
       if (loaderMaterial.pbrData.metallicRoughnessTexture.has_value())

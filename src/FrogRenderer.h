@@ -89,8 +89,8 @@ private:
   double fsr2Performance = 0;
 
   // scene parameters
-  float sunElevation = -2.881f;
-  float sunAzimuth = 0;
+  float sunElevation = 3.0f;
+  float sunAzimuth = 0.3f;
   float sunStrength = 50;
   glm::vec3 sunColor = {1, 1, 1};
 

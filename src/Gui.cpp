@@ -13,9 +13,18 @@ void FrogRenderer::InitGui()
   ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/RobotoCondensed-Regular.ttf", 18);
 }
 
-void FrogRenderer::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize)
+void FrogRenderer::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
 {
-  ImGui::Begin(("Magnifier: " + std::string(magnifierLock ? "Locked (L, Space)" : "Unlocked (L, Space)") + "###mag").c_str());
+  bool magnifierLock = true;
+
+  if (ImGui::IsKeyDown(ImGuiKey_Space) && viewportIsHovered)
+  {
+    magnifierLock = false;
+  }
+
+  ImGui::Begin(("Magnifier: " + std::string(magnifierLock ? "Locked" : "Unlocked") + " (Hold Space to unlock)" + "###mag").c_str());
+
+  ImGui::SliderFloat("Zoom (+, -)", &magnifierZoom, 1.0f, 50.0f, "%.2fx", ImGuiSliderFlags_Logarithmic);
   if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadSubtract, 10000, 1))
   {
     magnifierZoom = std::max(magnifierZoom / 1.5f, 1.0f);
@@ -23,12 +32,6 @@ void FrogRenderer::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 v
   if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadAdd, 10000, 1))
   {
     magnifierZoom = std::min(magnifierZoom * 1.5f, 50.0f);
-  }
-
-  ImGui::SliderFloat("Zoom (+, -)", &magnifierZoom, 1.0f, 50.0f, "%.2fx", ImGuiSliderFlags_Logarithmic);
-  if (ImGui::GetKeyPressedAmount(ImGuiKey_L, 10000, 1) || ImGui::GetKeyPressedAmount(ImGuiKey_Space, 10000, 1))
-  {
-    magnifierLock = !magnifierLock;
   }
 
   // The actual size of the magnifier widget
@@ -305,10 +308,13 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
   //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.visResolve.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
   //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedo.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
+
+  const bool viewportIsHovered = ImGui::IsItemHovered();
+
   ImGui::End();
   ImGui::PopStyleVar();
 
-  GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y});
+  GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y}, viewportIsHovered);
 
   GuiDrawDebugWindow();
 }

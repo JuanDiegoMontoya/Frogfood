@@ -76,7 +76,7 @@ private:
   void OnGui(double dt) override;
 
   void InitGui();
-  void GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize);
+  void GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered);
   void GuiDrawDockspace();
   void GuiDrawFsrWindow();
   void GuiDrawDebugWindow();
@@ -228,7 +228,6 @@ private:
 #endif
 
   // Magnifier
-  bool magnifierLock = false;
   float magnifierZoom = 4;
   glm::vec2 magnifierLastCursorPos = {};
 };

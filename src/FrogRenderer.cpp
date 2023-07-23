@@ -642,6 +642,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindStorageBuffer(3, *indexBuffer);
       Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
       Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer(7, *materialStorageBuffer);
       Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
@@ -900,6 +901,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindSampledImage(3, frame.rsm->GetIndirectLighting(), nearestSampler);
       Fwog::Cmd::BindSampledImage(4, rsmDepth, nearestSampler);
       Fwog::Cmd::BindSampledImage(5, rsmDepth, shadowSampler);
+      Fwog::Cmd::BindSampledImage(6, *frame.gEmission, nearestSampler);
       Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
       Fwog::Cmd::BindUniformBuffer(1, shadingUniformsBuffer);
       Fwog::Cmd::BindUniformBuffer(2, shadowUniformsBuffer);

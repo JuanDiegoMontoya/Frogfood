@@ -6,6 +6,7 @@ layout(binding = 2) uniform sampler2D s_gDepth;
 layout(binding = 3) uniform sampler2D s_rsmIndirect;
 layout(binding = 4) uniform sampler2D s_rsmDepth;
 layout(binding = 5) uniform sampler2DShadow s_rsmDepthShadow;
+layout(binding = 6) uniform sampler2D s_emission;
 
 layout(location = 0) in vec2 v_uv;
 
@@ -264,6 +265,7 @@ void main()
   vec3 albedo = textureLod(s_gAlbedo, v_uv, 0.0).rgb;
   vec3 normal = textureLod(s_gNormal, v_uv, 0.0).xyz;
   float depth = textureLod(s_gDepth, v_uv, 0.0).x;
+  vec3 emission = textureLod(s_emission, v_uv, 0.0).rgb;
 
   if (depth == 1.0)
   {
@@ -284,11 +286,12 @@ void main()
   float spec = pow(max(dot(normal, halfDir), 0.0), 64.0);
   vec3 specular = albedo * spec * shadingUniforms.sunStrength.rgb;
 
-  //vec3 ambient = vec3(.03) * albedo;
-  vec3 ambient = /*vec3(.01) * albedo*/ + textureLod(s_rsmIndirect, v_uv, 0).rgb;
+  vec3 ambient = vec3(.1) * albedo;
+  //vec3 ambient = /*vec3(.01) * albedo*/ + textureLod(s_rsmIndirect, v_uv, 0).rgb;
   vec3 finalColor = /*shadow * */ (diffuse + specular) + ambient;
   
   finalColor += LocalLightIntensity(fragWorldPos, normal, viewDir, albedo);
+  finalColor += emission;
 
   o_color = finalColor;
 }

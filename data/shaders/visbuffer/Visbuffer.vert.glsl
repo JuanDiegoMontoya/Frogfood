@@ -1,6 +1,6 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
-#include "Common.h.glsl"
+#include "VisbufferCommon.h.glsl"
 
 layout (location = 0) out flat uint o_meshletId;
 layout (location = 1) out flat uint o_primitiveId;

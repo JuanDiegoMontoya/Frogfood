@@ -224,8 +224,8 @@ static Fwog::GraphicsPipeline CreateDebugTexturePipeline()
 
 static Fwog::GraphicsPipeline CreateDebugLinesPipeline()
 {
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/Debug.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/Flat.frag.glsl"));
+  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/debug/Debug.vert.glsl"));
+  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/debug/Flat.frag.glsl"));
 
   auto inputBinding = Fwog::VertexInputBindingDescription{
     .location = 0,

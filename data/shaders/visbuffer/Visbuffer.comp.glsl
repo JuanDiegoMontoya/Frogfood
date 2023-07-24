@@ -1,8 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
 
-#define USE_MESHLET_PACKED_BUFFER
-#include "Common.h.glsl"
+#include "VisbufferCommon.h.glsl"
 
 #define WG_SIZE 256
 #define MESHLET_PER_WG (WG_SIZE / MAX_PRIMITIVES)
@@ -10,6 +9,11 @@
 layout (local_size_x = WG_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 layout (location = 0) uniform sampler2D hzb;
+
+layout (std430, binding = 3) writeonly buffer MeshletPackedBuffer
+{
+  uint data[];
+} indexBuffer;
 
 shared uint baseIndex[MESHLET_PER_WG];
 shared uint primitiveCount[MESHLET_PER_WG];
@@ -94,7 +98,6 @@ bool IsMeshletVisible(in uint meshletId)
     }
   }
   return !IsMeshletOccluded(aabbMin, aabbMax, transform);
-  //return true;
 }
 
 void main()

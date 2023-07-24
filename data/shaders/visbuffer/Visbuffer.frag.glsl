@@ -1,7 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_ARB_bindless_texture : require
-#include "Common.h.glsl"
+#include "VisbufferCommon.h.glsl"
 
 layout (location = 0) in flat uint i_meshletId;
 layout (location = 1) in flat uint i_primitiveId;

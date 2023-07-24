@@ -1,6 +1,7 @@
 #ifndef VISBUFFER_COMMON_H
 #define VISBUFFER_COMMON_H
 
+#extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
 #extension GL_NV_gpu_shader5 : enable
 #extension GL_EXT_nonuniform_qualifier : enable
@@ -10,6 +11,9 @@
 #else
 #define NonUniformIndex(x) (x)
 #endif
+
+#include "../BasicTypes.h.glsl"
+#include "../Utility.h.glsl"
 
 #define MAX_INDICES 64
 #define MAX_PRIMITIVES 64
@@ -26,44 +30,12 @@
 #define MATERIAL_HAS_OCCLUSION          (1u << 3u)
 #define MATERIAL_HAS_EMISSION           (1u << 4u)
 
-struct PackedVec2
-{
-  float x, y;
-};
-
-struct PackedVec3
-{
-  float x, y, z;
-};
-
-vec2 PackedToVec2(in PackedVec2 v)
-{
-  return vec2(v.x, v.y);
-}
-
-vec3 PackedToVec3(in PackedVec3 v)
-{
-  return vec3(v.x, v.y, v.z);
-}
-
 struct Vertex
 {
   PackedVec3 position;
   uint normal; // Octahedral encoding: decode with unpackSnorm2x16 and OctToFloat32x3
   PackedVec2 uv;
 };
-
-vec2 SignNotZero(vec2 v)
-{
-  return vec2((v.x >= 0.0) ? +1.0 : -1.0, (v.y >= 0.0) ? +1.0 : -1.0);
-}
-
-vec3 OctToFloat32x3(vec2 e)
-{
-  vec3 v = vec3(e.xy, 1.0 - abs(e.x) - abs(e.y));
-  if (v.z < 0.0) v.xy = (1.0 - abs(v.yx)) * SignNotZero(v.xy);
-  return normalize(v);
-}
 
 struct Meshlet
 {
@@ -105,17 +77,10 @@ layout (std430, binding = 2) restrict readonly buffer MeshletVertexBuffer
   Vertex vertices[];
 };
 
-#ifdef USE_MESHLET_PACKED_BUFFER
-layout (std430, binding = 3) restrict writeonly buffer MeshletPackedBuffer
-{
-  uint data[];
-} indexBuffer;
-#else
 layout (std430, binding = 3) restrict readonly buffer MeshletIndexBuffer
 {
   uint indices[];
 };
-#endif
 
 layout (std430, binding = 4) restrict readonly buffer TransformBuffer
 {
@@ -137,12 +102,8 @@ layout (binding = 5, std140) uniform PerFrameUniforms
 
 layout (std430, binding = 6) restrict buffer IndirectDrawCommand
 {
-  uint indexCount;
-  uint instanceCount;
-  uint firstIndex;
-  int baseVertex;
-  uint baseInstance;
-} command;
+  DrawElementsIndirectCommand command;
+};
 
 layout (std140, binding = 7) restrict readonly buffer MaterialBuffer
 {

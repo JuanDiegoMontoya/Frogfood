@@ -3,22 +3,22 @@
 
 #include "VisbufferCommon.h.glsl"
 
-layout (early_fragment_tests) in;
+layout(early_fragment_tests) in;
 
-layout (location = 0) in vec2 i_uv;
-layout (location = 1) in flat uint i_materialId;
+layout(location = 0) in vec2 i_uv;
+layout(location = 1) in flat uint i_materialId;
 
-layout (location = 0) out vec4 o_albedo;
-layout (location = 1) out vec3 o_metallicRoughnessAo;
-layout (location = 2) out vec3 o_normal;
-layout (location = 3) out vec3 o_emission;
-layout (location = 4) out vec2 o_motion;
+layout(location = 0) out vec4 o_albedo;
+layout(location = 1) out vec3 o_metallicRoughnessAo;
+layout(location = 2) out vec3 o_normal;
+layout(location = 3) out vec3 o_emission;
+layout(location = 4) out vec2 o_motion;
 
-layout (location = 0) uniform sampler2D s_baseColor;
-layout (location = 1) uniform sampler2D s_metallicRoughness;
-layout (location = 2) uniform sampler2D s_normal;
-layout (location = 3) uniform sampler2D s_occlusion;
-layout (location = 4) uniform sampler2D s_emission;
+layout(binding = 0) uniform sampler2D s_baseColor;
+layout(binding = 1) uniform sampler2D s_metallicRoughness;
+layout(binding = 2) uniform sampler2D s_normal;
+layout(binding = 3) uniform sampler2D s_occlusion;
+layout(binding = 4) uniform sampler2D s_emission;
 
 layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
 

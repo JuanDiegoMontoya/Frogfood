@@ -212,6 +212,16 @@ Application::Application(const CreateInfo& createInfo)
   auto fwogCallback = nullptr;
   Fwog::Initialize({.verboseMessageCallback = fwogCallback});
 
+  if (!Fwog::GetDeviceProperties().features.bindlessTextures)
+  {
+    printf("Bindless textures unsupported!\n");
+  }
+
+  if (!Fwog::GetDeviceProperties().features.shaderSubgroup)
+  {
+    printf("Shader subgroup unsupported!\n");
+  }
+
   // Initialize ImGui and a backend for it.
   // Because we allow the GLFW backend to install callbacks, it will automatically call our own that we provided.
   ImGui::CreateContext();

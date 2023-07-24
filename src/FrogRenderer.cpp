@@ -224,8 +224,8 @@ static Fwog::GraphicsPipeline CreateDebugTexturePipeline()
 
 static Fwog::GraphicsPipeline CreateDebugLinesPipeline()
 {
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/debug/Debug.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/debug/Flat.frag.glsl"));
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/Debug.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
 
   auto inputBinding = Fwog::VertexInputBindingDescription{
     .location = 0,
@@ -240,11 +240,41 @@ static Fwog::GraphicsPipeline CreateDebugLinesPipeline()
     .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::LINE_LIST},
     .vertexInputState = {{&inputBinding, 1}},
     .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
-    .depthState =
-      {
-        .depthTestEnable = true,
-        .depthWriteEnable = false,
-      },
+    .depthState = {
+      .depthTestEnable = true,
+      .depthWriteEnable = false,
+    },
+  });
+}
+
+static Fwog::GraphicsPipeline CreateDebugAabbsPipeline()
+{
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugAabb.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
+
+  auto blend = Fwog::ColorBlendAttachmentState {
+    .blendEnable = true,
+    .srcColorBlendFactor = Fwog::BlendFactor::SRC_ALPHA,
+    .dstColorBlendFactor = Fwog::BlendFactor::ONE,
+  };
+
+  return Fwog::GraphicsPipeline({
+    .vertexShader = &vs,
+    .fragmentShader = &fs,
+    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_FAN},
+    .rasterizationState =  {
+      .polygonMode = Fwog::PolygonMode::LINE,
+      .cullMode = Fwog::CullMode::NONE,
+      .depthBiasEnable = true,
+      .depthBiasConstantFactor = -50.0f,
+    },
+    .depthState = {
+      .depthTestEnable = true,
+      .depthWriteEnable = false,
+    },
+    .colorBlendState = {
+      .attachments = {&blend, 1},
+    }
   });
 }
 
@@ -274,7 +304,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     shadingPipeline(CreateShadingPipeline()),
     postprocessingPipeline(CreatePostprocessingPipeline()),
     debugTexturePipeline(CreateDebugTexturePipeline()),
-    debugLinesPipeline(CreateDebugLinesPipeline())
+    debugLinesPipeline(CreateDebugLinesPipeline()),
+    debugAabbsPipeline(CreateDebugAabbsPipeline())
 {
   int x = 0;
   int y = 0;
@@ -295,6 +326,10 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   cameraSpeed = 3.5f;
   mainCamera.position.y = 1;
+  
+  debugGpuAabbsBuffer = Fwog::Buffer(sizeof(Fwog::DrawIndirectCommand) + sizeof(DebugAabb) * 100'000);
+  debugGpuAabbsBuffer->FillData({.size = sizeof(Fwog::DrawIndirectCommand), .data = 0});
+  debugGpuAabbsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, vertexCount), .size = sizeof(uint32_t), .data = 14});
 
   if (!filename)
   {
@@ -314,6 +349,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{0.5f}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_inverted_cube.glb", glm::scale(glm::vec3{.25}), true);
+
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/deccer_balls.gltf", glm::scale(glm::vec3{1}), false);
   }
   else
   {
@@ -415,8 +452,7 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
     const uint32_t hzbMips = 1 + static_cast<uint32_t>(glm::floor(glm::log2(static_cast<float>(glm::max(hzbWidth, hzbHeight)))));
     frame.hzb = Fwog::CreateTexture2DMip({hzbWidth, hzbHeight}, Fwog::Format::R32_FLOAT, hzbMips, "HZB");
   }
-
-
+  
   // Create gbuffer textures and render info
   frame.gAlbedo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "gAlbedo");
   frame.gMetallicRoughnessAo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8_UNORM, "gMetallicRoughnessAo");
@@ -485,6 +521,12 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
     debugLines.emplace_back(trn, trf);
     debugLines.emplace_back(bln, blf);
     debugLines.emplace_back(brn, brf);
+  }
+
+  // The meshlet generation pass creates the debug boxes. We want them to stay when meshlet generation is paused!
+  if (executeMeshletGeneration)
+  {
+    debugGpuAabbsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   }
 
   if (fsr2Enable)
@@ -609,6 +651,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
         Fwog::Cmd::BindStorageBuffer(6, *meshletIndirectCommand);
         Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
+        Fwog::Cmd::BindStorageBuffer(10, debugGpuAabbsBuffer.value());
         Fwog::Cmd::BindSampledImage(0, *frame.hzb, hzbSampler);
         Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
         Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
@@ -926,14 +969,23 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
       // Lines
       if (!debugLines.empty())
       {
-        auto lineVertexBuffer = Fwog::TypedBuffer<Line>(debugLines);
+        auto lineVertexBuffer = Fwog::TypedBuffer<DebugLine>(debugLines);
         Fwog::Cmd::BindGraphicsPipeline(debugLinesPipeline);
-        Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
         Fwog::Cmd::BindVertexBuffer(0, lineVertexBuffer, 0, sizeof(glm::vec3));
         Fwog::Cmd::Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
+      }
+
+      // AABBs
+      if (drawMeshletAabbs)
+      {
+        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+        Fwog::Cmd::BindGraphicsPipeline(debugAabbsPipeline);
+        Fwog::Cmd::BindStorageBuffer(10, debugGpuAabbsBuffer.value());
+        Fwog::Cmd::DrawIndirect(debugGpuAabbsBuffer.value(), 0, 1, 0);
       }
     });
 

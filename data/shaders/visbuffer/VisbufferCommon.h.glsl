@@ -6,6 +6,9 @@
 #extension GL_NV_gpu_shader5 : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 
+// On modern AMD platforms, this extension is implicitly supported.
+// On all NV platforms, GL_NV_gpu_shader5 is sufficient to non-uniformly index sampler arrays.
+// On older AMD or Intel platforms, another solution (such as a manual waterfall loop) should be used.
 #ifdef GL_EXT_nonuniform_qualifier
 #define NonUniformIndex(x) nonuniformEXT(x)
 #else

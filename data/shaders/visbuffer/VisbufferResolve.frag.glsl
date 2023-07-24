@@ -1,7 +1,6 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
 
-#define M_GOLDEN_CONJ 0.6180339887498948482045868343656
 #include "VisbufferCommon.h.glsl"
 
 layout (early_fragment_tests) in;

@@ -174,6 +174,7 @@ void FrogRenderer::GuiDrawDebugWindow()
   }
 
   ImGui::Checkbox("Execute Meshlet Generation", &executeMeshletGeneration);
+  ImGui::Checkbox("Draw Meshlet AABBs", &drawMeshletAabbs);
 
   ImGui::End();
 }

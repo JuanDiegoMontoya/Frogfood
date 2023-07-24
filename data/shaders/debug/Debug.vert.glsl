@@ -1,21 +1,16 @@
-#version 450 core
+#version 460 core
 
-layout (binding = 0, std140) uniform PerFrameUniforms
-{
-  mat4 viewProj;
-  mat4 oldViewProjUnjittered;
-  mat4 viewProjUnjittered;
-  mat4 invViewProj;
-  mat4 proj;
-  vec4 cameraPos;
-  vec4 frustumPlanes[6];
-  uint meshletCount;
-  float bindlessSamplerLodBias;
-};
+#extension GL_GOOGLE_include_directive : enable
+
+#include "../GlobalUniforms.h.glsl"
 
 layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec4 a_color;
+
+layout(location = 0) out vec4 v_color;
 
 void main()
 {
-  gl_Position = viewProj * vec4(a_pos, 1.0);
+  v_color = a_color;
+  gl_Position = perFrameUniforms.viewProj * vec4(a_pos, 1.0);
 }

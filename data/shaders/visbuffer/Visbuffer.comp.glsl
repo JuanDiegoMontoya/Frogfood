@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : enable
 
 #include "VisbufferCommon.h.glsl"
+#include "../debug/DebugCommon.h.glsl"
 
 #define WG_SIZE 256
 #define MESHLET_PER_WG (WG_SIZE / MAX_PRIMITIVES)
@@ -100,6 +101,40 @@ bool IsMeshletVisible(in uint meshletId)
   return !IsMeshletOccluded(aabbMin, aabbMax, transform);
 }
 
+void DebugDrawMeshletAabb(in uint meshletId)
+{
+  const uint instanceId = meshlets[meshletId].instanceId;
+  const mat4 transform = transforms[instanceId];
+  const vec3 aabbMin = PackedToVec3(meshlets[meshletId].aabbMin);
+  const vec3 aabbMax = PackedToVec3(meshlets[meshletId].aabbMax);
+  const vec3 aabbSize = aabbMax - aabbMin;
+  const vec3[] aabbCorners = vec3[](
+    aabbMin,
+    aabbMin + vec3(aabbSize.x, 0.0, 0.0),
+    aabbMin + vec3(0.0, aabbSize.y, 0.0),
+    aabbMin + vec3(0.0, 0.0, aabbSize.z),
+    aabbMin + vec3(aabbSize.xy, 0.0),
+    aabbMin + vec3(0.0, aabbSize.yz),
+    aabbMin + vec3(aabbSize.x, 0.0, aabbSize.z),
+    aabbMin + aabbSize);
+
+  vec3 worldAabbMin = vec3(1e20);
+  vec3 worldAabbMax = vec3(-1e20);
+  for (uint i = 0; i < 8; ++i)
+  {
+    vec3 world = vec3(transform * vec4(aabbCorners[i], 1.0));
+    worldAabbMin = min(worldAabbMin, world);
+    worldAabbMax = max(worldAabbMax, world);
+  }
+
+  const vec3 aabbCenter = (worldAabbMin + worldAabbMax) / 2.0;
+  const vec3 extent = (worldAabbMax - worldAabbMin);
+  
+  const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
+  vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(meshletId) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
+  TryPushDebugAabb(DebugAabb(Vec3ToPacked(aabbCenter), Vec3ToPacked(extent), Vec4ToPacked(color)));
+}
+
 void main()
 {
   const uint meshletBaseId = gl_WorkGroupID.x * MESHLET_PER_WG;
@@ -110,6 +145,9 @@ void main()
 
   if (isMeshletValid && localId == 0)
   {
+    // IMPORTANT: comment out this line when profiling!
+    DebugDrawMeshletAabb(meshletId);
+
     baseIndex[meshletOffset] = atomicAdd(command.indexCount, meshlets[meshletId].primitiveCount * 3);
     primitiveCount[meshletOffset] = meshlets[meshletId].primitiveCount;
   }

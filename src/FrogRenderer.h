@@ -239,5 +239,5 @@ private:
 
   // Magnifier
   float magnifierZoom = 4;
-  glm::vec2 magnifierLastCursorPos = {};
+  glm::vec2 magnifierLastCursorPos = {400, 400};
 };

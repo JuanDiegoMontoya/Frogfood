@@ -7,6 +7,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <string>
 
 void FrogRenderer::InitGui()
 {
@@ -179,6 +180,77 @@ void FrogRenderer::GuiDrawDebugWindow()
   ImGui::End();
 }
 
+void FrogRenderer::GuiDrawLightsArray()
+{
+  if (ImGui::Begin("Lights"))
+  {
+    for (size_t i = 0; i < scene.lights.size(); i++)
+    {
+      auto& light = scene.lights[i];
+      const auto id = "##Light " + std::to_string(i);
+      ImGui::Text("%s", id.c_str() + 2);
+
+      const char* typePreview = "";
+      if (light.type == Utility::LightType::DIRECTIONAL)
+      {
+        typePreview = "Directional";
+      }
+      else if (light.type == Utility::LightType::POINT)
+      {
+        typePreview = "Point";
+      }
+      else if (light.type == Utility::LightType::SPOT)
+      {
+        typePreview = "Spot";
+      }
+
+      if (ImGui::BeginCombo(("Type" + id).c_str(), typePreview))
+      {
+        // if (ImGui::Selectable("Directional", light.type == Utility::LightType::DIRECTIONAL))
+        //{
+        //   light.type = Utility::LightType::DIRECTIONAL;
+        // }
+        if (ImGui::Selectable("Point", light.type == Utility::LightType::POINT))
+        {
+          light.type = Utility::LightType::POINT;
+        }
+        else if (ImGui::Selectable("Spot", light.type == Utility::LightType::SPOT))
+        {
+          light.type = Utility::LightType::SPOT;
+        }
+        ImGui::EndCombo();
+      }
+
+      ImGui::ColorEdit3(("Color" + id).c_str(), &light.color[0], ImGuiColorEditFlags_Float);
+      ImGui::DragFloat(("Intensity" + id).c_str(), &light.intensity, 1, 0, 1e6f, light.type == Utility::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
+
+      ImGui::DragFloat3(("Position" + id).c_str(), &light.position[0], .1f, 0, 0, "%.2f");
+
+      if (light.type != Utility::LightType::POINT)
+      {
+        if (ImGui::SliderFloat3(("Direction" + id).c_str(), &light.direction[0], -1, 1))
+        {
+          light.direction = glm::normalize(light.direction);
+        }
+      }
+
+      if (light.type != Utility::LightType::DIRECTIONAL)
+      {
+        ImGui::DragFloat(("Range" + id).c_str(), &light.range, 0.2f, 0.0f, 100.0f, "%.2f");
+      }
+
+      if (light.type == Utility::LightType::SPOT)
+      {
+        ImGui::SliderFloat(("Inner cone angle" + id).c_str(), &light.innerConeAngle, 0, 3.14f, "%.2f rad");
+        ImGui::SliderFloat(("Outer cone angle" + id).c_str(), &light.outerConeAngle, 0, 3.14f, "%.2f rad");
+      }
+
+      ImGui::Separator();
+    }
+  }
+  ImGui::End();
+}
+
 void FrogRenderer::OnGui([[maybe_unused]] double dt)
 {
   GuiDrawDockspace();
@@ -318,4 +390,6 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y}, viewportIsHovered);
 
   GuiDrawDebugWindow();
+
+  GuiDrawLightsArray();
 }

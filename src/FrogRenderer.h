@@ -87,6 +87,7 @@ private:
   void GuiDrawDockspace();
   void GuiDrawFsrWindow();
   void GuiDrawDebugWindow();
+  void GuiDrawLightsArray();
 
   // constants
   static constexpr int gShadowmapWidth = 2048;

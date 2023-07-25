@@ -357,7 +357,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     Utility::LoadModelFromFileMeshlet(scene, *filename, glm::scale(glm::vec3{scale}), binary);
   }
   
-  lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights);
+  lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   printf("Loaded %zu lights\n", scene.lights.size());
 
@@ -528,6 +528,8 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
   {
     debugGpuAabbsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   }
+
+  lightBuffer->UpdateData(scene.lights);
 
   if (fsr2Enable)
   {

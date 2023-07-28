@@ -215,9 +215,11 @@ vec2 SampleMetallicRoughness(in GpuMaterial material, in UvGradient uvGrad)
   {
     return metallicRoughnessFactor;
   }
+  // Metallic is stored in the B channel
+  // Roughness is stored in the G channel
   return
     metallicRoughnessFactor *
-    textureGrad(s_metallicRoughness, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rg;
+    textureGrad(s_metallicRoughness, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).bg;
 }
 
 float SampleOcclusion(in GpuMaterial material, in UvGradient uvGrad)
@@ -269,11 +271,15 @@ void main()
   const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);
   //const vec3 normal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));
 
+  vec3 smoothNormal = normalize(MakeSmoothNormal(partialDerivatives, rawNormal));
+  mat3 normalMatrix = inverse(transpose(mat3(transform)));
+  vec3 normal = normalize(normalMatrix * smoothNormal);
+
   o_albedo = vec4(SampleBaseColor(material, uvGrad).rgb, 1.0);
   o_metallicRoughnessAo = vec3(
     SampleMetallicRoughness(material, uvGrad),
     SampleOcclusion(material, uvGrad));
-  o_normal = normalize(MakeSmoothNormal(partialDerivatives, rawNormal));
+  o_normal = normal;
   o_emission = SampleEmission(material, uvGrad);
   o_motion = MakeSmoothMotion(partialDerivatives, worldPosition);
 }

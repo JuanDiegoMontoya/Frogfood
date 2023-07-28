@@ -10,7 +10,7 @@
  * Core:
  * [X] glTF loader
  * [X] FSR 2
- * [ ] PBR punctual lights
+ * [X] PBR punctual lights
  * [ ] Skinned animation
  *
  * Low-level

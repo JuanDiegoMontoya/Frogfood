@@ -202,7 +202,6 @@ private:
   Fwog::GraphicsPipeline visbufferPipeline;
   Fwog::GraphicsPipeline materialDepthPipeline;
   Fwog::GraphicsPipeline visbufferResolvePipeline;
-  Fwog::GraphicsPipeline scenePipeline;
   Fwog::GraphicsPipeline rsmScenePipeline;
   Fwog::GraphicsPipeline shadingPipeline;
   Fwog::GraphicsPipeline postprocessingPipeline;

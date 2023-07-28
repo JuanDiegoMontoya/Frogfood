@@ -92,20 +92,6 @@ static constexpr std::array<Fwog::VertexInputBindingDescription, 3> sceneInputBi
   },
 };
 
-static Fwog::GraphicsPipeline CreateScenePipeline()
-{
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/SceneDeferredPbr.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/SceneDeferredPbr.frag.glsl"));
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .vertexInputState = {sceneInputBindingDescs},
-    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
-    .depthState = {.depthTestEnable = true, .depthWriteEnable = true},
-  });
-}
-
 static Fwog::ComputePipeline CreateMeshletGeneratePipeline()
 {
   auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/Visbuffer.comp.glsl");
@@ -176,8 +162,8 @@ static Fwog::GraphicsPipeline CreateVisbufferResolvePipeline()
 
 static Fwog::GraphicsPipeline CreateShadowPipeline()
 {
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/SceneDeferredPbr.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/RSMScenePbr.frag.glsl"));
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/SceneDeferredPbr.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/RSMScenePbr.frag.glsl");
 
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
@@ -189,8 +175,8 @@ static Fwog::GraphicsPipeline CreateShadowPipeline()
 
 static Fwog::GraphicsPipeline CreateShadingPipeline()
 {
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/FullScreenTri.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/ShadeDeferredPbr.frag.glsl"));
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/ShadeDeferredPbr.frag.glsl");
 
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
@@ -201,8 +187,8 @@ static Fwog::GraphicsPipeline CreateShadingPipeline()
 
 static Fwog::GraphicsPipeline CreatePostprocessingPipeline()
 {
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/FullScreenTri.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/TonemapAndDither.frag.glsl"));
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/TonemapAndDither.frag.glsl");
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
     .fragmentShader = &fs,
@@ -212,8 +198,8 @@ static Fwog::GraphicsPipeline CreatePostprocessingPipeline()
 
 static Fwog::GraphicsPipeline CreateDebugTexturePipeline()
 {
-  auto vs = Fwog::Shader(Fwog::PipelineStage::VERTEX_SHADER, Application::LoadFile("shaders/FullScreenTri.vert.glsl"));
-  auto fs = Fwog::Shader(Fwog::PipelineStage::FRAGMENT_SHADER, Application::LoadFile("shaders/Texture.frag.glsl"));
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/Texture.frag.glsl");
 
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
@@ -299,7 +285,6 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     visbufferPipeline(CreateVisbufferPipeline()),
     materialDepthPipeline(CreateMaterialDepthPipeline()),
     visbufferResolvePipeline(CreateVisbufferResolvePipeline()),
-    scenePipeline(CreateScenePipeline()),
     rsmScenePipeline(CreateShadowPipeline()),
     shadingPipeline(CreateShadingPipeline()),
     postprocessingPipeline(CreatePostprocessingPipeline()),
@@ -351,6 +336,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_inverted_cube.glb", glm::scale(glm::vec3{.25}), true);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/deccer_balls.gltf", glm::scale(glm::vec3{1}), false);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/MetalRoughSpheres/glTF-Binary/MetalRoughSpheres.glb", glm::scale(glm::vec3{1}), true);
   }
   else
   {
@@ -358,8 +344,6 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   }
   
   lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-
-  printf("Loaded %zu lights\n", scene.lights.size());
 
   meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(scene.meshlets);
   vertexBuffer = Fwog::TypedBuffer<Utility::Vertex>(scene.vertices);
@@ -947,6 +931,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindSampledImage(4, rsmDepth, nearestSampler);
       Fwog::Cmd::BindSampledImage(5, rsmDepth, shadowSampler);
       Fwog::Cmd::BindSampledImage(6, *frame.gEmission, nearestSampler);
+      Fwog::Cmd::BindSampledImage(7, *frame.gMetallicRoughnessAo, nearestSampler);
       Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
       Fwog::Cmd::BindUniformBuffer(1, shadingUniformsBuffer);
       Fwog::Cmd::BindUniformBuffer(2, shadowUniformsBuffer);

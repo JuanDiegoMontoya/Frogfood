@@ -1,5 +1,11 @@
 #version 460 core
 
+#extension GL_GOOGLE_include_directive : enable
+
+#include "GlobalUniforms.h.glsl"
+#include "Math.h.glsl"
+#include "Pbr.h.glsl"
+
 layout(binding = 0) uniform sampler2D s_gAlbedo;
 layout(binding = 1) uniform sampler2D s_gNormal;
 layout(binding = 2) uniform sampler2D s_gDepth;
@@ -7,21 +13,11 @@ layout(binding = 3) uniform sampler2D s_rsmIndirect;
 layout(binding = 4) uniform sampler2D s_rsmDepth;
 layout(binding = 5) uniform sampler2DShadow s_rsmDepthShadow;
 layout(binding = 6) uniform sampler2D s_emission;
+layout(binding = 7) uniform sampler2D s_metallicRoughnessAo;
 
 layout(location = 0) in vec2 v_uv;
 
 layout(location = 0) out vec3 o_color;
-
-layout (binding = 0, std140) uniform PerFrameUniforms
-{
-  mat4 viewProj;
-  mat4 oldViewProjUnjittered;
-  mat4 viewProjUnjittered;
-  mat4 invViewProj;
-  mat4 proj;
-  vec4 cameraPos;
-  uint meshletCount;
-};
 
 layout(binding = 1, std140) uniform ShadingUniforms
 {
@@ -49,70 +45,10 @@ layout(binding = 2, std140) uniform ShadowUniforms
   float sourceAngleRad;
 }shadowUniforms;
 
-#define LIGHT_TYPE_DIRECTIONAL 0
-#define LIGHT_TYPE_POINT 1
-#define LIGHT_TYPE_SPOT 2
-
-struct GpuLight
-{
-  vec3 color;
-  uint type;
-  vec3 direction;  // Directional and spot only
-  // Point and spot lights use candela (lm/sr) while directional use lux (lm/m^2)
-  float intensity;
-  vec3 position;        // Point and spot only
-  float range;          // Point and spot only
-  float innerConeAngle; // Spot only
-  float outerConeAngle; // Spot only
-  uint _padding[2];
-};
-
 layout(binding = 0, std430) readonly buffer LightBuffer
 {
   GpuLight lights[];
 }lightBuffer;
-
-vec3 UnprojectUV(float depth, vec2 uv, mat4 invXProj)
-{
-  float z = depth;// * 2.0 - 1.0; // OpenGL Z convention
-  vec4 ndc = vec4(uv * 2.0 - 1.0, z, 1.0);
-  vec4 world = invXProj * ndc;
-  return world.xyz / world.w;
-}
-
-float hash(vec2 n)
-{ 
-	return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
-}
-
-vec2 Hammersley(uint i, uint N)
-{
-  return vec2(float(i) / float(N), float(bitfieldReverse(i)) * 2.3283064365386963e-10);
-}
-
-const float M_PI = 3.141592654;
-
-vec3 RandVecInCone(vec2 xi, vec3 N, float angle)
-{
-  float phi = 2.0 * M_PI * xi.x;
-  
-  float theta = sqrt(xi.y) * angle;
-  float cosTheta = cos(theta);
-  float sinTheta = sin(theta);
-
-  vec3 H;
-  H.x = cos(phi) * sinTheta;
-  H.y = sin(phi) * sinTheta;
-  H.z = cosTheta;
-
-  vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-  vec3 tangent = normalize(cross(up, N));
-  vec3 bitangent = cross(N, tangent);
-  mat3 tbn = mat3(tangent, bitangent, N);
-
-  vec3 sampleVec = tbn * H;
-  return normalize(sampleVec);
-}
 
 float ShadowPCF(vec2 uv, float viewDepth, float bias)
 {
@@ -149,7 +85,7 @@ float MarchShadowRay(vec3 rayLightViewPos, vec3 rayLightViewDir, float bias)
     rayLightClipPos.xy = rayLightClipPos.xy * 0.5 + 0.5; // to UV
     float shadowMapWindowZ = /*bias*/ + textureLod(s_rsmDepth, rayLightClipPos.xy, 0.0).x;
     // Note: view Z gets *smaller* as we go deeper into the frusum (farther from the camera)
-    float shadowMapViewZ = UnprojectUV(shadowMapWindowZ, rayLightClipPos.xy, inverse(shadingUniforms.sunProj)).z;
+    float shadowMapViewZ = UnprojectUV_ZO(shadowMapWindowZ, rayLightClipPos.xy, inverse(shadingUniforms.sunProj)).z;
 
     // Positive dDepth: tested position is below the shadow map
     // Negative dDepth: tested position is above
@@ -216,45 +152,15 @@ float Shadow(vec3 fragWorldPos, vec3 normal, vec3 lightDir)
   }
 }
 
-float GetSquareFalloffAttenuation(vec3 posToLight, float lightInvRadius)
-{
-  float distanceSquared = dot(posToLight, posToLight);
-  float factor = distanceSquared * lightInvRadius * lightInvRadius;
-  float smoothFactor = max(1.0 - factor * factor, 0.0);
-  return (smoothFactor * smoothFactor) / max(distanceSquared, 1e-4);
-}
-
-vec3 LocalLightIntensity(vec3 fragWorldPos, vec3 N, vec3 V, vec3 albedo)
+vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 {
   vec3 color = { 0, 0, 0 };
 
   for (int i = 0; i < lightBuffer.lights.length(); i++)
   {
     GpuLight light = lightBuffer.lights[i];
-    vec3 L = normalize(light.position.xyz - fragWorldPos);
-    float NoL = max(dot(N, L), 0.0);
-    vec3 diffuse = albedo * NoL * light.intensity;
 
-    vec3 H = normalize(V + L);
-    float spec = pow(max(dot(N, H), 0.0), 64.0);
-    vec3 specular = albedo * spec * light.intensity;
-
-    vec3 localColor = (diffuse + specular) * light.color;
-
-    localColor *= GetSquareFalloffAttenuation(light.position - fragWorldPos, 1.0 / light.range);
-
-    if (light.type == LIGHT_TYPE_SPOT)
-    {
-      float lightAngleScale = 1.0f / max(0.001, cos(light.innerConeAngle) - cos(light.outerConeAngle));
-      float lightAngleOffset = -cos(light.outerConeAngle) * lightAngleScale;
-
-      float cd = dot(-light.direction, L);
-      float angularAttenuation = clamp(cd * lightAngleScale + lightAngleOffset, 0.0, 1.0);
-      angularAttenuation *= angularAttenuation;
-      localColor *= angularAttenuation;
-    }
-
-    color += localColor;
+    color += EvaluatePunctualLight(viewDir, light, surface);
   }
 
   return color;
@@ -266,13 +172,14 @@ void main()
   vec3 normal = textureLod(s_gNormal, v_uv, 0.0).xyz;
   float depth = textureLod(s_gDepth, v_uv, 0.0).x;
   vec3 emission = textureLod(s_emission, v_uv, 0.0).rgb;
+  vec3 metallicRoughnessAo = textureLod(s_metallicRoughnessAo, v_uv, 0.0).rgb;
 
   if (depth == 1.0)
   {
     discard;
   }
 
-  vec3 fragWorldPos = UnprojectUV(depth, v_uv, invViewProj);
+  vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, perFrameUniforms.invViewProj);
   
   vec3 incidentDir = -shadingUniforms.sunDir.xyz;
   float cosTheta = max(0.0, dot(incidentDir, normal));
@@ -280,17 +187,22 @@ void main()
 
   float shadow = Shadow(fragWorldPos, normal, -shadingUniforms.sunDir.xyz);
   
-  vec3 viewDir = normalize(cameraPos.xyz - fragWorldPos);
-  //vec3 reflectDir = reflect(-incidentDir, normal);
-  vec3 halfDir = normalize(viewDir + incidentDir);
-  float spec = pow(max(dot(normal, halfDir), 0.0), 64.0);
-  vec3 specular = albedo * spec * shadingUniforms.sunStrength.rgb;
-
-  vec3 ambient = vec3(.1) * albedo;
-  //vec3 ambient = /*vec3(.01) * albedo*/ + textureLod(s_rsmIndirect, v_uv, 0).rgb;
-  vec3 finalColor = /*shadow * */ (diffuse + specular) + ambient;
+  vec3 viewDir = normalize(perFrameUniforms.cameraPos.xyz - fragWorldPos);
   
-  finalColor += LocalLightIntensity(fragWorldPos, normal, viewDir, albedo);
+  Surface surface;
+  surface.albedo = albedo;
+  surface.normal = normal;
+  surface.position = fragWorldPos;
+  surface.metallic = metallicRoughnessAo.x;
+  surface.perceptualRoughness = metallicRoughnessAo.y;
+  surface.reflectance = 0.04;
+  surface.f90 = 1.0;
+
+  vec3 finalColor = vec3(.1) * albedo * metallicRoughnessAo.z; // Ambient lighting
+
+  float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
+  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * shadingUniforms.sunStrength.rgb * NoL_sun;
+  finalColor += LocalLightIntensity(viewDir, surface);
   finalColor += emission;
 
   o_color = finalColor;

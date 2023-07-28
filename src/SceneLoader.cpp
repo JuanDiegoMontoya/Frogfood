@@ -96,7 +96,7 @@ namespace Utility
       {
       case Fwog::Format::BC1_RGBA_UNORM: return Fwog::Format::BC1_RGBA_SRGB;
       case Fwog::Format::BC1_RGB_UNORM: return Fwog::Format::BC1_RGB_SRGB;
-      case Fwog::Format::BC2_RGBA_UNORM: return Fwog::Format::BC3_RGBA_SRGB;
+      case Fwog::Format::BC2_RGBA_UNORM: return Fwog::Format::BC2_RGBA_SRGB;
       case Fwog::Format::BC3_RGBA_UNORM: return Fwog::Format::BC3_RGBA_SRGB;
       case Fwog::Format::BC7_RGBA_UNORM: return Fwog::Format::BC7_RGBA_SRGB;
       case Fwog::Format::R8G8B8A8_UNORM: return Fwog::Format::R8G8B8A8_SRGB;
@@ -897,7 +897,7 @@ namespace Utility
       vertexOffset += (uint32_t)mesh.vertices.size();
       indexOffset += (uint32_t)meshletIndices.size();
       primitiveOffset += (uint32_t)meshletPrimitives.size();
-
+      
       scene.vertices.insert(scene.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
       scene.indices.insert(scene.indices.end(), meshletIndices.begin(), meshletIndices.end());
       scene.primitives.insert(scene.primitives.end(), meshletPrimitives.begin(), meshletPrimitives.end());

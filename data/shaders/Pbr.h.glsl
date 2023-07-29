@@ -27,6 +27,9 @@ float GetSpotAngleAttenuation(float innerConeAngle, float outerConeAngle, vec3 l
 // Normal distribution function (appearance of specular highlights)
 float D_GGX(float NoH, float roughness)
 {
+  // Hack to make perfectly smooth materials display a non-infinitesimal specular highlight
+  //roughness = max(roughness, 1e-3);
+
   float a = NoH * roughness;
   float k = roughness / (1.0 - NoH * NoH + a * a);
   return k * k * (1.0 / 3.1415926);
@@ -35,7 +38,7 @@ float D_GGX(float NoH, float roughness)
 // Visibility (geometric shadowing and masking)
 float V_SmithGGXCorrelated(float NoV, float NoL, float a)
 {
-  float a2 = a * a;
+  float a2 = max(a * a, 1e-5);
   float ggxl = NoV * sqrt((-NoL * a2 + NoL) * NoL + a2);
   float ggxv = NoL * sqrt((-NoV * a2 + NoV) * NoV + a2);
   return 0.5 / (ggxv + ggxl);
@@ -89,20 +92,22 @@ vec3 BRDF(vec3 viewDir, vec3 L, Surface surface)
   float NoH = clamp(dot(surface.normal, H), 0.0, 1.0);
   float LoH = clamp(dot(L, H), 0.0, 1.0);
 
-  // perceptually linear roughness to roughness (see parameterization)
+  // Perceptually linear roughness to roughness (see parameterization)
   float roughness = surface.perceptualRoughness * surface.perceptualRoughness;
 
   float D = D_GGX(NoH, roughness);
   vec3  F = F_Schlick3(LoH, f0, 1.0);
   float V = V_SmithGGXCorrelated(NoV, NoL, roughness);
 
-  // specular BRDF
-  vec3 Fr = (D * V) * F;
+  // Specular BRDF (Cook-Torrance)
+  vec3 Fr = D * V * F;
 
-  // diffuse BRDF
+  // Diffuse BRDF
   vec3 Fd = surface.albedo * Fd_Lambert();
+  //vec3 Fd = surface.albedo * Fd_Burley(NoV, NoL, LoH, roughness);
 
-  return Fr + Fd;
+  // Combine BRDFs according to very scientific formula
+  return Fr + Fd * (vec3(1) - F) * (1.0 - surface.metallic);
 }
 
 #define LIGHT_TYPE_DIRECTIONAL 0u

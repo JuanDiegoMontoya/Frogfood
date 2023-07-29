@@ -84,12 +84,6 @@ vec3 Interpolate(in PartialDerivatives derivatives, in float[3] values)
   );
 }
 
-vec3 HsvToRgb(in vec3 hsv)
-{
-  const vec3 rgb = clamp(abs(mod(hsv.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-  return hsv.z * mix(vec3(1.0), rgb, hsv.y);
-}
-
 uint[3] VisbufferLoadIndexIds(in Meshlet meshlet, in uint primitiveId)
 {
   const uint vertexOffset = meshlet.vertexOffset;
@@ -148,12 +142,12 @@ UvGradient MakeUvGradient(in PartialDerivatives derivatives, in vec2[3] uvs)
   );
 }
 
-vec3 MakeSmoothNormal(in PartialDerivatives derivatives, in vec3[3] rawNormal)
+vec3 InterpolateVec3(in PartialDerivatives derivatives, in vec3[3] vec3Data)
 {
   return vec3(
-    Interpolate(derivatives, float[3](rawNormal[0].x, rawNormal[1].x, rawNormal[2].x)).x,
-    Interpolate(derivatives, float[3](rawNormal[0].y, rawNormal[1].y, rawNormal[2].y)).x,
-    Interpolate(derivatives, float[3](rawNormal[0].z, rawNormal[1].z, rawNormal[2].z)).x
+    Interpolate(derivatives, float[3](vec3Data[0].x, vec3Data[1].x, vec3Data[2].x)).x,
+    Interpolate(derivatives, float[3](vec3Data[0].y, vec3Data[1].y, vec3Data[2].y)).x,
+    Interpolate(derivatives, float[3](vec3Data[0].z, vec3Data[1].z, vec3Data[2].z)).x
   );
 }
 
@@ -242,6 +236,15 @@ vec3 SampleEmission(in GpuMaterial material, in UvGradient uvGrad)
     textureGrad(s_emission, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
 }
 
+vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
+{
+  if (!bool(material.flags & MATERIAL_HAS_NORMAL))
+  {
+    return vec3(0, 0, 1);
+  }
+  return textureGrad(s_normal, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb * 2.0 - 1.0;
+}
+
 void main()
 {
   const ivec2 position = ivec2(gl_FragCoord.xy);
@@ -271,9 +274,34 @@ void main()
   const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);
   //const vec3 normal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));
 
-  vec3 smoothNormal = normalize(MakeSmoothNormal(partialDerivatives, rawNormal));
+  vec3 smoothNormal = normalize(InterpolateVec3(partialDerivatives, rawNormal));
   mat3 normalMatrix = inverse(transpose(mat3(transform)));
   vec3 normal = normalize(normalMatrix * smoothNormal);
+
+  // TODO: use view-space positions to maintain precision
+  vec3 iwp[] = vec3[](
+    Interpolate(partialDerivatives, float[3](worldPosition[0].x, worldPosition[1].x, worldPosition[2].x)),
+    Interpolate(partialDerivatives, float[3](worldPosition[0].y, worldPosition[1].y, worldPosition[2].y)),
+    Interpolate(partialDerivatives, float[3](worldPosition[0].z, worldPosition[1].z, worldPosition[2].z))
+  );
+
+  mat3 TBN = mat3(0.0);
+  {
+    const vec3 ddx_position = vec3(iwp[0].y, iwp[1].y, iwp[2].y);
+    const vec3 ddy_position = vec3(iwp[0].z, iwp[1].z, iwp[2].z);
+    //const vec3 ddy_position = analytical_ddy(derivatives, world_positions);
+    const vec2 ddx_uv = uvGrad.ddx;
+    const vec2 ddy_uv = uvGrad.ddy;
+
+    const vec3 N = normal;
+    const vec3 T = normalize(ddx_position * ddy_uv.y - ddy_position * ddx_uv.y);
+    const vec3 B = -normalize(cross(N, T));
+
+    TBN = mat3(T, B, N);
+
+    vec3 sampledNormal = normalize(SampleNormal(material, uvGrad));
+    normal = normalize(TBN * sampledNormal);
+  }
 
   o_albedo = vec4(SampleBaseColor(material, uvGrad).rgb, 1.0);
   o_metallicRoughnessAo = vec3(

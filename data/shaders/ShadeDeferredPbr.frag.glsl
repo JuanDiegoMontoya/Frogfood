@@ -27,6 +27,8 @@ layout(binding = 1, std140) uniform ShadingUniforms
   mat4 sunView;
   mat4 sunProj;
   vec2 random;
+  uint numberOfLights;
+  uint _padding;
 }shadingUniforms;
 
 layout(binding = 2, std140) uniform ShadowUniforms
@@ -156,7 +158,7 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 {
   vec3 color = { 0, 0, 0 };
 
-  for (int i = 0; i < lightBuffer.lights.length(); i++)
+  for (uint i = 0; i < shadingUniforms.numberOfLights; i++)
   {
     GpuLight light = lightBuffer.lights[i];
 

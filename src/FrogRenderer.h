@@ -46,6 +46,8 @@ private:
     glm::mat4 sunView;
     glm::mat4 sunProj;
     glm::vec2 random;
+    glm::uint numberOfLights;
+    glm::uint _padding;
   };
 
   struct DebugLine

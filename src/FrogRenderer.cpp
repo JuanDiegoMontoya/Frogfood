@@ -513,6 +513,13 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
     debugGpuAabbsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   }
 
+  shadingUniforms.numberOfLights = (uint32_t)scene.lights.size();
+
+  if (scene.lights.size() * sizeof(Utility::GpuLight) > lightBuffer->Size())
+  {
+    lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights.size() * 2, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+  }
+
   lightBuffer->UpdateData(scene.lights);
 
   if (fsr2Enable)

@@ -269,11 +269,20 @@ void FrogRenderer::GuiDrawLightsArray()
 {
   if (ImGui::Begin("Lights"))
   {
+    // Display properties for all lights
     for (size_t i = 0; i < scene.lights.size(); i++)
     {
       auto& light = scene.lights[i];
       const auto id = "##Light " + std::to_string(i);
-      ImGui::Text("%s", id.c_str() + 2);
+      ImGui::Text("%s", id.c_str() + 2); // Skip the two octothorpes at the beginning
+      ImGui::SameLine();
+      if (ImGui::Button(" X ")) // TODO: replace with better symbol
+      {
+        std::swap(scene.lights[i], scene.lights.back());
+        scene.lights.pop_back();
+        i--;
+        continue;
+      }
 
       const char* typePreview = "";
       if (light.type == Utility::LightType::DIRECTIONAL)
@@ -331,6 +340,21 @@ void FrogRenderer::GuiDrawLightsArray()
       }
 
       ImGui::Separator();
+    }
+
+    // Adding new lights
+    if (ImGui::Button("Add Light"))
+    {
+      scene.lights.emplace_back(Utility::GpuLight{
+        .color = {1, 1, 1},
+        .type = Utility::LightType::POINT,
+        .direction = glm::normalize(glm::vec3{0.1f, -1, 0.1f}),
+        .intensity = 100,
+        .position = {0, 0, 0},
+        .range = 1000,
+        .innerConeAngle = 0.01f,
+        .outerConeAngle = 0.4f,
+      });
     }
   }
   ImGui::End();

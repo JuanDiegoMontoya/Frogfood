@@ -36,6 +36,15 @@ namespace Utility
 {
   namespace // helpers
   {
+    enum class ImageUsage
+    {
+      BASE_COLOR,
+      METALLIC_ROUGHNESS,
+      NORMAL,
+      OCCLUSION,
+      EMISSION,
+    };
+
     class Timer
     {
       using microsecond_t = std::chrono::microseconds;
@@ -155,7 +164,7 @@ namespace Utility
       }
     }
 
-    std::vector<Fwog::Texture> LoadImages(const fastgltf::Asset& asset)
+    std::vector<Fwog::Texture> LoadImages(const fastgltf::Asset& asset, std::span<const ImageUsage> imageUsages)
     {
       struct RawImageData
       {
@@ -177,7 +186,7 @@ namespace Utility
         // ktx
         std::unique_ptr<ktxTexture2, decltype([](ktxTexture2* p) { ktxTexture_Destroy(ktxTexture(p)); })> ktx = {};
       };
-
+      
       auto MakeRawImageData = [](const void* data, std::size_t dataSize, fastgltf::MimeType mimeType, std::string_view name) -> RawImageData
       {
         FWOG_ASSERT(mimeType == fastgltf::MimeType::JPEG || mimeType == fastgltf::MimeType::PNG || mimeType == fastgltf::MimeType::KTX2);
@@ -192,90 +201,98 @@ namespace Utility
         };
       };
 
+      const auto indices = std::ranges::iota_view((size_t)0, asset.images.size());
+
       // Load and decode image data locally, in parallel
       auto rawImageData = std::vector<RawImageData>(asset.images.size());
 
-      std::transform(std::execution::par,
-                     asset.images.begin(),
-                     asset.images.end(),
-                     rawImageData.begin(),
-                     [&](const fastgltf::Image& image)
-                     {
-                       auto rawImage = [&]
-                       {
-                         if (const auto* filePath = std::get_if<fastgltf::sources::URI>(&image.data))
-                         {
-                           FWOG_ASSERT(filePath->fileByteOffset == 0); // We don't support file offsets
-                           FWOG_ASSERT(filePath->uri.isLocalPath());   // We're only capable of loading local files
+      std::transform(
+        std::execution::par,
+        indices.begin(),
+        indices.end(),
+        rawImageData.begin(),
+        [&](size_t index)
+        {
+          const fastgltf::Image& image = asset.images[index];
+        
+          auto rawImage = [&]
+          {
+            if (const auto* filePath = std::get_if<fastgltf::sources::URI>(&image.data))
+            {
+              FWOG_ASSERT(filePath->fileByteOffset == 0); // We don't support file offsets
+              FWOG_ASSERT(filePath->uri.isLocalPath());   // We're only capable of loading local files
+        
+              auto fileData = Application::LoadBinaryFile(filePath->uri.path());
+        
+              return MakeRawImageData(fileData.first.get(), fileData.second, filePath->mimeType, image.name);
+            }
+        
+            if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
+            {
+              return MakeRawImageData(vector->bytes.data(), vector->bytes.size(), vector->mimeType, image.name);
+            }
+        
+            if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
+            {
+              auto& bufferView = asset.bufferViews[view->bufferViewIndex];
+              auto& buffer = asset.buffers[bufferView.bufferIndex];
+              if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&buffer.data))
+              {
+                return MakeRawImageData(vector->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
+              }
+            }
+            
+            return RawImageData{};
+          }();
+        
+          if (rawImage.isKtx)
+          {
+            ktxTexture2* ktx{};
+            if (auto result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t*>(rawImage.encodedPixelData.get()),
+                                                           rawImage.encodedPixelSize,
+                                                           KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+                                                           &ktx);
+                result != KTX_SUCCESS)
+            {
+              FWOG_UNREACHABLE;
+            }
+        
+            rawImage.width = ktx->baseWidth;
+            rawImage.height = ktx->baseHeight;
+            rawImage.components = ktxTexture2_GetNumComponents(ktx);
+            rawImage.ktx.reset(ktx);
+          }
+          else
+          {
+            int x, y, comp;
+            auto* pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(rawImage.encodedPixelData.get()),
+                                                 static_cast<int>(rawImage.encodedPixelSize),
+                                                 &x,
+                                                 &y,
+                                                 &comp,
+                                                 4);
+        
+            FWOG_ASSERT(pixels != nullptr);
+        
+            rawImage.width = x;
+            rawImage.height = y;
+            // rawImage.components = comp;
+            rawImage.components = 4; // If forced 4 components
+            rawImage.data.reset(pixels);
+          }
 
-                           auto fileData = Application::LoadBinaryFile(filePath->uri.path());
-
-                           return MakeRawImageData(fileData.first.get(), fileData.second, filePath->mimeType, image.name);
-                         }
-
-                         if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
-                         {
-                           return MakeRawImageData(vector->bytes.data(), vector->bytes.size(), vector->mimeType, image.name);
-                         }
-
-                         if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
-                         {
-                           auto& bufferView = asset.bufferViews[view->bufferViewIndex];
-                           auto& buffer = asset.buffers[bufferView.bufferIndex];
-                           if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&buffer.data))
-                           {
-                             return MakeRawImageData(vector->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
-                           }
-                         }
-
-                         return RawImageData{};
-                       }();
-
-                       if (rawImage.isKtx)
-                       {
-                         ktxTexture2* ktx{};
-                         if (auto result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t*>(rawImage.encodedPixelData.get()),
-                                                                        rawImage.encodedPixelSize,
-                                                                        KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-                                                                        &ktx);
-                             result != KTX_SUCCESS)
-                         {
-                           FWOG_UNREACHABLE;
-                         }
-
-                         rawImage.width = ktx->baseWidth;
-                         rawImage.height = ktx->baseHeight;
-                         rawImage.components = ktxTexture2_GetNumComponents(ktx);
-                         rawImage.ktx.reset(ktx);
-                       }
-                       else
-                       {
-                         int x, y, comp;
-                         auto* pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(rawImage.encodedPixelData.get()),
-                                                              static_cast<int>(rawImage.encodedPixelSize),
-                                                              &x,
-                                                              &y,
-                                                              &comp,
-                                                              4);
-
-                         FWOG_ASSERT(pixels != nullptr);
-
-                         rawImage.width = x;
-                         rawImage.height = y;
-                         // rawImage.components = comp;
-                         rawImage.components = 4; // If forced 4 components
-                         rawImage.data.reset(pixels);
-                       }
-
-                       return rawImage;
-                     });
+          return rawImage;
+        });
 
       // Upload image data to GPU
       auto loadedImages = std::vector<Fwog::Texture>();
       loadedImages.reserve(rawImageData.size());
 
-      for (const auto& image : rawImageData)
+      for (size_t i = 0; i < rawImageData.size(); i++)
       {
+        const auto& image = rawImageData[i];
+        const auto imageUsage = imageUsages[i];
+
         Fwog::Extent2D dims = {static_cast<uint32_t>(image.width), static_cast<uint32_t>(image.height)};
 
         // Upload KTX2 compressed image
@@ -283,12 +300,39 @@ namespace Utility
         {
           auto* ktx = image.ktx.get();
 
-          auto format = Fwog::Format::BC7_RGBA_UNORM;
+          Fwog::Format format{};
+          ktx_transcode_fmt_e ktxTranscodeFormat{};
+
+          switch (imageUsage)
+          {
+          case ImageUsage::BASE_COLOR:
+            format = Fwog::Format::BC7_RGBA_UNORM;
+            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+            break;
+          // Occlusion and metallicRoughness _may_ be encoded within the same image, so we have to use at least an RGB format here.
+          // In the event where these textures are guaranteed to be separate, we can use BC4 and BC5 for better quality.
+          case ImageUsage::OCCLUSION: [[fallthrough]];
+          case ImageUsage::METALLIC_ROUGHNESS:
+            format = Fwog::Format::BC7_RGBA_UNORM;
+            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+            break;
+          // The glTF spec states that normal textures must be encoded with three channels, even though the third could be trivially reconstructed.
+          // libktx is incapable of decoding XYZ normal maps to BC5 as their alpha channel is mapped to BC5's G channel, so we are stuck with this.
+          case ImageUsage::NORMAL:
+            format = Fwog::Format::BC7_RGBA_UNORM;
+            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+            break;
+          // TODO: evaluate whether BC7 is necessary here.
+          case ImageUsage::EMISSION:
+            format = Fwog::Format::BC7_RGBA_UNORM;
+            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+            break;
+          }
 
           // If the image needs is in a supercompressed encoding, transcode it to a desired format
           if (ktxTexture2_NeedsTranscoding(ktx))
           {
-            if (auto result = ktxTexture2_TranscodeBasis(ktx, KTX_TTF_BC7_RGBA, KTX_TF_HIGH_QUALITY); result != KTX_SUCCESS)
+            if (auto result = ktxTexture2_TranscodeBasis(ktx, ktxTranscodeFormat, KTX_TF_HIGH_QUALITY); result != KTX_SUCCESS)
             {
               FWOG_UNREACHABLE;
             }
@@ -324,8 +368,8 @@ namespace Utility
           FWOG_ASSERT(image.pixel_type == GL_UNSIGNED_BYTE);
           FWOG_ASSERT(image.bits == 8);
 
-          auto textureData =
-            Fwog::CreateTexture2DMip(dims, Fwog::Format::R8G8B8A8_UNORM, uint32_t(1 + floor(log2(glm::max(dims.width, dims.height)))), image.name);
+          // TODO: use R8G8_UNORM for normal maps
+          auto textureData = Fwog::CreateTexture2DMip(dims, Fwog::Format::R8G8B8A8_UNORM, uint32_t(1 + floor(log2(glm::max(dims.width, dims.height)))), image.name);
 
           auto updateInfo = Fwog::TextureUpdateInfo{
             .level = 0,
@@ -615,8 +659,35 @@ namespace Utility
     // Let's not deal with glTFs containing multiple scenes right now
     FWOG_ASSERT(asset.scenes.size() == 1);
 
+    auto imageFormats = std::vector<ImageUsage>(asset.images.size(), ImageUsage::BASE_COLOR);
+
+    // Assumption: each image has exactly one usage, or is used for both metallic-roughness AND occlusion (which is handled in LoadImages()).
+    for (const auto& material : asset.materials)
+    {
+      if (material.pbrData.baseColorTexture && asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex)
+      {
+        imageFormats[*asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex] = ImageUsage::BASE_COLOR;
+      }
+      if (material.normalTexture && asset.textures[material.normalTexture->textureIndex].imageIndex)
+      {
+        imageFormats[*asset.textures[material.normalTexture->textureIndex].imageIndex] = ImageUsage::NORMAL;
+      }
+      if (material.pbrData.metallicRoughnessTexture && asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex)
+      {
+        imageFormats[*asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex] = ImageUsage::METALLIC_ROUGHNESS;
+      }
+      if (material.occlusionTexture && asset.textures[material.occlusionTexture->textureIndex].imageIndex)
+      {
+        imageFormats[*asset.textures[material.occlusionTexture->textureIndex].imageIndex] = ImageUsage::OCCLUSION;
+      }
+      if (material.emissiveTexture && asset.textures[material.emissiveTexture->textureIndex].imageIndex)
+      {
+        imageFormats[*asset.textures[material.emissiveTexture->textureIndex].imageIndex] = ImageUsage::EMISSION;
+      }
+    }
+
     // Load images and boofers
-    auto images = LoadImages(asset);
+    auto images = LoadImages(asset, imageFormats);
 
     auto ms = timer.Elapsed_us() / 1000;
     std::cout << "Loading took " << ms << " ms\n";

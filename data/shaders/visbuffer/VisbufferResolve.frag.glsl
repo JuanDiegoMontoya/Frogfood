@@ -242,7 +242,11 @@ vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
   {
     return vec3(0, 0, 1);
   }
-  return textureGrad(s_normal, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb * 2.0 - 1.0;
+  // We assume the normal is encoded with just X and Y components, since we can trivially reconstruct the third.
+  // This allows compatibility with both RG and RGB tangent space normal maps.
+  vec2 xy = textureGrad(s_normal, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rg * 2.0 - 1.0;
+  float z = sqrt(max(1.0 - xy.x * xy.x - xy.y * xy.y, 0.0));
+  return vec3(xy, z);
 }
 
 void main()

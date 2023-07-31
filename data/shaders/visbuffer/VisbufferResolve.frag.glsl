@@ -289,11 +289,11 @@ void main()
     Interpolate(partialDerivatives, float[3](worldPosition[0].z, worldPosition[1].z, worldPosition[2].z))
   );
 
-  mat3 TBN = mat3(0.0);
+  if (bool(material.flags & MATERIAL_HAS_NORMAL))
   {
+    mat3 TBN = mat3(0.0);
     const vec3 ddx_position = vec3(iwp[0].y, iwp[1].y, iwp[2].y);
     const vec3 ddy_position = vec3(iwp[0].z, iwp[1].z, iwp[2].z);
-    //const vec3 ddy_position = analytical_ddy(derivatives, world_positions);
     const vec2 ddx_uv = uvGrad.ddx;
     const vec2 ddy_uv = uvGrad.ddy;
 

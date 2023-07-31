@@ -29,6 +29,9 @@ float D_GGX(float NoH, float roughness)
 {
   // Hack to make perfectly smooth materials display a non-infinitesimal specular highlight
   //roughness = max(roughness, 1e-3);
+  
+  // Hack to prevent zero in the denominator
+  NoH = min(NoH, 0.9999);
 
   float a = NoH * roughness;
   float k = roughness / (1.0 - NoH * NoH + a * a);

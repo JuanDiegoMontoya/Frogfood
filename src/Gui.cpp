@@ -360,6 +360,20 @@ void FrogRenderer::GuiDrawLightsArray()
   ImGui::End();
 }
 
+void FrogRenderer::GuiDrawBloomWindow()
+{
+  if (ImGui::Begin("Bloom"))
+  {
+    constexpr uint32_t zero = 0;
+    constexpr uint32_t eight = 8;
+    ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
+    ImGui::SliderFloat("Strength", &bloomStrength, 0, 1, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("Width", &bloomWidth, 0, 2);
+  }
+
+  ImGui::End();
+}
+
 void FrogRenderer::OnGui([[maybe_unused]] double dt)
 {
   GuiDrawDockspace();
@@ -499,4 +513,6 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   GuiDrawDebugWindow();
 
   GuiDrawLightsArray();
+
+  GuiDrawBloomWindow();
 }

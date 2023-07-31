@@ -27,7 +27,7 @@
  * [ ] Clouds
  *
  * Effects:
- * [ ] Bloom
+ * [X] Bloom
  *
  * Resolve:
  * [ ] Auto exposure

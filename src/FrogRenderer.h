@@ -3,6 +3,7 @@
 #include "RsmTechnique.h"
 #include "SceneLoader.h"
 #include "PCG.h"
+#include "techniques/Bloom.h"
 
 #include <Fwog/Texture.h>
 
@@ -90,6 +91,7 @@ private:
   void GuiDrawFsrWindow();
   void GuiDrawDebugWindow();
   void GuiDrawLightsArray();
+  void GuiDrawBloomWindow();
 
   // constants
   static constexpr int gShadowmapWidth = 2048;
@@ -150,6 +152,9 @@ private:
 
     // Post-upscale (skipped if render res == window res)
     std::optional<Fwog::Texture> colorHdrWindowRes;
+
+    // Bloom scratch buffer. Half window resolution.
+    std::optional<Fwog::Texture> colorHdrBloomScratchBuffer;
 
     // Final tonemapped color
     std::optional<Fwog::Texture> colorLdrWindowRes;
@@ -241,4 +246,10 @@ private:
   // Magnifier
   float magnifierZoom = 4;
   glm::vec2 magnifierLastCursorPos = {400, 400};
+
+  // Bloom
+  Techniques::Bloom bloom;
+  uint32_t bloomPasses = 6;
+  float bloomStrength = 1.0f / 64.0f;
+  float bloomWidth = 1.0f;
 };

@@ -1,5 +1,4 @@
 #include "FrogRenderer.h"
-#include "Fwog/Context.h"
 
 #include <Fwog/BasicTypes.h>
 #include <Fwog/Buffer.h>
@@ -12,7 +11,6 @@
 #include <GLFW/glfw3.h>
 
 #include <stb_image.h>
-#include <stb_include.h>
 
 #include <glm/gtx/transform.hpp>
 #include <glm/mat4x4.hpp>
@@ -26,17 +24,7 @@
 #include <optional>
 #include <string>
 
-static Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesystem::path& path)
-{
-  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path))
-  {
-    throw std::runtime_error("Path does not refer to a file");
-  }
-  auto pathStr = path.string();
-  auto parentPathStr = path.parent_path().string();
-  auto processedSource = std::unique_ptr<char, decltype([](char* p) { free(p); })>(stb_include_file(pathStr.c_str(), nullptr, parentPathStr.c_str(), nullptr));
-  return Fwog::Shader(stage, processedSource.get());
-}
+#include "RendererUtilities.h"
 
 static constexpr uint32_t previousPower2(uint32_t x)
 {
@@ -106,6 +94,7 @@ static Fwog::ComputePipeline CreateHzbCopyPipeline()
   auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBCopy.comp.glsl");
 
   return Fwog::ComputePipeline({
+    .name = "HZB Copy",
     .shader = &comp,
   });
 }
@@ -115,6 +104,7 @@ static Fwog::ComputePipeline CreateHzbReducePipeline()
   auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBReduce.comp.glsl");
 
   return Fwog::ComputePipeline({
+    .name = "HZB Reduce",
     .shader = &comp,
   });
 }
@@ -326,6 +316,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}), false);
 
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}), false);
+
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::scale(glm::vec3{1}), true);
@@ -448,6 +440,7 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
   frame.gDepthPrev = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT);
   frame.colorHdrRenderRes = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R11G11B10_FLOAT, "colorHdrRenderRes");
   frame.colorHdrWindowRes = Fwog::CreateTexture2D({newWidth, newHeight}, Fwog::Format::R11G11B10_FLOAT, "colorHdrWindowRes");
+  frame.colorHdrBloomScratchBuffer = Fwog::CreateTexture2DMip({newWidth / 2, newHeight / 2}, Fwog::Format::R11G11B10_FLOAT, 8);
   frame.colorLdrWindowRes = Fwog::CreateTexture2D({newWidth, newHeight}, Fwog::Format::R8G8B8A8_UNORM, "colorLdrWindowRes");
 
   if (!frame.rsm)
@@ -986,56 +979,65 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 #ifdef FROGRENDER_FSR2_ENABLE
   if (fsr2Enable)
   {
-    Fwog::Compute("FSR 2",
-                  [&]
-                  {
-                    static Fwog::TimerQueryAsync timer(5);
-                    if (auto t = timer.PopTimestamp())
-                    {
-                      fsr2Performance = *t / 10e5;
-                    }
-                    Fwog::TimerScoped scopedTimer(timer);
+    Fwog::Compute(
+      "FSR 2",
+      [&]
+      {
+        static Fwog::TimerQueryAsync timer(5);
+        if (auto t = timer.PopTimestamp())
+        {
+          fsr2Performance = *t / 10e5;
+        }
+        Fwog::TimerScoped scopedTimer(timer);
 
-                    if (frameIndex == 1)
-                    {
-                      dt = 17.0 / 1000.0;
-                    }
+        if (frameIndex == 1)
+        {
+          dt = 17.0 / 1000.0;
+        }
 
-                    float jitterX{};
-                    float jitterY{};
-                    ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderWidth, windowWidth));
+        float jitterX{};
+        float jitterY{};
+        ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderWidth, windowWidth));
 
-                    FfxFsr2DispatchDescription dispatchDesc{
-                      .color = ffxGetTextureResourceGL(frame.colorHdrRenderRes->Handle(), renderWidth, renderHeight, GL_R11F_G11F_B10F),
-                      .depth = ffxGetTextureResourceGL(frame.gDepth->Handle(), renderWidth, renderHeight, GL_DEPTH_COMPONENT32F),
-                      .motionVectors = ffxGetTextureResourceGL(frame.gMotion->Handle(), renderWidth, renderHeight, GL_RG16F),
-                      .exposure = {},
-                      .reactive = {},
-                      .transparencyAndComposition = {},
-                      .output = ffxGetTextureResourceGL(frame.colorHdrWindowRes->Handle(), windowWidth, windowHeight, GL_R11F_G11F_B10F),
-                      .jitterOffset = {jitterX, jitterY},
-                      .motionVectorScale = {float(renderWidth), float(renderHeight)},
-                      .renderSize = {renderWidth, renderHeight},
-                      .enableSharpening = fsr2Sharpness != 0,
-                      .sharpness = fsr2Sharpness,
-                      .frameTimeDelta = static_cast<float>(dt * 1000.0),
-                      .preExposure = 1,
-                      .reset = false,
-                      .cameraNear = cameraNear,
-                      .cameraFar = cameraFar,
-                      .cameraFovAngleVertical = cameraFovY,
-                      .viewSpaceToMetersFactor = 1,
-                      .deviceDepthNegativeOneToOne = false,
-                    };
+        FfxFsr2DispatchDescription dispatchDesc{
+          .color = ffxGetTextureResourceGL(frame.colorHdrRenderRes->Handle(), renderWidth, renderHeight, GL_R11F_G11F_B10F),
+          .depth = ffxGetTextureResourceGL(frame.gDepth->Handle(), renderWidth, renderHeight, GL_DEPTH_COMPONENT32F),
+          .motionVectors = ffxGetTextureResourceGL(frame.gMotion->Handle(), renderWidth, renderHeight, GL_RG16F),
+          .exposure = {},
+          .reactive = {},
+          .transparencyAndComposition = {},
+          .output = ffxGetTextureResourceGL(frame.colorHdrWindowRes->Handle(), windowWidth, windowHeight, GL_R11F_G11F_B10F),
+          .jitterOffset = {jitterX, jitterY},
+          .motionVectorScale = {float(renderWidth), float(renderHeight)},
+          .renderSize = {renderWidth, renderHeight},
+          .enableSharpening = fsr2Sharpness != 0,
+          .sharpness = fsr2Sharpness,
+          .frameTimeDelta = static_cast<float>(dt * 1000.0),
+          .preExposure = 1,
+          .reset = false,
+          .cameraNear = cameraNear,
+          .cameraFar = cameraFar,
+          .cameraFovAngleVertical = cameraFovY,
+          .viewSpaceToMetersFactor = 1,
+          .deviceDepthNegativeOneToOne = false,
+        };
 
-                    if (auto err = ffxFsr2ContextDispatch(&fsr2Context, &dispatchDesc); err != FFX_OK)
-                    {
-                      printf("FSR 2 error: %d\n", err);
-                    }
-                  });
+        if (auto err = ffxFsr2ContextDispatch(&fsr2Context, &dispatchDesc); err != FFX_OK)
+        {
+          printf("FSR 2 error: %d\n", err);
+        }
+      });
     Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
   }
 #endif
+
+  bloom.Apply({
+    .target = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
+    .scratchTexture = frame.colorHdrBloomScratchBuffer.value(),
+    .passes = bloomPasses,
+    .strength = bloomStrength,
+    .width = bloomWidth,
+  });
 
   const auto ppAttachment = Fwog::RenderColorAttachment{
     .texture = frame.colorLdrWindowRes.value(),

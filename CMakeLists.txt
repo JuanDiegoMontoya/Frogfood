@@ -21,6 +21,10 @@ add_executable(frogRender
 	src/FrogRenderer.h
 	src/FrogRenderer.cpp
 	src/PCG.h
+	src/techniques/Bloom.h
+	src/techniques/Bloom.cpp
+	src/RendererUtilities.h
+	src/RendererUtilities.cpp
 )
 
 # enable asan for debug builds

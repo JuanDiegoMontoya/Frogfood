@@ -30,7 +30,7 @@ namespace Techniques
       // A reasonable value for an HDR renderer would be less than 1.0/16.0
       float strength;
 
-      // Width of the bloom blur kernel.
+      // Width of the bloom upscale kernel.
       float width;
     };
 
@@ -48,7 +48,9 @@ namespace Techniques
       float width;
       float strength;
       float sourceLod;
-      float targetLod;
+      uint32_t numPasses;
+      uint32_t isFinalPass;
+      uint32_t _padding[3];
     };
 
     Fwog::TypedBuffer<BloomUniforms> uniformBuffer;

@@ -364,11 +364,23 @@ void FrogRenderer::GuiDrawBloomWindow()
 {
   if (ImGui::Begin("Bloom"))
   {
+    ImGui::Checkbox("Enable", &bloomEnable);
+
+    if (!bloomEnable)
+    {
+      ImGui::BeginDisabled();
+
+    }
     constexpr uint32_t zero = 0;
     constexpr uint32_t eight = 8;
     ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
     ImGui::SliderFloat("Strength", &bloomStrength, 0, 1, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
     ImGui::SliderFloat("Width", &bloomWidth, 0, 2);
+
+    if (!bloomEnable)
+    {
+      ImGui::EndDisabled();
+    }
   }
 
   ImGui::End();
@@ -409,7 +421,7 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   ImGui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
   ImGui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
   ImGui::ColorEdit3("Sun Color", &sunColor[0], ImGuiColorEditFlags_Float);
-  ImGui::SliderFloat("Sun Strength", &sunStrength, 0, 50);
+  ImGui::SliderFloat("Sun Strength", &sunStrength, 0, 500, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
 
   ImGui::Separator();
 

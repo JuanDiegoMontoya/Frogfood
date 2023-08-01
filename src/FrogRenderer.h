@@ -249,7 +249,8 @@ private:
 
   // Bloom
   Techniques::Bloom bloom;
+  bool bloomEnable = true;
   uint32_t bloomPasses = 6;
-  float bloomStrength = 1.0f / 64.0f;
+  float bloomStrength = 1.0f / 32.0f;
   float bloomWidth = 1.0f;
 };

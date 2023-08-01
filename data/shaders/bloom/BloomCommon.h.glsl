@@ -8,7 +8,8 @@ layout(binding = 0, std140) uniform UniformBuffer
   float width;
   float strength;
   float sourceLod;
-  float targetLod;
+  uint numPasses;
+  uint isFinalPass;
 }uniforms;
 
 #endif // BLOOM_COMMON_H

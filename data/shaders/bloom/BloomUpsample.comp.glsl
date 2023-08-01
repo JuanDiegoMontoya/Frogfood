@@ -34,11 +34,16 @@ void main()
   blurSum += textureLod(s_source, uv + vec2(0, 1)   * texel * uniforms.width, uniforms.sourceLod) * 2.0 / 16.0;
   blurSum += textureLod(s_source, uv + vec2(1, 1)   * texel * uniforms.width, uniforms.sourceLod) * 1.0 / 16.0;
   
-  // Looks cool
-  rgba += blurSum * uniforms.strength;
-
-  // Energy-conserving
-  //rgba = mix(rgba, blurSum, uniforms.strength);
+  if (bool(uniforms.isFinalPass))
+  {
+    // Conserve energy
+    rgba = mix(rgba, blurSum / uniforms.numPasses, uniforms.strength);
+  }
+  else
+  {
+    // Accumulate
+    rgba += blurSum;
+  }
 
   imageStore(i_target, gid, rgba);
 }

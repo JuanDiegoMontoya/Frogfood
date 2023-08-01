@@ -403,9 +403,11 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
         [](FfxFsr2MsgType type, const wchar_t* message)
       {
         char cstr[256] = {};
-        wcstombs_s(nullptr, cstr, sizeof(cstr), message, sizeof(cstr));
+        if (wcstombs_s(nullptr, cstr, sizeof(cstr), message, sizeof(cstr)) == 0)
+        {
         cstr[255] = '\0';
         printf("FSR 2 message (type=%d): %s\n", type, cstr);
+        }
       },
     };
     fsr2ScratchMemory = std::make_unique<char[]>(ffxFsr2GetScratchMemorySizeGL());
@@ -1031,6 +1033,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   }
 #endif
 
+  if (bloomEnable)
+  {
   bloom.Apply({
     .target = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
     .scratchTexture = frame.colorHdrBloomScratchBuffer.value(),
@@ -1038,6 +1042,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     .strength = bloomStrength,
     .width = bloomWidth,
   });
+  }
 
   const auto ppAttachment = Fwog::RenderColorAttachment{
     .texture = frame.colorLdrWindowRes.value(),

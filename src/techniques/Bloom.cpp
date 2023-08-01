@@ -113,13 +113,11 @@ namespace Techniques
           Fwog::Extent2D sourceDim = params.target.Extent() >> (i + 1);
           Fwog::Extent2D targetDim{};
           const Fwog::Texture* targetTex = nullptr;
-          float realStrength = 1.0f;
           uint32_t targetLod{};
 
           // final pass
           if (i == 0)
           {
-            realStrength = params.strength;
             targetLod = 0;
             targetTex = &params.target;
             targetDim = params.target.Extent();
@@ -138,9 +136,10 @@ namespace Techniques
             .sourceDim = {sourceDim.width, sourceDim.height},
             .targetDim = {targetDim.width, targetDim.height},
             .width = params.width,
-            .strength = realStrength,
+            .strength = params.strength,
             .sourceLod = static_cast<float>(i),
-            .targetLod = static_cast<float>(targetLod),
+            .numPasses = params.passes,
+            .isFinalPass = i == 0,
           };
           uniformBuffer.UpdateData(uniforms);
           

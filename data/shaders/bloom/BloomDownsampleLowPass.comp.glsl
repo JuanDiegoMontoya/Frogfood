@@ -10,10 +10,10 @@ layout(binding = 0) uniform writeonly image2D i_target;
 
 vec3 karisAverage(vec3 c1, vec3 c2, vec3 c3, vec3 c4)
 {
-  float w1 = 1.0 / (luminance(c1.rgb) + 1.0);
-  float w2 = 1.0 / (luminance(c2.rgb) + 1.0);
-  float w3 = 1.0 / (luminance(c3.rgb) + 1.0);
-  float w4 = 1.0 / (luminance(c4.rgb) + 1.0);
+  float w1 = 1.0 / (Luminance(c1.rgb) + 1.0);
+  float w2 = 1.0 / (Luminance(c2.rgb) + 1.0);
+  float w3 = 1.0 / (Luminance(c3.rgb) + 1.0);
+  float w4 = 1.0 / (Luminance(c4.rgb) + 1.0);
 
   return (c1 * w1 + c2 * w2 + c3 * w3 + c4 * w4) / (w1 + w2 + w3 + w4);	
 }

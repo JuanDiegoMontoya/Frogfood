@@ -1,6 +1,5 @@
 #include "Bloom.h"
 
-#include "Fwog/Pipeline.h"
 #include "Fwog/Rendering.h"
 #include "Fwog/Shader.h"
 
@@ -39,10 +38,10 @@ namespace Techniques
   }
 
   Bloom::Bloom()
-    : downsampleLowPassPipeline(CreateBloomDownsampleLowPassPipeline()),
+    : uniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
+      downsampleLowPassPipeline(CreateBloomDownsampleLowPassPipeline()),
       downsamplePipeline(CreateBloomDownsamplePipeline()),
-      upsamplePipeline(CreateBloomUpsamplePipeline()),
-      uniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE)
+      upsamplePipeline(CreateBloomUpsamplePipeline())
   {
   }
 

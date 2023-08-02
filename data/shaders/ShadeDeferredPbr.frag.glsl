@@ -200,7 +200,7 @@ void main()
   surface.reflectance = 0.04;
   surface.f90 = 1.0;
 
-  vec3 finalColor = vec3(.1) * albedo * metallicRoughnessAo.z; // Ambient lighting
+  vec3 finalColor = vec3(.03) * albedo * metallicRoughnessAo.z; // Ambient lighting
 
   float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
   finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * shadingUniforms.sunStrength.rgb * NoL_sun;

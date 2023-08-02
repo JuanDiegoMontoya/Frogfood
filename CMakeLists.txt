@@ -25,6 +25,8 @@ add_executable(frogRender
 	src/techniques/Bloom.cpp
 	src/RendererUtilities.h
 	src/RendererUtilities.cpp
+	src/techniques/AutoExposure.h
+	src/techniques/AutoExposure.cpp
 )
 
 # enable asan for debug builds

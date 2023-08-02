@@ -4,10 +4,9 @@
 #include "SceneLoader.h"
 #include "PCG.h"
 #include "techniques/Bloom.h"
+#include "techniques/AutoExposure.h"
 
 #include <Fwog/Texture.h>
-
-#include <array>
 
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
@@ -92,6 +91,7 @@ private:
   void GuiDrawDebugWindow();
   void GuiDrawLightsArray();
   void GuiDrawBloomWindow();
+  void GuiDrawAutoExposureWindow();
 
   // constants
   static constexpr int gShadowmapWidth = 2048;
@@ -253,4 +253,12 @@ private:
   uint32_t bloomPasses = 6;
   float bloomStrength = 1.0f / 32.0f;
   float bloomWidth = 1.0f;
+
+  // Auto-exposure
+  Techniques::AutoExposure autoExposure;
+  Fwog::TypedBuffer<float> exposureBuffer;
+  float autoExposureMinExposure = 0.1f;
+  float autoExposureMaxExposure = 10.0f;
+  float autoExposureTargetLuminance = 0.184f;
+  float autoExposureAdjustmentSpeed = 0.5f;
 };

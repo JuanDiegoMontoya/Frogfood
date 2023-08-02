@@ -56,10 +56,10 @@ public:
   void Run();
 
 protected:
-  virtual void OnWindowResize([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight){};
-  virtual void OnUpdate([[maybe_unused]] double dt){};
-  virtual void OnRender([[maybe_unused]] double dt){};
-  virtual void OnGui([[maybe_unused]] double dt){};
+  virtual void OnWindowResize([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight){}
+  virtual void OnUpdate([[maybe_unused]] double dt){}
+  virtual void OnRender([[maybe_unused]] double dt){}
+  virtual void OnGui([[maybe_unused]] double dt){}
 
   GLFWwindow* window;
   View mainCamera{};

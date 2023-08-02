@@ -10,16 +10,16 @@ namespace Techniques
   class Bloom
   {
   public:
-    Bloom();
+    explicit Bloom();
 
     struct ApplyParams
     {
       // The input and output texture.
-      const Fwog::Texture& target;
+      Fwog::Texture& target;
 
       // A scratch texture to be used for intermediate storage.
       // Its dimensions should be _half_ those of the target.
-      const Fwog::Texture& scratchTexture;
+      Fwog::Texture& scratchTexture;
 
       // Maximum number of times to downsample before upsampling.
       // A larger value means a wider blur.
@@ -37,10 +37,6 @@ namespace Techniques
     void Apply(const ApplyParams& params);
 
   private:
-    Fwog::ComputePipeline downsampleLowPassPipeline;
-    Fwog::ComputePipeline downsamplePipeline;
-    Fwog::ComputePipeline upsamplePipeline;
-
     struct BloomUniforms
     {
       glm::ivec2 sourceDim;
@@ -54,5 +50,9 @@ namespace Techniques
     };
 
     Fwog::TypedBuffer<BloomUniforms> uniformBuffer;
+
+    Fwog::ComputePipeline downsampleLowPassPipeline;
+    Fwog::ComputePipeline downsamplePipeline;
+    Fwog::ComputePipeline upsamplePipeline;
   };
 } // namespace Techniques

@@ -23,7 +23,7 @@ vec3 hsv_to_rgb(in vec3 hsv)
 }
 
 // Gets the linear luminance, spectrally weighted for human perception, of a tristimulus value
-float luminance(vec3 c)
+float Luminance(vec3 c)
 {
   return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }

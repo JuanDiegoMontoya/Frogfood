@@ -210,8 +210,7 @@ void FrogRenderer::GuiDrawFsrWindow()
 
   if (!fsr2Enable)
   {
-    ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
+    ImGui::BeginDisabled();
   }
 
   float ratio = fsr2Ratio;
@@ -238,8 +237,7 @@ void FrogRenderer::GuiDrawFsrWindow()
 
   if (!fsr2Enable)
   {
-    ImGui::PopStyleVar();
-    ImGui::PopItemFlag();
+    ImGui::EndDisabled();
   }
 #else
   ImGui::Text("Compile with FROGRENDER_FSR2_ENABLE defined to see FSR 2 options");
@@ -369,8 +367,8 @@ void FrogRenderer::GuiDrawBloomWindow()
     if (!bloomEnable)
     {
       ImGui::BeginDisabled();
-
     }
+
     constexpr uint32_t zero = 0;
     constexpr uint32_t eight = 8;
     ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
@@ -381,6 +379,19 @@ void FrogRenderer::GuiDrawBloomWindow()
     {
       ImGui::EndDisabled();
     }
+  }
+
+  ImGui::End();
+}
+
+void FrogRenderer::GuiDrawAutoExposureWindow()
+{
+  if (ImGui::Begin("Auto Exposure"))
+  {
+    ImGui::SliderFloat("Min Exposure", &autoExposureMinExposure, 0.01f, autoExposureMaxExposure, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("Max Exposure", &autoExposureMaxExposure, autoExposureMinExposure, 100, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("Target Luminance", &autoExposureTargetLuminance, 0.01f, 1);
+    ImGui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 3);
   }
 
   ImGui::End();
@@ -527,4 +538,6 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   GuiDrawLightsArray();
 
   GuiDrawBloomWindow();
+
+  GuiDrawAutoExposureWindow();
 }

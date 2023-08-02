@@ -280,7 +280,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     postprocessingPipeline(CreatePostprocessingPipeline()),
     debugTexturePipeline(CreateDebugTexturePipeline()),
     debugLinesPipeline(CreateDebugLinesPipeline()),
-    debugAabbsPipeline(CreateDebugAabbsPipeline())
+    debugAabbsPipeline(CreateDebugAabbsPipeline()),
+    exposureBuffer(1.0f)
 {
   int x = 0;
   int y = 0;
@@ -405,8 +406,8 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
         char cstr[256] = {};
         if (wcstombs_s(nullptr, cstr, sizeof(cstr), message, sizeof(cstr)) == 0)
         {
-        cstr[255] = '\0';
-        printf("FSR 2 message (type=%d): %s\n", type, cstr);
+          cstr[255] = '\0';
+          printf("FSR 2 message (type=%d): %s\n", type, cstr);
         }
       },
     };
@@ -1035,14 +1036,24 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   if (bloomEnable)
   {
-  bloom.Apply({
-    .target = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
-    .scratchTexture = frame.colorHdrBloomScratchBuffer.value(),
-    .passes = bloomPasses,
-    .strength = bloomStrength,
-    .width = bloomWidth,
-  });
+    bloom.Apply({
+      .target = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
+      .scratchTexture = frame.colorHdrBloomScratchBuffer.value(),
+      .passes = bloomPasses,
+      .strength = bloomStrength,
+      .width = bloomWidth,
+    });
   }
+
+  autoExposure.Apply({
+    .image = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
+    .exposureBuffer = exposureBuffer,
+    .deltaTime = static_cast<float>(dt),
+    .adjustmentSpeed = autoExposureAdjustmentSpeed,
+    .targetLuminance = autoExposureTargetLuminance,
+    .minExposure = autoExposureMinExposure,
+    .maxExposure = autoExposureMaxExposure,
+  });
 
   const auto ppAttachment = Fwog::RenderColorAttachment{
     .texture = frame.colorLdrWindowRes.value(),
@@ -1056,9 +1067,11 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::UNIFORM_BUFFER_BIT);
       Fwog::Cmd::BindGraphicsPipeline(postprocessingPipeline);
       Fwog::Cmd::BindSampledImage(0, fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(), nearestSampler);
       Fwog::Cmd::BindSampledImage(1, noiseTexture.value(), nearestSampler);
+      Fwog::Cmd::BindUniformBuffer(0, exposureBuffer);
       Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 

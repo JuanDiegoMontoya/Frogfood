@@ -3,6 +3,11 @@
 layout(binding = 0) uniform sampler2D s_sceneColor;
 layout(binding = 1) uniform sampler2D s_noise;
 
+layout(std140, binding = 0) uniform ExposureBuffer
+{
+  float exposure;
+};
+
 layout(location = 0) in vec2 v_uv;
 layout(location = 0) out vec4 o_finalColor;
 
@@ -152,7 +157,7 @@ vec3 apply_dither(vec3 color, vec2 uv)
 
 void main()
 {
-  vec3 hdrColor = textureLod(s_sceneColor, v_uv, 0).rgb;
+  vec3 hdrColor = textureLod(s_sceneColor, v_uv, 0).rgb * exposure;
   //vec3 ldrColor = ACESFitted(hdrColor);
   vec3 ldrColor = AgX_DS(hdrColor, -3, 1.0, 0.18, 1, 0.15);
   vec3 srgbColor = linear_to_nonlinear_srgb(ldrColor);

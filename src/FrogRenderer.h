@@ -257,8 +257,9 @@ private:
   // Auto-exposure
   Techniques::AutoExposure autoExposure;
   Fwog::TypedBuffer<float> exposureBuffer;
-  float autoExposureMinExposure = 0.1f;
+  float autoExposureMinExposure = 0.01f;
   float autoExposureMaxExposure = 10.0f;
-  float autoExposureTargetLuminance = 0.184f;
+  // sRGB middle gray (https://en.wikipedia.org/wiki/Middle_gray)
+  float autoExposureTargetLuminance = 0.2140f;
   float autoExposureAdjustmentSpeed = 0.5f;
 };

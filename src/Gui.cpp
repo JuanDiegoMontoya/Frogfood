@@ -390,8 +390,8 @@ void FrogRenderer::GuiDrawAutoExposureWindow()
   {
     ImGui::SliderFloat("Min Exposure", &autoExposureMinExposure, 0.01f, autoExposureMaxExposure, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
     ImGui::SliderFloat("Max Exposure", &autoExposureMaxExposure, autoExposureMinExposure, 100, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Target Luminance", &autoExposureTargetLuminance, 0.01f, 1);
-    ImGui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 3);
+    ImGui::SliderFloat("Target Luminance", &autoExposureTargetLuminance, 0.001f, 1, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 5);
   }
 
   ImGui::End();

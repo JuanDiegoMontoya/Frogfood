@@ -30,7 +30,7 @@
  * [X] Bloom
  *
  * Resolve:
- * [ ] Auto exposure
+ * [X] Auto exposure
  * [ ] Auto whitepoint
  * [ ] Local tonemapping
  *

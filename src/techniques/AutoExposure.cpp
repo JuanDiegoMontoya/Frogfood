@@ -1,12 +1,11 @@
 #include "AutoExposure.h"
-#include "AutoExposure.h"
 
 #include "Fwog/Rendering.h"
 #include "Fwog/Shader.h"
 
 #include "../RendererUtilities.h"
 
-#include <bit>
+#include <cmath>
 
 namespace Techniques
 {
@@ -48,8 +47,8 @@ namespace Techniques
         auto uniforms = AutoExposureUniforms{
           .deltaTime = params.deltaTime,
           .adjustmentSpeed = params.adjustmentSpeed,
-          .logMinLuminance = log(params.targetLuminance / params.maxExposure),
-          .logMaxLuminance = log(params.targetLuminance / params.minExposure),
+          .logMinLuminance = std::log(params.targetLuminance / params.maxExposure),
+          .logMaxLuminance = std::log(params.targetLuminance / params.minExposure),
           .targetLuminance = params.targetLuminance,
           .numPixels = params.image.Extent().width * params.image.Extent().height,
         };

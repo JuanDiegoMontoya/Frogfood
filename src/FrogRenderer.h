@@ -261,5 +261,5 @@ private:
   float autoExposureMaxExposure = 10.0f;
   // sRGB middle gray (https://en.wikipedia.org/wiki/Middle_gray)
   float autoExposureTargetLuminance = 0.2140f;
-  float autoExposureAdjustmentSpeed = 0.5f;
+  float autoExposureAdjustmentSpeed = 3.0f;
 };

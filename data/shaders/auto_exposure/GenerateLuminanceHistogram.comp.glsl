@@ -18,7 +18,7 @@ uint colorToBucket(vec3 color)
 
 shared int sh_buckets[NUM_BUCKETS];
 
-layout (local_size_x = 64, local_size_y = 32, local_size_z = 1) in;
+layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 void main()
 {
   const uint localId = gl_LocalInvocationIndex;

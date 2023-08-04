@@ -69,17 +69,15 @@ namespace Techniques
           float sourceLod{};
 
           const Fwog::Texture* sourceTex = nullptr;
-
-          // first pass, use downsampling with low-pass filter
+          
+          // We use a low-pass filter on the first downsample (mip0 -> mip1) to resolve flickering/temporal aliasing that occurs otherwise
           if (i == 0)
           {
-            // the low pass filter prevents single pixels/thin lines from being bright
             Fwog::Cmd::BindComputePipeline(downsampleLowPassPipeline);
             //Fwog::Cmd::BindComputePipeline(downsamplePipeline);
-
+            
             sourceLod = 0;
             sourceTex = &params.target;
-            //sourceDim = {params.target.Extent().width, params.target.Extent().height};
             sourceDim = params.target.Extent();
           }
           else

@@ -6,6 +6,7 @@
 #include <Fwog/Rendering.h>
 #include <Fwog/Shader.h>
 #include <Fwog/Texture.h>
+#include <Fwog/Context.h>
 #include <Fwog/Timer.h>
 
 #include <GLFW/glfw3.h>
@@ -46,7 +47,7 @@ static void MakeFrustumPlanes(const glm::mat4& viewProj, glm::vec4(&planes)[6])
   for (auto i = 0; i < 4; ++i) { planes[5][i] = viewProj[i][3] - viewProj[i][2]; }
 
   for (auto& plane : planes) {
-      plane = glm::normalize(plane);
+      plane /= glm::length(glm::vec3(plane));
       plane.w = -plane.w;
   }
 }
@@ -150,7 +151,7 @@ static Fwog::GraphicsPipeline CreateVisbufferResolvePipeline()
   });
 }
 
-static Fwog::GraphicsPipeline CreateShadowPipeline()
+/*static Fwog::GraphicsPipeline CreateShadowPipeline()
 {
   auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/SceneDeferredPbr.vert.glsl");
   auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/RSMScenePbr.frag.glsl");
@@ -161,7 +162,7 @@ static Fwog::GraphicsPipeline CreateShadowPipeline()
     .vertexInputState = {sceneInputBindingDescs},
     .depthState = {.depthTestEnable = true, .depthWriteEnable = true},
   });
-}
+}*/
 
 static Fwog::GraphicsPipeline CreateShadingPipeline()
 {
@@ -195,6 +196,21 @@ static Fwog::GraphicsPipeline CreateDebugTexturePipeline()
     .vertexShader = &vs,
     .fragmentShader = &fs,
     .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+  });
+}
+
+static Fwog::GraphicsPipeline CreateShadowMainPipeline()
+{
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
+
+  return Fwog::GraphicsPipeline({
+    .vertexShader = &vs,
+    .fragmentShader = nullptr,
+    .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
+    .depthState = {
+      .depthTestEnable = true,
+      .depthWriteEnable = true,
+    },
   });
 }
 
@@ -260,6 +276,9 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     rsmFlux(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::R11G11B10_FLOAT)),
     rsmNormal(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::R16G16B16_SNORM)),
     rsmDepth(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D16_UNORM)),
+    // Needs Fwog::CreateTexture2DLayer, for now it'll only be single cascade
+    //shadowCascades(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D32_FLOAT)),
+    shadowCascades(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D32_FLOAT)),
     rsmFluxSwizzled(rsmFlux.CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE})),
     rsmNormalSwizzled(rsmNormal.CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE})),
     rsmDepthSwizzled(rsmDepth.CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE})),
@@ -273,9 +292,10 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     hzbCopyPipeline(CreateHzbCopyPipeline()),
     hzbReducePipeline(CreateHzbReducePipeline()),
     visbufferPipeline(CreateVisbufferPipeline()),
+    shadowMainPipeline(CreateShadowMainPipeline()),
     materialDepthPipeline(CreateMaterialDepthPipeline()),
     visbufferResolvePipeline(CreateVisbufferResolvePipeline()),
-    rsmScenePipeline(CreateShadowPipeline()),
+    //rsmScenePipeline(CreateShadowPipeline()),
     shadingPipeline(CreateShadingPipeline()),
     postprocessingPipeline(CreatePostprocessingPipeline()),
     debugTexturePipeline(CreateDebugTexturePipeline()),
@@ -343,8 +363,10 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   indexBuffer = Fwog::TypedBuffer<uint32_t>(scene.indices);
   primitiveBuffer = Fwog::TypedBuffer<uint8_t>(scene.primitives);
   transformBuffer = Fwog::TypedBuffer<glm::mat4>(scene.transforms);
-  meshletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>();
-  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(scene.primitives.size() * 3);
+  meshletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(gMaxViews, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+
+  const auto maxPrimitives = scene.primitives.size() * 3;
+  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxPrimitives * gMaxViews);
 
   std::vector<Utility::GpuMaterial> materials(scene.materials.size());
   std::transform(scene.materials.begin(), scene.materials.end(), materials.begin(), [](const auto& m)
@@ -360,6 +382,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   }
 
   meshUniformBuffer.emplace(meshUniforms, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+
+  viewBuffer = Fwog::TypedBuffer<View>(gMaxViews, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   // clusterTexture({.imageType = Fwog::ImageType::TEX_3D,
   //                                      .format = Fwog::Format::R16G16_UINT,
@@ -591,6 +615,18 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
+
+  static constexpr auto viewCount = 2; // TODO: don't hardcode
+  std::array<View, gMaxViews> views = {};
+  views[0] = { // Main View
+    .proj = projUnjittered,
+    .view = mainCamera.GetViewMatrix(),
+    .viewProj = viewProjUnjittered,
+    .cameraPos = glm::vec4(mainCamera.position, 0.0),
+    .viewport = {0.0f, 0.0f, static_cast<float>(renderWidth), static_cast<float>(renderHeight)},
+  };
+  MakeFrustumPlanes(viewProjUnjittered, views[0].frustumPlanes);
+
   // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
   if (executeMeshletGeneration)
   {
@@ -602,6 +638,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   mainCameraUniforms.proj = projJittered;
   mainCameraUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
   mainCameraUniforms.meshletCount = meshletCount;
+  mainCameraUniforms.maxIndices = static_cast<uint32_t>(scene.primitives.size() * 3);
   mainCameraUniforms.bindlessSamplerLodBias = fsr2LodBias;
   if (updateCullingFrustum)
   {
@@ -621,15 +658,32 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   shadingUniforms.sunViewProj = shadingUniforms.sunProj * shadingUniforms.sunView;
   shadingUniformsBuffer.UpdateData(shadingUniforms);
 
+  views[1] = { // Shadow View
+    .proj = shadingUniforms.sunProj,
+    .view = shadingUniforms.sunView,
+    .viewProj = shadingUniforms.sunViewProj,
+    .cameraPos = {}, // unused
+    .viewport = {0.0f, 0.0f, static_cast<float>(gShadowmapWidth), static_cast<float>(gShadowmapHeight)},
+  };
+  MakeFrustumPlanes(shadingUniforms.sunViewProj, views[1].frustumPlanes);
+
+  viewBuffer->UpdateData(std::span<const View>(views));
+
   if (executeMeshletGeneration)
   {
     // Clear all the fields to zero, then set the instance count to one (this way should be more efficient than a CPU-side buffer update)
     meshletIndirectCommand->FillData();
-    meshletIndirectCommand->FillData({
-      .offset = offsetof(Fwog::DrawIndexedIndirectCommand, instanceCount),
-      .size = sizeof(uint32_t),
-      .data = 1,
-    });
+    for (uint32_t i = 0; i < gMaxViews; ++i) {
+      const auto maxIndices = scene.primitives.size() * 3;
+      const auto drawCommand = Fwog::DrawIndexedIndirectCommand{
+        .indexCount = 0,
+        .instanceCount = 1,
+        .firstIndex = static_cast<uint32_t>(i * maxIndices),
+        .vertexOffset = 0,
+        .firstInstance = i,
+      };
+      meshletIndirectCommand->UpdateData(drawCommand, i);
+    }
 
     Fwog::Compute(
       "Meshlet Generate Pass",
@@ -641,13 +695,39 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::BindStorageBuffer(6, *meshletIndirectCommand);
         Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
         Fwog::Cmd::BindStorageBuffer(10, debugGpuAabbsBuffer.value());
-        Fwog::Cmd::BindSampledImage(0, *frame.hzb, hzbSampler);
+        Fwog::Cmd::BindStorageBuffer(11, viewBuffer.value());
         Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
         Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
-        Fwog::Cmd::Dispatch((meshletCount + 3) / 4, 1, 1);
+        Fwog::Cmd::BindSampledImage(0, *frame.hzb, hzbSampler);
+        Fwog::Cmd::Dispatch((meshletCount + 3) / 4, viewCount, 1);
         Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
       });
   }
+
+  auto shadowAttachment = Fwog::RenderDepthStencilAttachment{
+    .texture = shadowCascades,
+    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+    .clearValue = {.depth = 1.0f},
+  };
+  Fwog::Render(
+    {
+      .name = "Main Shadow Pass",
+      .viewport = {Fwog::Viewport{.drawRect = {{0, 0}, {gShadowmapWidth, gShadowmapHeight}}}},
+      .depthAttachment = shadowAttachment,
+    },
+    [&]
+    {
+      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer(1, *primitiveBuffer);
+      Fwog::Cmd::BindStorageBuffer(2, *vertexBuffer);
+      Fwog::Cmd::BindStorageBuffer(3, *indexBuffer);
+      Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
+      Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer(11, *viewBuffer);
+      Fwog::Cmd::BindGraphicsPipeline(shadowMainPipeline);
+      Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
+      Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
+    });
 
   auto visbufferAttachment = Fwog::RenderColorAttachment{
     .texture = frame.visbuffer.value(),

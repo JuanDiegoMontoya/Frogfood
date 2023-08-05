@@ -34,8 +34,21 @@ private:
     glm::vec4 cameraPos;
     glm::vec4 frustumPlanes[6];
     uint32_t meshletCount;
+    uint32_t maxIndices;
     float bindlessSamplerLodBias;
     uint32_t _padding[2];
+  };
+
+  struct View {
+    glm::mat4 oldProj;
+    glm::mat4 oldView;
+    glm::mat4 oldViewProj;
+    glm::mat4 proj;
+    glm::mat4 view;
+    glm::mat4 viewProj;
+    glm::vec4 cameraPos;
+    glm::vec4 frustumPlanes[6];
+    glm::vec4 viewport;
   };
 
   struct ShadingUniforms
@@ -94,6 +107,8 @@ private:
   void GuiDrawAutoExposureWindow();
 
   // constants
+  static constexpr int gMaxViews = 16;
+  static constexpr int gMaxCascades = 4;
   static constexpr int gShadowmapWidth = 2048;
   static constexpr int gShadowmapHeight = 2048;
 
@@ -177,6 +192,9 @@ private:
   Fwog::Texture rsmNormal;
   Fwog::Texture rsmDepth;
 
+  // Cascaded Shadow Maps
+  Fwog::Texture shadowCascades;
+
   // For debug drawing with ImGui
   Fwog::TextureView rsmFluxSwizzled;
   Fwog::TextureView rsmNormalSwizzled;
@@ -197,6 +215,7 @@ private:
   std::optional<Fwog::TypedBuffer<uint8_t>> primitiveBuffer;
   std::optional<Fwog::TypedBuffer<glm::mat4>> transformBuffer;
   std::optional<Fwog::TypedBuffer<Utility::GpuMaterial>> materialStorageBuffer;
+  std::optional<Fwog::TypedBuffer<View>> viewBuffer;
   // Output
   std::optional<Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>> meshletIndirectCommand;
   std::optional<Fwog::TypedBuffer<uint32_t>> instancedMeshletBuffer;
@@ -207,9 +226,10 @@ private:
   Fwog::ComputePipeline hzbCopyPipeline;
   Fwog::ComputePipeline hzbReducePipeline;
   Fwog::GraphicsPipeline visbufferPipeline;
+  Fwog::GraphicsPipeline shadowMainPipeline;
   Fwog::GraphicsPipeline materialDepthPipeline;
   Fwog::GraphicsPipeline visbufferResolvePipeline;
-  Fwog::GraphicsPipeline rsmScenePipeline;
+  //Fwog::GraphicsPipeline rsmScenePipeline;
   Fwog::GraphicsPipeline shadingPipeline;
   Fwog::GraphicsPipeline postprocessingPipeline;
   Fwog::GraphicsPipeline debugTexturePipeline;

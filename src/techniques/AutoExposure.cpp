@@ -47,8 +47,8 @@ namespace Techniques
         auto uniforms = AutoExposureUniforms{
           .deltaTime = params.deltaTime,
           .adjustmentSpeed = params.adjustmentSpeed,
-          .logMinLuminance = std::log(params.targetLuminance / params.maxExposure),
-          .logMaxLuminance = std::log(params.targetLuminance / params.minExposure),
+          .logMinLuminance = std::log2(params.targetLuminance / std::exp2(params.logMinLuminance)),
+          .logMaxLuminance = std::log2(params.targetLuminance / std::exp2(params.logMaxLuminance)),
           .targetLuminance = params.targetLuminance,
           .numPixels = params.image.Extent().width * params.image.Extent().height,
         };

@@ -10,18 +10,22 @@
 // Most likely, we will only use 1/32 of this storage
 shared uint sh_scratch[NUM_BUCKETS];
 
-layout (local_size_x = NUM_BUCKETS, local_size_y = 1, local_size_z = 1) in;
+layout (local_size_x = NUM_BUCKETS) in;
 void main()
 {
   const uint i = gl_GlobalInvocationID.x;
 
-  // Weighted
-  const uint firstReduce = subgroupAdd(autoExposure.histogramBuckets[i] * (i + 1));
+  const uint currentBucketCount = autoExposure.histogramBuckets[i];
 
-  // Do a cheeky reduction here to skip an iteration of the loop
-  if (subgroupElect())
   {
-    sh_scratch[gl_SubgroupID] = firstReduce;
+    // Weighted by the bucket index
+    const uint firstReduce = subgroupAdd(currentBucketCount * i);
+
+    // Do a cheeky reduction here to skip an iteration of the loop
+    if (subgroupElect())
+    {
+      sh_scratch[gl_SubgroupID] = firstReduce;
+    }
   }
 
   // Reset bucket for next frame
@@ -51,8 +55,13 @@ void main()
 
   if (gl_GlobalInvocationID.x == 0)
   {
-    float meanLuminance = exp(Remap(float(sh_scratch[0]) / float(autoExposure.numPixels), 0.0, NUM_BUCKETS, autoExposure.logMinLuminance, autoExposure.logMaxLuminance));
-    float exposureTarget = autoExposure.targetLuminance / meanLuminance;
-    readExposure = mix(readExposure, exposureTarget, autoExposure.deltaTime * autoExposure.adjustmentSpeed);
+    // Since our global ID is zero, we know that this is the number of black (or nearly black) pixels on the screen
+    const uint numBlackPixels = currentBucketCount;
+    const float log2MeanLuminance = Remap(float(sh_scratch[0]) / max(float(autoExposure.numPixels) - numBlackPixels, 1.0), 1.0, NUM_BUCKETS, autoExposure.logMinLuminance, autoExposure.logMaxLuminance);
+    // Lerp in linear space (lerping in log space seems to cause visually nonuniform adaptation in different lighting conditions)
+    const float exposureTarget = log2(autoExposure.targetLuminance / exp2(log2MeanLuminance));
+    // Framerate-independent exponential decay
+    const float alpha = clamp(1 - exp(-autoExposure.deltaTime * autoExposure.adjustmentSpeed), 0.0, 1.0);
+    exposureBuffer.exposure = mix(exposureBuffer.exposure, exposureTarget, alpha);
   }
 }

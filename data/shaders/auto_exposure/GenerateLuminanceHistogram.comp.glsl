@@ -7,18 +7,18 @@
 
 layout(location = 0) uniform sampler2D u_hdrBuffer;
 
-uint colorToBucket(vec3 color)
+uint ColorToBucket(vec3 color)
 {
-  float luminance = Luminance(color);
-  if (luminance < 1e-4)
+  const float luminance = Luminance(color);
+  if (luminance < 1e-5)
     return 0;
-  float mapped = Remap(log(luminance), autoExposure.logMinLuminance, autoExposure.logMaxLuminance, 0.0, float(NUM_BUCKETS - 1));
+  float mapped = Remap(log2(luminance), autoExposure.logMinLuminance, autoExposure.logMaxLuminance, 1.0, float(NUM_BUCKETS - 1));
   return clamp(int(mapped), 0, NUM_BUCKETS - 1);
 }
 
 shared int sh_buckets[NUM_BUCKETS];
 
-layout (local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(local_size_x = 32, local_size_y = 32) in;
 void main()
 {
   const uint localId = gl_LocalInvocationIndex;
@@ -31,7 +31,7 @@ void main()
   if (all(lessThan(coords, texSize)))
   {
     vec3 color = texelFetch(u_hdrBuffer, ivec2(coords), 0).rgb;
-    uint bucket = colorToBucket(color);
+    uint bucket = ColorToBucket(color);
     atomicAdd(sh_buckets[bucket], 1);
   }
 

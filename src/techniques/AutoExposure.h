@@ -23,11 +23,10 @@ namespace Techniques
       float adjustmentSpeed;
 
       float targetLuminance;
+      
+      float logMinLuminance;
 
-      // TODO: parameterize min/max exposure a different way (perhaps via # of stops from target)
-      float minExposure;
-
-      float maxExposure;
+      float logMaxLuminance;
     };
 
     void Apply(const ApplyParams& params);

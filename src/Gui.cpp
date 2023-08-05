@@ -260,6 +260,8 @@ void FrogRenderer::GuiDrawDebugWindow()
   ImGui::Checkbox("Execute Meshlet Generation", &executeMeshletGeneration);
   ImGui::Checkbox("Draw Meshlet AABBs", &drawMeshletAabbs);
 
+  ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
+
   ImGui::End();
 }
 
@@ -388,10 +390,10 @@ void FrogRenderer::GuiDrawAutoExposureWindow()
 {
   if (ImGui::Begin("Auto Exposure"))
   {
-    ImGui::SliderFloat("Min Exposure", &autoExposureMinExposure, 0.01f, autoExposureMaxExposure, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Max Exposure", &autoExposureMaxExposure, autoExposureMinExposure, 100, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("Min Exposure", &autoExposureLogMinLuminance, -15.0f, autoExposureLogMaxLuminance, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("Max Exposure", &autoExposureLogMaxLuminance, autoExposureLogMinLuminance, 15.0f, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
     ImGui::SliderFloat("Target Luminance", &autoExposureTargetLuminance, 0.001f, 1, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 5);
+    ImGui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 5, "%.4f", ImGuiSliderFlags_NoRoundToFormat);
   }
 
   ImGui::End();

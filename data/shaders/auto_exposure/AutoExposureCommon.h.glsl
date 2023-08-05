@@ -16,7 +16,7 @@ layout(std430, binding = 0) restrict buffer AutoExposureBuffer
 
 layout (std430, binding = 1) buffer ExposureBuffer
 {
-  float readExposure;
-};
+  float exposure;
+} exposureBuffer;
 
 #endif // AUTO_EXPOSURE_COMMON_H

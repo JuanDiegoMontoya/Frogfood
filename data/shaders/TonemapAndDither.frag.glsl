@@ -157,9 +157,9 @@ vec3 apply_dither(vec3 color, vec2 uv)
 
 void main()
 {
-  vec3 hdrColor = textureLod(s_sceneColor, v_uv, 0).rgb * exposureBuffer.exposure;
+  vec3 hdrColor = textureLod(s_sceneColor, v_uv, 0).rgb;
   //vec3 ldrColor = ACESFitted(hdrColor);
-  vec3 ldrColor = AgX_DS(hdrColor, 0, 1.0, 0.18, 1, 0.15);
+  vec3 ldrColor = AgX_DS(hdrColor, exposureBuffer.exposure, 1.0, 0.18, 1, 0.15);
   vec3 srgbColor = linear_to_nonlinear_srgb(ldrColor);
   vec3 ditheredColor = apply_dither(srgbColor, v_uv);
 

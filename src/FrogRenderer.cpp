@@ -466,6 +466,11 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
 
 void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
 {
+  if (fakeLag > 0)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(fakeLag));
+  }
+
   frameIndex++;
 
   debugLines.clear();
@@ -1051,8 +1056,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     .deltaTime = static_cast<float>(dt),
     .adjustmentSpeed = autoExposureAdjustmentSpeed,
     .targetLuminance = autoExposureTargetLuminance,
-    .minExposure = autoExposureMinExposure,
-    .maxExposure = autoExposureMaxExposure,
+    .logMinLuminance = autoExposureLogMinLuminance,
+    .logMaxLuminance = autoExposureLogMaxLuminance,
   });
 
   const auto ppAttachment = Fwog::RenderColorAttachment{

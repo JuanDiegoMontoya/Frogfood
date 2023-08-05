@@ -1039,6 +1039,16 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   }
 #endif
 
+  autoExposure.Apply({
+    .image = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
+    .exposureBuffer = exposureBuffer,
+    .deltaTime = static_cast<float>(dt),
+    .adjustmentSpeed = autoExposureAdjustmentSpeed,
+    .targetLuminance = autoExposureTargetLuminance,
+    .logMinLuminance = autoExposureLogMinLuminance,
+    .logMaxLuminance = autoExposureLogMaxLuminance,
+  });
+
   if (bloomEnable)
   {
     bloom.Apply({
@@ -1049,16 +1059,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       .width = bloomWidth,
     });
   }
-
-  autoExposure.Apply({
-    .image = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
-    .exposureBuffer = exposureBuffer,
-    .deltaTime = static_cast<float>(dt),
-    .adjustmentSpeed = autoExposureAdjustmentSpeed,
-    .targetLuminance = autoExposureTargetLuminance,
-    .logMinLuminance = autoExposureLogMinLuminance,
-    .logMaxLuminance = autoExposureLogMaxLuminance,
-  });
 
   const auto ppAttachment = Fwog::RenderColorAttachment{
     .texture = frame.colorLdrWindowRes.value(),

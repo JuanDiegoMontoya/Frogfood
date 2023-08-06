@@ -66,7 +66,7 @@ bool IsMeshletOccluded(in vec3 aabbMin, in vec3 aabbMax, in mat4 transform)
   return minZ >= maxHZB;
 }
 
-bool IsMeshletVisible(in uint meshletId)
+bool IsMeshletVisible(in uint meshletId, in uint viewId)
 {
   const uint instanceId = meshlets[meshletId].instanceId;
   const mat4 transform = transforms[instanceId];
@@ -93,12 +93,13 @@ bool IsMeshletVisible(in uint meshletId)
     abs(dot(vec3(0.0, 0.0, 1.0), forward)));
   for (uint i = 0; i < 6; ++i)
   {
-    if (!IsAABBInsidePlane(worldAabbCenter, worldExtent, frustumPlanes[i]))
+    if (!IsAABBInsidePlane(worldAabbCenter, worldExtent, views[viewId].frustumPlanes[i]))
     {
       return false;
     }
   }
-  return !IsMeshletOccluded(aabbMin, aabbMax, transform);
+  // TODO: do occlusion culling for other views as well
+  return viewId == 0 || !IsMeshletOccluded(aabbMin, aabbMax, transform);
 }
 
 void DebugDrawMeshletAabb(in uint meshletId)
@@ -137,18 +138,19 @@ void DebugDrawMeshletAabb(in uint meshletId)
 
 void main()
 {
+  const uint viewId = gl_WorkGroupID.y;
   const uint meshletBaseId = gl_WorkGroupID.x * MESHLET_PER_WG;
   const uint meshletOffset = gl_LocalInvocationID.x / MAX_PRIMITIVES;
   const uint localId = gl_LocalInvocationID.x % MAX_PRIMITIVES;
   const uint meshletId = meshletBaseId + meshletOffset;
-  const bool isMeshletValid = meshletId < meshletCount && IsMeshletVisible(meshletId);
+  const bool isMeshletValid = meshletId < meshletCount && IsMeshletVisible(meshletId, viewId);
 
   if (isMeshletValid && localId == 0)
   {
     // IMPORTANT: comment out this line when profiling!
     DebugDrawMeshletAabb(meshletId);
 
-    baseIndex[meshletOffset] = atomicAdd(command.indexCount, meshlets[meshletId].primitiveCount * 3);
+    baseIndex[meshletOffset] = atomicAdd(commands[viewId].indexCount, meshlets[meshletId].primitiveCount * 3);
     primitiveCount[meshletOffset] = meshlets[meshletId].primitiveCount;
   }
   barrier();
@@ -157,8 +159,8 @@ void main()
   {
     const uint baseId = localId * 3;
     const uint indexOffset = baseIndex[meshletOffset] + baseId;
-    indexBuffer.data[indexOffset + 0] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 0) & MESHLET_PRIMITIVE_MASK);
-    indexBuffer.data[indexOffset + 1] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 1) & MESHLET_PRIMITIVE_MASK);
-    indexBuffer.data[indexOffset + 2] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 2) & MESHLET_PRIMITIVE_MASK);
+    indexBuffer.data[maxIndices * viewId + indexOffset + 0] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 0) & MESHLET_PRIMITIVE_MASK);
+    indexBuffer.data[maxIndices * viewId + indexOffset + 1] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 1) & MESHLET_PRIMITIVE_MASK);
+    indexBuffer.data[maxIndices * viewId + indexOffset + 2] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 2) & MESHLET_PRIMITIVE_MASK);
   }
 }

@@ -53,6 +53,18 @@ struct Meshlet
   PackedVec3 aabbMax;
 };
 
+struct View {
+  mat4 oldProj;
+  mat4 oldView;
+  mat4 oldViewProj;
+  mat4 proj;
+  mat4 view;
+  mat4 viewProj;
+  vec4 cameraPos;
+  vec4 frustumPlanes[6];
+  vec4 viewport;
+};
+
 struct GpuMaterial
 {
   uint flags;
@@ -100,17 +112,23 @@ layout (binding = 5, std140) uniform PerFrameUniforms
   vec4 cameraPos;
   vec4 frustumPlanes[6];
   uint meshletCount;
+  uint maxIndices;
   float bindlessSamplerLodBias;
 };
 
 layout (std430, binding = 6) restrict buffer IndirectDrawCommand
 {
-  DrawElementsIndirectCommand command;
+  DrawElementsIndirectCommand[] commands;
 };
 
 layout (std140, binding = 7) restrict readonly buffer MaterialBuffer
 {
   GpuMaterial materials[];
+};
+
+layout (std140, binding = 11) restrict readonly buffer ViewBuffer
+{
+  View views[];
 };
 
 #endif // VISBUFFER_COMMON_H

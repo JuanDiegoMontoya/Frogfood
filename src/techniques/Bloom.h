@@ -32,6 +32,10 @@ namespace Techniques
 
       // Width of the bloom upscale kernel.
       float width;
+
+      // If true, a low-pass filter will be used on the first downsampling pass
+      // to reduce the dynamic range and minimize temporal aliasing.
+      bool useLowPassFilterOnFirstPass;
     };
 
     void Apply(const ApplyParams& params);

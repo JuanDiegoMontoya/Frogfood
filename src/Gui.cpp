@@ -261,6 +261,7 @@ void FrogRenderer::GuiDrawDebugWindow()
   ImGui::Checkbox("Draw Meshlet AABBs", &drawMeshletAabbs);
 
   ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
+  ImGui::Checkbox("Render to Swapchain", &debugRenderToSwapchain);
 
   ImGui::End();
 }
@@ -375,7 +376,8 @@ void FrogRenderer::GuiDrawBloomWindow()
     constexpr uint32_t eight = 8;
     ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
     ImGui::SliderFloat("Strength", &bloomStrength, 0, 1, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Width", &bloomWidth, 0, 2);
+    ImGui::SliderFloat("Upscale Width", &bloomWidth, 0, 2);
+    ImGui::Checkbox("Use Low-Pass Filter", &bloomUseLowPassFilter);
 
     if (!bloomEnable)
     {

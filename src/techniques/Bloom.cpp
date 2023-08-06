@@ -73,8 +73,14 @@ namespace Techniques
           // We use a low-pass filter on the first downsample (mip0 -> mip1) to resolve flickering/temporal aliasing that occurs otherwise
           if (i == 0)
           {
-            Fwog::Cmd::BindComputePipeline(downsampleLowPassPipeline);
-            //Fwog::Cmd::BindComputePipeline(downsamplePipeline);
+            if (params.useLowPassFilterOnFirstPass)
+            {
+              Fwog::Cmd::BindComputePipeline(downsampleLowPassPipeline);
+            }
+            else
+            {
+              Fwog::Cmd::BindComputePipeline(downsamplePipeline);
+            }
             
             sourceLod = 0;
             sourceTex = &params.target;

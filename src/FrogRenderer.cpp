@@ -8,6 +8,7 @@
 #include <Fwog/Texture.h>
 #include <Fwog/Context.h>
 #include <Fwog/Timer.h>
+#include <Fwog/detail/ApiToEnum.h>
 
 #include <GLFW/glfw3.h>
 
@@ -220,19 +221,28 @@ static Fwog::GraphicsPipeline CreateDebugLinesPipeline()
   auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/Debug.vert.glsl");
   auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
 
-  auto inputBinding = Fwog::VertexInputBindingDescription{
+  auto positionBinding = Fwog::VertexInputBindingDescription{
     .location = 0,
     .binding = 0,
     .format = Fwog::Format::R32G32B32_FLOAT,
-    .offset = 0,
+    .offset = offsetof(Debug::Line, aPosition),
   };
+
+  auto colorBinding = Fwog::VertexInputBindingDescription{
+    .location = 1,
+    .binding = 0,
+    .format = Fwog::Format::R32G32B32A32_FLOAT,
+    .offset = offsetof(Debug::Line, aColor),
+  };
+
+  auto bindings = {positionBinding, colorBinding};
 
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
     .fragmentShader = &fs,
     .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::LINE_LIST},
-    .vertexInputState = {{&inputBinding, 1}},
-    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+    .vertexInputState = bindings,
+    .rasterizationState = {.cullMode = Fwog::CullMode::NONE, .lineWidth = 2},
     .depthState = {
       .depthTestEnable = true,
       .depthWriteEnable = false,
@@ -324,7 +334,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   cameraSpeed = 3.5f;
   mainCamera.position.y = 1;
   
-  debugGpuAabbsBuffer = Fwog::Buffer(sizeof(Fwog::DrawIndirectCommand) + sizeof(DebugAabb) * 100'000);
+  debugGpuAabbsBuffer = Fwog::Buffer(sizeof(Fwog::DrawIndirectCommand) + sizeof(Debug::Aabb) * 100'000);
   debugGpuAabbsBuffer->FillData({.size = sizeof(Fwog::DrawIndirectCommand), .data = 0});
   debugGpuAabbsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, vertexCount), .size = sizeof(uint32_t), .data = 14});
 
@@ -409,6 +419,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
 void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
 {
+  frame = {};
+
 #ifdef FROGRENDER_FSR2_ENABLE
   // create FSR 2 context
   if (fsr2Enable)
@@ -439,6 +451,8 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
     fsr2ScratchMemory = std::make_unique<char[]>(ffxFsr2GetScratchMemorySizeGL());
     ffxFsr2GetInterfaceGL(&contextDesc.callbacks, fsr2ScratchMemory.get(), ffxFsr2GetScratchMemorySizeGL(), glfwGetProcAddress);
     ffxFsr2ContextCreate(&fsr2Context, &contextDesc);
+
+    frame.gReactiveMask = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8_UNORM, "Reactive Mask");
   }
   else
 #endif
@@ -504,6 +518,8 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
   {
     auto invViewProj = glm::inverse(debugMainViewProj);
 
+    auto color = glm::vec4(10, 1, 10, 1);
+
     // Get frustum corners in world space
     auto tln = UnprojectUV_ZO(0, {0, 1}, invViewProj);
     auto trn = UnprojectUV_ZO(0, {1, 1}, invViewProj);
@@ -517,20 +533,20 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
 
     // Connect-the-dots
     // Near and far "squares"
-    debugLines.emplace_back(tln, trn);
-    debugLines.emplace_back(bln, brn);
-    debugLines.emplace_back(tln, bln);
-    debugLines.emplace_back(trn, brn);
-    debugLines.emplace_back(tlf, trf);
-    debugLines.emplace_back(blf, brf);
-    debugLines.emplace_back(tlf, blf);
-    debugLines.emplace_back(trf, brf);
+    debugLines.emplace_back(tln, color, trn, color);
+    debugLines.emplace_back(bln, color, brn, color);
+    debugLines.emplace_back(tln, color, bln, color);
+    debugLines.emplace_back(trn, color, brn, color);
+    debugLines.emplace_back(tlf, color, trf, color);
+    debugLines.emplace_back(blf, color, brf, color);
+    debugLines.emplace_back(tlf, color, blf, color);
+    debugLines.emplace_back(trf, color, brf, color);
 
     // Lines connecting near and far planes
-    debugLines.emplace_back(tln, tlf);
-    debugLines.emplace_back(trn, trf);
-    debugLines.emplace_back(bln, blf);
-    debugLines.emplace_back(brn, brf);
+    debugLines.emplace_back(tln, color, tlf, color);
+    debugLines.emplace_back(trn, color, trf, color);
+    debugLines.emplace_back(bln, color, blf, color);
+    debugLines.emplace_back(brn, color, brf, color);
   }
 
   // The meshlet generation pass creates the debug boxes. We want them to stay when meshlet generation is paused!
@@ -1029,18 +1045,22 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     });
 
   // After shading, we render debug geometry
-  auto debugColorAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.colorHdrRenderRes.value(),
-    .loadOp = Fwog::AttachmentLoadOp::LOAD,
-  };
   auto debugDepthAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = frame.gDepth.value(),
     .loadOp = Fwog::AttachmentLoadOp::LOAD,
   };
+
+  auto colorAttachments = std::vector<Fwog::RenderColorAttachment>{};
+  colorAttachments.emplace_back(frame.colorHdrRenderRes.value(), Fwog::AttachmentLoadOp::LOAD);
+  if (fsr2Enable)
+  {
+    colorAttachments.emplace_back(frame.gReactiveMask.value(), Fwog::AttachmentLoadOp::CLEAR, Fwog::ClearColorValue{0.0f});
+  }
+
   Fwog::Render(
     {
       .name = "Debug Geometry",
-      .colorAttachments = {&debugColorAttachment, 1},
+      .colorAttachments = colorAttachments,
       .depthAttachment = debugDepthAttachment,
     },
     [&]
@@ -1049,9 +1069,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       // Lines
       if (!debugLines.empty())
       {
-        auto lineVertexBuffer = Fwog::TypedBuffer<DebugLine>(debugLines);
+        auto lineVertexBuffer = Fwog::TypedBuffer<Debug::Line>(debugLines);
         Fwog::Cmd::BindGraphicsPipeline(debugLinesPipeline);
-        Fwog::Cmd::BindVertexBuffer(0, lineVertexBuffer, 0, sizeof(glm::vec3));
+        Fwog::Cmd::BindVertexBuffer(0, lineVertexBuffer, 0, sizeof(glm::vec3) + sizeof(glm::vec4));
         Fwog::Cmd::Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
       }
 
@@ -1064,6 +1084,16 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::DrawIndirect(debugGpuAabbsBuffer.value(), 0, 1, 0);
       }
     });
+
+  autoExposure.Apply({
+    .image = frame.colorHdrRenderRes.value(),
+    .exposureBuffer = exposureBuffer,
+    .deltaTime = static_cast<float>(dt),
+    .adjustmentSpeed = autoExposureAdjustmentSpeed,
+    .targetLuminance = autoExposureTargetLuminance,
+    .logMinLuminance = autoExposureLogMinLuminance,
+    .logMaxLuminance = autoExposureLogMaxLuminance,
+  });
 
 #ifdef FROGRENDER_FSR2_ENABLE
   if (fsr2Enable)
@@ -1089,13 +1119,13 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderWidth, windowWidth));
 
         FfxFsr2DispatchDescription dispatchDesc{
-          .color = ffxGetTextureResourceGL(frame.colorHdrRenderRes->Handle(), renderWidth, renderHeight, GL_R11F_G11F_B10F),
-          .depth = ffxGetTextureResourceGL(frame.gDepth->Handle(), renderWidth, renderHeight, GL_DEPTH_COMPONENT32F),
-          .motionVectors = ffxGetTextureResourceGL(frame.gMotion->Handle(), renderWidth, renderHeight, GL_RG16F),
+          .color = ffxGetTextureResourceGL(frame.colorHdrRenderRes->Handle(), renderWidth, renderHeight, Fwog::detail::FormatToGL(frame.colorHdrRenderRes->GetCreateInfo().format)),
+          .depth = ffxGetTextureResourceGL(frame.gDepth->Handle(), renderWidth, renderHeight, Fwog::detail::FormatToGL(frame.gDepth->GetCreateInfo().format)),
+          .motionVectors = ffxGetTextureResourceGL(frame.gMotion->Handle(), renderWidth, renderHeight, Fwog::detail::FormatToGL(frame.gMotion->GetCreateInfo().format)),
           .exposure = {},
-          .reactive = {},
+          .reactive = ffxGetTextureResourceGL(frame.gReactiveMask->Handle(), renderWidth, renderHeight, Fwog::detail::FormatToGL(frame.gReactiveMask->GetCreateInfo().format)),
           .transparencyAndComposition = {},
-          .output = ffxGetTextureResourceGL(frame.colorHdrWindowRes->Handle(), windowWidth, windowHeight, GL_R11F_G11F_B10F),
+          .output = ffxGetTextureResourceGL(frame.colorHdrWindowRes->Handle(), windowWidth, windowHeight, Fwog::detail::FormatToGL(frame.colorHdrWindowRes->GetCreateInfo().format)),
           .jitterOffset = {jitterX, jitterY},
           .motionVectorScale = {float(renderWidth), float(renderHeight)},
           .renderSize = {renderWidth, renderHeight},
@@ -1120,16 +1150,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   }
 #endif
 
-  autoExposure.Apply({
-    .image = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
-    .exposureBuffer = exposureBuffer,
-    .deltaTime = static_cast<float>(dt),
-    .adjustmentSpeed = autoExposureAdjustmentSpeed,
-    .targetLuminance = autoExposureTargetLuminance,
-    .logMinLuminance = autoExposureLogMinLuminance,
-    .logMaxLuminance = autoExposureLogMaxLuminance,
-  });
-
   if (bloomEnable)
   {
     bloom.Apply({
@@ -1138,6 +1158,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       .passes = bloomPasses,
       .strength = bloomStrength,
       .width = bloomWidth,
+      .useLowPassFilterOnFirstPass = bloomUseLowPassFilter,
     });
   }
 
@@ -1161,36 +1182,38 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 
-  // TODO: Conditionally render to the screen when an option to hide the UI is selected
-  Fwog::RenderToSwapchain(
-    {
-      .name = "Copy to swapchain",
-      .viewport =
-        Fwog::Viewport{
-          .drawRect{.offset = {0, 0}, .extent = {windowWidth, windowHeight}},
-          .minDepth = 0.0f,
-          .maxDepth = 1.0f,
-        },
-      .colorLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-      .depthLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-      .stencilLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-    },
-    [&]
-    {
-      const Fwog::Texture* tex = &frame.colorLdrWindowRes.value();
-      if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS)
-        tex = &frame.gAlbedo.value();
-      if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_PRESS)
-        tex = &frame.gNormal.value();
-      if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS)
-        tex = &frame.gDepth.value();
-      if (glfwGetKey(window, GLFW_KEY_F4) == GLFW_PRESS)
-        tex = &frame.rsm->GetIndirectLighting();
-      if (tex)
+  if (debugRenderToSwapchain)
+  {
+    Fwog::RenderToSwapchain(
       {
-        Fwog::Cmd::BindGraphicsPipeline(debugTexturePipeline);
-        Fwog::Cmd::BindSampledImage(0, *tex, nearestSampler);
-        Fwog::Cmd::Draw(3, 1, 0, 0);
-      }
-    });
+        .name = "Copy to swapchain",
+        .viewport =
+          Fwog::Viewport{
+            .drawRect{.offset = {0, 0}, .extent = {windowWidth, windowHeight}},
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f,
+          },
+        .colorLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+        .depthLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+        .stencilLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+      },
+      [&]
+      {
+        const Fwog::Texture* tex = &frame.colorLdrWindowRes.value();
+        if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS)
+          tex = &frame.gAlbedo.value();
+        if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_PRESS)
+          tex = &frame.gNormal.value();
+        if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS)
+          tex = &frame.gDepth.value();
+        if (glfwGetKey(window, GLFW_KEY_F4) == GLFW_PRESS)
+          tex = &frame.rsm->GetIndirectLighting();
+        if (tex)
+        {
+          Fwog::Cmd::BindGraphicsPipeline(debugTexturePipeline);
+          Fwog::Cmd::BindSampledImage(0, *tex, nearestSampler);
+          Fwog::Cmd::Draw(3, 1, 0, 0);
+        }
+      });
+  }
 }

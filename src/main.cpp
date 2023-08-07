@@ -19,7 +19,7 @@
  * [X] Hi-z occlusion culling
  * [ ] Clustered light culling
  * [ ] Raster occlusion culling
- * [ ] Multi-view
+ * [X] Multi-view
  *
  * Atmosphere
  * [ ] Sky
@@ -41,7 +41,7 @@
  *
  * TODO UI:
  * [X] Render into an ImGui window
- * [ ] Install a font + header from here: https://github.com/juliettef/IconFontCppHeaders
+ * [X] Install a font + header from here: https://github.com/juliettef/IconFontCppHeaders
  * [ ] Figure out an epic layout
  * [ ] Config file so stuff doesn't reset every time
  * [ ] Model browser

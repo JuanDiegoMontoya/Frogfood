@@ -9,9 +9,37 @@
 #include <algorithm>
 #include <string>
 
+#include "IconsMaterialDesign.h"
+
+#include "IconsFontAwesome6.h"
+
 void FrogRenderer::InitGui()
 {
-  ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/RobotoCondensed-Regular.ttf", 18);
+  constexpr float fontSize = 18;
+  ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/RobotoCondensed-Regular.ttf", fontSize);
+  //constexpr float iconFontSize = fontSize * 2.0f / 3.0f; // if GlyphOffset.y is not biased, uncomment this
+
+  {
+    constexpr float iconFontSize = fontSize;
+    static const ImWchar icons_ranges[] = {ICON_MIN_MD, ICON_MAX_16_MD, 0};
+    ImFontConfig icons_config;
+    icons_config.MergeMode = true;
+    icons_config.PixelSnapH = true;
+    icons_config.GlyphMinAdvanceX = iconFontSize;
+    icons_config.GlyphOffset.y = 4; // Hack to realign the icons
+    ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_MD, iconFontSize, &icons_config, icons_ranges);
+  }
+
+  {
+    constexpr float iconFontSize = fontSize * 2.0f / 3.0f;
+    static const ImWchar icons_ranges[] = {ICON_MIN_FA, ICON_MAX_16_FA, 0};
+    ImFontConfig icons_config;
+    icons_config.MergeMode = true;
+    icons_config.PixelSnapH = true;
+    icons_config.GlyphMinAdvanceX = iconFontSize;
+    //icons_config.GlyphOffset.y = 4; // Hack to realign the icons
+    ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_FAS, iconFontSize, &icons_config, icons_ranges);
+  }
 
   ImGui::StyleColorsDark();
   
@@ -85,61 +113,62 @@ void FrogRenderer::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 v
     magnifierLock = false;
   }
 
-  ImGui::Begin(("Magnifier: " + std::string(magnifierLock ? "Locked" : "Unlocked") + " (Hold Space to unlock)" + "###mag").c_str());
-
-  ImGui::SliderFloat("Zoom (+, -)", &magnifierZoom, 1.0f, 50.0f, "%.2fx", ImGuiSliderFlags_Logarithmic);
-  if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadSubtract, 10000, 1))
+  if (ImGui::Begin((ICON_MD_ZOOM_IN " Magnifier: " + std::string(magnifierLock ? "Locked" : "Unlocked") + " (Hold Space to unlock)" + "###mag").c_str()))
   {
-    magnifierZoom = std::max(magnifierZoom / 1.5f, 1.0f);
+    ImGui::SliderFloat("Zoom (+, -)", &magnifierZoom, 1.0f, 50.0f, "%.2fx", ImGuiSliderFlags_Logarithmic);
+    if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadSubtract, 10000, 1))
+    {
+      magnifierZoom = std::max(magnifierZoom / 1.5f, 1.0f);
+    }
+    if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadAdd, 10000, 1))
+    {
+      magnifierZoom = std::min(magnifierZoom * 1.5f, 50.0f);
+    }
+
+    // The actual size of the magnifier widget
+    // constexpr auto magnifierSize = ImVec2(400, 400);
+    const auto magnifierSize = ImGui::GetContentRegionAvail();
+
+    // The dimensions of the region viewed by the magnifier, equal to the magnifier's size (1x zoom) or less
+    const auto magnifierExtent =
+      ImVec2(std::min(viewportContentSize.x, magnifierSize.x / magnifierZoom), std::min(viewportContentSize.y, magnifierSize.y / magnifierZoom));
+
+    // Get window coords
+    double x{}, y{};
+    glfwGetCursorPos(window, &x, &y);
+
+    // Window to viewport
+    x -= viewportContentOffset.x;
+    y -= viewportContentOffset.y;
+
+    // Clamp to smaller region within the viewport so magnifier doesn't view OOB pixels
+    x = std::clamp(float(x), magnifierExtent.x / 2.f, viewportContentSize.x - magnifierExtent.x / 2.f);
+    y = std::clamp(float(y), magnifierExtent.y / 2.f, viewportContentSize.y - magnifierExtent.y / 2.f);
+
+    // Use stored cursor pos if magnifier is locked
+    glm::vec2 mp = magnifierLock ? magnifierLastCursorPos : glm::vec2{x, y};
+    magnifierLastCursorPos = mp;
+
+    // Y flip (+Y is up for textures)
+    mp.y = viewportContentSize.y - mp.y;
+
+    // Mouse position in UV space
+    mp /= glm::vec2(viewportContentSize.x, viewportContentSize.y);
+    glm::vec2 magnifierHalfExtentUv = {
+      magnifierExtent.x / 2.f / viewportContentSize.x,
+      -magnifierExtent.y / 2.f / viewportContentSize.y,
+    };
+
+    // Calculate the min and max UV of the magnifier window
+    glm::vec2 uv0{mp - magnifierHalfExtentUv};
+    glm::vec2 uv1{mp + magnifierHalfExtentUv};
+
+    glTextureParameteri(frame.colorLdrWindowRes.value().Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())),
+                 magnifierSize,
+                 ImVec2(uv0.x, uv0.y),
+                 ImVec2(uv1.x, uv1.y));
   }
-  if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadAdd, 10000, 1))
-  {
-    magnifierZoom = std::min(magnifierZoom * 1.5f, 50.0f);
-  }
-
-  // The actual size of the magnifier widget
-  // constexpr auto magnifierSize = ImVec2(400, 400);
-  const auto magnifierSize = ImGui::GetContentRegionAvail();
-
-  // The dimensions of the region viewed by the magnifier, equal to the magnifier's size (1x zoom) or less
-  const auto magnifierExtent =
-    ImVec2(std::min(viewportContentSize.x, magnifierSize.x / magnifierZoom), std::min(viewportContentSize.y, magnifierSize.y / magnifierZoom));
-
-  // Get window coords
-  double x{}, y{};
-  glfwGetCursorPos(window, &x, &y);
-
-  // Window to viewport
-  x -= viewportContentOffset.x;
-  y -= viewportContentOffset.y;
-
-  // Clamp to smaller region within the viewport so magnifier doesn't view OOB pixels
-  x = std::clamp(float(x), magnifierExtent.x / 2.f, viewportContentSize.x - magnifierExtent.x / 2.f);
-  y = std::clamp(float(y), magnifierExtent.y / 2.f, viewportContentSize.y - magnifierExtent.y / 2.f);
-
-  // Use stored cursor pos if magnifier is locked
-  glm::vec2 mp = magnifierLock ? magnifierLastCursorPos : glm::vec2{x, y};
-  magnifierLastCursorPos = mp;
-
-  // Y flip (+Y is up for textures)
-  mp.y = viewportContentSize.y - mp.y;
-
-  // Mouse position in UV space
-  mp /= glm::vec2(viewportContentSize.x, viewportContentSize.y);
-  glm::vec2 magnifierHalfExtentUv = {
-    magnifierExtent.x / 2.f / viewportContentSize.x,
-    -magnifierExtent.y / 2.f / viewportContentSize.y,
-  };
-
-  // Calculate the min and max UV of the magnifier window
-  glm::vec2 uv0{mp - magnifierHalfExtentUv};
-  glm::vec2 uv1{mp + magnifierHalfExtentUv};
-
-  glTextureParameteri(frame.colorLdrWindowRes.value().Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())),
-               magnifierSize,
-               ImVec2(uv0.x, uv0.y),
-               ImVec2(uv1.x, uv1.y));
   ImGui::End();
 }
 
@@ -192,155 +221,175 @@ void FrogRenderer::GuiDrawDockspace()
 
 void FrogRenderer::GuiDrawFsrWindow()
 {
-  ImGui::Begin("FSR 2");
+  if (ImGui::Begin(ICON_MD_STAR " FSR 2###fsr2_window"))
+  {
 #ifdef FROGRENDER_FSR2_ENABLE
-  if (fsr2Enable)
-  {
-    ImGui::Text("Performance: %f ms", fsr2Performance);
-  }
-  else
-  {
-    ImGui::Text("Performance: ---");
-  }
+    if (fsr2Enable)
+    {
+      ImGui::Text("Performance: %f ms", fsr2Performance);
+    }
+    else
+    {
+      ImGui::TextUnformatted("Performance: ---");
+    }
 
-  if (ImGui::Checkbox("Enable FSR 2", &fsr2Enable))
-  {
-    shouldResizeNextFrame = true;
-  }
+    if (ImGui::Checkbox("Enable FSR 2", &fsr2Enable))
+    {
+      shouldResizeNextFrame = true;
+    }
 
-  if (!fsr2Enable)
-  {
-    ImGui::BeginDisabled();
-  }
+    if (!fsr2Enable)
+    {
+      ImGui::BeginDisabled();
+    }
 
-  float ratio = fsr2Ratio;
-  if (ImGui::RadioButton("AA (1.0x)", ratio == 1.0f))
-    ratio = 1.0f;
-  if (ImGui::RadioButton("Ultra Quality (1.3x)", ratio == 1.3f))
-    ratio = 1.3f;
-  if (ImGui::RadioButton("Quality (1.5x)", ratio == 1.5f))
-    ratio = 1.5f;
-  if (ImGui::RadioButton("Balanced (1.7x)", ratio == 1.7f))
-    ratio = 1.7f;
-  if (ImGui::RadioButton("Performance (2.0x)", ratio == 2.0f))
-    ratio = 2.0f;
-  if (ImGui::RadioButton("Ultra Performance (3.0x)", ratio == 3.0f))
-    ratio = 3.0f;
-  ImGui::SliderFloat("Upscale Ratio", &ratio, 1.0f, 3.0f, "%.2f");
-  ImGui::SliderFloat("RCAS Strength", &fsr2Sharpness, 0, 1);
+    float ratio = fsr2Ratio;
+    if (ImGui::RadioButton("AA (1.0x)", ratio == 1.0f))
+      ratio = 1.0f;
+    if (ImGui::RadioButton("Ultra Quality (1.3x)", ratio == 1.3f))
+      ratio = 1.3f;
+    if (ImGui::RadioButton("Quality (1.5x)", ratio == 1.5f))
+      ratio = 1.5f;
+    if (ImGui::RadioButton("Balanced (1.7x)", ratio == 1.7f))
+      ratio = 1.7f;
+    if (ImGui::RadioButton("Performance (2.0x)", ratio == 2.0f))
+      ratio = 2.0f;
+    if (ImGui::RadioButton("Ultra Performance (3.0x)", ratio == 3.0f))
+      ratio = 3.0f;
+    ImGui::SliderFloat("Upscale Ratio", &ratio, 1.0f, 3.0f, "%.2f");
+    ImGui::SliderFloat("RCAS Strength", &fsr2Sharpness, 0, 1);
 
-  if (ratio != fsr2Ratio)
-  {
-    fsr2Ratio = ratio;
-    shouldResizeNextFrame = true;
-  }
+    if (ratio != fsr2Ratio)
+    {
+      fsr2Ratio = ratio;
+      shouldResizeNextFrame = true;
+    }
 
-  if (!fsr2Enable)
-  {
-    ImGui::EndDisabled();
-  }
+    if (!fsr2Enable)
+    {
+      ImGui::EndDisabled();
+    }
 #else
-  ImGui::Text("Compile with FROGRENDER_FSR2_ENABLE defined to see FSR 2 options");
+    ImGui::TextUnformatted("Compile with FROGRENDER_FSR2_ENABLE defined to see FSR 2 options");
 #endif
+  }
   ImGui::End();
 }
 
 void FrogRenderer::GuiDrawDebugWindow()
 {
-  ImGui::Begin("Debug");
-
-  ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
-  ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
-  ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+  if (ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window"))
   {
-    ImGui::SetTooltip("If unchecked, the hi-z buffer is cleared every frame, essentially forcing this test to pass");
+    ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
+    ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
+    ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+      ImGui::SetTooltip("If unchecked, the hi-z buffer is cleared every frame, essentially forcing this test to pass");
+    }
+
+    ImGui::Checkbox("Execute Meshlet Generation", &executeMeshletGeneration);
+    ImGui::Checkbox("Draw Meshlet AABBs", &drawMeshletAabbs);
+
+    ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
+    ImGui::Checkbox("Render to Swapchain", &debugRenderToSwapchain);
   }
-
-  ImGui::Checkbox("Execute Meshlet Generation", &executeMeshletGeneration);
-  ImGui::Checkbox("Draw Meshlet AABBs", &drawMeshletAabbs);
-
-  ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
-  ImGui::Checkbox("Render to Swapchain", &debugRenderToSwapchain);
-
   ImGui::End();
 }
 
 void FrogRenderer::GuiDrawLightsArray()
 {
-  if (ImGui::Begin("Lights"))
+  if (ImGui::Begin(ICON_MD_SUNNY "  Lights###lights_window"))
   {
     // Display properties for all lights
     for (size_t i = 0; i < scene.lights.size(); i++)
     {
       auto& light = scene.lights[i];
-      const auto id = "##Light " + std::to_string(i);
-      ImGui::Text("%s", id.c_str() + 2); // Skip the two octothorpes at the beginning
-      ImGui::SameLine();
-      if (ImGui::Button(" X ")) // TODO: replace with better symbol
-      {
-        std::swap(scene.lights[i], scene.lights.back());
-        scene.lights.pop_back();
-        i--;
-        continue;
-      }
 
       const char* typePreview = "";
+      const char* typeIcon = "";
       if (light.type == Utility::LightType::DIRECTIONAL)
       {
         typePreview = "Directional";
+        typeIcon = ICON_MD_SUNNY "  ";
       }
       else if (light.type == Utility::LightType::POINT)
       {
         typePreview = "Point";
+        typeIcon = ICON_MD_LIGHTBULB "  ";
       }
       else if (light.type == Utility::LightType::SPOT)
       {
         typePreview = "Spot";
+        typeIcon = ICON_MD_FLASHLIGHT_ON "  ";
       }
 
-      if (ImGui::BeginCombo(("Type" + id).c_str(), typePreview))
+      const auto id = std::string("##") + typePreview + " Light " + std::to_string(i);
+      
+      if (ImGui::Button((ICON_FA_TRASH_CAN + id).c_str()))
       {
-        // if (ImGui::Selectable("Directional", light.type == Utility::LightType::DIRECTIONAL))
-        //{
-        //   light.type = Utility::LightType::DIRECTIONAL;
-        // }
-        if (ImGui::Selectable("Point", light.type == Utility::LightType::POINT))
+        // Erasing from the middle is inefficient, but leads to more intuitive UX compared to swap & pop
+        scene.lights.erase(scene.lights.begin() + i);
+        i--;
+        continue;
+      }
+
+      ImGui::SameLine();
+
+      const bool isOpen = ImGui::TreeNode(id.c_str() + 2);
+
+      // Hack to right-align the light icon
+      ImGui::SameLine(ImGui::GetWindowWidth() - 40);
+
+      ImGui::PushStyleColor(ImGuiCol_Text, glm::packUnorm4x8(glm::vec4(light.color, 1.0f)));
+      ImGui::TextUnformatted(typeIcon);
+      ImGui::PopStyleColor();
+
+      if (isOpen)
+      {
+        if (ImGui::BeginCombo(("Type" + id).c_str(), typePreview))
         {
-          light.type = Utility::LightType::POINT;
+          // if (ImGui::Selectable("Directional", light.type == Utility::LightType::DIRECTIONAL))
+          //{
+          //   light.type = Utility::LightType::DIRECTIONAL;
+          // }
+          if (ImGui::Selectable("Point", light.type == Utility::LightType::POINT))
+          {
+            light.type = Utility::LightType::POINT;
+          }
+          else if (ImGui::Selectable("Spot", light.type == Utility::LightType::SPOT))
+          {
+            light.type = Utility::LightType::SPOT;
+          }
+          ImGui::EndCombo();
         }
-        else if (ImGui::Selectable("Spot", light.type == Utility::LightType::SPOT))
+
+        ImGui::ColorEdit3(("Color" + id).c_str(), &light.color[0], ImGuiColorEditFlags_Float);
+        ImGui::DragFloat(("Intensity" + id).c_str(), &light.intensity, 1, 0, 1e6f, light.type == Utility::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
+
+        ImGui::DragFloat3(("Position" + id).c_str(), &light.position[0], .1f, 0, 0, "%.2f");
+
+        if (light.type != Utility::LightType::POINT)
         {
-          light.type = Utility::LightType::SPOT;
+          if (ImGui::SliderFloat3(("Direction" + id).c_str(), &light.direction[0], -1, 1))
+          {
+            light.direction = glm::normalize(light.direction);
+          }
         }
-        ImGui::EndCombo();
-      }
 
-      ImGui::ColorEdit3(("Color" + id).c_str(), &light.color[0], ImGuiColorEditFlags_Float);
-      ImGui::DragFloat(("Intensity" + id).c_str(), &light.intensity, 1, 0, 1e6f, light.type == Utility::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
-
-      ImGui::DragFloat3(("Position" + id).c_str(), &light.position[0], .1f, 0, 0, "%.2f");
-
-      if (light.type != Utility::LightType::POINT)
-      {
-        if (ImGui::SliderFloat3(("Direction" + id).c_str(), &light.direction[0], -1, 1))
+        if (light.type != Utility::LightType::DIRECTIONAL)
         {
-          light.direction = glm::normalize(light.direction);
+          ImGui::DragFloat(("Range" + id).c_str(), &light.range, 0.2f, 0.0f, 100.0f, "%.2f");
         }
-      }
 
-      if (light.type != Utility::LightType::DIRECTIONAL)
-      {
-        ImGui::DragFloat(("Range" + id).c_str(), &light.range, 0.2f, 0.0f, 100.0f, "%.2f");
-      }
+        if (light.type == Utility::LightType::SPOT)
+        {
+          ImGui::SliderFloat(("Inner cone angle" + id).c_str(), &light.innerConeAngle, 0, 3.14f, "%.2f rad");
+          ImGui::SliderFloat(("Outer cone angle" + id).c_str(), &light.outerConeAngle, 0, 3.14f, "%.2f rad");
+        }
 
-      if (light.type == Utility::LightType::SPOT)
-      {
-        ImGui::SliderFloat(("Inner cone angle" + id).c_str(), &light.innerConeAngle, 0, 3.14f, "%.2f rad");
-        ImGui::SliderFloat(("Outer cone angle" + id).c_str(), &light.outerConeAngle, 0, 3.14f, "%.2f rad");
+        ImGui::TreePop();
       }
-
-      ImGui::Separator();
     }
 
     // Adding new lights
@@ -352,7 +401,7 @@ void FrogRenderer::GuiDrawLightsArray()
         .direction = glm::normalize(glm::vec3{0.1f, -1, 0.1f}),
         .intensity = 100,
         .position = {0, 0, 0},
-        .range = 1000,
+        .range = 100,
         .innerConeAngle = 0.01f,
         .outerConeAngle = 0.4f,
       });
@@ -363,7 +412,7 @@ void FrogRenderer::GuiDrawLightsArray()
 
 void FrogRenderer::GuiDrawBloomWindow()
 {
-  if (ImGui::Begin("Bloom"))
+  if (ImGui::Begin(ICON_MD_CAMERA " Bloom###bloom_window"))
   {
     ImGui::Checkbox("Enable", &bloomEnable);
 
@@ -384,13 +433,12 @@ void FrogRenderer::GuiDrawBloomWindow()
       ImGui::EndDisabled();
     }
   }
-
   ImGui::End();
 }
 
 void FrogRenderer::GuiDrawAutoExposureWindow()
 {
-  if (ImGui::Begin("Auto Exposure"))
+  if (ImGui::Begin(ICON_MD_BRIGHTNESS_AUTO " Auto Exposure###auto_exposure_window"))
   {
     ImGui::SliderFloat("Min Exposure", &autoExposureLogMinLuminance, -15.0f, autoExposureLogMaxLuminance, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
     ImGui::SliderFloat("Max Exposure", &autoExposureLogMaxLuminance, autoExposureLogMinLuminance, 15.0f, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
@@ -401,7 +449,7 @@ void FrogRenderer::GuiDrawAutoExposureWindow()
   ImGui::End();
 }
 
-void FrogRenderer::OnGui([[maybe_unused]] double dt)
+void FrogRenderer::OnGui(double dt)
 {
   GuiDrawDockspace();
 
@@ -440,7 +488,7 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
 
   ImGui::Separator();
 
-  ImGui::Text("Shadow");
+  ImGui::TextUnformatted("Shadow");
 
   auto SliderUint = [](const char* label, uint32_t* v, uint32_t v_min, uint32_t v_max) -> bool
   {
@@ -501,7 +549,7 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   // Draw viewport
   constexpr auto viewportFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-  ImGui::Begin("Viewport", nullptr, viewportFlags);
+  ImGui::Begin(ICON_MD_BRUSH " Viewport###viewport_window", nullptr, viewportFlags);
 
   const auto viewportContentSize = ImGui::GetContentRegionAvail();
 
@@ -525,10 +573,8 @@ void FrogRenderer::OnGui([[maybe_unused]] double dt)
   }();
 
   aspectRatio = viewportContentSize.x / viewportContentSize.y;
-
+  
   ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
-  //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.visResolve.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
-  //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedo.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
 
   const bool viewportIsHovered = ImGui::IsItemHovered();
 

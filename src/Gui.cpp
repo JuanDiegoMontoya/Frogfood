@@ -19,6 +19,19 @@ void FrogRenderer::InitGui()
   ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/RobotoCondensed-Regular.ttf", fontSize);
   //constexpr float iconFontSize = fontSize * 2.0f / 3.0f; // if GlyphOffset.y is not biased, uncomment this
 
+  // These fonts appear to interfere, possibly due to having overlapping ranges.
+  // Loading FA first appears to cause less breakage
+  {
+    constexpr float iconFontSize = fontSize * 4.0f / 5.0f;
+    static const ImWchar icons_ranges[] = {ICON_MIN_FA, ICON_MAX_16_FA, 0};
+    ImFontConfig icons_config;
+    icons_config.MergeMode = true;
+    icons_config.PixelSnapH = true;
+    icons_config.GlyphMinAdvanceX = iconFontSize;
+    icons_config.GlyphOffset.y = 0; // Hack to realign the icons
+    ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_FAS, iconFontSize, &icons_config, icons_ranges);
+  }
+
   {
     constexpr float iconFontSize = fontSize;
     static const ImWchar icons_ranges[] = {ICON_MIN_MD, ICON_MAX_16_MD, 0};
@@ -30,17 +43,6 @@ void FrogRenderer::InitGui()
     ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_MD, iconFontSize, &icons_config, icons_ranges);
   }
 
-  {
-    constexpr float iconFontSize = fontSize * 2.0f / 3.0f;
-    static const ImWchar icons_ranges[] = {ICON_MIN_FA, ICON_MAX_16_FA, 0};
-    ImFontConfig icons_config;
-    icons_config.MergeMode = true;
-    icons_config.PixelSnapH = true;
-    icons_config.GlyphMinAdvanceX = iconFontSize;
-    //icons_config.GlyphOffset.y = 4; // Hack to realign the icons
-    ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_FAS, iconFontSize, &icons_config, icons_ranges);
-  }
-
   ImGui::StyleColorsDark();
   
   auto& style = ImGui::GetStyle();
@@ -48,7 +50,7 @@ void FrogRenderer::InitGui()
   style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
   style.Colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
   style.Colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-  style.Colors[ImGuiCol_PopupBg] = ImVec4(0.19f, 0.19f, 0.19f, 0.92f);
+  style.Colors[ImGuiCol_PopupBg] = ImVec4(0.19f, 0.19f, 0.19f, 0.95f);
   style.Colors[ImGuiCol_Border] = ImVec4(0.19f, 0.19f, 0.19f, 0.29f);
   style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.24f);
   style.Colors[ImGuiCol_FrameBg] = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
@@ -316,12 +318,12 @@ void FrogRenderer::GuiDrawLightsArray()
       else if (light.type == Utility::LightType::POINT)
       {
         typePreview = "Point";
-        typeIcon = ICON_MD_LIGHTBULB "  ";
+        typeIcon = ICON_FA_LIGHTBULB "  ";
       }
       else if (light.type == Utility::LightType::SPOT)
       {
         typePreview = "Spot";
-        typeIcon = ICON_MD_FLASHLIGHT_ON "  ";
+        typeIcon = ICON_FA_FILTER "  ";
       }
 
       const auto id = std::string("##") + typePreview + " Light " + std::to_string(i);
@@ -446,6 +448,24 @@ void FrogRenderer::GuiDrawAutoExposureWindow()
     ImGui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 5, "%.4f", ImGuiSliderFlags_NoRoundToFormat);
   }
 
+  ImGui::End();
+}
+
+void FrogRenderer::GuiDrawCameraWindow()
+{
+  if (ImGui::Begin(ICON_FA_CAMERA " Camera###camera_window"))
+  {
+    ImGui::SliderFloat("Saturation", &tonemapUniforms.saturation, 0, 2, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("AgX Linear Section", &tonemapUniforms.agxDsLinearSection, 0, tonemapUniforms.peak, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("Compression", &tonemapUniforms.compression, 0, 0.999f, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+    bool enableDither = tonemapUniforms.enableDithering;
+    ImGui::Checkbox("Enable Dither", &enableDither);
+    tonemapUniforms.enableDithering = enableDither;
+    if (ImGui::Button("Reset"))
+    {
+      tonemapUniforms = TonemapUniforms{};
+    }
+  }
   ImGui::End();
 }
 
@@ -590,4 +610,6 @@ void FrogRenderer::OnGui(double dt)
   GuiDrawBloomWindow();
 
   GuiDrawAutoExposureWindow();
+
+  GuiDrawCameraWindow();
 }

@@ -1,5 +1,7 @@
 #version 450 core
 
+layout(local_size_x = 8, local_size_y = 8) in;
+
 layout(binding = 0) uniform sampler2D s_sceneColor;
 layout(binding = 1) uniform sampler2D s_noise;
 
@@ -8,48 +10,56 @@ layout(std140, binding = 0) uniform ExposureBuffer
   float exposure;
 } exposureBuffer;
 
-layout(location = 0) in vec2 v_uv;
-layout(location = 0) out vec4 o_finalColor;
+layout(std140, binding = 1) uniform TonemapUniformBuffer
+{
+  float saturation;
+  float agxDsLinearSection;
+  float peak;
+  float compression;
+  uint enableDithering;
+} uniforms;
+
+layout(binding = 0) uniform writeonly image2D i_output;
 
 // AgX implementation from here: https://www.shadertoy.com/view/Dt3XDr
 vec3 xyYToXYZ(vec3 xyY)
 {
-    float Y = xyY.z;
-    float X = (xyY.x * Y) / xyY.y;
-    float Z = ((1.0f - xyY.x - xyY.y) * Y) / xyY.y;
+  float Y = xyY.z;
+  float X = (xyY.x * Y) / xyY.y;
+  float Z = ((1.0f - xyY.x - xyY.y) * Y) / xyY.y;
 
-    return vec3(X, Y, Z);
+  return vec3(X, Y, Z);
 }
 
 vec3 Unproject(vec2 xy)
 {
-    return xyYToXYZ(vec3(xy.x, xy.y, 1));				
+  return xyYToXYZ(vec3(xy.x, xy.y, 1));				
 }
 
 mat3 PrimariesToMatrix(vec2 xy_red, vec2 xy_green, vec2 xy_blue, vec2 xy_white)
 {
-    vec3 XYZ_red = Unproject(xy_red);
-    vec3 XYZ_green = Unproject(xy_green);
-    vec3 XYZ_blue = Unproject(xy_blue);
-    vec3 XYZ_white = Unproject(xy_white);
+  vec3 XYZ_red = Unproject(xy_red);
+  vec3 XYZ_green = Unproject(xy_green);
+  vec3 XYZ_blue = Unproject(xy_blue);
+  vec3 XYZ_white = Unproject(xy_white);
 
-    mat3 temp = mat3(XYZ_red.x,	  1.0f, XYZ_red.z,
-                     XYZ_green.x, 1.0f, XYZ_green.z,
-                     XYZ_blue.x,  1.0f, XYZ_blue.z);
-    vec3 scale = inverse(temp) * XYZ_white;
+  mat3 temp = mat3(XYZ_red.x,	  1.0, XYZ_red.z,
+                    XYZ_green.x, 1.f, XYZ_green.z,
+                    XYZ_blue.x,  1.0, XYZ_blue.z);
+  vec3 scale = inverse(temp) * XYZ_white;
 
-    return mat3(XYZ_red * scale.x, XYZ_green * scale.y, XYZ_blue * scale.z);
+  return mat3(XYZ_red * scale.x, XYZ_green * scale.y, XYZ_blue * scale.z);
 }
 
 mat3 ComputeCompressionMatrix(vec2 xyR, vec2 xyG, vec2 xyB, vec2 xyW, float compression)
 {
-    float scale_factor = 1.0f / (1.0f - compression);
-    vec2 R = mix(xyW, xyR, scale_factor);
-    vec2 G = mix(xyW, xyG, scale_factor);
-    vec2 B = mix(xyW, xyB, scale_factor);
-    vec2 W = xyW;
+  float scale_factor = 1.0 / (1.0 - compression);
+  vec2 R = mix(xyW, xyR, scale_factor);
+  vec2 G = mix(xyW, xyG, scale_factor);
+  vec2 B = mix(xyW, xyB, scale_factor);
+  vec2 W = xyW;
 
-    return PrimariesToMatrix(R, G, B, W);
+  return PrimariesToMatrix(R, G, B, W);
 }
 
 float DualSection(float x, float linear, float peak)
@@ -76,9 +86,9 @@ vec3 AgX_DS(vec3 color_srgb, float exposure, float saturation, float linear, flo
 {
   vec3 workingColor = max(color_srgb, 0.0f) * pow(2.0, exposure);
 
-  mat3 sRGB_to_XYZ = PrimariesToMatrix(vec2(0.64,0.33),
-                                       vec2(0.3,0.6), 
-                                       vec2(0.15,0.06), 
+  mat3 sRGB_to_XYZ = PrimariesToMatrix(vec2(0.64, 0.33),
+                                       vec2(0.3, 0.6), 
+                                       vec2(0.15, 0.06), 
                                        vec2(0.3127, 0.3290));
   mat3 adjusted_to_XYZ = ComputeCompressionMatrix(vec2(0.64,0.33),
                                                   vec2(0.3,0.6), 
@@ -93,49 +103,11 @@ vec3 AgX_DS(vec3 color_srgb, float exposure, float saturation, float linear, flo
   vec3 luminanceWeight = vec3(0.2126729,  0.7151522,  0.0721750);
   vec3 desaturation = vec3(dot(workingColor, luminanceWeight));
   workingColor = mix(desaturation, workingColor, saturation);
-  workingColor = clamp(workingColor, 0.f, 1.f);
+  workingColor = clamp(workingColor, 0.0, 1.0);
 
   workingColor = inverse(sRGB_to_adjusted) * workingColor;
 
   return workingColor;
-}
-
-// ACES fitted
-// from https://github.com/TheRealMJP/BakingLab/blob/master/BakingLab/ACES.hlsl
-
-const mat3 ACESInputMat = mat3(
-    0.59719, 0.35458, 0.04823,
-    0.07600, 0.90834, 0.01566,
-    0.02840, 0.13383, 0.83777
-);
-
-// ODT_SAT => XYZ => D60_2_D65 => sRGB
-const mat3 ACESOutputMat = mat3(
-     1.60475, -0.53108, -0.07367,
-    -0.10208,  1.10813, -0.00605,
-    -0.00327, -0.07276,  1.07602
-);
-
-vec3 RRTAndODTFit(vec3 v)
-{
-    vec3 a = v * (v + 0.0245786) - 0.000090537;
-    vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
-    return a / b;
-}
-
-vec3 ACESFitted(vec3 color)
-{
-    color = color * ACESInputMat;
-
-    // Apply RRT and ODT
-    color = RRTAndODTFit(color);
-
-    color = color * ACESOutputMat;
-
-    // Clamp to [0, 1]
-    color = clamp(color, 0.0, 1.0);
-
-    return color;
 }
 
 // sRGB OETF
@@ -157,11 +129,26 @@ vec3 apply_dither(vec3 color, vec2 uv)
 
 void main()
 {
-  vec3 hdrColor = textureLod(s_sceneColor, v_uv, 0).rgb;
-  //vec3 ldrColor = ACESFitted(hdrColor);
-  vec3 ldrColor = AgX_DS(hdrColor, exposureBuffer.exposure, 1.0, 0.18, 1, 0.15);
-  vec3 srgbColor = linear_to_nonlinear_srgb(ldrColor);
-  vec3 ditheredColor = apply_dither(srgbColor, v_uv);
+  const ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+  const ivec2 targetDim = imageSize(i_output);
 
-  o_finalColor = vec4(ditheredColor, 1.0);
+  if (any(greaterThanEqual(gid, targetDim)))
+  {
+    return;
+  }
+
+  const vec2 uv = (vec2(gid) + 0.5) / targetDim;
+  
+  vec3 hdrColor = textureLod(s_sceneColor, uv, 0).rgb;
+  //vec3 ldrColor = AgX_DS(hdrColor, exposureBuffer.exposure, 1.0, 0.18, 1, 0.15);
+  vec3 ldrColor = AgX_DS(hdrColor, exposureBuffer.exposure, uniforms.saturation, uniforms.agxDsLinearSection, uniforms.peak, uniforms.compression);
+  vec3 srgbColor = linear_to_nonlinear_srgb(ldrColor);
+  vec3 ditheredColor = srgbColor;
+  
+  if (bool(uniforms.enableDithering))
+  {
+    ditheredColor = apply_dither(srgbColor, uv);
+  }
+
+  imageStore(i_output, gid, vec4(ditheredColor, 1.0));
 }

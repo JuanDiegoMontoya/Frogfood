@@ -178,14 +178,13 @@ static Fwog::GraphicsPipeline CreateShadingPipeline()
   });
 }
 
-static Fwog::GraphicsPipeline CreatePostprocessingPipeline()
+static Fwog::ComputePipeline CreateTonemapPipeline()
 {
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/TonemapAndDither.frag.glsl");
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+  auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/TonemapAndDither.comp.glsl");
+
+  return Fwog::ComputePipeline({
+    .name = "Image Formation",
+    .shader = &comp,
   });
 }
 
@@ -308,10 +307,11 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     visbufferResolvePipeline(CreateVisbufferResolvePipeline()),
     //rsmScenePipeline(CreateShadowPipeline()),
     shadingPipeline(CreateShadingPipeline()),
-    postprocessingPipeline(CreatePostprocessingPipeline()),
+    tonemapPipeline(CreateTonemapPipeline()),
     debugTexturePipeline(CreateDebugTexturePipeline()),
     debugLinesPipeline(CreateDebugLinesPipeline()),
     debugAabbsPipeline(CreateDebugAabbsPipeline()),
+    tonemapUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     exposureBuffer(1.0f)
 {
   int x = 0;
@@ -342,6 +342,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   {
     Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "models/light_test.glb", glm::scale(glm::vec3{.5}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
@@ -578,6 +579,8 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
     OnWindowResize(windowWidth, windowHeight);
     shouldResizeNextFrame = false;
   }
+
+  tonemapUniformBuffer.UpdateData(tonemapUniforms);
 }
 
 static glm::vec2 GetJitterOffset(
@@ -1162,24 +1165,18 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     });
   }
 
-  const auto ppAttachment = Fwog::RenderColorAttachment{
-    .texture = frame.colorLdrWindowRes.value(),
-    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-  };
-
-  Fwog::Render(
-    {
-      .name = "Postprocessing",
-      .colorAttachments = {&ppAttachment, 1},
-    },
+  Fwog::Compute("Postprocessing",
     [&]
     {
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::UNIFORM_BUFFER_BIT);
-      Fwog::Cmd::BindGraphicsPipeline(postprocessingPipeline);
+      Fwog::Cmd::BindComputePipeline(tonemapPipeline);
       Fwog::Cmd::BindSampledImage(0, fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(), nearestSampler);
       Fwog::Cmd::BindSampledImage(1, noiseTexture.value(), nearestSampler);
       Fwog::Cmd::BindUniformBuffer(0, exposureBuffer);
-      Fwog::Cmd::Draw(3, 1, 0, 0);
+      Fwog::Cmd::BindUniformBuffer(1, tonemapUniformBuffer);
+      Fwog::Cmd::BindImage(0, frame.colorLdrWindowRes.value(), 0);
+      Fwog::Cmd::DispatchInvocations(frame.colorLdrWindowRes.value().Extent());
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT); // So future samples can see changes
     });
 
   if (debugRenderToSwapchain)

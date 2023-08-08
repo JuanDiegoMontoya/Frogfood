@@ -97,6 +97,15 @@ private:
     float sourceAngleRad = 0.05f;
   };
 
+  struct TonemapUniforms
+  {
+    float saturation = 1.0f;
+    float agxDsLinearSection = 0.18f;
+    float peak = 1.0f;
+    float compression = 0.15f;
+    uint32_t enableDithering = true;
+  };
+
   void OnWindowResize(uint32_t newWidth, uint32_t newHeight) override;
   void OnUpdate(double dt) override;
   void OnRender(double dt) override;
@@ -110,6 +119,7 @@ private:
   void GuiDrawLightsArray();
   void GuiDrawBloomWindow();
   void GuiDrawAutoExposureWindow();
+  void GuiDrawCameraWindow();
 
   // constants
   static constexpr int gMaxViews = 16;
@@ -238,7 +248,7 @@ private:
   Fwog::GraphicsPipeline visbufferResolvePipeline;
   //Fwog::GraphicsPipeline rsmScenePipeline;
   Fwog::GraphicsPipeline shadingPipeline;
-  Fwog::GraphicsPipeline postprocessingPipeline;
+  Fwog::ComputePipeline tonemapPipeline;
   Fwog::GraphicsPipeline debugTexturePipeline;
   Fwog::GraphicsPipeline debugLinesPipeline;
   Fwog::GraphicsPipeline debugAabbsPipeline;
@@ -252,6 +262,8 @@ private:
 
   // Post processing
   std::optional<Fwog::Texture> noiseTexture;
+  Fwog::TypedBuffer<TonemapUniforms> tonemapUniformBuffer;
+  TonemapUniforms tonemapUniforms{};
 
   uint32_t renderWidth;
   uint32_t renderHeight;

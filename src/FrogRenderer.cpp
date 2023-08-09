@@ -1,5 +1,7 @@
 #include "FrogRenderer.h"
 
+#include "RendererUtilities.h"
+
 #include <Fwog/BasicTypes.h>
 #include <Fwog/Buffer.h>
 #include <Fwog/Pipeline.h>
@@ -9,6 +11,8 @@
 #include <Fwog/Context.h>
 #include <Fwog/Timer.h>
 #include <Fwog/detail/ApiToEnum.h>
+
+#include <tracy/Tracy.hpp>
 
 #include <GLFW/glfw3.h>
 
@@ -26,8 +30,6 @@
 #include <optional>
 #include <string>
 #include <thread>
-
-#include "RendererUtilities.h"
 
 static constexpr uint32_t previousPower2(uint32_t x)
 {
@@ -314,6 +316,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     tonemapUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     exposureBuffer(1.0f)
 {
+  ZoneScoped;
   int x = 0;
   int y = 0;
   const auto noise = stbi_load("textures/bluenoise32.png", &x, &y, nullptr, 4);
@@ -341,7 +344,6 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   if (!filename)
   {
     Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "models/light_test.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
@@ -420,6 +422,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
 void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
 {
+  ZoneScoped;
   frame = {};
 
 #ifdef FROGRENDER_FSR2_ENABLE
@@ -506,6 +509,7 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
 
 void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
 {
+  ZoneScoped;
   if (fakeLag > 0)
   {
     std::this_thread::sleep_for(std::chrono::milliseconds(fakeLag));
@@ -601,6 +605,7 @@ static glm::vec2 GetJitterOffset(
 
 void FrogRenderer::OnRender([[maybe_unused]] double dt)
 {
+  ZoneScoped;
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormal, frame.gNormalPrev);
 

@@ -50,12 +50,15 @@
 
 #include "FrogRenderer.h"
 
+#include <tracy/Tracy.hpp>
+
 #include <cstring>
 #include <charconv>
 #include <stdexcept>
 
 int main(int argc, const char* const* argv)
 {
+  ZoneScoped;
   std::optional<std::string_view> filename;
   float scale = 1.0f;
   bool binary = false;

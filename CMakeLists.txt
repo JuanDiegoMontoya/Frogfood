@@ -95,6 +95,7 @@ target_link_libraries(frogRender
 	ktx
 	fastgltf
 	meshoptimizer
+	Tracy::TracyClient
 )
 add_dependencies(frogRender copy_shaders copy_models copy_textures)
 

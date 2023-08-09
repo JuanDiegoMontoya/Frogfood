@@ -1,6 +1,8 @@
 #include "SceneLoader.h"
 #include "Application.h"
 
+#include <tracy/Tracy.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <execution>
@@ -166,6 +168,7 @@ namespace Utility
 
     std::vector<Fwog::Texture> LoadImages(const fastgltf::Asset& asset, std::span<const ImageUsage> imageUsages)
     {
+      ZoneScoped;
       struct RawImageData
       {
         // Used for ktx and non-ktx images alike
@@ -213,6 +216,7 @@ namespace Utility
         rawImageData.begin(),
         [&](size_t index)
         {
+          ZoneScopedN("Load Image");
           const fastgltf::Image& image = asset.images[index];
         
           auto rawImage = [&]
@@ -247,6 +251,7 @@ namespace Utility
         
           if (rawImage.isKtx)
           {
+            ZoneScopedN("Decode KTX 2");
             ktxTexture2* ktx{};
             if (auto result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t*>(rawImage.encodedPixelData.get()),
                                                            rawImage.encodedPixelSize,
@@ -264,6 +269,7 @@ namespace Utility
           }
           else
           {
+            ZoneScopedN("Decode JPEG/PNG");
             int x, y, comp;
             auto* pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(rawImage.encodedPixelData.get()),
                                                  static_cast<int>(rawImage.encodedPixelSize),
@@ -298,6 +304,7 @@ namespace Utility
         // Upload KTX2 compressed image
         if (image.isKtx)
         {
+          ZoneScopedN("Upload BCn Image");
           auto* ktx = image.ktx.get();
 
           Fwog::Format format{};
@@ -332,6 +339,7 @@ namespace Utility
           // If the image needs is in a supercompressed encoding, transcode it to a desired format
           if (ktxTexture2_NeedsTranscoding(ktx))
           {
+            ZoneScopedN("Transcode KTX 2 Texture");
             if (auto result = ktxTexture2_TranscodeBasis(ktx, ktxTranscodeFormat, KTX_TF_HIGH_QUALITY); result != KTX_SUCCESS)
             {
               FWOG_UNREACHABLE;
@@ -364,6 +372,7 @@ namespace Utility
         }
         else // Upload raw image data and generate mipmap
         {
+          ZoneScopedN("Upload 8-BPP Image");
           FWOG_ASSERT(image.components == 4);
           FWOG_ASSERT(image.pixel_type == GL_UNSIGNED_BYTE);
           FWOG_ASSERT(image.bits == 8);
@@ -417,6 +426,7 @@ namespace Utility
 
   std::vector<Vertex> ConvertVertexBufferFormat(const fastgltf::Asset& model, const fastgltf::Primitive& primitive)
   {
+    ZoneScoped;
     std::vector<glm::vec3> positions;
     auto& positionAccessor = model.accessors[primitive.findAttribute("POSITION")->second];
     positions.resize(positionAccessor.count);
@@ -457,6 +467,7 @@ namespace Utility
 
   std::vector<index_t> ConvertIndexBufferFormat(const fastgltf::Asset& model, const fastgltf::Primitive& primitive)
   {
+    ZoneScoped;
     auto indices = std::vector<index_t>();
     auto& accessor = model.accessors[primitive.indicesAccessor.value()];
     indices.resize(accessor.count);
@@ -466,6 +477,7 @@ namespace Utility
 
   std::vector<Material> LoadMaterials(const fastgltf::Asset& model, std::span<Fwog::Texture> images)
   {
+    ZoneScoped;
     auto LoadSampler = [](const fastgltf::Sampler& sampler)
     {
       Fwog::SamplerState samplerState{};
@@ -578,37 +590,6 @@ namespace Utility
     return materials;
   }
 
-  std::vector<GpuLight> LoadLights(const fastgltf::Asset& model)
-  {
-    std::vector<GpuLight> lights;
-    lights.reserve(model.lights.size());
-
-    for (const auto& light : model.lights)
-    {
-      GpuLight gpuLight{};
-
-      gpuLight.color = glm::make_vec3(light.color.data());
-      gpuLight.intensity = light.intensity;
-
-      if (light.type == fastgltf::LightType::Directional)
-      {
-        gpuLight.type = LightType::DIRECTIONAL;
-      }
-      else if (light.type == fastgltf::LightType::Spot)
-      {
-        gpuLight.type = LightType::SPOT;
-      }
-      else
-      {
-        gpuLight.type = LightType::POINT;
-      }
-
-      lights.push_back(gpuLight);
-    }
-
-    return lights;
-  }
-
   struct CpuMesh
   {
     std::vector<Vertex> vertices;
@@ -627,6 +608,7 @@ namespace Utility
 
   std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool binary, uint32_t baseMaterialIndex)
   {
+    ZoneScoped;
     using fastgltf::Extensions;
     constexpr auto gltfExtensions = Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization | Extensions::EXT_meshopt_compression |
                                     Extensions::KHR_lights_punctual | Extensions::KHR_materials_emissive_strength;
@@ -889,6 +871,7 @@ namespace Utility
 
   bool LoadModelFromFileMeshlet(SceneMeshlet& scene, std::string_view fileName, glm::mat4 rootTransform, bool binary)
   {
+    ZoneScoped;
     // If the scene has no materials, give it a default material
     if (scene.materials.empty())
     {
@@ -919,22 +902,27 @@ namespace Utility
     constexpr auto coneWeight = 0.0f;
     for (const auto& mesh : loadedScene->meshes)
     {
+      ZoneScopedN("Create meshlets for mesh");
       const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxIndices, maxPrimitives);
       std::vector<meshopt_Meshlet> rawMeshlets(maxMeshlets);
       std::vector<uint32_t> meshletIndices(maxMeshlets * maxIndices);
       std::vector<uint8_t> meshletPrimitives(maxMeshlets * maxPrimitives * 3);
-
-      const auto meshletCount = meshopt_buildMeshlets(rawMeshlets.data(),
-                                                      meshletIndices.data(),
-                                                      meshletPrimitives.data(),
-                                                      mesh.indices.data(),
-                                                      mesh.indices.size(),
-                                                      reinterpret_cast<const float*>(mesh.vertices.data()),
-                                                      mesh.vertices.size(),
-                                                      sizeof(Vertex),
-                                                      maxIndices,
-                                                      maxPrimitives,
-                                                      coneWeight);
+      
+      const auto meshletCount = [&]
+      {
+        ZoneScopedN("meshopt_buildMeshlets");
+        return meshopt_buildMeshlets(rawMeshlets.data(),
+                              meshletIndices.data(),
+                              meshletPrimitives.data(),
+                              mesh.indices.data(),
+                              mesh.indices.size(),
+                              reinterpret_cast<const float*>(mesh.vertices.data()),
+                              mesh.vertices.size(),
+                              sizeof(Vertex),
+                              maxIndices,
+                              maxPrimitives,
+                              coneWeight);
+      }();
 
       auto& lastMeshlet = rawMeshlets[meshletCount - 1];
       meshletIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);

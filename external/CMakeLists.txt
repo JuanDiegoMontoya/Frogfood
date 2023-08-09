@@ -32,7 +32,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     fwog
     GIT_REPOSITORY https://github.com/JuanDiegoMontoya/Fwog.git
-    GIT_TAG        05603194683377fea87be0589b23c7c43ab401e9
+    GIT_TAG        101d5c8fbd3e6f48439abdc4be6441c5e068d4ca
 )
 
 FetchContent_Declare(
@@ -70,7 +70,18 @@ if(FROGRENDER_FSR2_ENABLE)
     FetchContent_MakeAvailable(fsr2)
 endif()
 
-FetchContent_MakeAvailable(glm fwog fastgltf ktx meshoptimizer)
+FetchContent_Declare(
+    tracy
+    GIT_REPOSITORY  https://github.com/wolfpld/tracy.git
+    GIT_TAG         v0.9.1
+)
+
+option(TRACY_ENABLE "Enable profiling" ON)
+option(TRACY_ONLY_IPV4 "IPv4 only" ON)
+option(TRACY_ENABLE "Enable profiling" ON)
+option(TRACY_ONLY_IPV4 "IPv4 only" ON)
+
+FetchContent_MakeAvailable(glm fwog fastgltf ktx meshoptimizer tracy)
 
 # Disable warnings for libktx
 target_compile_options(ktx

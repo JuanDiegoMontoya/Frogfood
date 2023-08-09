@@ -12,6 +12,9 @@
 
 #include <glm/gtc/constants.hpp>
 
+#include <tracy/Tracy.hpp>
+#include <tracy/TracyOpenGL.hpp>
+
 #include <exception>
 #include <iostream>
 #include <sstream>
@@ -152,6 +155,7 @@ std::pair<std::unique_ptr<std::byte[]>, std::size_t> Application::LoadBinaryFile
 
 Application::Application(const CreateInfo& createInfo)
 {
+  ZoneScoped;
   // Initialiize GLFW
   if (!glfwInit())
   {
@@ -208,9 +212,38 @@ Application::Application(const CreateInfo& createInfo)
   glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
   glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
 
-  //auto fwogCallback = [](const char* msg) { printf("Fwog: %s\n", msg); };
+  // Initialize Tracy
+  TracyGpuContext
+
+  //auto fwogCallback = [](std::string_view msg) { printf("Fwog: %.*s\n", static_cast<int>(msg.size()), msg.data()); };
   auto fwogCallback = nullptr;
-  Fwog::Initialize({.verboseMessageCallback = fwogCallback});
+  auto fwogRenderToSwapchainHook = [](const Fwog::SwapchainRenderInfo& renderInfo, const std::function<void()>& func)
+  {
+    ZoneTransientN(scope, renderInfo.name.data(), true);
+    ZoneColorV(scope, 0xFF1000);
+    TracyGpuZoneTransient(scopeGpu, renderInfo.name.data(), true)
+    func();
+  };
+  auto fwogRenderHook = [](const Fwog::RenderInfo& renderInfo, const std::function<void()>& func)
+  {
+    ZoneTransientN(scope, renderInfo.name.data(), true);
+    ZoneColorV(scope, 0xFF7000);
+    TracyGpuZoneTransient(scopeGpu, renderInfo.name.data(), true)
+    func();
+  };
+  auto fwogComputeHook = [](std::string_view name, const std::function<void()>& func)
+  {
+    ZoneTransientN(scope, name.data(), true);
+    ZoneColorV(scope, 0x2070FF);
+    TracyGpuZoneTransient(scopeGpu, name.data(), true)
+    func();
+  };
+  Fwog::Initialize({
+    .verboseMessageCallback = fwogCallback,
+    .renderToSwapchainHook = fwogRenderToSwapchainHook,
+    .renderHook = fwogRenderHook,
+    .computeHook = fwogComputeHook,
+  });
 
   if (!Fwog::GetDeviceProperties().features.bindlessTextures)
   {
@@ -233,6 +266,7 @@ Application::Application(const CreateInfo& createInfo)
 
 Application::~Application()
 {
+  ZoneScoped;
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
   ImGui::DestroyContext();
@@ -243,6 +277,7 @@ Application::~Application()
 
 void Application::Draw(double dt)
 {
+  ZoneScoped;
   glEnable(GL_FRAMEBUFFER_SRGB);
 
   // Start a new ImGui frame
@@ -259,6 +294,7 @@ void Application::Draw(double dt)
   // Updates ImGui.
   // A frame marker is inserted to distinguish ImGui rendering from the application's in a debugger.
   {
+    ZoneScopedN("Draw UI");
     ImGui::Render();
     auto* drawData = ImGui::GetDrawData();
     if (drawData->CmdListsCount > 0)
@@ -270,17 +306,24 @@ void Application::Draw(double dt)
     }
   }
 
-  glfwSwapBuffers(window);
+  {
+    ZoneScopedN("SwapBuffers");
+    glfwSwapBuffers(window);
+  }
+  TracyGpuCollect
+  FrameMark;
 }
 
 void Application::Run()
 {
+  ZoneScoped;
   glfwSetInputMode(window, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
 
   // The main loop.
   double prevFrame = glfwGetTime();
   while (!glfwWindowShouldClose(window))
   {
+    ZoneScopedN("Frame");
     double curFrame = glfwGetTime();
     double dt = curFrame - prevFrame;
     prevFrame = curFrame;

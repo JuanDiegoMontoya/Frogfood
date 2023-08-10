@@ -11,6 +11,7 @@
 #include <vector>
 #include <string_view>
 #include <optional>
+#include <filesystem>
 
 namespace Utility
 {
@@ -166,7 +167,7 @@ namespace Utility
     bool binary = false);
 
   bool LoadModelFromFileMeshlet(SceneMeshlet& scene,
-    std::string_view fileName,
+    const std::filesystem::path& fileName,
     glm::mat4 rootTransform,
     bool binary);
 }

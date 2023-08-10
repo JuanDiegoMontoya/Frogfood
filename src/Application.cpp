@@ -21,6 +21,61 @@
 #include <fstream>
 #include <filesystem>
 
+#ifdef TRACY_ENABLE
+#include <cstdlib>
+void* operator new(std::size_t count)
+{
+  auto ptr = std::malloc(count);
+  TracyAlloc(ptr, count);
+  return ptr;
+}
+
+void operator delete(void* ptr) noexcept
+{
+  TracyFree(ptr);
+  std::free(ptr);
+}
+
+void* operator new[](std::size_t count)
+{
+  auto ptr = std::malloc(count);
+  TracyAlloc(ptr, count);
+  return ptr;
+}
+
+void operator delete[](void* ptr) noexcept
+{
+  TracyFree(ptr);
+  std::free(ptr);
+}
+
+void* operator new(std::size_t count, const std::nothrow_t&) noexcept
+{
+  auto ptr = std::malloc(count);
+  TracyAlloc(ptr, count);
+  return ptr;
+}
+
+void operator delete(void* ptr, const std::nothrow_t&) noexcept
+{
+  TracyFree(ptr);
+  std::free(ptr);
+}
+
+void* operator new[](std::size_t count, const std::nothrow_t&) noexcept
+{
+  auto ptr = std::malloc(count);
+  TracyAlloc(ptr, count);
+  return ptr;
+}
+
+void operator delete[](void* ptr, const std::nothrow_t&) noexcept
+{
+  TracyFree(ptr);
+  std::free(ptr);
+}
+#endif
+
 // Use the high-performance GPU (if available) on Windows laptops
 // https://docs.nvidia.com/gameworks/content/technologies/desktop/optimus.htm
 // https://gpuopen.com/learn/amdpowerxpressrequesthighperformance/

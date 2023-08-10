@@ -176,6 +176,7 @@ namespace Utility
         std::size_t encodedPixelSize = 0;
 
         bool isKtx = false;
+        Fwog::Format formatIfKtx;
         int width = 0;
         int height = 0;
         int pixel_type = GL_UNSIGNED_BYTE;
@@ -218,7 +219,8 @@ namespace Utility
         {
           ZoneScopedN("Load Image");
           const fastgltf::Image& image = asset.images[index];
-        
+          ZoneName(image.name.c_str(), image.name.size());
+
           auto rawImage = [&]
           {
             if (const auto* filePath = std::get_if<fastgltf::sources::URI>(&image.data))
@@ -261,6 +263,49 @@ namespace Utility
             {
               FWOG_UNREACHABLE;
             }
+            
+            ktx_transcode_fmt_e ktxTranscodeFormat{};
+            
+            switch (imageUsages[index])
+            {
+            case ImageUsage::BASE_COLOR:
+              rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
+              ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+              break;
+            // Occlusion and metallicRoughness _may_ be encoded within the same image, so we have to use at least an RGB format here.
+            // In the event where these textures are guaranteed to be separate, we can use BC4 and BC5 for better quality.
+            case ImageUsage::OCCLUSION: [[fallthrough]];
+            case ImageUsage::METALLIC_ROUGHNESS:
+              rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
+              ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+              break;
+            // The glTF spec states that normal textures must be encoded with three channels, even though the third could be trivially reconstructed.
+            // libktx is incapable of decoding XYZ normal maps to BC5 as their alpha channel is mapped to BC5's G channel, so we are stuck with this.
+            case ImageUsage::NORMAL:
+              rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
+              ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+              break;
+            // TODO: evaluate whether BC7 is necessary here.
+            case ImageUsage::EMISSION:
+              rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
+              ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+              break;
+            }
+
+            // If the image needs is in a supercompressed encoding, transcode it to a desired format
+            if (ktxTexture2_NeedsTranscoding(ktx))
+            {
+              ZoneScopedN("Transcode KTX 2 Texture");
+              if (auto result = ktxTexture2_TranscodeBasis(ktx, ktxTranscodeFormat, KTX_TF_HIGH_QUALITY); result != KTX_SUCCESS)
+              {
+                FWOG_UNREACHABLE;
+              }
+            }
+            else
+            {
+              // Use the format that the image is already in
+              rawImage.formatIfKtx = VkBcFormatToFwog(ktx->vkFormat);
+            }
         
             rawImage.width = ktx->baseWidth;
             rawImage.height = ktx->baseHeight;
@@ -294,11 +339,8 @@ namespace Utility
       auto loadedImages = std::vector<Fwog::Texture>();
       loadedImages.reserve(rawImageData.size());
 
-      for (size_t i = 0; i < rawImageData.size(); i++)
+      for (const auto& image : rawImageData)
       {
-        const auto& image = rawImageData[i];
-        const auto imageUsage = imageUsages[i];
-
         Fwog::Extent2D dims = {static_cast<uint32_t>(image.width), static_cast<uint32_t>(image.height)};
 
         // Upload KTX2 compressed image
@@ -307,51 +349,7 @@ namespace Utility
           ZoneScopedN("Upload BCn Image");
           auto* ktx = image.ktx.get();
 
-          Fwog::Format format{};
-          ktx_transcode_fmt_e ktxTranscodeFormat{};
-
-          switch (imageUsage)
-          {
-          case ImageUsage::BASE_COLOR:
-            format = Fwog::Format::BC7_RGBA_UNORM;
-            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
-            break;
-          // Occlusion and metallicRoughness _may_ be encoded within the same image, so we have to use at least an RGB format here.
-          // In the event where these textures are guaranteed to be separate, we can use BC4 and BC5 for better quality.
-          case ImageUsage::OCCLUSION: [[fallthrough]];
-          case ImageUsage::METALLIC_ROUGHNESS:
-            format = Fwog::Format::BC7_RGBA_UNORM;
-            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
-            break;
-          // The glTF spec states that normal textures must be encoded with three channels, even though the third could be trivially reconstructed.
-          // libktx is incapable of decoding XYZ normal maps to BC5 as their alpha channel is mapped to BC5's G channel, so we are stuck with this.
-          case ImageUsage::NORMAL:
-            format = Fwog::Format::BC7_RGBA_UNORM;
-            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
-            break;
-          // TODO: evaluate whether BC7 is necessary here.
-          case ImageUsage::EMISSION:
-            format = Fwog::Format::BC7_RGBA_UNORM;
-            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
-            break;
-          }
-
-          // If the image needs is in a supercompressed encoding, transcode it to a desired format
-          if (ktxTexture2_NeedsTranscoding(ktx))
-          {
-            ZoneScopedN("Transcode KTX 2 Texture");
-            if (auto result = ktxTexture2_TranscodeBasis(ktx, ktxTranscodeFormat, KTX_TF_HIGH_QUALITY); result != KTX_SUCCESS)
-            {
-              FWOG_UNREACHABLE;
-            }
-          }
-          else
-          {
-            // Use the format that the image is already in
-            format = VkBcFormatToFwog(ktx->vkFormat);
-          }
-
-          auto textureData = Fwog::CreateTexture2DMip(dims, format, ktx->numLevels, image.name);
+          auto textureData = Fwog::CreateTexture2DMip(dims, image.formatIfKtx, ktx->numLevels, image.name);
 
           for (uint32_t level = 0; level < ktx->numLevels; level++)
           {
@@ -869,9 +867,10 @@ namespace Utility
     return true;
   }
 
-  bool LoadModelFromFileMeshlet(SceneMeshlet& scene, std::string_view fileName, glm::mat4 rootTransform, bool binary)
+  bool LoadModelFromFileMeshlet(SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool binary)
   {
     ZoneScoped;
+    ZoneText(fileName.string().c_str(), fileName.string().size());
     // If the scene has no materials, give it a default material
     if (scene.materials.empty())
     {

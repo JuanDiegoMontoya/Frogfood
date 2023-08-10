@@ -12,6 +12,7 @@
 #include <ranges>
 #include <span>
 #include <stack>
+#include <utility>
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -899,42 +900,77 @@ namespace Utility
     constexpr auto maxIndices = 64u;
     constexpr auto maxPrimitives = 64u;
     constexpr auto coneWeight = 0.0f;
-    for (const auto& mesh : loadedScene->meshes)
+
+    struct MeshletInfo
     {
-      ZoneScopedN("Create meshlets for mesh");
-      const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxIndices, maxPrimitives);
-      std::vector<meshopt_Meshlet> rawMeshlets(maxMeshlets);
-      std::vector<uint32_t> meshletIndices(maxMeshlets * maxIndices);
-      std::vector<uint8_t> meshletPrimitives(maxMeshlets * maxPrimitives * 3);
-      
-      const auto meshletCount = [&]
+      const CpuMesh* cpuMesh;
+      std::vector<Vertex> vertices;
+      std::vector<uint32_t> meshletIndices;
+      std::vector<uint8_t> meshletPrimitives;
+      std::vector<meshopt_Meshlet> rawMeshlets;
+      glm::mat4 transform;
+    };
+
+    std::vector<MeshletInfo> meshletInfos(loadedScene->meshes.size());
+
+    const auto indices = std::ranges::iota_view((size_t)0, loadedScene->meshes.size());
+
+    std::transform(
+      std::execution::par,
+      indices.begin(),
+      indices.end(),
+      meshletInfos.begin(),
+      [&meshes = std::as_const(loadedScene->meshes)] (size_t meshIndex) -> MeshletInfo
       {
-        ZoneScopedN("meshopt_buildMeshlets");
-        return meshopt_buildMeshlets(rawMeshlets.data(),
-                              meshletIndices.data(),
-                              meshletPrimitives.data(),
-                              mesh.indices.data(),
-                              mesh.indices.size(),
-                              reinterpret_cast<const float*>(mesh.vertices.data()),
-                              mesh.vertices.size(),
-                              sizeof(Vertex),
-                              maxIndices,
-                              maxPrimitives,
-                              coneWeight);
-      }();
+        ZoneScopedN("Create meshlets for mesh");
 
-      auto& lastMeshlet = rawMeshlets[meshletCount - 1];
-      meshletIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
-      meshletPrimitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
-      rawMeshlets.resize(meshletCount);
+        const auto& mesh = meshes[meshIndex];
 
+        const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxIndices, maxPrimitives);
+
+        MeshletInfo meshletInfo;
+        auto& [cpuMesh, vertices, meshletIndices, meshletPrimitives, rawMeshlets, transform] = meshletInfo;
+
+        cpuMesh = &mesh;
+        vertices = /*std::move*/ (mesh.vertices);
+        meshletIndices.resize(maxMeshlets * maxIndices);
+        meshletPrimitives.resize(maxMeshlets * maxPrimitives * 3);
+        rawMeshlets.resize(maxMeshlets);
+        transform = mesh.transform;
+        
+        const auto meshletCount = [&]
+        {
+          ZoneScopedN("meshopt_buildMeshlets");
+          return meshopt_buildMeshlets(rawMeshlets.data(),
+                                meshletIndices.data(),
+                                meshletPrimitives.data(),
+                                mesh.indices.data(),
+                                mesh.indices.size(),
+                                reinterpret_cast<const float*>(mesh.vertices.data()),
+                                mesh.vertices.size(),
+                                sizeof(Vertex),
+                                maxIndices,
+                                maxPrimitives,
+                                coneWeight);
+        }();
+
+        auto& lastMeshlet = rawMeshlets[meshletCount - 1];
+        meshletIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
+        meshletPrimitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
+        rawMeshlets.resize(meshletCount);
+
+        return meshletInfo;
+      });
+
+    for (const auto& [cpuMesh, vertices, meshletIndices, meshletPrimitives, rawMeshlets, transform] : meshletInfos)
+    {
       for (const auto& meshlet : rawMeshlets)
       {
         auto min = glm::vec3(std::numeric_limits<float>::max());
         auto max = glm::vec3(std::numeric_limits<float>::lowest());
         for (uint32_t i = 0; i < meshlet.triangle_count * 3; ++i)
         {
-          const auto& vertex = mesh.vertices[meshletIndices[meshlet.vertex_offset + meshletPrimitives[meshlet.triangle_offset + i]]];
+          const auto& vertex = cpuMesh->vertices[meshletIndices[meshlet.vertex_offset + meshletPrimitives[meshlet.triangle_offset + i]]];
           min = glm::min(min, vertex.position);
           max = glm::max(max, vertex.position);
         }
@@ -945,21 +981,23 @@ namespace Utility
           .primitiveOffset = primitiveOffset + meshlet.triangle_offset,
           .indexCount = meshlet.vertex_count,
           .primitiveCount = meshlet.triangle_count,
-          .materialId = mesh.materialIdx,
+          .materialId = cpuMesh->materialIdx,
           .instanceId = baseInstanceId + static_cast<uint32_t>(transforms.size()),
-          .aabbMin = { min.x, min.y, min.z },
-          .aabbMax = { max.x, max.y, max.z },
+          .aabbMin = {min.x, min.y, min.z},
+          .aabbMax = {max.x, max.y, max.z},
         });
       }
-      transforms.emplace_back(mesh.transform);
-      vertexOffset += (uint32_t)mesh.vertices.size();
+
+      transforms.emplace_back(transform);
+      vertexOffset += (uint32_t)vertices.size();
       indexOffset += (uint32_t)meshletIndices.size();
       primitiveOffset += (uint32_t)meshletPrimitives.size();
-      
-      scene.vertices.insert(scene.vertices.end(), mesh.vertices.begin(), mesh.vertices.end());
-      scene.indices.insert(scene.indices.end(), meshletIndices.begin(), meshletIndices.end());
-      scene.primitives.insert(scene.primitives.end(), meshletPrimitives.begin(), meshletPrimitives.end());
+
+      std::ranges::copy(vertices, std::back_inserter(scene.vertices));
+      std::ranges::copy(meshletIndices, std::back_inserter(scene.indices));
+      std::ranges::copy(meshletPrimitives, std::back_inserter(scene.primitives));
     }
+
     scene.transforms.insert(scene.transforms.end(), transforms.begin(), transforms.end());
 
     std::ranges::move(loadedScene->materials, std::back_inserter(scene.materials));

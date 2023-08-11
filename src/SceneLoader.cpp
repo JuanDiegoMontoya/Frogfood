@@ -48,33 +48,6 @@ namespace Utility
       EMISSION,
     };
 
-    class Timer
-    {
-      using microsecond_t = std::chrono::microseconds;
-      using myclock_t = std::chrono::high_resolution_clock;
-      using timepoint_t = std::chrono::time_point<myclock_t>;
-
-    public:
-      Timer()
-      {
-        timepoint_ = myclock_t::now();
-      }
-
-      void Reset()
-      {
-        timepoint_ = myclock_t::now();
-      }
-
-      double Elapsed_us() const
-      {
-        timepoint_t beg_ = timepoint_;
-        return static_cast<double>(std::chrono::duration_cast<microsecond_t>(myclock_t::now() - beg_).count());
-      }
-
-    private:
-      timepoint_t timepoint_;
-    };
-
     // Converts a Vulkan BCn VkFormat name to Fwog
     Fwog::Format VkBcFormatToFwog(uint32_t vkFormat)
     {
@@ -403,7 +376,7 @@ namespace Utility
 
       if (auto* trs = std::get_if<fastgltf::Node::TRS>(&node.transform))
       {
-        // Do not use glm::make_quat because glm and glTF use different quaternion component layouts
+        // Note: do not use glm::make_quat because glm and glTF use different quaternion component layouts (wxyz vs xyzw)!
         auto rotation = glm::quat{trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
         const auto scale = glm::make_vec3(trs->scale.data());
         const auto translation = glm::make_vec3(trs->translation.data());
@@ -423,25 +396,28 @@ namespace Utility
     }
   } // namespace
 
-  std::vector<Vertex> ConvertVertexBufferFormat(const fastgltf::Asset& model, const fastgltf::Primitive& primitive)
+  std::vector<Vertex> ConvertVertexBufferFormat(const fastgltf::Asset& model,
+                                                std::size_t positionAccessorIndex,
+                                                std::size_t normalAccessorIndex,
+                                                std::optional<std::size_t> texcoordAccessorIndex)
   {
     ZoneScoped;
     std::vector<glm::vec3> positions;
-    auto& positionAccessor = model.accessors[primitive.findAttribute("POSITION")->second];
+    auto& positionAccessor = model.accessors[positionAccessorIndex];
     positions.resize(positionAccessor.count);
     fastgltf::iterateAccessorWithIndex<glm::vec3>(model, positionAccessor, [&](glm::vec3 position, std::size_t idx) { positions[idx] = position; });
 
     std::vector<glm::vec3> normals;
-    auto& normalAccessor = model.accessors[primitive.findAttribute("NORMAL")->second];
+    auto& normalAccessor = model.accessors[normalAccessorIndex];
     normals.resize(normalAccessor.count);
     fastgltf::iterateAccessorWithIndex<glm::vec3>(model, normalAccessor, [&](glm::vec3 normal, std::size_t idx) { normals[idx] = normal; });
 
     std::vector<glm::vec2> texcoords;
 
     // Textureless meshes will use factors instead of textures
-    if (primitive.findAttribute("TEXCOORD_0") != primitive.attributes.end())
+    if (texcoordAccessorIndex.has_value())
     {
-      auto& texcoordAccessor = model.accessors[primitive.findAttribute("TEXCOORD_0")->second];
+      auto& texcoordAccessor = model.accessors[texcoordAccessorIndex.value()];
       texcoords.resize(texcoordAccessor.count);
       fastgltf::iterateAccessorWithIndex<glm::vec2>(model, texcoordAccessor, [&](glm::vec2 texcoord, std::size_t idx) { texcoords[idx] = texcoord; });
     }
@@ -464,11 +440,11 @@ namespace Utility
     return vertices;
   }
 
-  std::vector<index_t> ConvertIndexBufferFormat(const fastgltf::Asset& model, const fastgltf::Primitive& primitive)
+  std::vector<index_t> ConvertIndexBufferFormat(const fastgltf::Asset& model, std::size_t indicesAccessorIndex)
   {
     ZoneScoped;
     auto indices = std::vector<index_t>();
-    auto& accessor = model.accessors[primitive.indicesAccessor.value()];
+    auto& accessor = model.accessors[indicesAccessorIndex];
     indices.resize(accessor.count);
     fastgltf::iterateAccessorWithIndex<index_t>(model, accessor, [&](index_t index, size_t idx) { indices[idx] = index; });
     return indices;
@@ -589,18 +565,25 @@ namespace Utility
     return materials;
   }
 
-  struct CpuMesh
+  struct RawMesh
   {
     std::vector<Vertex> vertices;
     std::vector<index_t> indices;
+    Box3D boundingBox;
+  };
+
+  struct MeshInstance
+  {
+    size_t rawMeshIndex;
     uint32_t materialIdx;
     glm::mat4 transform;
-    Box3D boundingBox;
   };
 
   struct LoadModelResult
   {
-    std::vector<CpuMesh> meshes;
+    std::vector<RawMesh> rawMeshes;
+    std::vector<MeshInstance> meshInstances;
+
     std::vector<Material> materials;
     std::vector<GpuLight> lights;
   };
@@ -608,18 +591,18 @@ namespace Utility
   std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool binary, uint32_t baseMaterialIndex)
   {
     ZoneScoped;
-    using fastgltf::Extensions;
-    constexpr auto gltfExtensions = Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization | Extensions::EXT_meshopt_compression |
-                                    Extensions::KHR_lights_punctual | Extensions::KHR_materials_emissive_strength;
-    auto parser = fastgltf::Parser(gltfExtensions);
-
-    auto data = fastgltf::GltfDataBuffer();
-    data.loadFromFile(path);
-
-    Timer timer;
 
     auto maybeAsset = [&]() -> fastgltf::Expected<fastgltf::Asset>
     {
+      ZoneScopedN("Parse glTF");
+      using fastgltf::Extensions;
+      constexpr auto gltfExtensions = Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization | Extensions::EXT_meshopt_compression |
+                                      Extensions::KHR_lights_punctual | Extensions::KHR_materials_emissive_strength;
+      auto parser = fastgltf::Parser(gltfExtensions);
+
+      auto data = fastgltf::GltfDataBuffer();
+      data.loadFromFile(path);
+
       constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages | fastgltf::Options::LoadGLBBuffers;
       if (binary)
       {
@@ -642,6 +625,7 @@ namespace Utility
 
     auto imageFormats = std::vector<ImageUsage>(asset.images.size(), ImageUsage::BASE_COLOR);
 
+    // Determine how each image is used so we can transcode to the proper format.
     // Assumption: each image has exactly one usage, or is used for both metallic-roughness AND occlusion (which is handled in LoadImages()).
     for (const auto& material : asset.materials)
     {
@@ -670,13 +654,22 @@ namespace Utility
     // Load images and boofers
     auto images = LoadImages(asset, imageFormats);
 
-    auto ms = timer.Elapsed_us() / 1000;
-    std::cout << "Loading took " << ms << " ms\n";
-
     LoadModelResult scene;
 
     auto materials = LoadMaterials(asset, images);
     std::ranges::move(materials, std::back_inserter(scene.materials));
+
+    struct AccessorIndices
+    {
+      std::optional<std::size_t> positionsIndex;
+      std::optional<std::size_t> normalsIndex;
+      std::optional<std::size_t> texcoordsIndex;
+      std::optional<std::size_t> indicesIndex;
+
+      auto operator<=>(const AccessorIndices&) const = default;
+    };
+
+    auto uniqueAccessorCombinations = std::vector<std::pair<AccessorIndices, std::size_t>>();
 
     // <node*, global transform>
     std::stack<std::pair<const fastgltf::Node*, glm::mat4>> nodeStack;
@@ -707,45 +700,60 @@ namespace Utility
         // TODO: get a reference to the mesh instead of loading it from scratch
         for (const fastgltf::Mesh& mesh = asset.meshes[node->meshIndex.value()]; const auto& primitive : mesh.primitives)
         {
-          auto vertices = ConvertVertexBufferFormat(asset, primitive);
-          auto indices = ConvertIndexBufferFormat(asset, primitive);
-
-          auto& positionAccessor = asset.accessors[primitive.findAttribute("POSITION")->second];
-
-          glm::vec3 bboxMin{};
-          if (auto* dv = std::get_if<std::pmr::vector<double>>(&positionAccessor.min))
+          AccessorIndices accessorIndices;
+          if (auto it = primitive.findAttribute("POSITION"); it != primitive.attributes.end())
           {
-            bboxMin = {(*dv)[0], (*dv)[1], (*dv)[2]};
+            accessorIndices.positionsIndex = it->second;
           }
-          if (auto* iv = std::get_if<std::pmr::vector<int64_t>>(&positionAccessor.min))
+          else
           {
-            bboxMin = {(*iv)[0], (*iv)[1], (*iv)[2]};
+            FWOG_UNREACHABLE;
           }
 
-          glm::vec3 bboxMax{};
-          if (auto* dv = std::get_if<std::pmr::vector<double>>(&positionAccessor.max))
+          if (auto it = primitive.findAttribute("NORMAL"); it != primitive.attributes.end())
           {
-            bboxMax = {(*dv)[0], (*dv)[1], (*dv)[2]};
+            accessorIndices.normalsIndex = it->second;
           }
-          if (auto* iv = std::get_if<std::pmr::vector<int64_t>>(&positionAccessor.max))
+          else
           {
-            bboxMax = {(*iv)[0], (*iv)[1], (*iv)[2]};
+            // TODO: calculate normal
+            FWOG_UNREACHABLE;
           }
 
-          Box3D bbox;
-          bbox.min = bboxMin;
-          bbox.max = bboxMax;
+          if (auto it = primitive.findAttribute("TEXCOORD_0"); it != primitive.attributes.end())
+          {
+            accessorIndices.texcoordsIndex = it->second;
+          }
+          else
+          {
+            // Okay, texcoord can be safely missing
+          }
 
-          scene.meshes.emplace_back(CpuMesh{
-            .vertices = std::move(vertices),
-            .indices = std::move(indices),
+          FWOG_ASSERT(primitive.indicesAccessor.has_value() && "Non-indexed meshes are not supported");
+          accessorIndices.indicesIndex = primitive.indicesAccessor;
+
+          size_t rawMeshIndex = uniqueAccessorCombinations.size();
+
+          // Only emplace and increment counter if combo does not exist
+          if (auto it = std::ranges::find_if(uniqueAccessorCombinations, [&](const auto& p) { return p.first == accessorIndices; }); it == uniqueAccessorCombinations.end())
+          {
+            uniqueAccessorCombinations.emplace_back(accessorIndices, rawMeshIndex);
+          }
+          else
+          {
+            // Combo already exists
+            rawMeshIndex = it->second;
+          }
+
+          scene.meshInstances.emplace_back(MeshInstance{
+            .rawMeshIndex = rawMeshIndex,
             .materialIdx = primitive.materialIndex.has_value() ? baseMaterialIndex + uint32_t(primitive.materialIndex.value()) : 0,
             .transform = globalTransform,
-            .boundingBox = bbox,
           });
         }
       }
 
+      // Deduplicating lights is not a concern (they are small and quick to decode), so we load them here for convenience.
       if (node->lightIndex.has_value())
       {
         const auto& light = asset.lights[*node->lightIndex];
@@ -789,83 +797,51 @@ namespace Utility
       }
     }
 
+    scene.rawMeshes.resize(uniqueAccessorCombinations.size());
+
+    std::transform(
+      std::execution::par,
+      uniqueAccessorCombinations.begin(),
+      uniqueAccessorCombinations.end(),
+      scene.rawMeshes.begin(),
+      [&](const auto& keyValue) -> RawMesh
+      {
+        const auto& [accessorIndices, _] = keyValue;
+        auto vertices = ConvertVertexBufferFormat(asset, accessorIndices.positionsIndex.value(), accessorIndices.normalsIndex.value(), accessorIndices.texcoordsIndex);
+        auto indices = ConvertIndexBufferFormat(asset, accessorIndices.indicesIndex.value());
+
+        const auto& positionAccessor = asset.accessors[accessorIndices.positionsIndex.value()];
+
+        glm::vec3 bboxMin{};
+        if (auto* dv = std::get_if<std::pmr::vector<double>>(&positionAccessor.min))
+        {
+          bboxMin = {(*dv)[0], (*dv)[1], (*dv)[2]};
+        }
+        if (auto* iv = std::get_if<std::pmr::vector<int64_t>>(&positionAccessor.min))
+        {
+          bboxMin = {(*iv)[0], (*iv)[1], (*iv)[2]};
+        }
+
+        glm::vec3 bboxMax{};
+        if (auto* dv = std::get_if<std::pmr::vector<double>>(&positionAccessor.max))
+        {
+          bboxMax = {(*dv)[0], (*dv)[1], (*dv)[2]};
+        }
+        if (auto* iv = std::get_if<std::pmr::vector<int64_t>>(&positionAccessor.max))
+        {
+          bboxMax = {(*iv)[0], (*iv)[1], (*iv)[2]};
+        }
+
+        return RawMesh{
+          .vertices = std::move(vertices),
+          .indices = std::move(indices),
+          .boundingBox = {.min = bboxMin, .max = bboxMax},
+        };
+      });
+
     std::cout << "Loaded glTF: " << path << '\n';
 
     return scene;
-  }
-
-  bool LoadModelFromFile(Scene& scene, std::string_view fileName, glm::mat4 rootTransform, bool binary)
-  {
-    const auto baseMaterialIndex = static_cast<uint32_t>(scene.materials.size());
-
-    auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, binary, baseMaterialIndex);
-
-    if (!loadedScene)
-      return false;
-
-    scene.meshes.reserve(scene.meshes.size() + loadedScene->meshes.size());
-    for (auto& mesh : loadedScene->meshes)
-    {
-      scene.meshes.emplace_back(Mesh{
-        .vertexBuffer = Fwog::Buffer(std::span(mesh.vertices)),
-        .indexBuffer = Fwog::Buffer(std::span(mesh.indices)),
-        .materialIdx = mesh.materialIdx,
-        .transform = mesh.transform,
-      });
-    }
-
-    std::ranges::move(loadedScene->materials, std::back_inserter(scene.materials));
-
-    return true;
-  }
-
-  bool LoadModelFromFileBindless(SceneBindless& scene, std::string_view fileName, glm::mat4 rootTransform, bool binary)
-  {
-    FWOG_ASSERT(scene.textures.size() == scene.samplers.size());
-    const auto baseMaterialIndex = static_cast<uint32_t>(scene.materials.size());
-
-    auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, binary, baseMaterialIndex);
-
-    if (!loadedScene)
-      return false;
-
-    scene.meshes.reserve(scene.meshes.size() + loadedScene->meshes.size());
-    for (auto& mesh : loadedScene->meshes)
-    {
-      scene.meshes.emplace_back(MeshBindless{
-        .startVertex = static_cast<int32_t>(scene.vertices.size()),
-        .startIndex = static_cast<uint32_t>(scene.indices.size()),
-        .indexCount = static_cast<uint32_t>(mesh.indices.size()),
-        .materialIdx = mesh.materialIdx,
-        .transform = mesh.transform,
-        .boundingBox = mesh.boundingBox,
-      });
-
-      std::vector<Vertex> tempVertices = std::move(mesh.vertices);
-      scene.vertices.insert(scene.vertices.end(), tempVertices.begin(), tempVertices.end());
-
-      std::vector<index_t> tempIndices = std::move(mesh.indices);
-      scene.indices.insert(scene.indices.end(), tempIndices.begin(), tempIndices.end());
-    }
-
-    scene.materials.reserve(scene.materials.size() + loadedScene->materials.size());
-    for (auto& material : loadedScene->materials)
-    {
-      GpuMaterialBindless bindlessMaterial{
-        .flags = material.gpuMaterial.flags,
-        .alphaCutoff = material.gpuMaterial.alphaCutoff,
-        .baseColorTextureHandle = 0,
-        .baseColorFactor = material.gpuMaterial.baseColorFactor,
-      };
-      if (material.gpuMaterial.flags & MaterialFlagBit::HAS_BASE_COLOR_TEXTURE)
-      {
-        auto& [texture, sampler] = material.albedoTextureSampler.value();
-        bindlessMaterial.baseColorTextureHandle = texture.GetBindlessHandle(Fwog::Sampler(sampler));
-      }
-      scene.materials.emplace_back(bindlessMaterial);
-    }
-
-    return true;
   }
 
   bool LoadModelFromFileMeshlet(SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool binary)
@@ -894,7 +870,7 @@ namespace Utility
     uint32_t indexOffset = (uint32_t)baseIndexOffset;
     uint32_t primitiveOffset = (uint32_t)basePrimitiveOffset;
     std::vector<glm::mat4> transforms;
-    transforms.reserve(loadedScene->meshes.size());
+    transforms.reserve(loadedScene->meshInstances.size());
 
     // TODO: maybe customizeable (not recommended though)
     constexpr auto maxIndices = 64u;
@@ -903,55 +879,50 @@ namespace Utility
 
     struct MeshletInfo
     {
-      const CpuMesh* cpuMesh;
-      std::vector<Vertex> vertices;
+      const RawMesh* rawMeshPtr{};
+      std::span<const Vertex> vertices;
       std::vector<uint32_t> meshletIndices;
       std::vector<uint8_t> meshletPrimitives;
       std::vector<meshopt_Meshlet> rawMeshlets;
-      glm::mat4 transform;
+      //glm::mat4 transform;
     };
 
-    std::vector<MeshletInfo> meshletInfos(loadedScene->meshes.size());
-
-    const auto indices = std::ranges::iota_view((size_t)0, loadedScene->meshes.size());
+    std::vector<MeshletInfo> meshletInfos(loadedScene->rawMeshes.size());
 
     std::transform(
       std::execution::par,
-      indices.begin(),
-      indices.end(),
+      loadedScene->rawMeshes.begin(),
+      loadedScene->rawMeshes.end(),
       meshletInfos.begin(),
-      [&meshes = std::as_const(loadedScene->meshes)] (size_t meshIndex) -> MeshletInfo
+      [] (const RawMesh& mesh) -> MeshletInfo
       {
         ZoneScopedN("Create meshlets for mesh");
-
-        const auto& mesh = meshes[meshIndex];
 
         const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxIndices, maxPrimitives);
 
         MeshletInfo meshletInfo;
-        auto& [cpuMesh, vertices, meshletIndices, meshletPrimitives, rawMeshlets, transform] = meshletInfo;
+        auto& [rawMeshPtr, vertices, meshletIndices, meshletPrimitives, rawMeshlets] = meshletInfo;
 
-        cpuMesh = &mesh;
-        vertices = /*std::move*/ (mesh.vertices);
+        rawMeshPtr = &mesh;
+        vertices = mesh.vertices;
         meshletIndices.resize(maxMeshlets * maxIndices);
         meshletPrimitives.resize(maxMeshlets * maxPrimitives * 3);
         rawMeshlets.resize(maxMeshlets);
-        transform = mesh.transform;
         
         const auto meshletCount = [&]
         {
           ZoneScopedN("meshopt_buildMeshlets");
           return meshopt_buildMeshlets(rawMeshlets.data(),
-                                meshletIndices.data(),
-                                meshletPrimitives.data(),
-                                mesh.indices.data(),
-                                mesh.indices.size(),
-                                reinterpret_cast<const float*>(mesh.vertices.data()),
-                                mesh.vertices.size(),
-                                sizeof(Vertex),
-                                maxIndices,
-                                maxPrimitives,
-                                coneWeight);
+                                       meshletIndices.data(),
+                                       meshletPrimitives.data(),
+                                       mesh.indices.data(),
+                                       mesh.indices.size(),
+                                       reinterpret_cast<const float*>(mesh.vertices.data()),
+                                       mesh.vertices.size(),
+                                       sizeof(Vertex),
+                                       maxIndices,
+                                       maxPrimitives,
+                                       coneWeight);
         }();
 
         auto& lastMeshlet = rawMeshlets[meshletCount - 1];
@@ -962,33 +933,37 @@ namespace Utility
         return meshletInfo;
       });
 
-    for (const auto& [cpuMesh, vertices, meshletIndices, meshletPrimitives, rawMeshlets, transform] : meshletInfos)
+    auto perMeshMeshlets = std::vector<std::vector<Meshlet>>(meshletInfos.size());
+
+    // For each mesh, create "meshlet templates" (meshlets without per-instance data) and copy vertices, indices, and primitives to mega buffers
+    for (size_t meshIndex = 0; meshIndex < meshletInfos.size(); meshIndex++)
     {
+      const auto& [rawMesh, vertices, meshletIndices, meshletPrimitives, rawMeshlets] = meshletInfos[meshIndex];
+      perMeshMeshlets[meshIndex].reserve(rawMeshlets.size());
+
       for (const auto& meshlet : rawMeshlets)
       {
         auto min = glm::vec3(std::numeric_limits<float>::max());
         auto max = glm::vec3(std::numeric_limits<float>::lowest());
         for (uint32_t i = 0; i < meshlet.triangle_count * 3; ++i)
         {
-          const auto& vertex = cpuMesh->vertices[meshletIndices[meshlet.vertex_offset + meshletPrimitives[meshlet.triangle_offset + i]]];
+          const auto& vertex = rawMesh->vertices[meshletIndices[meshlet.vertex_offset + meshletPrimitives[meshlet.triangle_offset + i]]];
           min = glm::min(min, vertex.position);
           max = glm::max(max, vertex.position);
         }
-
-        scene.meshlets.emplace_back(Meshlet{
+        
+        perMeshMeshlets[meshIndex].emplace_back(Meshlet{
           .vertexOffset = vertexOffset,
           .indexOffset = indexOffset + meshlet.vertex_offset,
           .primitiveOffset = primitiveOffset + meshlet.triangle_offset,
           .indexCount = meshlet.vertex_count,
           .primitiveCount = meshlet.triangle_count,
-          .materialId = cpuMesh->materialIdx,
-          .instanceId = baseInstanceId + static_cast<uint32_t>(transforms.size()),
           .aabbMin = {min.x, min.y, min.z},
           .aabbMax = {max.x, max.y, max.z},
         });
       }
 
-      transforms.emplace_back(transform);
+      //transforms.emplace_back(transform);
       vertexOffset += (uint32_t)vertices.size();
       indexOffset += (uint32_t)meshletIndices.size();
       primitiveOffset += (uint32_t)meshletPrimitives.size();
@@ -996,6 +971,20 @@ namespace Utility
       std::ranges::copy(vertices, std::back_inserter(scene.vertices));
       std::ranges::copy(meshletIndices, std::back_inserter(scene.indices));
       std::ranges::copy(meshletPrimitives, std::back_inserter(scene.primitives));
+    }
+
+    // For each mesh instance, copy all of its associated meshlets (with per-instance data) and transform to the mega meshlet buffer
+    for (const auto& meshInstance : loadedScene->meshInstances)
+    {
+      for (auto meshlet : perMeshMeshlets[meshInstance.rawMeshIndex])
+      {
+        meshlet.materialId = meshInstance.materialIdx;
+        meshlet.instanceId = baseInstanceId + static_cast<uint32_t>(transforms.size());
+
+        scene.meshlets.emplace_back(meshlet);
+      }
+
+      transforms.emplace_back(meshInstance.transform);
     }
 
     scene.transforms.insert(scene.transforms.end(), transforms.begin(), transforms.end());

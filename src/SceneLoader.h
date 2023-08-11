@@ -1,6 +1,5 @@
 #pragma once
 #include <Fwog/detail/Flags.h>
-#include <Fwog/Buffer.h>
 #include <Fwog/Texture.h>
 
 #include <glm/mat4x4.hpp>
@@ -59,14 +58,6 @@ namespace Utility
     uint32_t _padding[2];
   };
 
-  struct GpuMaterialBindless
-  {
-    MaterialFlags flags{};
-    float alphaCutoff{};
-    uint64_t baseColorTextureHandle{};
-    glm::vec4 baseColorFactor{};
-  };
-
   enum class LightType : uint32_t
   {
     DIRECTIONAL = 0,
@@ -97,40 +88,6 @@ namespace Utility
     std::optional<CombinedTextureSampler> emissiveTextureSampler;
   };
 
-  struct Mesh
-  {
-    Fwog::Buffer vertexBuffer;
-    Fwog::Buffer indexBuffer;
-    uint32_t materialIdx{};
-    glm::mat4 transform{};
-  };
-
-  struct Scene
-  {
-    std::vector<Mesh> meshes;
-    std::vector<Material> materials;
-  };
-
-  struct MeshBindless
-  {
-    int32_t startVertex{};
-    uint32_t startIndex{};
-    uint32_t indexCount{};
-    uint32_t materialIdx{};
-    glm::mat4 transform{};
-    Box3D boundingBox{};
-  };
-
-  struct SceneBindless
-  {
-    std::vector<MeshBindless> meshes;
-    std::vector<Vertex> vertices;
-    std::vector<index_t> indices;
-    std::vector<GpuMaterialBindless> materials;
-    std::vector<Fwog::Texture> textures;
-    std::vector<Fwog::SamplerState> samplers;
-  };
-
   struct Meshlet
   {
     uint32_t vertexOffset = 0;
@@ -156,18 +113,5 @@ namespace Utility
     std::vector<GpuLight> lights;
   };
 
-  bool LoadModelFromFile(Scene& scene, 
-    std::string_view fileName, 
-    glm::mat4 rootTransform = glm::mat4{ 1 }, 
-    bool binary = false);
-
-  bool LoadModelFromFileBindless(SceneBindless& scene, 
-    std::string_view fileName, 
-    glm::mat4 rootTransform = glm::mat4{ 1 }, 
-    bool binary = false);
-
-  bool LoadModelFromFileMeshlet(SceneMeshlet& scene,
-    const std::filesystem::path& fileName,
-    glm::mat4 rootTransform,
-    bool binary);
+  bool LoadModelFromFileMeshlet(SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool binary);
 }

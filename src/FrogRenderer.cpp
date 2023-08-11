@@ -256,11 +256,17 @@ static Fwog::GraphicsPipeline CreateDebugAabbsPipeline()
   auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugAabb.vert.glsl");
   auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
 
-  auto blend = Fwog::ColorBlendAttachmentState {
+  auto blend0 = Fwog::ColorBlendAttachmentState {
     .blendEnable = true,
     .srcColorBlendFactor = Fwog::BlendFactor::SRC_ALPHA,
     .dstColorBlendFactor = Fwog::BlendFactor::ONE,
   };
+
+  auto blend1 = Fwog::ColorBlendAttachmentState{
+    .blendEnable = false,
+  };
+
+  auto blends = {blend0, blend1};
 
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
@@ -277,7 +283,7 @@ static Fwog::GraphicsPipeline CreateDebugAabbsPipeline()
       .depthWriteEnable = false,
     },
     .colorBlendState = {
-      .attachments = {&blend, 1},
+      .attachments = blends,
     }
   });
 }
@@ -348,6 +354,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}), true);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}), false);
 

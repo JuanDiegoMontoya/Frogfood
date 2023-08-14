@@ -291,10 +291,19 @@ void FrogRenderer::GuiDrawDebugWindow()
     }
 
     ImGui::Checkbox("Execute Meshlet Generation", &executeMeshletGeneration);
-    ImGui::Checkbox("Draw Meshlet AABBs", &drawMeshletAabbs);
+
+    ImGui::Separator();
+    ImGui::Text("Debug AABBs");
+    ImGui::Checkbox("Clear Each Frame##clear_debug_aabbs", &clearDebugAabbsEachFrame);
+    ImGui::Checkbox("Draw##draw_debug_aabbs", &drawDebugAabbs);
+
+    ImGui::Separator();
+    ImGui::Text("Debug Rects");
+    ImGui::Checkbox("Clear Each Frame##clear_debug_rects", &clearDebugRectsEachFrame);
+    ImGui::Checkbox("Draw##draw_debug_rects", &drawDebugRects);
 
     ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
-    ImGui::Checkbox("Render to Swapchain", &debugRenderToSwapchain);
+    ImGui::Checkbox("Render to Screen", &debugRenderToSwapchain);
   }
   ImGui::End();
 }

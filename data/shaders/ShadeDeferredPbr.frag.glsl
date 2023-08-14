@@ -2,6 +2,7 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
+#include "Config.h.glsl"
 #include "GlobalUniforms.h.glsl"
 #include "Math.h.glsl"
 #include "Pbr.h.glsl"
@@ -176,7 +177,7 @@ void main()
   vec3 emission = textureLod(s_emission, v_uv, 0.0).rgb;
   vec3 metallicRoughnessAo = textureLod(s_metallicRoughnessAo, v_uv, 0.0).rgb;
 
-  if (depth == 1.0)
+  if (depth == FAR_DEPTH)
   {
     discard;
   }

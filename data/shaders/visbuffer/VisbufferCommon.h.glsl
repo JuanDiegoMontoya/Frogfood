@@ -126,7 +126,7 @@ layout (std140, binding = 7) restrict readonly buffer MaterialBuffer
   GpuMaterial materials[];
 };
 
-layout (std140, binding = 11) restrict readonly buffer ViewBuffer
+layout (std140, binding = 8) restrict readonly buffer ViewBuffer
 {
   View views[];
 };

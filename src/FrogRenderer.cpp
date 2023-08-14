@@ -31,6 +31,16 @@
 #include <string>
 #include <thread>
 
+// Reverse-Z
+constexpr float NEAR_DEPTH = 1.0f;
+constexpr float FAR_DEPTH = 0.0f;
+
+static glm::mat4 InfReverseZPerspectiveRH(float fovY_radians, float aspectWbyH, float zNear)
+{
+  float f = 1.0f / tan(fovY_radians / 2.0f);
+  return glm::mat4(f / aspectWbyH, 0.0f, 0.0f, 0.0f, 0.0f, f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, zNear, 0.0f);
+}
+
 static constexpr uint32_t previousPower2(uint32_t x)
 {
   uint32_t v = 1;
@@ -123,7 +133,12 @@ static Fwog::GraphicsPipeline CreateVisbufferPipeline()
     .vertexShader = &vs,
     .fragmentShader = &fs,
     .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
-    .depthState = {.depthTestEnable = true, .depthWriteEnable = true},
+    .depthState =
+      {
+        .depthTestEnable = true,
+        .depthWriteEnable = true,
+        .depthCompareOp = Fwog::CompareOp::GREATER,
+      },
   });
 }
 
@@ -247,6 +262,7 @@ static Fwog::GraphicsPipeline CreateDebugLinesPipeline()
     .depthState = {
       .depthTestEnable = true,
       .depthWriteEnable = false,
+      .depthCompareOp = Fwog::CompareOp::GREATER,
     },
   });
 }
@@ -281,11 +297,49 @@ static Fwog::GraphicsPipeline CreateDebugAabbsPipeline()
     .depthState = {
       .depthTestEnable = true,
       .depthWriteEnable = false,
+      .depthCompareOp = Fwog::CompareOp::GREATER,
     },
     .colorBlendState = {
       .attachments = blends,
     }
   });
+}
+
+static Fwog::GraphicsPipeline CreateDebugRectsPipeline()
+{
+  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugRect.vert.glsl");
+  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
+
+  auto blend0 = Fwog::ColorBlendAttachmentState{
+    .blendEnable = true,
+    .srcColorBlendFactor = Fwog::BlendFactor::SRC_ALPHA,
+    .dstColorBlendFactor = Fwog::BlendFactor::ONE,
+  };
+
+  auto blend1 = Fwog::ColorBlendAttachmentState{
+    .blendEnable = false,
+  };
+
+  auto blends = {blend0, blend1};
+
+  return Fwog::GraphicsPipeline({
+    .vertexShader = &vs,
+    .fragmentShader = &fs,
+    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_FAN},
+    .rasterizationState =
+      {
+        .polygonMode = Fwog::PolygonMode::FILL,
+        .cullMode = Fwog::CullMode::NONE,
+      },
+    .depthState =
+      {
+        .depthTestEnable = true,
+        .depthWriteEnable = false,
+        .depthCompareOp = Fwog::CompareOp::GREATER,
+      },
+    .colorBlendState = {
+      .attachments = blends,
+    }});
 }
 
 FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optional<std::string_view> filename, float scale, bool binary)
@@ -319,6 +373,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     debugTexturePipeline(CreateDebugTexturePipeline()),
     debugLinesPipeline(CreateDebugLinesPipeline()),
     debugAabbsPipeline(CreateDebugAabbsPipeline()),
+    debugRectsPipeline(CreateDebugRectsPipeline()),
     tonemapUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     exposureBuffer(1.0f)
 {
@@ -344,8 +399,14 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   mainCamera.position.y = 1;
   
   debugGpuAabbsBuffer = Fwog::Buffer(sizeof(Fwog::DrawIndirectCommand) + sizeof(Debug::Aabb) * 100'000);
+  debugGpuAabbsBuffer->FillData();
   debugGpuAabbsBuffer->FillData({.size = sizeof(Fwog::DrawIndirectCommand), .data = 0});
   debugGpuAabbsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, vertexCount), .size = sizeof(uint32_t), .data = 14});
+
+  debugGpuRectsBuffer = Fwog::Buffer(sizeof(Fwog::DrawIndirectCommand) + sizeof(Debug::Rect) * 100'000);
+  debugGpuRectsBuffer->FillData();
+  debugGpuRectsBuffer->FillData({.size = sizeof(Fwog::DrawIndirectCommand), .data = 0});
+  debugGpuRectsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, vertexCount), .size = sizeof(uint32_t), .data = 4});
 
   if (!filename)
   {
@@ -445,7 +506,8 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
     renderWidth = static_cast<uint32_t>(newWidth / fsr2Ratio);
     renderHeight = static_cast<uint32_t>(newHeight / fsr2Ratio);
     FfxFsr2ContextDescription contextDesc{
-      .flags = FFX_FSR2_ENABLE_DEBUG_CHECKING | FFX_FSR2_ENABLE_AUTO_EXPOSURE | FFX_FSR2_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FSR2_ALLOW_NULL_DEVICE_AND_COMMAND_LIST,
+      .flags = FFX_FSR2_ENABLE_DEBUG_CHECKING | FFX_FSR2_ENABLE_AUTO_EXPOSURE | FFX_FSR2_ENABLE_HIGH_DYNAMIC_RANGE |
+               FFX_FSR2_ALLOW_NULL_DEVICE_AND_COMMAND_LIST | FFX_FSR2_ENABLE_DEPTH_INFINITE | FFX_FSR2_ENABLE_DEPTH_INVERTED,
       .maxRenderSize = {renderWidth, renderHeight},
       .displaySize = {newWidth, newHeight},
       .fpMessage =
@@ -533,15 +595,15 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
     auto color = glm::vec4(10, 1, 10, 1);
 
     // Get frustum corners in world space
-    auto tln = UnprojectUV_ZO(0, {0, 1}, invViewProj);
-    auto trn = UnprojectUV_ZO(0, {1, 1}, invViewProj);
-    auto bln = UnprojectUV_ZO(0, {0, 0}, invViewProj);
-    auto brn = UnprojectUV_ZO(0, {1, 0}, invViewProj);
+    auto tln = UnprojectUV_ZO(1, {0, 1}, invViewProj);
+    auto trn = UnprojectUV_ZO(1, {1, 1}, invViewProj);
+    auto bln = UnprojectUV_ZO(1, {0, 0}, invViewProj);
+    auto brn = UnprojectUV_ZO(1, {1, 0}, invViewProj);
 
-    auto tlf = UnprojectUV_ZO(1, {0, 1}, invViewProj);
-    auto trf = UnprojectUV_ZO(1, {1, 1}, invViewProj);
-    auto blf = UnprojectUV_ZO(1, {0, 0}, invViewProj);
-    auto brf = UnprojectUV_ZO(1, {1, 0}, invViewProj);
+    auto tlf = UnprojectUV_ZO(0.000001f, {0, 1}, invViewProj);
+    auto trf = UnprojectUV_ZO(0.000001f, {1, 1}, invViewProj);
+    auto blf = UnprojectUV_ZO(0.000001f, {0, 0}, invViewProj);
+    auto brf = UnprojectUV_ZO(0.000001f, {1, 0}, invViewProj);
 
     // Connect-the-dots
     // Near and far "squares"
@@ -560,18 +622,22 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
     debugLines.emplace_back(bln, color, blf, color);
     debugLines.emplace_back(brn, color, brf, color);
   }
-
-  // The meshlet generation pass creates the debug boxes. We want them to stay when meshlet generation is paused!
-  if (executeMeshletGeneration)
+  
+  if (clearDebugAabbsEachFrame)
   {
     debugGpuAabbsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+  }
+
+  if (clearDebugRectsEachFrame)
+  {
+    debugGpuRectsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   }
 
   shadingUniforms.numberOfLights = (uint32_t)scene.lights.size();
 
   if (scene.lights.size() * sizeof(Utility::GpuLight) > lightBuffer->Size())
   {
-    lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights.size() * 2, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+    //lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights.size() * 2, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
   }
 
   lightBuffer->UpdateData(scene.lights);
@@ -639,15 +705,13 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   ss.magFilter = Fwog::Filter::NEAREST;
   ss.mipmapFilter = Fwog::Filter::NEAREST;
   auto hzbSampler = Fwog::Sampler(ss);
-
-  constexpr float cameraNear = 0.1f;
-  constexpr float cameraFar = 100.0f;
-  constexpr float cameraFovY = glm::radians(70.f);
+  
   const auto jitterOffset = fsr2Enable ? GetJitterOffset(frameIndex, renderWidth, renderHeight, windowWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
-  const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
+  //const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
+  const auto projUnjittered = InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
   const auto projJittered = jitterMatrix * projUnjittered;
-
+  
   // Set global uniforms
   const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
@@ -662,7 +726,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     .cameraPos = glm::vec4(mainCamera.position, 0.0),
     .viewport = {0.0f, 0.0f, static_cast<float>(renderWidth), static_cast<float>(renderHeight)},
   };
-  MakeFrustumPlanes(viewProjUnjittered, views[0].frustumPlanes);
 
   // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
   if (executeMeshletGeneration)
@@ -679,6 +742,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   mainCameraUniforms.bindlessSamplerLodBias = fsr2LodBias;
   if (updateCullingFrustum)
   {
+    MakeFrustumPlanes(viewProjUnjittered, views[0].frustumPlanes);
+    // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
+    // We should probably emit the far plane regardless, but alas, one thing at a time.
     MakeFrustumPlanes(viewProjUnjittered, mainCameraUniforms.frustumPlanes);
     debugMainViewProj = viewProjUnjittered;
   }
@@ -731,8 +797,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
         Fwog::Cmd::BindStorageBuffer(6, *meshletIndirectCommand);
         Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
+        Fwog::Cmd::BindStorageBuffer(8, viewBuffer.value());
         Fwog::Cmd::BindStorageBuffer(10, debugGpuAabbsBuffer.value());
-        Fwog::Cmd::BindStorageBuffer(11, viewBuffer.value());
+        Fwog::Cmd::BindStorageBuffer(11, debugGpuRectsBuffer.value());
         Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
         Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
         Fwog::Cmd::BindSampledImage(0, *frame.hzb, hzbSampler);
@@ -744,7 +811,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   auto shadowAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = shadowCascades,
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = {.depth = 1.0f},
+    .clearValue = {.depth = FAR_DEPTH},
   };
   Fwog::Render(
     {
@@ -760,7 +827,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindStorageBuffer(3, *indexBuffer);
       Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
       Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
-      Fwog::Cmd::BindStorageBuffer(11, *viewBuffer);
+      Fwog::Cmd::BindStorageBuffer(8, *viewBuffer);
       Fwog::Cmd::BindGraphicsPipeline(shadowMainPipeline);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
@@ -774,7 +841,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   auto visbufferDepthAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = frame.gDepth.value(),
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = {.depth = 1.0f},
+    .clearValue = {.depth = FAR_DEPTH},
   };
   Fwog::Render(
     {
@@ -813,6 +880,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::BindComputePipeline(hzbReducePipeline);
         for (uint32_t level = 1; level < hzbLevels; ++level)
         {
+          Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
           Fwog::Cmd::BindImage(0, *frame.hzb, level - 1);
           Fwog::Cmd::BindImage(1, *frame.hzb, level);
           hzbCurrentWidth = std::max(1u, hzbCurrentWidth >> 1);
@@ -827,8 +895,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
     for (uint32_t level = 0; level < hzbLevels; level++)
     {
-      constexpr float one = 1;
-      frame.hzb->ClearImage({.level = level, .data = &one});
+      frame.hzb->ClearImage({.level = level, .data = &FAR_DEPTH});
     }
   }
 
@@ -949,6 +1016,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
           sampler.lodBias = fsr2LodBias;
           Fwog::Cmd::BindSampledImage(4, texture, Fwog::Sampler(sampler));
         }
+
+        // TODO: this is for debugging only
+        Fwog::Cmd::BindSampledImage(5, frame.hzb.value(), hzbSampler);
 
         Fwog::Cmd::Draw(3, 1, 0, materialId);
       }
@@ -1090,13 +1160,23 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
       }
 
+      // GPU-generated geometry past here
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+
       // AABBs
-      if (drawMeshletAabbs)
+      if (drawDebugAabbs)
       {
-        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
         Fwog::Cmd::BindGraphicsPipeline(debugAabbsPipeline);
         Fwog::Cmd::BindStorageBuffer(10, debugGpuAabbsBuffer.value());
         Fwog::Cmd::DrawIndirect(debugGpuAabbsBuffer.value(), 0, 1, 0);
+      }
+
+      // Rects
+      if (drawDebugRects)
+      {
+        Fwog::Cmd::BindGraphicsPipeline(debugRectsPipeline);
+        Fwog::Cmd::BindStorageBuffer(11, debugGpuRectsBuffer.value());
+        Fwog::Cmd::DrawIndirect(debugGpuRectsBuffer.value(), 0, 1, 0);
       }
     });
 
@@ -1149,9 +1229,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
           .frameTimeDelta = static_cast<float>(dt * 1000.0),
           .preExposure = 1,
           .reset = false,
-          .cameraNear = cameraNear,
-          .cameraFar = cameraFar,
-          .cameraFovAngleVertical = cameraFovY,
+          .cameraNear = std::numeric_limits<float>::max(),
+          .cameraFar = cameraNearPlane,
+          .cameraFovAngleVertical = cameraFovyRadians,
           .viewSpaceToMetersFactor = 1,
           .deviceDepthNegativeOneToOne = false,
         };

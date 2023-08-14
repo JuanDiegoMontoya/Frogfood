@@ -10,11 +10,25 @@ struct DebugAabb
   PackedVec4 color;
 };
 
+struct DebugRect
+{
+  PackedVec2 minOffset;
+  PackedVec2 maxOffset;
+  PackedVec4 color;
+  float depth;
+};
+
 layout(binding = 10, std430) restrict buffer DebugAabbBuffer
 {
   DrawIndirectCommand drawCommand;
   DebugAabb aabbs[];
 } debugAabbBuffer;
+
+layout(binding = 11, std430) restrict buffer DebugRectBuffer
+{
+  DrawIndirectCommand drawCommand;
+  DebugRect rects[];
+} debugRectBuffer;
 
 bool TryPushDebugAabb(DebugAabb box)
 {
@@ -28,6 +42,21 @@ bool TryPushDebugAabb(DebugAabb box)
   }
 
   debugAabbBuffer.aabbs[index] = box;
+  return true;
+}
+
+bool TryPushDebugRect(DebugRect rect)
+{
+  uint index = atomicAdd(debugRectBuffer.drawCommand.instanceCount, 1);
+
+  // Check if buffer is full
+  if (index >= debugRectBuffer.rects.length())
+  {
+    atomicAdd(debugRectBuffer.drawCommand.instanceCount, -1);
+    return false;
+  }
+
+  debugRectBuffer.rects[index] = rect;
   return true;
 }
 

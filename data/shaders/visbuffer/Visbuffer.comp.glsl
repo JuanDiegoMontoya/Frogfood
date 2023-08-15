@@ -4,7 +4,7 @@
 #include "VisbufferCommon.h.glsl"
 #include "../hzb/HZBCommon.h.glsl"
 
-//#define ENABLE_DEBUG_DRAWING
+#define ENABLE_DEBUG_DRAWING
 
 #ifdef ENABLE_DEBUG_DRAWING
 #include "../debug/DebugCommon.h.glsl"

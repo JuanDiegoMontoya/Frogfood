@@ -18,7 +18,7 @@
  * [X] Frustum culling
  * [X] Hi-z occlusion culling
  * [ ] Clustered light culling
- * [ ] Raster occlusion culling
+ * [-] Raster occlusion culling
  * [X] Multi-view
  *
  * Atmosphere
@@ -46,6 +46,19 @@
  * [ ] Config file so stuff doesn't reset every time
  * [ ] Model browser
  * [ ] Command console
+ *
+ * Debugging:
+ * [ ] Meshlet color view
+ * [ ] Meshlet HZB LoD view
+ * [ ] Frustum visualization for other views
+ * [ ] Texture viewer (basically the one from RenderDoc):
+ *   [ ] Register textures to list of viewable textures in GUI (perhaps just a vector of Texture*)
+ *   [ ] Selector for range of displayable values
+ *   [ ] Toggles for visible channels
+ *   [ ] Selectors for mip level and array layer, if applicable
+ *   [ ] Option to tint the window/image alpha to see the window behind it (i.e., overlay the image onto the main viewport)
+ *   [ ] Toggle to scale the image to the viewport (would be helpful to view square textures like the hzb properly overlaid on the scene)
+ *   [ ] Standard scroll zoom and drag controls
  */
 
 #include "FrogRenderer.h"

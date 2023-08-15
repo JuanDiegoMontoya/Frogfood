@@ -8,13 +8,22 @@
 
 #include <algorithm>
 #include <string>
+#include <filesystem>
 
 #include "IconsMaterialDesign.h"
 
 #include "IconsFontAwesome6.h"
 
+static const char* g_defaultIniPath = "config/defaultLayout.ini";
+
 void FrogRenderer::InitGui()
 {
+  // Attempt to load default layout, if it exists
+  if (std::filesystem::exists(g_defaultIniPath) && !std::filesystem::is_directory(g_defaultIniPath))
+  {
+    ImGui::GetIO().IniFilename = g_defaultIniPath;
+  }
+
   constexpr float fontSize = 18;
   ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/RobotoCondensed-Regular.ttf", fontSize);
   //constexpr float iconFontSize = fontSize * 2.0f / 3.0f; // if GlyphOffset.y is not biased, uncomment this
@@ -207,7 +216,12 @@ void FrogRenderer::GuiDrawDockspace()
     {
       if (ImGui::MenuItem("Reset layout"))
       {
-        // TODO
+        ImGui::LoadIniSettingsFromDisk(g_defaultIniPath);
+      }
+
+      if (ImGui::MenuItem("Save layout"))
+      {
+        ImGui::SaveIniSettingsToDisk(g_defaultIniPath);
       }
 
       ImGui::EndMenu();

@@ -58,11 +58,10 @@ private:
     glm::mat4 invViewProj;
     glm::mat4 proj;
     glm::vec4 cameraPos;
-    glm::vec4 frustumPlanes[6];
     uint32_t meshletCount;
     uint32_t maxIndices;
     float bindlessSamplerLodBias;
-    uint32_t _padding[2];
+    uint32_t _padding[1];
   };
 
   struct View {

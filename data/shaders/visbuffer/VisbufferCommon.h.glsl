@@ -110,7 +110,6 @@ layout (binding = 5, std140) uniform PerFrameUniforms
   mat4 invViewProj;
   mat4 proj;
   vec4 cameraPos;
-  vec4 frustumPlanes[6];
   uint meshletCount;
   uint maxIndices;
   float bindlessSamplerLodBias;

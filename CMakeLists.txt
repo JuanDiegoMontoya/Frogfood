@@ -69,6 +69,7 @@ add_subdirectory(external)
 add_custom_target(copy_shaders ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 add_custom_target(copy_models ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/models ${CMAKE_CURRENT_BINARY_DIR}/models)
 add_custom_target(copy_textures ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/textures ${CMAKE_CURRENT_BINARY_DIR}/textures)
+add_custom_target(copy_config ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/config ${CMAKE_CURRENT_BINARY_DIR}/config)
 
 if (FROGRENDER_FSR2_ENABLE)
     set(FSR2_LIBS ffx_fsr2_api_x64 ffx_fsr2_api_gl_x64)
@@ -97,7 +98,7 @@ target_link_libraries(frogRender
 	meshoptimizer
 	Tracy::TracyClient
 )
-add_dependencies(frogRender copy_shaders copy_models copy_textures)
+add_dependencies(frogRender copy_shaders copy_models copy_textures copy_config)
 
 target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE)
 

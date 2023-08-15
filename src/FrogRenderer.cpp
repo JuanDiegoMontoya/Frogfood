@@ -292,7 +292,7 @@ static Fwog::GraphicsPipeline CreateDebugAabbsPipeline()
       .polygonMode = Fwog::PolygonMode::LINE,
       .cullMode = Fwog::CullMode::NONE,
       .depthBiasEnable = true,
-      .depthBiasConstantFactor = -50.0f,
+      .depthBiasConstantFactor = 50.0f,
     },
     .depthState = {
       .depthTestEnable = true,
@@ -637,7 +637,7 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
 
   if (scene.lights.size() * sizeof(Utility::GpuLight) > lightBuffer->Size())
   {
-    //lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights.size() * 2, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+    lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights.size() * 2, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
   }
 
   lightBuffer->UpdateData(scene.lights);
@@ -727,6 +727,14 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     .viewport = {0.0f, 0.0f, static_cast<float>(renderWidth), static_cast<float>(renderHeight)},
   };
 
+  if (updateCullingFrustum)
+  {
+    // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
+    // We should probably emit the far plane regardless, but alas, one thing at a time.
+    MakeFrustumPlanes(viewProjUnjittered, views[0].frustumPlanes);
+    debugMainViewProj = viewProjUnjittered;
+  }
+
   // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
   if (executeMeshletGeneration)
   {
@@ -740,14 +748,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   mainCameraUniforms.meshletCount = meshletCount;
   mainCameraUniforms.maxIndices = static_cast<uint32_t>(scene.primitives.size() * 3);
   mainCameraUniforms.bindlessSamplerLodBias = fsr2LodBias;
-  if (updateCullingFrustum)
-  {
-    MakeFrustumPlanes(viewProjUnjittered, views[0].frustumPlanes);
-    // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
-    // We should probably emit the far plane regardless, but alas, one thing at a time.
-    MakeFrustumPlanes(viewProjUnjittered, mainCameraUniforms.frustumPlanes);
-    debugMainViewProj = viewProjUnjittered;
-  }
 
   globalUniformsBuffer.UpdateData(mainCameraUniforms);
 

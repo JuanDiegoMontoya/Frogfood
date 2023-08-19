@@ -20,11 +20,11 @@ void main()
   if (material.baseColorTextureHandle != uvec2(0))
   {
     // Apply a mip/lod bias to the sampled value
-    if (bindlessSamplerLodBias != 0)
+    if (perFrameUniforms.bindlessSamplerLodBias != 0)
     {
       const float ddx2 = dot(dxuv, dxuv);
       const float ddy2 = dot(dyuv, dyuv);
-      const float actual_mip = pow(2.0, bindlessSamplerLodBias + 0.5 * log2(max(ddx2, ddy2)));
+      const float actual_mip = pow(2.0, perFrameUniforms.bindlessSamplerLodBias + 0.5 * log2(max(ddx2, ddy2)));
       const float min_mip = sqrt(min(ddx2, ddy2));
       dxuv = dxuv * (actual_mip / min_mip);
       dyuv = dyuv * (actual_mip / min_mip);

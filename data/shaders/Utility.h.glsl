@@ -9,7 +9,7 @@ vec3 OctToFloat32x3(vec2 e)
   return normalize(v);
 }
 
-// 14-vertex CCW triangle fan in [0, 1]
+// 14-vertex CCW triangle strip in [0, 1]
 vec3 CreateCube(in uint vertexID)
 {
   uint b = 1u << vertexID;

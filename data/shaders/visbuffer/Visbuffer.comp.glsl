@@ -88,7 +88,7 @@ bool IsMeshletOccluded(in uint meshletId, in uint viewId)
   vec2 maxXY = vec2(0.0);
   for (uint i = 0; i < 8; ++i)
   {
-    vec4 clip = oldViewProjUnjittered * transform * vec4(aabbCorners[i], 1.0);
+    vec4 clip = perFrameUniforms.oldViewProjUnjittered * transform * vec4(aabbCorners[i], 1.0);
 
     // AABBs that go behind the camera at all are considered visible
     if (clip.w <= 0)
@@ -109,10 +109,11 @@ bool IsMeshletOccluded(in uint meshletId, in uint viewId)
   const vec2 hzbSize = vec2(textureSize(hzb, 0));
   const float width = (boxUvs.z - boxUvs.x) * hzbSize.x;
   const float height = (boxUvs.w - boxUvs.y) * hzbSize.y;
-  // TODO: the +1 is a hack! But I couldn't figure out another way to fix it without disabling hi-z.
-  // Whatever the bug is, it's probably in here since making the hi-z reduction insanely conservative
-  // did not fix it.
-  const float level = floor(log2(max(width, height))) + 1;
+  
+  // Select next level so the box is always in [0.5, 1.0) of a texel of the current level.
+  // If the box is larger than a single texel of the current level, then it could touch nine
+  // texels rather than four! So we need to round up to the next level.
+  const float level = ceil(log2(max(width, height)));
   const float[] depth = float[](
     textureLod(hzb, boxUvs.xy, level).x,
     textureLod(hzb, boxUvs.zy, level).x,
@@ -197,7 +198,7 @@ void main()
 
   if (localId == 0)
   {
-    sh_isMeshletValid[meshletOffset] = meshletId < meshletCount && IsMeshletVisible(meshletId, viewId);
+    sh_isMeshletValid[meshletOffset] = meshletId < perFrameUniforms.meshletCount && IsMeshletVisible(meshletId, viewId);
 
     if (sh_isMeshletValid[meshletOffset])
     {
@@ -216,8 +217,8 @@ void main()
   {
     const uint baseId = localId * 3;
     const uint indexOffset = sh_baseIndex[meshletOffset] + baseId;
-    indexBuffer.data[maxIndices * viewId + indexOffset + 0] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 0) & MESHLET_PRIMITIVE_MASK);
-    indexBuffer.data[maxIndices * viewId + indexOffset + 1] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 1) & MESHLET_PRIMITIVE_MASK);
-    indexBuffer.data[maxIndices * viewId + indexOffset + 2] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 2) & MESHLET_PRIMITIVE_MASK);
+    indexBuffer.data[perFrameUniforms.maxIndices * viewId + indexOffset + 0] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 0) & MESHLET_PRIMITIVE_MASK);
+    indexBuffer.data[perFrameUniforms.maxIndices * viewId + indexOffset + 1] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 1) & MESHLET_PRIMITIVE_MASK);
+    indexBuffer.data[perFrameUniforms.maxIndices * viewId + indexOffset + 2] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 2) & MESHLET_PRIMITIVE_MASK);
   }
 }

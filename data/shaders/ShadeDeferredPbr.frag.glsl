@@ -2,7 +2,7 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
-#include "Config.h.glsl"
+#include "Config.shared.h"
 #include "GlobalUniforms.h.glsl"
 #include "Math.h.glsl"
 #include "Pbr.h.glsl"

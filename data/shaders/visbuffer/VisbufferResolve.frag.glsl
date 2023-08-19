@@ -47,7 +47,7 @@ bool IsMeshletOccluded(in uint meshletId, out float level, out float maxLevel)
   vec2 maxXY = vec2(0.0);
   for (uint i = 0; i < 8; ++i)
   {
-    vec4 clip = oldViewProjUnjittered * transform * vec4(aabbCorners[i], 1.0);
+    vec4 clip = perFrameUniforms.oldViewProjUnjittered * transform * vec4(aabbCorners[i], 1.0);
     if (clip.w <= 0)
     {
       return false;
@@ -218,15 +218,15 @@ vec2 MakeSmoothMotion(in PartialDerivatives derivatives, vec4[3] worldPosition)
 {
   // Probably not the most efficient way to do this, but this is a port of a shader that is known to work
   vec4[3] v_curPos = vec4[](
-    viewProjUnjittered * worldPosition[0],
-    viewProjUnjittered * worldPosition[1],
-    viewProjUnjittered * worldPosition[2]
+    perFrameUniforms.viewProjUnjittered * worldPosition[0],
+    perFrameUniforms.viewProjUnjittered * worldPosition[1],
+    perFrameUniforms.viewProjUnjittered * worldPosition[2]
   );
   
   vec4[3] v_oldPos = vec4[](
-    oldViewProjUnjittered * worldPosition[0],
-    oldViewProjUnjittered * worldPosition[1],
-    oldViewProjUnjittered * worldPosition[2]
+    perFrameUniforms.oldViewProjUnjittered * worldPosition[0],
+    perFrameUniforms.oldViewProjUnjittered * worldPosition[1],
+    perFrameUniforms.oldViewProjUnjittered * worldPosition[2]
   );
 
   vec4 smoothCurPos = InterpolateVec4(derivatives, v_curPos);
@@ -323,9 +323,9 @@ void main()
     transform * vec4(rawPosition[2], 1.0)
   );
   const vec4[] clipPosition = vec4[](
-    viewProj * worldPosition[0],
-    viewProj * worldPosition[1],
-    viewProj * worldPosition[2]
+    perFrameUniforms.viewProj * worldPosition[0],
+    perFrameUniforms.viewProj * worldPosition[1],
+    perFrameUniforms.viewProj * worldPosition[2]
   );
   const PartialDerivatives partialDerivatives = ComputeDerivatives(clipPosition, i_uv * 2.0 - 1.0, resolution);
   const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);

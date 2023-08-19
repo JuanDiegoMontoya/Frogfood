@@ -12,6 +12,8 @@
 #include <Fwog/Timer.h>
 #include <Fwog/detail/ApiToEnum.h>
 
+#include <shaders/Config.shared.h>
+
 #include <tracy/Tracy.hpp>
 
 #include <GLFW/glfw3.h>
@@ -30,10 +32,6 @@
 #include <optional>
 #include <string>
 #include <thread>
-
-// Reverse-Z
-constexpr float NEAR_DEPTH = 1.0f;
-constexpr float FAR_DEPTH = 0.0f;
 
 static glm::mat4 InfReverseZPerspectiveRH(float fovY_radians, float aspectWbyH, float zNear)
 {
@@ -137,7 +135,7 @@ static Fwog::GraphicsPipeline CreateVisbufferPipeline()
       {
         .depthTestEnable = true,
         .depthWriteEnable = true,
-        .depthCompareOp = Fwog::CompareOp::GREATER,
+        .depthCompareOp = FWOG_COMPARE_OP_NEARER,
       },
   });
 }
@@ -262,7 +260,7 @@ static Fwog::GraphicsPipeline CreateDebugLinesPipeline()
     .depthState = {
       .depthTestEnable = true,
       .depthWriteEnable = false,
-      .depthCompareOp = Fwog::CompareOp::GREATER,
+      .depthCompareOp = FWOG_COMPARE_OP_NEARER,
     },
   });
 }
@@ -287,7 +285,7 @@ static Fwog::GraphicsPipeline CreateDebugAabbsPipeline()
   return Fwog::GraphicsPipeline({
     .vertexShader = &vs,
     .fragmentShader = &fs,
-    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_FAN},
+    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_STRIP},
     .rasterizationState =  {
       .polygonMode = Fwog::PolygonMode::LINE,
       .cullMode = Fwog::CullMode::NONE,
@@ -297,7 +295,7 @@ static Fwog::GraphicsPipeline CreateDebugAabbsPipeline()
     .depthState = {
       .depthTestEnable = true,
       .depthWriteEnable = false,
-      .depthCompareOp = Fwog::CompareOp::GREATER,
+      .depthCompareOp = FWOG_COMPARE_OP_NEARER,
     },
     .colorBlendState = {
       .attachments = blends,
@@ -335,7 +333,7 @@ static Fwog::GraphicsPipeline CreateDebugRectsPipeline()
       {
         .depthTestEnable = true,
         .depthWriteEnable = false,
-        .depthCompareOp = Fwog::CompareOp::GREATER,
+        .depthCompareOp = FWOG_COMPARE_OP_NEARER,
       },
     .colorBlendState = {
       .attachments = blends,
@@ -792,17 +790,17 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       "Meshlet Generate Pass",
       [&]
       {
-        Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-        Fwog::Cmd::BindStorageBuffer(3, *instancedMeshletBuffer);
-        Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
-        Fwog::Cmd::BindStorageBuffer(6, *meshletIndirectCommand);
-        Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
-        Fwog::Cmd::BindStorageBuffer(8, viewBuffer.value());
-        Fwog::Cmd::BindStorageBuffer(10, debugGpuAabbsBuffer.value());
-        Fwog::Cmd::BindStorageBuffer(11, debugGpuRectsBuffer.value());
-        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
         Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
-        Fwog::Cmd::BindSampledImage(0, *frame.hzb, hzbSampler);
+        Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+        Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *instancedMeshletBuffer);
+        Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
+        Fwog::Cmd::BindStorageBuffer("IndirectDrawCommand", *meshletIndirectCommand);
+        Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+        Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
+        Fwog::Cmd::BindStorageBuffer("DebugAabbBuffer", debugGpuAabbsBuffer.value());
+        Fwog::Cmd::BindStorageBuffer("DebugRectBuffer", debugGpuRectsBuffer.value());
+        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
+        Fwog::Cmd::BindSampledImage("hzb", *frame.hzb, hzbSampler);
         Fwog::Cmd::Dispatch((meshletCount + 3) / 4, viewCount, 1);
         Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
       });
@@ -821,14 +819,14 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
-      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer(1, *primitiveBuffer);
-      Fwog::Cmd::BindStorageBuffer(2, *vertexBuffer);
-      Fwog::Cmd::BindStorageBuffer(3, *indexBuffer);
-      Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
-      Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
-      Fwog::Cmd::BindStorageBuffer(8, *viewBuffer);
       Fwog::Cmd::BindGraphicsPipeline(shadowMainPipeline);
+      Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
+      Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
+      Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
     });
@@ -852,13 +850,13 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
-      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer(1, *primitiveBuffer);
-      Fwog::Cmd::BindStorageBuffer(2, *vertexBuffer);
-      Fwog::Cmd::BindStorageBuffer(3, *indexBuffer);
-      Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
-      Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
-      Fwog::Cmd::BindStorageBuffer(7, *materialStorageBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
+      Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
+      Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer("MaterialBuffer", *materialStorageBuffer);
       Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
@@ -895,7 +893,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
     for (uint32_t level = 0; level < hzbLevels; level++)
     {
-      frame.hzb->ClearImage({.level = level, .data = &FAR_DEPTH});
+      constexpr float farDepth = FAR_DEPTH;
+      frame.hzb->ClearImage({.level = level, .data = &farDepth});
     }
   }
 
@@ -918,9 +917,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
-      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-      Fwog::Cmd::BindImage(0, frame.visbuffer.value(), 0);
       Fwog::Cmd::BindGraphicsPipeline(materialDepthPipeline);
+      Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+      Fwog::Cmd::BindImage("visbuffer", frame.visbuffer.value(), 0);
       Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 
@@ -968,14 +967,14 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     [&]
     {
       Fwog::Cmd::BindGraphicsPipeline(visbufferResolvePipeline);
-      Fwog::Cmd::BindImage(0, frame.visbuffer.value(), 0);
-      Fwog::Cmd::BindStorageBuffer(0, *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer(1, *primitiveBuffer);
-      Fwog::Cmd::BindStorageBuffer(2, *vertexBuffer);
-      Fwog::Cmd::BindStorageBuffer(3, *indexBuffer);
-      Fwog::Cmd::BindStorageBuffer(4, *transformBuffer);
-      Fwog::Cmd::BindUniformBuffer(5, globalUniformsBuffer);
-      Fwog::Cmd::BindStorageBuffer(7, *materialStorageBuffer);
+      Fwog::Cmd::BindImage("visbuffer", frame.visbuffer.value(), 0);
+      Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
+      Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
+      Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer("MaterialBuffer", *materialStorageBuffer);
 
       // Render a full-screen tri for each material, but only fragments with matching material (stored in depth) are shaded
       for (uint32_t materialId = 0; materialId < scene.materials.size(); ++materialId)
@@ -986,35 +985,35 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         {
           auto& [texture, sampler] = material.albedoTextureSampler.value();
           sampler.lodBias = fsr2LodBias;
-          Fwog::Cmd::BindSampledImage(0, texture, Fwog::Sampler(sampler));
+          Fwog::Cmd::BindSampledImage("s_baseColor", texture, Fwog::Sampler(sampler));
         }
 
         if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE)
         {
           auto& [texture, sampler] = material.metallicRoughnessTextureSampler.value();
           sampler.lodBias = fsr2LodBias;
-          Fwog::Cmd::BindSampledImage(1, texture, Fwog::Sampler(sampler));
+          Fwog::Cmd::BindSampledImage("s_metallicRoughness", texture, Fwog::Sampler(sampler));
         }
 
         if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_NORMAL_TEXTURE)
         {
           auto& [texture, sampler] = material.normalTextureSampler.value();
           sampler.lodBias = fsr2LodBias;
-          Fwog::Cmd::BindSampledImage(2, texture, Fwog::Sampler(sampler));
+          Fwog::Cmd::BindSampledImage("s_normal", texture, Fwog::Sampler(sampler));
         }
 
         if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_OCCLUSION_TEXTURE)
         {
           auto& [texture, sampler] = material.occlusionTextureSampler.value();
           sampler.lodBias = fsr2LodBias;
-          Fwog::Cmd::BindSampledImage(3, texture, Fwog::Sampler(sampler));
+          Fwog::Cmd::BindSampledImage("s_occlusion", texture, Fwog::Sampler(sampler));
         }
 
         if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_EMISSION_TEXTURE)
         {
           auto& [texture, sampler] = material.emissiveTextureSampler.value();
           sampler.lodBias = fsr2LodBias;
-          Fwog::Cmd::BindSampledImage(4, texture, Fwog::Sampler(sampler));
+          Fwog::Cmd::BindSampledImage("s_emission", texture, Fwog::Sampler(sampler));
         }
 
         // TODO: this is for debugging only
@@ -1114,18 +1113,18 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     [&]
     {
       Fwog::Cmd::BindGraphicsPipeline(shadingPipeline);
-      Fwog::Cmd::BindSampledImage(0, *frame.gAlbedo, nearestSampler);
-      Fwog::Cmd::BindSampledImage(1, *frame.gNormal, nearestSampler);
-      Fwog::Cmd::BindSampledImage(2, *frame.gDepth, nearestSampler);
-      Fwog::Cmd::BindSampledImage(3, frame.rsm->GetIndirectLighting(), nearestSampler);
-      Fwog::Cmd::BindSampledImage(4, rsmDepth, nearestSampler);
-      Fwog::Cmd::BindSampledImage(5, rsmDepth, shadowSampler);
-      Fwog::Cmd::BindSampledImage(6, *frame.gEmission, nearestSampler);
-      Fwog::Cmd::BindSampledImage(7, *frame.gMetallicRoughnessAo, nearestSampler);
-      Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
-      Fwog::Cmd::BindUniformBuffer(1, shadingUniformsBuffer);
-      Fwog::Cmd::BindUniformBuffer(2, shadowUniformsBuffer);
-      Fwog::Cmd::BindStorageBuffer(0, *lightBuffer);
+      Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
+      Fwog::Cmd::BindSampledImage("s_gNormal", *frame.gNormal, nearestSampler);
+      Fwog::Cmd::BindSampledImage("s_gDepth", *frame.gDepth, nearestSampler);
+      //Fwog::Cmd::BindSampledImage("s_rsmIndirect", frame.rsm->GetIndirectLighting(), nearestSampler);
+      //Fwog::Cmd::BindSampledImage("s_rsmDepth", rsmDepth, nearestSampler);
+      //Fwog::Cmd::BindSampledImage("s_rsmDepthShadow", rsmDepth, shadowSampler);
+      Fwog::Cmd::BindSampledImage("s_emission", *frame.gEmission, nearestSampler);
+      Fwog::Cmd::BindSampledImage("s_metallicRoughnessAo", *frame.gMetallicRoughnessAo, nearestSampler);
+      Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+      Fwog::Cmd::BindUniformBuffer("ShadingUniforms", shadingUniformsBuffer);
+      Fwog::Cmd::BindUniformBuffer("ShadowUniforms", shadowUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer("LightBuffer", *lightBuffer);
       Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 
@@ -1167,7 +1166,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       if (drawDebugAabbs)
       {
         Fwog::Cmd::BindGraphicsPipeline(debugAabbsPipeline);
-        Fwog::Cmd::BindStorageBuffer(10, debugGpuAabbsBuffer.value());
+        Fwog::Cmd::BindStorageBuffer("DebugAabbBuffer", debugGpuAabbsBuffer.value());
         Fwog::Cmd::DrawIndirect(debugGpuAabbsBuffer.value(), 0, 1, 0);
       }
 
@@ -1175,7 +1174,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       if (drawDebugRects)
       {
         Fwog::Cmd::BindGraphicsPipeline(debugRectsPipeline);
-        Fwog::Cmd::BindStorageBuffer(11, debugGpuRectsBuffer.value());
+        Fwog::Cmd::BindStorageBuffer("DebugRectBuffer", debugGpuRectsBuffer.value());
         Fwog::Cmd::DrawIndirect(debugGpuRectsBuffer.value(), 0, 1, 0);
       }
     });

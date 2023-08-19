@@ -269,7 +269,7 @@ Application::Application(const CreateInfo& createInfo)
 
   // Initialize Tracy
   TracyGpuContext
-
+    
   //auto fwogCallback = [](std::string_view msg) { printf("Fwog: %.*s\n", static_cast<int>(msg.size()), msg.data()); };
   auto fwogCallback = nullptr;
   auto fwogRenderToSwapchainHook = [](const Fwog::SwapchainRenderInfo& renderInfo, const std::function<void()>& func)

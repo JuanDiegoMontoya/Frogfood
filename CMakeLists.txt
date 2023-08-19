@@ -84,6 +84,7 @@ target_include_directories(frogRender
 	PUBLIC
 	${FSR2_SOURCE}
 	vendor
+	data
 )
 target_link_libraries(frogRender
 	PRIVATE

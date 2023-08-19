@@ -17,6 +17,7 @@
 
 #include "../BasicTypes.h.glsl"
 #include "../Utility.h.glsl"
+#include "../GlobalUniforms.h.glsl"
 
 #define MAX_INDICES 64
 #define MAX_PRIMITIVES 64
@@ -100,19 +101,6 @@ layout (std430, binding = 3) restrict readonly buffer MeshletIndexBuffer
 layout (std430, binding = 4) restrict readonly buffer TransformBuffer
 {
   mat4 transforms[];
-};
-
-layout (binding = 5, std140) uniform PerFrameUniforms
-{
-  mat4 viewProj;
-  mat4 oldViewProjUnjittered;
-  mat4 viewProjUnjittered;
-  mat4 invViewProj;
-  mat4 proj;
-  vec4 cameraPos;
-  uint meshletCount;
-  uint maxIndices;
-  float bindlessSamplerLodBias;
 };
 
 layout (std430, binding = 6) restrict buffer IndirectDrawCommand

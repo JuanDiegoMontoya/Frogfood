@@ -26,5 +26,5 @@ void main()
   o_primitiveId = primitiveId / 3;
   o_uv = uv;
 
-  gl_Position = viewProj * transform * vec4(position, 1.0);
+  gl_Position = perFrameUniforms.viewProj * transform * vec4(position, 1.0);
 }

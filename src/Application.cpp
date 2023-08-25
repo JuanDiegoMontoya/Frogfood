@@ -229,6 +229,10 @@ Application::Application(const CreateInfo& createInfo)
   glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
   GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+  if (monitor == nullptr)
+  {
+    throw std::runtime_error("No monitor detected");
+  }
   const GLFWvidmode* videoMode = glfwGetVideoMode(monitor);
   window = glfwCreateWindow(static_cast<int>(videoMode->width * .75), static_cast<int>(videoMode->height * .75), createInfo.name.data(), nullptr, nullptr);
   if (!window)

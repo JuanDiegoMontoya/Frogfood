@@ -31,7 +31,21 @@
 *.out
 *.app
 
+# CMake
+CMakeFiles/
+*.cmake
+
+# Build artifacts
+build/
+cmake-build-debug/
+cmake-build-release/
 /.vs
-/out/build
-*.natvis
-/build
+
+# Large/test assets
+/example/models
+
+# Clang cache
+.cache/
+
+# IntelliJ
+.idea/

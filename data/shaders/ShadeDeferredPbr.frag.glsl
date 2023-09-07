@@ -6,6 +6,7 @@
 #include "GlobalUniforms.h.glsl"
 #include "Math.h.glsl"
 #include "Pbr.h.glsl"
+#include "shadows/vsm/VsmCommon.h.glsl"
 
 layout(binding = 0) uniform sampler2D s_gAlbedo;
 layout(binding = 1) uniform sampler2D s_gNormal;
@@ -48,10 +49,36 @@ layout(binding = 2, std140) uniform ShadowUniforms
   float sourceAngleRad;
 }shadowUniforms;
 
-layout(binding = 0, std430) readonly buffer LightBuffer
+layout(binding = 6, std430) readonly buffer LightBuffer
 {
   GpuLight lights[];
 }lightBuffer;
+
+float ShadowVsm(vec3 fragWorldPos)
+{
+  const PageDataAndAddress info = GetClipmapPageFromDepth(s_gDepth, ivec2(gl_FragCoord.xy));
+
+  const mat4 lightViewProj = clipmapUniforms.clipmapViewProjections[info.clipmapLevel];
+  
+  const vec4 clip = lightViewProj * vec4(fragWorldPos, 1.0);
+  const vec2 uv = clip.xy * .5 + .5;
+  if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1)
+  {
+    return 0;
+  }
+
+  const ivec2 pageSize = imageSize(i_physicalPages).xy;
+  const ivec2 pageTexel = ivec2(info.pageUv * pageSize);
+  const uint physicalAddress = GetPagePhysicalAddress(info.pageData);
+  const float shadowDepth = uintBitsToFloat(imageLoad(i_physicalPages, ivec3(pageTexel, physicalAddress)).x);
+
+  if (shadowDepth < clip.z + 1e-4)
+  {
+    return 0;
+  }
+
+  return 1;
+}
 
 float ShadowPCF(vec2 uv, float viewDepth, float bias)
 {
@@ -188,7 +215,9 @@ void main()
   float cosTheta = max(0.0, dot(incidentDir, normal));
   vec3 diffuse = albedo * cosTheta * shadingUniforms.sunStrength.rgb;
 
-  float shadow = Shadow(fragWorldPos, normal, -shadingUniforms.sunDir.xyz);
+  //float shadow = Shadow(fragWorldPos, normal, -shadingUniforms.sunDir.xyz);
+  float shadow = ShadowVsm(fragWorldPos);
+  //shadow = 1;
   
   vec3 viewDir = normalize(perFrameUniforms.cameraPos.xyz - fragWorldPos);
   

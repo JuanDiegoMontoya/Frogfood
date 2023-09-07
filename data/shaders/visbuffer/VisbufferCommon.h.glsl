@@ -105,7 +105,7 @@ layout (std430, binding = 4) restrict readonly buffer TransformBuffer
 
 layout (std430, binding = 6) restrict buffer IndirectDrawCommand
 {
-  DrawElementsIndirectCommand[] commands;
+  DrawElementsIndirectCommand commands[];
 };
 
 layout (std140, binding = 7) restrict readonly buffer MaterialBuffer

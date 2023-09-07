@@ -1,6 +1,6 @@
 #include "FrogRenderer.h"
 
-#include "RendererUtilities.h"
+#include "Pipelines.h"
 
 #include <Fwog/BasicTypes.h>
 #include <Fwog/Buffer.h>
@@ -12,7 +12,7 @@
 #include <Fwog/Timer.h>
 #include <Fwog/detail/ApiToEnum.h>
 
-#include <shaders/Config.shared.h>
+#include "shaders/Config.shared.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -72,274 +72,6 @@ static glm::vec3 UnprojectUV_ZO(float depth, glm::vec2 uv, const glm::mat4& invX
   return glm::vec3(world) / world.w;
 }
 
-static constexpr std::array<Fwog::VertexInputBindingDescription, 3> sceneInputBindingDescs{
-  Fwog::VertexInputBindingDescription{
-    .location = 0,
-    .binding = 0,
-    .format = Fwog::Format::R32G32B32_FLOAT,
-    .offset = offsetof(Utility::Vertex, position),
-  },
-  Fwog::VertexInputBindingDescription{
-    .location = 1,
-    .binding = 0,
-    .format = Fwog::Format::R16G16_SNORM,
-    .offset = offsetof(Utility::Vertex, normal),
-  },
-  Fwog::VertexInputBindingDescription{
-    .location = 2,
-    .binding = 0,
-    .format = Fwog::Format::R32G32_FLOAT,
-    .offset = offsetof(Utility::Vertex, texcoord),
-  },
-};
-
-static Fwog::ComputePipeline CreateMeshletGeneratePipeline()
-{
-  auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/Visbuffer.comp.glsl");
-
-  return Fwog::ComputePipeline({
-    .shader = &comp,
-  });
-}
-
-static Fwog::ComputePipeline CreateHzbCopyPipeline()
-{
-  auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBCopy.comp.glsl");
-
-  return Fwog::ComputePipeline({
-    .name = "HZB Copy",
-    .shader = &comp,
-  });
-}
-
-static Fwog::ComputePipeline CreateHzbReducePipeline()
-{
-  auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBReduce.comp.glsl");
-
-  return Fwog::ComputePipeline({
-    .name = "HZB Reduce",
-    .shader = &comp,
-  });
-}
-
-static Fwog::GraphicsPipeline CreateVisbufferPipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/visbuffer/Visbuffer.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/Visbuffer.frag.glsl");
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
-    .depthState =
-      {
-        .depthTestEnable = true,
-        .depthWriteEnable = true,
-        .depthCompareOp = FWOG_COMPARE_OP_NEARER,
-      },
-  });
-}
-
-static Fwog::GraphicsPipeline CreateMaterialDepthPipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/VisbufferMaterialDepth.frag.glsl");
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .vertexInputState = {},
-    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
-    .depthState = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = Fwog::CompareOp::ALWAYS},
-  });
-}
-
-static Fwog::GraphicsPipeline CreateVisbufferResolvePipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/visbuffer/VisbufferResolve.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/VisbufferResolve.frag.glsl");
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .vertexInputState = {},
-    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
-    .depthState = {.depthTestEnable = true, .depthWriteEnable = false, .depthCompareOp = Fwog::CompareOp::EQUAL},
-  });
-}
-
-/*static Fwog::GraphicsPipeline CreateShadowPipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/SceneDeferredPbr.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/RSMScenePbr.frag.glsl");
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .vertexInputState = {sceneInputBindingDescs},
-    .depthState = {.depthTestEnable = true, .depthWriteEnable = true},
-  });
-}*/
-
-static Fwog::GraphicsPipeline CreateShadingPipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/ShadeDeferredPbr.frag.glsl");
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
-  });
-}
-
-static Fwog::ComputePipeline CreateTonemapPipeline()
-{
-  auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/TonemapAndDither.comp.glsl");
-
-  return Fwog::ComputePipeline({
-    .name = "Image Formation",
-    .shader = &comp,
-  });
-}
-
-static Fwog::GraphicsPipeline CreateDebugTexturePipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/Texture.frag.glsl");
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
-  });
-}
-
-static Fwog::GraphicsPipeline CreateShadowMainPipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = nullptr,
-    .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
-    .depthState = {
-      .depthTestEnable = true,
-      .depthWriteEnable = true,
-    },
-  });
-}
-
-static Fwog::GraphicsPipeline CreateDebugLinesPipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/Debug.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
-
-  auto positionBinding = Fwog::VertexInputBindingDescription{
-    .location = 0,
-    .binding = 0,
-    .format = Fwog::Format::R32G32B32_FLOAT,
-    .offset = offsetof(Debug::Line, aPosition),
-  };
-
-  auto colorBinding = Fwog::VertexInputBindingDescription{
-    .location = 1,
-    .binding = 0,
-    .format = Fwog::Format::R32G32B32A32_FLOAT,
-    .offset = offsetof(Debug::Line, aColor),
-  };
-
-  auto bindings = {positionBinding, colorBinding};
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::LINE_LIST},
-    .vertexInputState = bindings,
-    .rasterizationState = {.cullMode = Fwog::CullMode::NONE, .lineWidth = 2},
-    .depthState = {
-      .depthTestEnable = true,
-      .depthWriteEnable = false,
-      .depthCompareOp = FWOG_COMPARE_OP_NEARER,
-    },
-  });
-}
-
-static Fwog::GraphicsPipeline CreateDebugAabbsPipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugAabb.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
-
-  auto blend0 = Fwog::ColorBlendAttachmentState {
-    .blendEnable = true,
-    .srcColorBlendFactor = Fwog::BlendFactor::SRC_ALPHA,
-    .dstColorBlendFactor = Fwog::BlendFactor::ONE,
-  };
-
-  auto blend1 = Fwog::ColorBlendAttachmentState{
-    .blendEnable = false,
-  };
-
-  auto blends = {blend0, blend1};
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_STRIP},
-    .rasterizationState =  {
-      .polygonMode = Fwog::PolygonMode::LINE,
-      .cullMode = Fwog::CullMode::NONE,
-      .depthBiasEnable = true,
-      .depthBiasConstantFactor = 50.0f,
-    },
-    .depthState = {
-      .depthTestEnable = true,
-      .depthWriteEnable = false,
-      .depthCompareOp = FWOG_COMPARE_OP_NEARER,
-    },
-    .colorBlendState = {
-      .attachments = blends,
-    }
-  });
-}
-
-static Fwog::GraphicsPipeline CreateDebugRectsPipeline()
-{
-  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugRect.vert.glsl");
-  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
-
-  auto blend0 = Fwog::ColorBlendAttachmentState{
-    .blendEnable = true,
-    .srcColorBlendFactor = Fwog::BlendFactor::SRC_ALPHA,
-    .dstColorBlendFactor = Fwog::BlendFactor::ONE,
-  };
-
-  auto blend1 = Fwog::ColorBlendAttachmentState{
-    .blendEnable = false,
-  };
-
-  auto blends = {blend0, blend1};
-
-  return Fwog::GraphicsPipeline({
-    .vertexShader = &vs,
-    .fragmentShader = &fs,
-    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_FAN},
-    .rasterizationState =
-      {
-        .polygonMode = Fwog::PolygonMode::FILL,
-        .cullMode = Fwog::CullMode::NONE,
-      },
-    .depthState =
-      {
-        .depthTestEnable = true,
-        .depthWriteEnable = false,
-        .depthCompareOp = FWOG_COMPARE_OP_NEARER,
-      },
-    .colorBlendState = {
-      .attachments = blends,
-    }});
-}
-
 FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optional<std::string_view> filename, float scale, bool binary)
   : Application(createInfo),
     // Create RSM textures
@@ -358,22 +90,32 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     shadowUniformsBuffer(shadowUniforms, Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     rsmUniforms(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     // Create the pipelines used in the application
-    meshletGeneratePipeline(CreateMeshletGeneratePipeline()),
-    hzbCopyPipeline(CreateHzbCopyPipeline()),
-    hzbReducePipeline(CreateHzbReducePipeline()),
-    visbufferPipeline(CreateVisbufferPipeline()),
-    shadowMainPipeline(CreateShadowMainPipeline()),
-    materialDepthPipeline(CreateMaterialDepthPipeline()),
-    visbufferResolvePipeline(CreateVisbufferResolvePipeline()),
+    meshletGeneratePipeline(Pipelines::MeshletGenerate()),
+    hzbCopyPipeline(Pipelines::HzbCopy()),
+    hzbReducePipeline(Pipelines::HzbReduce()),
+    visbufferPipeline(Pipelines::Visbuffer()),
+    shadowMainPipeline(Pipelines::ShadowMain()),
+    materialDepthPipeline(Pipelines::MaterialDepth()),
+    visbufferResolvePipeline(Pipelines::VisbufferResolve()),
     //rsmScenePipeline(CreateShadowPipeline()),
-    shadingPipeline(CreateShadingPipeline()),
-    tonemapPipeline(CreateTonemapPipeline()),
-    debugTexturePipeline(CreateDebugTexturePipeline()),
-    debugLinesPipeline(CreateDebugLinesPipeline()),
-    debugAabbsPipeline(CreateDebugAabbsPipeline()),
-    debugRectsPipeline(CreateDebugRectsPipeline()),
+    shadingPipeline(Pipelines::Shading()),
+    tonemapPipeline(Pipelines::Tonemap()),
+    debugTexturePipeline(Pipelines::DebugTexture()),
+    debugLinesPipeline(Pipelines::DebugLines()),
+    debugAabbsPipeline(Pipelines::DebugAabbs()),
+    debugRectsPipeline(Pipelines::DebugRects()),
     tonemapUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
-    exposureBuffer(1.0f)
+    exposureBuffer(1.0f),
+    vsmContext({
+      .maxVsms = 64,
+      .pageSize = {Techniques::VirtualShadowMaps::pageSize, Techniques::VirtualShadowMaps::pageSize},
+      .numPages = 1024,
+    }),
+    vsmSun({
+      .context = vsmContext,
+      .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
+      .numClipmaps = 1,
+    })
 {
   ZoneScoped;
   int x = 0;
@@ -593,15 +335,16 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
     auto color = glm::vec4(10, 1, 10, 1);
 
     // Get frustum corners in world space
-    auto tln = UnprojectUV_ZO(1, {0, 1}, invViewProj);
-    auto trn = UnprojectUV_ZO(1, {1, 1}, invViewProj);
-    auto bln = UnprojectUV_ZO(1, {0, 0}, invViewProj);
-    auto brn = UnprojectUV_ZO(1, {1, 0}, invViewProj);
+    auto tln = UnprojectUV_ZO(NEAR_DEPTH, {0, 1}, invViewProj);
+    auto trn = UnprojectUV_ZO(NEAR_DEPTH, {1, 1}, invViewProj);
+    auto bln = UnprojectUV_ZO(NEAR_DEPTH, {0, 0}, invViewProj);
+    auto brn = UnprojectUV_ZO(NEAR_DEPTH, {1, 0}, invViewProj);
 
-    auto tlf = UnprojectUV_ZO(0.000001f, {0, 1}, invViewProj);
-    auto trf = UnprojectUV_ZO(0.000001f, {1, 1}, invViewProj);
-    auto blf = UnprojectUV_ZO(0.000001f, {0, 0}, invViewProj);
-    auto brf = UnprojectUV_ZO(0.000001f, {1, 0}, invViewProj);
+    // Far corners are lerped slightly to near in case it is an infinite projection
+    auto tlf = UnprojectUV_ZO(glm::mix(FAR_DEPTH, NEAR_DEPTH, 1e-5), {0, 1}, invViewProj);
+    auto trf = UnprojectUV_ZO(glm::mix(FAR_DEPTH, NEAR_DEPTH, 1e-5), {1, 1}, invViewProj);
+    auto blf = UnprojectUV_ZO(glm::mix(FAR_DEPTH, NEAR_DEPTH, 1e-5), {0, 0}, invViewProj);
+    auto brf = UnprojectUV_ZO(glm::mix(FAR_DEPTH, NEAR_DEPTH, 1e-5), {1, 0}, invViewProj);
 
     // Connect-the-dots
     // Near and far "squares"
@@ -806,6 +549,36 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       });
   }
 
+   vsmSun.Update(eye, 10);
+
+   vsmContext.ResetPageVisibility();
+   vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
+   vsmContext.AllocateRequestedPages();
+   vsmContext.ClearDirtyPages();
+
+  const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+  Fwog::RenderNoAttachments(
+    {
+      .name = "VSM Render Sun Clipmaps",
+      .viewport = {{{0, 0}, vsmExtent}},
+      .framebufferSize = {vsmExtent.width, vsmExtent.height, 1},
+      .framebufferSamples = Fwog::SampleCount::SAMPLES_1,
+    },
+    [&]
+    {
+      Fwog::Cmd::BindGraphicsPipeline(shadowMainPipeline);
+      Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
+      Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
+      Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
+      vsmSun.BindResourcesForDrawing();
+      Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
+      Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
+    });
+
   auto shadowAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = shadowCascades,
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
@@ -850,6 +623,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
       Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
       Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
@@ -857,7 +631,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
       Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
       Fwog::Cmd::BindStorageBuffer("MaterialBuffer", *materialStorageBuffer);
-      Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
     });
@@ -1116,15 +889,16 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
       Fwog::Cmd::BindSampledImage("s_gNormal", *frame.gNormal, nearestSampler);
       Fwog::Cmd::BindSampledImage("s_gDepth", *frame.gDepth, nearestSampler);
-      //Fwog::Cmd::BindSampledImage("s_rsmIndirect", frame.rsm->GetIndirectLighting(), nearestSampler);
-      //Fwog::Cmd::BindSampledImage("s_rsmDepth", rsmDepth, nearestSampler);
-      //Fwog::Cmd::BindSampledImage("s_rsmDepthShadow", rsmDepth, shadowSampler);
+      // Fwog::Cmd::BindSampledImage("s_rsmIndirect", frame.rsm->GetIndirectLighting(), nearestSampler);
+      // Fwog::Cmd::BindSampledImage("s_rsmDepth", rsmDepth, nearestSampler);
+      // Fwog::Cmd::BindSampledImage("s_rsmDepthShadow", rsmDepth, shadowSampler);
       Fwog::Cmd::BindSampledImage("s_emission", *frame.gEmission, nearestSampler);
       Fwog::Cmd::BindSampledImage("s_metallicRoughnessAo", *frame.gMetallicRoughnessAo, nearestSampler);
       Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
       Fwog::Cmd::BindUniformBuffer("ShadingUniforms", shadingUniformsBuffer);
       Fwog::Cmd::BindUniformBuffer("ShadowUniforms", shadowUniformsBuffer);
       Fwog::Cmd::BindStorageBuffer("LightBuffer", *lightBuffer);
+      vsmSun.BindResourcesForDrawing();
       Fwog::Cmd::Draw(3, 1, 0, 0);
     });
 

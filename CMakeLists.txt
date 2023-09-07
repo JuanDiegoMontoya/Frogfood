@@ -27,16 +27,11 @@ add_executable(frogRender
 	src/RendererUtilities.cpp
 	src/techniques/AutoExposure.h
 	src/techniques/AutoExposure.cpp
+	src/techniques/VirtualShadowMaps.h
+	src/techniques/VirtualShadowMaps.cpp
+	src/Pipelines.h
+	src/Pipelines.cpp
 )
-
-# enable asan for debug builds
-if (DEBUG)
-    if (WIN32)
-        target_compile_options(frogRender PRIVATE /fsanitize=address)
-    else()
-        target_compile_options(frogRender PRIVATE -fsanitize=address)
-    endif()
-endif()
 
 target_compile_options(frogRender
 	PRIVATE

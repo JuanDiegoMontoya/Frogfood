@@ -5,6 +5,7 @@
 #include "PCG.h"
 #include "techniques/Bloom.h"
 #include "techniques/AutoExposure.h"
+#include "techniques/VirtualShadowMaps.h"
 
 #include <Fwog/Texture.h>
 
@@ -320,4 +321,8 @@ private:
   // Camera
   float cameraNearPlane = 0.1f;
   float cameraFovyRadians = glm::radians(70.0f);
+
+  // VSM
+  Techniques::VirtualShadowMaps::Context vsmContext;
+  Techniques::VirtualShadowMaps::DirectionalVirtualShadowMap vsmSun;
 };

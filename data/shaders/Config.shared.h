@@ -5,12 +5,12 @@
 #define REVERSE_Z
 
 #ifdef REVERSE_Z
-  #define NEAR_DEPTH 1.0
-  #define FAR_DEPTH 0.0
+  #define NEAR_DEPTH 1.0f
+  #define FAR_DEPTH 0.0f
   #define Z_COMPARE_OP_FARTHER <
 #else
-  #define NEAR_DEPTH 0.0
-  #define FAR_DEPTH 1.0
+  #define NEAR_DEPTH 0.0f
+  #define FAR_DEPTH 1.0f
   #define Z_COMPARE_OP_FARTHER >
 #endif
 

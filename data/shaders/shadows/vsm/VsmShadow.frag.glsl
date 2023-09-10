@@ -18,5 +18,8 @@ void main()
   //const uint pageData = imageLoad(i_pageTables, ivec3(pageAddressXy, vsmIndex)).x;
   const uint pageData = imageLoad(i_pageTables, ivec3(pageAddressXy, 0)).x;
   const ivec2 pageTexel = ivec2(gl_FragCoord.xy) % 128;
-  imageAtomicMin(i_physicalPages, ivec3(pageTexel, GetPagePhysicalAddress(pageData)), floatBitsToUint(gl_FragCoord.z));
+  if (GetIsPageBacked(pageData))
+  {
+    imageAtomicMin(i_physicalPages, ivec3(pageTexel, GetPagePhysicalAddress(pageData)), floatBitsToUint(gl_FragCoord.z));
+  }
 }

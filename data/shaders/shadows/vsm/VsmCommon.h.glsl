@@ -1,10 +1,9 @@
-//#version 450 core
-//#extension GL_GOOGLE_include_directive : enable
+// #version 450 core
+// #extension GL_GOOGLE_include_directive : enable
+// #include "../../Math.h.glsl"
+// #include "../../GlobalUniforms.h.glsl"
 #ifndef VSM_COMMON_H
 #define VSM_COMMON_H
-
-//#include "../../Math.h.glsl"
-//#include "../../GlobalUniforms.h.glsl"
 
 #define MAX_CLIPMAPS 32
 
@@ -64,17 +63,17 @@ layout(binding = 4, std430) restrict buffer VsmPageClearDispatchParams
 ////////////// Helpers
 bool GetIsPageVisible(uint pageData)
 {
-  return (pageData & 1u) == 1u;
+  return (pageData & 1u) != 0u;
 }
 
 bool GetIsPageDirty(uint pageData)
 {
-  return (pageData & 2u) == 1u;
+  return (pageData & 2u) != 0u;
 }
 
 bool GetIsPageBacked(uint pageData)
 {
-  return (pageData & 4u) == 1u;
+  return (pageData & 4u) != 0u;
 }
 
 uint GetPagePhysicalAddress(uint pageData)
@@ -99,7 +98,7 @@ uint SetIsPageBacked(uint pageData, bool isBacked)
 
 uint SetPagePhysicalAddress(uint pageData, uint physicalAddress)
 {
-  return (pageData & 65535u) & (physicalAddress << 16);
+  return (pageData & 65535u) | (physicalAddress << 16);
 }
 
 bool TryPushAllocRequest(VsmPageAllocRequest request)
@@ -130,9 +129,8 @@ bool TryPushPageClear(uint pageIndex)
   return true;
 }
 
-struct PageDataAndAddress
+struct PageAddress
 {
-  uint pageData;
   ivec3 pageAddress;
   vec2 pageUv;
   uint clipmapLevel;
@@ -140,7 +138,7 @@ struct PageDataAndAddress
 
 // Analyzes the provided depth buffer and returns and address and data of a page.
 // Works for clipmaps only.
-PageDataAndAddress GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid)
+bool GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid, out PageAddress addr)
 {
   const vec2 texel = 1.0 / textureSize(depthBuffer, 0);
   const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
@@ -168,22 +166,19 @@ PageDataAndAddress GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid)
   // Sample is outside the clipmap
   if (any(greaterThanEqual(posLightUv, vec2(1))) || any(lessThan(posLightUv, vec2(0))))
   {
-    PageDataAndAddress info;
-    info.pageData = 0;
-    return info;
+    return false;
   }
 
   const ivec2 posLightTexel = ivec2(posLightUv * imageSize(i_pageTables).xy);
   const ivec3 pageAddress = ivec3(posLightTexel, clipmapIndex);
 
-  PageDataAndAddress info;
   // LSB (bit 0): set to 1 if page is visible
-  info.pageData = imageAtomicOr(i_pageTables, pageAddress, 1);
-  info.pageAddress = pageAddress;
+  addr.pageAddress = pageAddress;
   const ivec2 pageSize = imageSize(i_physicalPages).xy;
-  info.pageUv = pageSize * mod(posLightUv, 1.0 / pageSize);
-  info.clipmapLevel = clipmapLevel;
-  return info;
+  addr.pageUv = pageSize * mod(posLightUv, 1.0 / pageSize);
+  addr.clipmapLevel = clipmapLevel;
+
+  return true;
 }
 
 #endif // VSM_COMMON_H

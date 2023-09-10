@@ -90,7 +90,9 @@ namespace Techniques::VirtualShadowMaps
       visiblePagesBitmask_(sizeof(uint32_t) * pages_.GetCreateInfo().arrayLayers / 32),
       pageVisibleTimeTree_(sizeof(uint32_t) * pages_.GetCreateInfo().arrayLayers * 2),
       uniformBuffer_(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
+      pageAllocRequests_(sizeof(PageAllocRequest) * 1025),
       pagesToClear_(sizeof(uint32_t) + sizeof(uint32_t) * 2048),
+      pageClearDispatchParams_(Fwog::DispatchIndirectCommand{pageSize / 8, pageSize / 8, 0}),
       resetPageVisibility_(CreateResetPageVisibilityPipeline()),
       allocatePages_(CreateAllocatorPipeline()),
       markVisiblePages_(CreateMarkVisiblePipeline()),
@@ -158,6 +160,7 @@ namespace Techniques::VirtualShadowMaps
       {
         Fwog::Cmd::BindComputePipeline(allocatePages_);
         Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+        Fwog::Cmd::BindImage("i_pageTables", pageMappingsArray_, 0);
         Fwog::Cmd::BindStorageBuffer("VsmVisiblePagesBitmask", visiblePagesBitmask_);
         Fwog::Cmd::BindStorageBuffer("VsmPageAllocRequests", pageAllocRequests_);
         Fwog::Cmd::Dispatch(1, 1, 1); // Only 1-32 threads will allocate
@@ -181,6 +184,9 @@ namespace Techniques::VirtualShadowMaps
         Fwog::Cmd::BindComputePipeline(clearDirtyPages_);
         Fwog::Cmd::BindImage("i_physicalPages", pages_, 0);
         Fwog::Cmd::DispatchIndirect(pageClearDispatchParams_, 0);
+
+        Fwog::MemoryBarrier(Barrier::BUFFER_UPDATE_BIT);
+        pageClearDispatchParams_.FillData({.offset = offsetof(Fwog::DispatchIndirectCommand, groupCountZ), .size = sizeof(uint32_t)});
       });
   }
 
@@ -212,7 +218,8 @@ namespace Techniques::VirtualShadowMaps
       [&]
       {
         Fwog::Cmd::BindComputePipeline(context_.markVisiblePages_);
-        Fwog::MemoryBarrier(Barrier::SHADER_STORAGE_BIT | Barrier::IMAGE_ACCESS_BIT | Barrier::TEXTURE_FETCH_BIT);
+        Fwog::MemoryBarrier(Barrier::SHADER_STORAGE_BIT | Barrier::IMAGE_ACCESS_BIT | Barrier::TEXTURE_FETCH_BIT | Barrier::BUFFER_UPDATE_BIT);
+        context_.visiblePagesBitmask_.FillData();
         Fwog::Cmd::BindSampledImage(0, gDepth, Fwog::Sampler(Fwog::SamplerState{}));
         Fwog::Cmd::BindImage(0, context_.pageMappingsArray_, 0);
         Fwog::Cmd::BindStorageBuffer("VsmVisiblePagesBitmask", context_.visiblePagesBitmask_);
@@ -227,9 +234,9 @@ namespace Techniques::VirtualShadowMaps
   {
     const auto sideLength = firstClipmapWidth / virtualExtent_;
     uniforms_.firstClipmapTexelArea = sideLength * sideLength;
-
-    // Negate direction instead of inverting matrix for "perf"
-    const auto view = glm::mat4_cast(glm::angleAxis(0.0f, -direction));
+    
+    //const auto view = glm::inverse(glm::mat4_cast(glm::angleAxis(0.0f, glm::normalize(-direction))));
+    const auto view = glm::lookAt(direction * -5.f, glm::vec3(0), glm::vec3(0, 1, 0));
     
     for (uint32_t i = 0; i < uniforms_.numClipmaps; i++)
     {
@@ -251,7 +258,7 @@ namespace Techniques::VirtualShadowMaps
 
   void DirectionalVirtualShadowMap::BindResourcesForDrawing()
   {
-    Fwog::Cmd::BindStorageBuffer(3, uniformBuffer_);
+    Fwog::Cmd::BindStorageBuffer(5, uniformBuffer_);
     Fwog::Cmd::BindImage(0, context_.pageMappingsArray_, 0);
     Fwog::Cmd::BindImage(1, context_.pages_, 0);
   }

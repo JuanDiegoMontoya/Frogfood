@@ -325,4 +325,5 @@ private:
   // VSM
   Techniques::VirtualShadowMaps::Context vsmContext;
   Techniques::VirtualShadowMaps::DirectionalVirtualShadowMap vsmSun;
+  Fwog::GraphicsPipeline vsmShadowPipeline;
 };

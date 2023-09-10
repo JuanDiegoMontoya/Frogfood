@@ -150,6 +150,18 @@ namespace Pipelines
     });
   }
 
+  Fwog::GraphicsPipeline ShadowVsm()
+  {
+    auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
+    auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/shadows/vsm/VsmShadow.frag.glsl");
+
+    return Fwog::GraphicsPipeline({
+      .vertexShader = &vs,
+      .fragmentShader = &fs,
+      .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
+    });
+  }
+
   Fwog::GraphicsPipeline DebugLines()
   {
     auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/Debug.vert.glsl");

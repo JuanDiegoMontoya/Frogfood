@@ -80,11 +80,14 @@ void AllocatePageSimple(VsmPageAllocRequest request)
   // Scan for available (not visible) page (we will ignore off-screen caching for now)
   for (uint i = 0; i < visiblePagesBitmask.data.length(); i++)
   {
-    int msb = findMSB(visiblePagesBitmask.data[i]);
-    if (i != -1)
+    // Find least significant (rightmost) zero bit
+    const int lsb = findLSB(~visiblePagesBitmask.data[i]);
+    if (lsb != -1)
     {
-      const uint pageIndex = i * 32 + msb;
-      //visiblePagesBitmask.data[i] &= ~(1 << (31 - msb));
+      const uint pageIndex = i * 32 + lsb;
+
+      // TODO: use inout var to indicate start pos instead of writing to global mem
+      visiblePagesBitmask.data[i] |= 1 << lsb;
 
       uint pageData = imageLoad(i_pageTables, request.pageTableAddress).x;
       pageData = SetPagePhysicalAddress(pageData, pageIndex);

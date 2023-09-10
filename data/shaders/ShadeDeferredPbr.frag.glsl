@@ -54,11 +54,17 @@ layout(binding = 6, std430) readonly buffer LightBuffer
   GpuLight lights[];
 }lightBuffer;
 
-float ShadowVsm(vec3 fragWorldPos)
+float ShadowVsm(vec3 fragWorldPos, out uint pageData)
 {
-  const PageDataAndAddress info = GetClipmapPageFromDepth(s_gDepth, ivec2(gl_FragCoord.xy));
+  pageData = 0;
+  PageAddress addr;
 
-  const mat4 lightViewProj = clipmapUniforms.clipmapViewProjections[info.clipmapLevel];
+  if (!GetClipmapPageFromDepth(s_gDepth, ivec2(gl_FragCoord.xy), addr))
+  {
+    return 1.0;
+  }
+
+  const mat4 lightViewProj = clipmapUniforms.clipmapViewProjections[addr.clipmapLevel];
   
   const vec4 clip = lightViewProj * vec4(fragWorldPos, 1.0);
   const vec2 uv = clip.xy * .5 + .5;
@@ -68,8 +74,9 @@ float ShadowVsm(vec3 fragWorldPos)
   }
 
   const ivec2 pageSize = imageSize(i_physicalPages).xy;
-  const ivec2 pageTexel = ivec2(info.pageUv * pageSize);
-  const uint physicalAddress = GetPagePhysicalAddress(info.pageData);
+  const ivec2 pageTexel = ivec2(addr.pageUv * pageSize);
+  pageData = imageLoad(i_pageTables, addr.pageAddress).x;
+  const uint physicalAddress = GetPagePhysicalAddress(pageData);
   const float shadowDepth = uintBitsToFloat(imageLoad(i_physicalPages, ivec3(pageTexel, physicalAddress)).x);
 
   if (shadowDepth < clip.z + 1e-4)
@@ -216,7 +223,8 @@ void main()
   vec3 diffuse = albedo * cosTheta * shadingUniforms.sunStrength.rgb;
 
   //float shadow = Shadow(fragWorldPos, normal, -shadingUniforms.sunDir.xyz);
-  float shadow = ShadowVsm(fragWorldPos);
+  uint pageData;
+  float shadow = ShadowVsm(fragWorldPos, pageData);
   //shadow = 1;
   
   vec3 viewDir = normalize(perFrameUniforms.cameraPos.xyz - fragWorldPos);
@@ -238,4 +246,12 @@ void main()
   finalColor += emission;
 
   o_color = finalColor;
+
+  o_color *= 0.01;
+  if (GetIsPageVisible(pageData))
+    o_color += vec3(1, 0, 0);
+  if (GetIsPageBacked(pageData))
+    o_color += vec3(0, 1, 0);
+  if (GetIsPageDirty(pageData))
+    o_color += vec3(0, 0, 1);
 }

@@ -32,7 +32,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     fwog
     GIT_REPOSITORY https://github.com/JuanDiegoMontoya/Fwog.git
-    GIT_TAG        3b181e836e020a1bd30401143f61c4c752b323c2
+    GIT_TAG        3aaf7ea8afbee789b44bd871237cd076bc3f3afa
 )
 
 FetchContent_Declare(

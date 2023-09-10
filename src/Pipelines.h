@@ -13,6 +13,7 @@ namespace Pipelines
   Fwog::ComputePipeline Tonemap();
   Fwog::GraphicsPipeline DebugTexture();
   Fwog::GraphicsPipeline ShadowMain();
+  Fwog::GraphicsPipeline ShadowVsm();
   Fwog::GraphicsPipeline DebugLines();
   Fwog::GraphicsPipeline DebugAabbs();
   Fwog::GraphicsPipeline DebugRects();

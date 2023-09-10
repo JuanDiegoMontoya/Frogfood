@@ -87,7 +87,7 @@ namespace Techniques::VirtualShadowMaps
       // Unused until local lights are supported
       uint32_t pageTableLevel;
     };
-    Fwog::TypedBuffer<PageAllocRequest> pageAllocRequests_;
+    Fwog::Buffer pageAllocRequests_;
 
     Fwog::Buffer pagesToClear_;
     Fwog::TypedBuffer<Fwog::DispatchIndirectCommand> pageClearDispatchParams_;

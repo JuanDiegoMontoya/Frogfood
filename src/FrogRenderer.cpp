@@ -79,7 +79,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     rsmNormal(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::R16G16B16_SNORM)),
     rsmDepth(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D16_UNORM)),
     // Needs Fwog::CreateTexture2DLayer, for now it'll only be single cascade
-    //shadowCascades(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D32_FLOAT)),
+    // shadowCascades(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D32_FLOAT)),
     shadowCascades(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D32_FLOAT)),
     rsmFluxSwizzled(rsmFlux.CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE})),
     rsmNormalSwizzled(rsmNormal.CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE})),
@@ -97,7 +97,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     shadowMainPipeline(Pipelines::ShadowMain()),
     materialDepthPipeline(Pipelines::MaterialDepth()),
     visbufferResolvePipeline(Pipelines::VisbufferResolve()),
-    //rsmScenePipeline(CreateShadowPipeline()),
+    // rsmScenePipeline(CreateShadowPipeline()),
     shadingPipeline(Pipelines::Shading()),
     tonemapPipeline(Pipelines::Tonemap()),
     debugTexturePipeline(Pipelines::DebugTexture()),
@@ -115,7 +115,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
       .context = vsmContext,
       .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
       .numClipmaps = 1,
-    })
+    }),
+    vsmShadowPipeline(Pipelines::ShadowVsm())
 {
   ZoneScoped;
   int x = 0;
@@ -494,10 +495,10 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   shadowUniformsBuffer.UpdateData(shadowUniforms);
 
-  glm::vec3 eye = glm::vec3{shadingUniforms.sunDir * -5.f};
+  glm::vec3 eye = glm::vec3{shadingUniforms.sunDir * 5.f};
   float eyeWidth = 7.0f;
   // shadingUniforms.viewPos = glm::vec4(camera.position, 0);
-  shadingUniforms.sunProj = glm::orthoZO(-eyeWidth, eyeWidth, -eyeWidth, eyeWidth, -100.0f, 100.f);
+  shadingUniforms.sunProj = glm::orthoZO(-eyeWidth, eyeWidth, -eyeWidth, eyeWidth, -10.0f, 10.f);
   shadingUniforms.sunView = glm::lookAt(eye, glm::vec3(0), glm::vec3{0, 1, 0});
   shadingUniforms.sunViewProj = shadingUniforms.sunProj * shadingUniforms.sunView;
   shadingUniformsBuffer.UpdateData(shadingUniforms);
@@ -549,7 +550,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       });
   }
 
-   vsmSun.Update(eye, 10);
+   vsmSun.Update(-shadingUniforms.sunDir, 10);
 
    vsmContext.ResetPageVisibility();
    vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
@@ -566,7 +567,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
-      Fwog::Cmd::BindGraphicsPipeline(shadowMainPipeline);
+      Fwog::Cmd::BindGraphicsPipeline(vsmShadowPipeline);
       Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
       Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
       Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
@@ -582,7 +583,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   auto shadowAttachment = Fwog::RenderDepthStencilAttachment{
     .texture = shadowCascades,
     .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = {.depth = FAR_DEPTH},
+    .clearValue = {.depth = 1.0},
   };
   Fwog::Render(
     {

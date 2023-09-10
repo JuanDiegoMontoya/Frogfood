@@ -16,7 +16,7 @@ void main()
     return;
   }
 
-  uint pageData = imageLoad(i_pageTables, gid).x;
+  const uint pageData = imageLoad(i_pageTables, gid).x;
 
   if (GetIsPageBacked(pageData) && GetIsPageDirty(pageData))
   {

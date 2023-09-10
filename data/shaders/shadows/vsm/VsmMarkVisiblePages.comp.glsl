@@ -18,18 +18,28 @@ void main()
     return;
   }
 
-  const PageDataAndAddress info = GetClipmapPageFromDepth(s_gDepth, gid);
-
-  if (GetIsPageBacked(info.pageData) == false)
+  PageAddress addr;
+  if (!GetClipmapPageFromDepth(s_gDepth, gid, addr))
   {
     return;
   }
 
-  if (GetIsPageVisible(info.pageData) == false)
+  const uint pageData = imageAtomicOr(i_pageTables, addr.pageAddress, 1);
+
+  if (!GetIsPageVisible(pageData))
   {
-    VsmPageAllocRequest request;
-    request.pageTableAddress = info.pageAddress;
-    request.pageTableLevel = 0; // TODO: change for lower-res clipmaps
-    TryPushAllocRequest(request);
+    if (GetIsPageBacked(pageData))
+    {
+      // Mark visible in bitmask so allocator doesn't overwrite
+      const uint physicalAddress = GetPagePhysicalAddress(pageData);
+      atomicOr(visiblePagesBitmask.data[physicalAddress / 32], 1 << (physicalAddress % 32));
+    }
+    else
+    {
+      VsmPageAllocRequest request;
+      request.pageTableAddress = addr.pageAddress;
+      request.pageTableLevel = 0; // TODO: change for lower-res clipmaps
+      TryPushAllocRequest(request);
+    }
   }
 }

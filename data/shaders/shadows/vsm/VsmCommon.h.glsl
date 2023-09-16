@@ -6,10 +6,11 @@
 #define VSM_COMMON_H
 
 #define MAX_CLIPMAPS 32
+#define PAGE_SIZE 128
 
 ////////////// Resources
 layout(binding = 0, r32ui) uniform restrict uimage2DArray i_pageTables;
-layout(binding = 1, r32ui) uniform restrict uimage2DArray i_physicalPages;
+layout(binding = 1, r32ui) uniform restrict uimage2D i_physicalPages;
 
 layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUniforms
 {
@@ -129,10 +130,32 @@ bool TryPushPageClear(uint pageIndex)
   return true;
 }
 
+uint LoadPageTexel(ivec2 texel, uint page)
+{
+  const int atlasWidth = imageSize(i_physicalPages).x / PAGE_SIZE;
+  const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
+  return imageLoad(i_physicalPages, pageCorner + texel).x;
+}
+
+void StorePageTexel(ivec2 texel, uint page, uint value)
+{
+  const int atlasWidth = imageSize(i_physicalPages).x / PAGE_SIZE;
+  const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
+  imageStore(i_physicalPages, pageCorner + texel, uvec4(value, 0, 0, 0));
+}
+
+uint AtomicMinPageTexel(ivec2 texel, uint page, uint value)
+{
+  const int atlasWidth = imageSize(i_physicalPages).x / PAGE_SIZE;
+  const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
+  return imageAtomicMin(i_physicalPages, pageCorner + texel, value);
+}
+
 struct PageAddress
 {
   ivec3 pageAddress;
   vec2 pageUv;
+  float projectedDepth;
   uint clipmapLevel;
 };
 
@@ -174,8 +197,8 @@ bool GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid, out PageAddress a
 
   // LSB (bit 0): set to 1 if page is visible
   addr.pageAddress = pageAddress;
-  const ivec2 pageSize = imageSize(i_physicalPages).xy;
-  addr.pageUv = pageSize * mod(posLightUv, 1.0 / pageSize);
+  addr.pageUv = PAGE_SIZE * mod(posLightUv, 1.0 / PAGE_SIZE);
+  addr.projectedDepth = posLightC.z / posLightC.w;
   addr.clipmapLevel = clipmapLevel;
 
   return true;

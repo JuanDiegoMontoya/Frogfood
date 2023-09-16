@@ -17,5 +17,5 @@ void main()
   }
 
   const uint pageAddress = dirtyPageList.data[gid.z];
-  imageStore(i_physicalPages, ivec3(gid.xy, pageAddress), uvec4(floatBitsToUint(1.0)));
+  StorePageTexel(gid.xy, pageAddress, -1);
 }

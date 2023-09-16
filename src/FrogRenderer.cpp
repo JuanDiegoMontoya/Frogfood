@@ -459,7 +459,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 
-  static constexpr auto viewCount = 2; // TODO: don't hardcode
+  static constexpr auto viewCount = 3; // TODO: don't hardcode
   std::array<View, gMaxViews> views = {};
   views[0] = { // Main View
     .proj = projUnjittered,
@@ -495,7 +495,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   shadowUniformsBuffer.UpdateData(shadowUniforms);
 
-  glm::vec3 eye = glm::vec3{shadingUniforms.sunDir * 5.f};
+  glm::vec3 eye = glm::vec3{shadingUniforms.sunDir * -5.f};
   float eyeWidth = 7.0f;
   // shadingUniforms.viewPos = glm::vec4(camera.position, 0);
   shadingUniforms.sunProj = glm::orthoZO(-eyeWidth, eyeWidth, -eyeWidth, eyeWidth, -10.0f, 10.f);
@@ -511,6 +511,18 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     .viewport = {0.0f, 0.0f, static_cast<float>(gShadowmapWidth), static_cast<float>(gShadowmapHeight)},
   };
   MakeFrustumPlanes(shadingUniforms.sunViewProj, views[1].frustumPlanes);
+
+  vsmSun.Update(shadingUniforms.sunView, 10);
+
+  views[2] = {
+    // VSM clipmap 0
+    .proj = vsmSun.GetProjections()[0],
+    .view = shadingUniforms.sunView,
+    .viewProj = vsmSun.GetProjections()[0] * shadingUniforms.sunView,
+    .cameraPos = {}, // unused
+    .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
+  };
+  MakeFrustumPlanes(shadingUniforms.sunViewProj, views[2].frustumPlanes);
 
   viewBuffer->UpdateData(std::span<const View>(views));
 
@@ -550,8 +562,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       });
   }
 
-   vsmSun.Update(-shadingUniforms.sunDir, 10);
-
    vsmContext.ResetPageVisibility();
    vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
    vsmContext.AllocateRequestedPages();
@@ -567,6 +577,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
       Fwog::Cmd::BindGraphicsPipeline(vsmShadowPipeline);
       Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
       Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
@@ -577,7 +588,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
       vsmSun.BindResourcesForDrawing();
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
-      Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
+      Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 2 * sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
     });
 
   auto shadowAttachment = Fwog::RenderDepthStencilAttachment{
@@ -886,6 +897,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
       Fwog::Cmd::BindGraphicsPipeline(shadingPipeline);
       Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
       Fwog::Cmd::BindSampledImage("s_gNormal", *frame.gNormal, nearestSampler);

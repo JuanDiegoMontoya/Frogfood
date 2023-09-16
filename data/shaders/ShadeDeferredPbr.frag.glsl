@@ -7,6 +7,7 @@
 #include "Math.h.glsl"
 #include "Pbr.h.glsl"
 #include "shadows/vsm/VsmCommon.h.glsl"
+#include "Utility.h.glsl"
 
 layout(binding = 0) uniform sampler2D s_gAlbedo;
 layout(binding = 1) uniform sampler2D s_gNormal;
@@ -54,37 +55,53 @@ layout(binding = 6, std430) readonly buffer LightBuffer
   GpuLight lights[];
 }lightBuffer;
 
-float ShadowVsm(vec3 fragWorldPos, out uint pageData)
+struct ShadowVsmOut
 {
-  pageData = 0;
+  float shadow;
+  uint pageData;
+  vec2 vsmUv;
+  float shadowDepth;
+  float projectedDepth;
+};
+
+ShadowVsmOut ShadowVsm(vec3 fragWorldPos)
+{
+  ShadowVsmOut ret;
+  ret.pageData = 0;
+  ret.vsmUv = vec2(0);
+  ret.shadowDepth = 0;
+  ret.projectedDepth = 0;
+
   PageAddress addr;
 
   if (!GetClipmapPageFromDepth(s_gDepth, ivec2(gl_FragCoord.xy), addr))
   {
-    return 1.0;
+    ret.shadow = 1.0;
+    return ret;
   }
 
-  const mat4 lightViewProj = clipmapUniforms.clipmapViewProjections[addr.clipmapLevel];
+  ret.vsmUv = addr.pageUv;
+  ret.projectedDepth = addr.projectedDepth;
+
+  ret.pageData = imageLoad(i_pageTables, addr.pageAddress).x;
+  if (!GetIsPageBacked(ret.pageData))
+  {
+    ret.shadow = 1.0;
+    return ret;
+  }
   
-  const vec4 clip = lightViewProj * vec4(fragWorldPos, 1.0);
-  const vec2 uv = clip.xy * .5 + .5;
-  if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1)
+  const ivec2 pageTexel = ivec2(addr.pageUv * PAGE_SIZE);
+  const uint physicalAddress = GetPagePhysicalAddress(ret.pageData);
+  ret.shadowDepth = uintBitsToFloat(LoadPageTexel(pageTexel, physicalAddress));
+
+  if (ret.shadowDepth + 1e-2 < ret.projectedDepth)
   {
-    return 0;
+    ret.shadow = 0.0;
+    return ret;
   }
 
-  const ivec2 pageSize = imageSize(i_physicalPages).xy;
-  const ivec2 pageTexel = ivec2(addr.pageUv * pageSize);
-  pageData = imageLoad(i_pageTables, addr.pageAddress).x;
-  const uint physicalAddress = GetPagePhysicalAddress(pageData);
-  const float shadowDepth = uintBitsToFloat(imageLoad(i_physicalPages, ivec3(pageTexel, physicalAddress)).x);
-
-  if (shadowDepth < clip.z + 1e-4)
-  {
-    return 0;
-  }
-
-  return 1;
+  ret.shadow = 1.0;
+  return ret;
 }
 
 float ShadowPCF(vec2 uv, float viewDepth, float bias)
@@ -223,9 +240,9 @@ void main()
   vec3 diffuse = albedo * cosTheta * shadingUniforms.sunStrength.rgb;
 
   //float shadow = Shadow(fragWorldPos, normal, -shadingUniforms.sunDir.xyz);
-  uint pageData;
-  float shadow = ShadowVsm(fragWorldPos, pageData);
-  //shadow = 1;
+  ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos);
+  float shadowSun = shadowVsm.shadow;
+  //shadowSun = 0;
   
   vec3 viewDir = normalize(perFrameUniforms.cameraPos.xyz - fragWorldPos);
   
@@ -241,17 +258,42 @@ void main()
   vec3 finalColor = vec3(.03) * albedo * metallicRoughnessAo.z; // Ambient lighting
 
   float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
-  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * shadingUniforms.sunStrength.rgb * NoL_sun;
+  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * shadingUniforms.sunStrength.rgb * NoL_sun * shadowSun;
   finalColor += LocalLightIntensity(viewDir, surface);
   finalColor += emission;
 
   o_color = finalColor;
 
-  o_color *= 0.01;
-  if (GetIsPageVisible(pageData))
-    o_color += vec3(1, 0, 0);
-  if (GetIsPageBacked(pageData))
-    o_color += vec3(0, 1, 0);
-  if (GetIsPageDirty(pageData))
-    o_color += vec3(0, 0, 1);
+  // Disco view (hashed physical address + outline)
+  // if (GetIsPageVisible(shadowVsm.pageData))
+  // {
+  //   const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
+  //   vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(GetPagePhysicalAddress(shadowVsm.pageData)) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
+  //   o_color.rgb += color.rgb;
+
+  //   const vec2 pageUv = fract(shadowVsm.vsmUv * 128);
+  //   if (pageUv.x < .05 || pageUv.y < .05 || pageUv.x > .95 || pageUv.y > .95)
+  //   {
+  //     o_color.rgb = vec3(1, 0, 0);
+  //   }
+  // }
+
+  // UV + shadow map depth view
+  // if (GetIsPageVisible(shadowVsm.pageData))
+  // {
+  //   //o_color *= 0.01;
+  //   o_color.rg = shadowVsm.vsmUv;
+  //   if (GetIsPageBacked(shadowVsm.pageData))
+  //     o_color.rgb = shadowVsm.shadowDepth.rrr;
+  // }
+
+  // Display visible/backed/dirty pages
+  // if (GetIsPageVisible(shadowVsm.pageData))
+  //   o_color += vec3(.1, 0, 0);
+  // if (GetIsPageBacked(shadowVsm.pageData))
+  //   o_color += vec3(0, .1, 0);
+  // if (GetIsPageDirty(shadowVsm.pageData))
+  //   o_color += vec3(0, 0, 1);
+  // if (shadowSun == 0.0)
+  //   o_color = vec3(1, 1, 0);
 }

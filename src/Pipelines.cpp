@@ -3,8 +3,8 @@
 #include "RendererUtilities.h"
 
 // TODO: remove
-#include "SceneLoader.h"
 #include "FrogRenderer.h"
+#include "SceneLoader.h"
 
 #include "shaders/Config.shared.h"
 
@@ -215,25 +215,28 @@ namespace Pipelines
 
     auto blends = {blend0, blend1};
 
-    return Fwog::GraphicsPipeline({.vertexShader = &vs,
-                                   .fragmentShader = &fs,
-                                   .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_STRIP},
-                                   .rasterizationState =
-                                     {
-                                       .polygonMode = Fwog::PolygonMode::LINE,
-                                       .cullMode = Fwog::CullMode::NONE,
-                                       .depthBiasEnable = true,
-                                       .depthBiasConstantFactor = 50.0f,
-                                     },
-                                   .depthState =
-                                     {
-                                       .depthTestEnable = true,
-                                       .depthWriteEnable = false,
-                                       .depthCompareOp = FWOG_COMPARE_OP_NEARER,
-                                     },
-                                   .colorBlendState = {
-                                     .attachments = blends,
-                                   }});
+    return Fwog::GraphicsPipeline({
+      .vertexShader = &vs,
+      .fragmentShader = &fs,
+      .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_STRIP},
+      .rasterizationState =
+        {
+          .polygonMode = Fwog::PolygonMode::LINE,
+          .cullMode = Fwog::CullMode::NONE,
+          .depthBiasEnable = true,
+          .depthBiasConstantFactor = 50.0f,
+        },
+      .depthState =
+        {
+          .depthTestEnable = true,
+          .depthWriteEnable = false,
+          .depthCompareOp = FWOG_COMPARE_OP_NEARER,
+        },
+      .colorBlendState =
+        {
+          .attachments = blends,
+        },
+    });
   }
 
   Fwog::GraphicsPipeline DebugRects()
@@ -253,22 +256,25 @@ namespace Pipelines
 
     auto blends = {blend0, blend1};
 
-    return Fwog::GraphicsPipeline({.vertexShader = &vs,
-                                   .fragmentShader = &fs,
-                                   .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_FAN},
-                                   .rasterizationState =
-                                     {
-                                       .polygonMode = Fwog::PolygonMode::FILL,
-                                       .cullMode = Fwog::CullMode::NONE,
-                                     },
-                                   .depthState =
-                                     {
-                                       .depthTestEnable = true,
-                                       .depthWriteEnable = false,
-                                       .depthCompareOp = FWOG_COMPARE_OP_NEARER,
-                                     },
-                                   .colorBlendState = {
-                                     .attachments = blends,
-                                   }});
+    return Fwog::GraphicsPipeline({
+      .vertexShader = &vs,
+      .fragmentShader = &fs,
+      .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::TRIANGLE_FAN},
+      .rasterizationState =
+        {
+          .polygonMode = Fwog::PolygonMode::FILL,
+          .cullMode = Fwog::CullMode::NONE,
+        },
+      .depthState =
+        {
+          .depthTestEnable = true,
+          .depthWriteEnable = false,
+          .depthCompareOp = FWOG_COMPARE_OP_NEARER,
+        },
+      .colorBlendState =
+        {
+          .attachments = blends,
+        },
+    });
   }
-}
+} // namespace Pipelines

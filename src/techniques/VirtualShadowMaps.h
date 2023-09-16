@@ -33,7 +33,7 @@ namespace Techniques::VirtualShadowMaps
 
     /// TABLE MAPPINGS
     // If there is a free layer, returns its index, otherwise returns nothing
-    std::optional<uint32_t> AllocateLayer();
+    [[nodiscard]] std::optional<uint32_t> AllocateLayer();
     void FreeLayer(uint32_t layerIndex);
     void ResetPageVisibility();
 
@@ -47,7 +47,7 @@ namespace Techniques::VirtualShadowMaps
 
     // Bitmask indicating which layers of the page mappings array are free
     std::vector<uint32_t> freeLayersBitmask_;
-
+    
     // A texture that maps virtual pages to physical memory
     // Each layer and level of the array represents a single VSM
     // Level 0 = 16384x16384 (max)
@@ -58,7 +58,7 @@ namespace Techniques::VirtualShadowMaps
     // Bit 2: is this page allocated? This could be implemented as a special page address
     // Bits 3-15: reserved
     // Bits 16-31: page address from 0 to 2^16-1
-    Fwog::Texture pageMappingsArray_;
+    Fwog::Texture pageTables_;
 
     // Physical memory used to back various VSMs
     Fwog::Texture pages_;
@@ -125,9 +125,19 @@ namespace Techniques::VirtualShadowMaps
 
     // Invalidates ALL pages in the referenced VSMs.
     // Call only when the light itself changes.
-    void Update(glm::vec3 direction, float firstClipmapWidth);
+    void Update(const glm::mat4& viewMat, float firstClipmapWidth);
 
     void BindResourcesForDrawing();
+
+    [[nodiscard]] std::span<const glm::mat4> GetProjections() const noexcept
+    {
+      return clipmapProjections;
+    }
+
+    [[nodiscard]] Fwog::Extent2D GetExtent() const noexcept
+    {
+      return {virtualExtent_, virtualExtent_};
+    }
 
   private:
     struct MarkVisiblePagesDirectionalUniforms
@@ -141,6 +151,7 @@ namespace Techniques::VirtualShadowMaps
     Context& context_;
     uint32_t virtualExtent_;
     MarkVisiblePagesDirectionalUniforms uniforms_{};
+    std::array<glm::mat4, MAX_CLIPMAPS> clipmapProjections{};
     Fwog::TypedBuffer<MarkVisiblePagesDirectionalUniforms> uniformBuffer_;
   };
 } // namespace Techniques::VirtualShadowMaps

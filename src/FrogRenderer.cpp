@@ -114,9 +114,10 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     vsmSun({
       .context = vsmContext,
       .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
-      .numClipmaps = 1,
+      .numClipmaps = 10,
     }),
-    vsmShadowPipeline(Pipelines::ShadowVsm())
+    vsmShadowPipeline(Pipelines::ShadowVsm()),
+    vsmShadowUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE)
 {
   ZoneScoped;
   int x = 0;
@@ -459,7 +460,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 
-  static constexpr auto viewCount = 3; // TODO: don't hardcode
+  const auto viewCount = 2 + vsmSun.NumClipmaps();
+
   std::array<View, gMaxViews> views = {};
   views[0] = { // Main View
     .proj = projUnjittered,
@@ -512,17 +514,20 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   };
   MakeFrustumPlanes(shadingUniforms.sunViewProj, views[1].frustumPlanes);
 
-  vsmSun.Update(shadingUniforms.sunView, 10);
+  vsmSun.UpdateExpensive(shadingUniforms.sunView, 10);
 
-  views[2] = {
-    // VSM clipmap 0
-    .proj = vsmSun.GetProjections()[0],
-    .view = shadingUniforms.sunView,
-    .viewProj = vsmSun.GetProjections()[0] * shadingUniforms.sunView,
-    .cameraPos = {}, // unused
-    .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
-  };
-  MakeFrustumPlanes(shadingUniforms.sunViewProj, views[2].frustumPlanes);
+  for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
+  {
+    views[2 + i] = {
+      // sun vsm 0
+      .proj = vsmSun.GetProjections()[i],
+      .view = shadingUniforms.sunView,
+      .viewProj = vsmSun.GetProjections()[i] * shadingUniforms.sunView,
+      .cameraPos = {}, // unused
+      .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
+    };
+    MakeFrustumPlanes(views[2 + i].viewProj, views[2 + i].frustumPlanes);
+  }
 
   viewBuffer->UpdateData(std::span<const View>(views));
 
@@ -587,8 +592,14 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
       Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
       vsmSun.BindResourcesForDrawing();
+      Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
-      Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 2 * sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
+
+      for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
+      {
+        vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
+        Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, (2 + i) * sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
+      }
     });
 
   auto shadowAttachment = Fwog::RenderDepthStencilAttachment{

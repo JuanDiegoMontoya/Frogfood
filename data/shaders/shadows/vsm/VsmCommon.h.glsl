@@ -18,9 +18,14 @@ layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUnif
   uint clipmapTableIndices[MAX_CLIPMAPS];
   uint numClipmaps;
 
-  // The area, in world space, of a single texel in the first clipmap
-  float firstClipmapTexelArea;
+  // The length, in world space, of a side of single (square) texel in the first clipmap
+  float firstClipmapTexelLength;
 }clipmapUniforms;
+
+layout(binding = 6, std140) uniform VsmGlobalUniforms
+{
+  float lodBias;
+}vsmUniforms;
 
 struct VsmPageAllocRequest
 {
@@ -167,19 +172,17 @@ bool GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid, out PageAddress a
   const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
   const vec2 uvTopLeft = uvCenter + vec2(-texel.x, texel.y) * 0.5;
   const vec2 uvTopRight = uvCenter + vec2(texel.x, texel.y) * 0.5;
-  const vec2 uvBottomLeft = uvCenter + vec2(texel.x, -texel.y) * 0.5;
 
   const float depth = texelFetch(depthBuffer, gid, 0).x;
 
   const mat4 invProj = inverse(perFrameUniforms.proj);
   const vec3 topLeftV = UnprojectUV_ZO(depth, uvTopLeft, invProj);
   const vec3 topRightV = UnprojectUV_ZO(depth, uvTopRight, invProj);
-  const vec3 bottomLeftV = UnprojectUV_ZO(depth, uvBottomLeft, invProj);
 
-  const float projArea = distance(topLeftV, topRightV) * distance(topLeftV, bottomLeftV);
+  const float projLength = distance(topLeftV, topRightV);
 
-  // Assume each clipmap is 2x the size of the previous
-  const uint clipmapLevel = clamp(uint(ceil(log2(projArea / clipmapUniforms.firstClipmapTexelArea))), 0, clipmapUniforms.numClipmaps - 1);
+  // Assume each clipmap is 2x the side length of the previous
+  const uint clipmapLevel = clamp(uint(ceil(vsmUniforms.lodBias + log2(projLength / clipmapUniforms.firstClipmapTexelLength))), 0, clipmapUniforms.numClipmaps - 1);
   const uint clipmapIndex = clipmapUniforms.clipmapTableIndices[clipmapLevel];
 
   const vec3 posW = UnprojectUV_ZO(depth, uvCenter, perFrameUniforms.invViewProj);

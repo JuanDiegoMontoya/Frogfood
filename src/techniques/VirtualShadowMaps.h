@@ -31,6 +31,14 @@ namespace Techniques::VirtualShadowMaps
 
     explicit Context(const CreateInfo& createInfo);
 
+    struct VsmGlobalUniforms
+    {
+      float lodBias{};
+      char _padding[12]{};
+    };
+
+    void UpdateUniforms(const VsmGlobalUniforms& uniforms);
+
     /// TABLE MAPPINGS
     // If there is a free layer, returns its index, otherwise returns nothing
     [[nodiscard]] std::optional<uint32_t> AllocateLayer();
@@ -72,12 +80,7 @@ namespace Techniques::VirtualShadowMaps
     Fwog::Buffer pageVisibleTimeTree_;
 
     /// BUFFERS
-    struct VsmUniforms
-    {
-      glm::mat4 invViewProj;
-      glm::mat4 invProj;
-    };
-    Fwog::TypedBuffer<VsmUniforms> uniformBuffer_;
+    Fwog::TypedBuffer<VsmGlobalUniforms> uniformBuffer_;
 
     struct PageAllocRequest
     {
@@ -124,19 +127,29 @@ namespace Techniques::VirtualShadowMaps
     void MarkVisiblePages(const Fwog::Texture& gDepth, const Fwog::Buffer& globalUniforms);
 
     // Invalidates ALL pages in the referenced VSMs.
-    // Call only when the light itself changes.
-    void Update(const glm::mat4& viewMat, float firstClipmapWidth);
+    // Call only when the light itself changes, since this invalidates ALL pages
+    void UpdateExpensive(const glm::mat4& viewMat, float firstClipmapWidth);
 
     void BindResourcesForDrawing();
 
     [[nodiscard]] std::span<const glm::mat4> GetProjections() const noexcept
     {
-      return clipmapProjections;
+      return {clipmapProjections.data(), numClipmaps_};
+    }
+
+    [[nodiscard]] std::span<const uint32_t> GetClipmapTableIndices() const noexcept
+    {
+      return {uniforms_.clipmapTableIndices.data(), numClipmaps_};
     }
 
     [[nodiscard]] Fwog::Extent2D GetExtent() const noexcept
     {
       return {virtualExtent_, virtualExtent_};
+    }
+
+    [[nodiscard]] uint32_t NumClipmaps() const noexcept
+    {
+      return numClipmaps_;
     }
 
   private:
@@ -145,10 +158,12 @@ namespace Techniques::VirtualShadowMaps
       std::array<glm::mat4, MAX_CLIPMAPS> clipmapViewProjections;
       std::array<uint32_t, MAX_CLIPMAPS> clipmapTableIndices;
       uint32_t numClipmaps;
-      float firstClipmapTexelArea;
+      float firstClipmapTexelLength;
+      float lodBias;
     };
 
     Context& context_;
+    uint32_t numClipmaps_;
     uint32_t virtualExtent_;
     MarkVisiblePagesDirectionalUniforms uniforms_{};
     std::array<glm::mat4, MAX_CLIPMAPS> clipmapProjections{};

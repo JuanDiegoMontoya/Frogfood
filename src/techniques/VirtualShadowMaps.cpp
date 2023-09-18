@@ -76,7 +76,7 @@ namespace Techniques::VirtualShadowMaps
       pages_(Fwog::CreateTexture2D({(uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize, (uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize}, Fwog::Format::R32_UINT, "VSM Physical Pages")),
       visiblePagesBitmask_(sizeof(uint32_t) * createInfo.numPages / 32),
       pageVisibleTimeTree_(sizeof(uint32_t) * createInfo.numPages * 2),
-      uniformBuffer_(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
+      uniformBuffer_(VsmGlobalUniforms{}, Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
       pageAllocRequests_(sizeof(PageAllocRequest) * (createInfo.numPages + 1)),
       pagesToClear_(sizeof(uint32_t) + sizeof(uint32_t) * createInfo.numPages),
       pageClearDispatchParams_(Fwog::DispatchIndirectCommand{pageSize / 8, pageSize / 8, 0}),
@@ -97,6 +97,11 @@ namespace Techniques::VirtualShadowMaps
     pages_.ClearImage({});
     visiblePagesBitmask_.FillData();
     pageVisibleTimeTree_.FillData();
+  }
+
+  void Context::UpdateUniforms(const VsmGlobalUniforms& uniforms)
+  {
+    uniformBuffer_.UpdateData(uniforms);
   }
 
   std::optional<uint32_t> Context::AllocateLayer()
@@ -189,6 +194,7 @@ namespace Techniques::VirtualShadowMaps
 
   DirectionalVirtualShadowMap::DirectionalVirtualShadowMap(const CreateInfo& createInfo)
     : context_(createInfo.context),
+      numClipmaps_(createInfo.numClipmaps),
       virtualExtent_(createInfo.virtualExtent),
       uniformBuffer_(Fwog::BufferStorageFlag::DYNAMIC_STORAGE)
   {
@@ -222,23 +228,21 @@ namespace Techniques::VirtualShadowMaps
         Fwog::Cmd::BindStorageBuffer("VsmVisiblePagesBitmask", context_.visiblePagesBitmask_);
         Fwog::Cmd::BindStorageBuffer("VsmPageAllocRequests", context_.pageAllocRequests_);
         Fwog::Cmd::BindStorageBuffer("VsmMarkPagesDirectionalUniforms", uniformBuffer_);
+        Fwog::Cmd::BindUniformBuffer("VsmGlobalUniforms", context_.uniformBuffer_);
         Fwog::Cmd::BindUniformBuffer(0, globalUniforms);
         Fwog::Cmd::DispatchInvocations(gDepth.Extent());
       });
   }
 
-  void DirectionalVirtualShadowMap::Update(const glm::mat4& viewMat, float firstClipmapWidth)
+  void DirectionalVirtualShadowMap::UpdateExpensive(const glm::mat4& viewMat, float firstClipmapWidth)
   {
     const auto sideLength = firstClipmapWidth / virtualExtent_;
-    uniforms_.firstClipmapTexelArea = sideLength * sideLength;
-    
-    //const auto view = glm::inverse(glm::mat4_cast(glm::angleAxis(0.0f, glm::normalize(-direction))));
-    //const auto view = glm::lookAt(direction * -5.f, glm::vec3(0), glm::vec3(0, 1, 0));
+    uniforms_.firstClipmapTexelLength = sideLength;
     
     for (uint32_t i = 0; i < uniforms_.numClipmaps; i++)
     {
       const auto width = firstClipmapWidth * (1 << i) / 2.0f;
-      clipmapProjections[i] = glm::orthoZO(-width, width, -width, width, -1.f, 10.f);
+      clipmapProjections[i] = glm::orthoZO(-width, width, -width, width, -100.f, 100.f);
       
       uniforms_.clipmapViewProjections[i] = clipmapProjections[i] * viewMat;
     }
@@ -257,6 +261,7 @@ namespace Techniques::VirtualShadowMaps
   void DirectionalVirtualShadowMap::BindResourcesForDrawing()
   {
     Fwog::Cmd::BindStorageBuffer(5, uniformBuffer_);
+    Fwog::Cmd::BindUniformBuffer(6, context_.uniformBuffer_);
     Fwog::Cmd::BindImage(0, context_.pageTables_, 0);
     Fwog::Cmd::BindImage(1, context_.pages_, 0);
   }

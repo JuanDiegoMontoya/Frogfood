@@ -55,6 +55,16 @@ layout(binding = 6, std430) readonly buffer LightBuffer
   GpuLight lights[];
 }lightBuffer;
 
+// Returns a shadow bias in the space of whatever texelWidth is in.
+// For example, if texelWidth is 0.125 units in world space, the bias will be in world space too.
+float GetShadowBias(vec3 N, vec3 L, float texelWidth)
+{
+  const float quantize = 2.0 / (1 << 23);
+  const float b = texelWidth / 2.0;
+  const float NoL = clamp(dot(N, L), 0.0, 1.0);
+  return quantize + b * length(cross(L, N)) / NoL;
+}
+
 struct ShadowVsmOut
 {
   float shadow;
@@ -62,9 +72,10 @@ struct ShadowVsmOut
   vec2 vsmUv;
   float shadowDepth;
   float projectedDepth;
+  uint clipmapLevel;
 };
 
-ShadowVsmOut ShadowVsm(vec3 fragWorldPos)
+ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
 {
   ShadowVsmOut ret;
   ret.pageData = 0;
@@ -82,6 +93,7 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos)
 
   ret.vsmUv = addr.pageUv;
   ret.projectedDepth = addr.projectedDepth;
+  ret.clipmapLevel = addr.clipmapLevel;
 
   ret.pageData = imageLoad(i_pageTables, addr.pageAddress).x;
   if (!GetIsPageBacked(ret.pageData))
@@ -94,7 +106,12 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos)
   const uint physicalAddress = GetPagePhysicalAddress(ret.pageData);
   ret.shadowDepth = uintBitsToFloat(LoadPageTexel(pageTexel, physicalAddress));
 
-  if (ret.shadowDepth + 1e-2 < ret.projectedDepth)
+  const float magicForFarClipmaps = 0.2;
+  const float magicConstantBias = 2.0 / (1 << 23);
+  const float halfOrthoFrustumLength = 200.0 / 2;
+  const float shadowTexelSize = exp2(addr.clipmapLevel + magicForFarClipmaps) * clipmapUniforms.firstClipmapTexelLength;
+  const float bias = magicConstantBias + GetShadowBias(normal, -shadingUniforms.sunDir.xyz, shadowTexelSize) / halfOrthoFrustumLength;
+  if (ret.shadowDepth + bias < ret.projectedDepth)
   {
     ret.shadow = 0.0;
     return ret;
@@ -191,12 +208,9 @@ float Shadow(vec3 fragWorldPos, vec3 normal, vec3 lightDir)
 
   // Analytically compute slope-scaled bias
   const float maxBias = 0.0008;
-  const float quantize = 2.0 / (1 << 23);
-  ivec2 res = textureSize(s_rsmDepth, 0);
-  float b = 1.0 / max(res.x, res.y) / 2.0;
-  float NoD = clamp(-dot(shadingUniforms.sunDir.xyz, normal), 0.0, 1.0);
-  float bias = quantize + b * length(cross(-shadingUniforms.sunDir.xyz, normal)) / NoD;
-  bias = min(bias, maxBias);
+  float bias = maxBias;
+  //float bias = GetShadowBias(normal, -shadingUniforms.sunDir.xyz, textureSize(s_rsmDepthShadow, 0));
+  //bias = min(bias, maxBias);
 
   switch (shadowUniforms.shadowMode)
   {
@@ -240,7 +254,7 @@ void main()
   vec3 diffuse = albedo * cosTheta * shadingUniforms.sunStrength.rgb;
 
   //float shadow = Shadow(fragWorldPos, normal, -shadingUniforms.sunDir.xyz);
-  ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos);
+  ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, normal);
   float shadowSun = shadowVsm.shadow;
   //shadowSun = 0;
   
@@ -264,18 +278,21 @@ void main()
 
   o_color = finalColor;
 
-  // Disco view (hashed physical address + outline)
+  // Disco view (hashed physical address or clipmap level)
   // if (GetIsPageVisible(shadowVsm.pageData))
   // {
   //   const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
-  //   vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(GetPagePhysicalAddress(shadowVsm.pageData)) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
-  //   o_color.rgb += color.rgb;
+  //   //vec3 color = 2.0 * hsv_to_rgb(vec3(float(GetPagePhysicalAddress(shadowVsm.pageData)) * GOLDEN_CONJ, 0.875, 0.85));
+  //   vec3 color = 2.0 * hsv_to_rgb(vec3(shadowVsm.clipmapLevel*2 * GOLDEN_CONJ, 0.875, 0.85));
+  //   //vec4 color = 
+  //   o_color.rgb += color;
+  // }
 
-  //   const vec2 pageUv = fract(shadowVsm.vsmUv * 128);
-  //   if (pageUv.x < .05 || pageUv.y < .05 || pageUv.x > .95 || pageUv.y > .95)
-  //   {
-  //     o_color.rgb = vec3(1, 0, 0);
-  //   }
+  // Page outlines  
+  // const vec2 pageUv = fract(shadowVsm.vsmUv);
+  // if (pageUv.x < .02 || pageUv.y < .02 || pageUv.x > .98 || pageUv.y > .98)
+  // {
+  //   o_color.rgb = vec3(1, 0, 0);
   // }
 
   // UV + shadow map depth view
@@ -293,7 +310,7 @@ void main()
   // if (GetIsPageBacked(shadowVsm.pageData))
   //   o_color += vec3(0, .1, 0);
   // if (GetIsPageDirty(shadowVsm.pageData))
-  //   o_color += vec3(0, 0, 1);
+  //   o_color += vec3(0, 0, .1);
   // if (shadowSun == 0.0)
   //   o_color = vec3(1, 1, 0);
 }

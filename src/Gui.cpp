@@ -492,6 +492,19 @@ void FrogRenderer::GuiDrawCameraWindow()
   ImGui::End();
 }
 
+void FrogRenderer::GuiDrawShadowWindow()
+{
+  if (ImGui::Begin(" Shadow"))
+  {
+    ImGui::TextUnformatted("VSM");
+    if (ImGui::SliderFloat("LoD Bias", &vsmUniforms.lodBias, -3, 3, "%.2f"))
+    {
+      vsmContext.UpdateUniforms(vsmUniforms);
+    }
+  }
+  ImGui::End();
+}
+
 void FrogRenderer::OnGui(double dt)
 {
   GuiDrawDockspace();
@@ -625,14 +638,10 @@ void FrogRenderer::OnGui(double dt)
   ImGui::PopStyleVar();
 
   GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y}, viewportIsHovered);
-
   GuiDrawDebugWindow();
-
   GuiDrawLightsArray();
-
   GuiDrawBloomWindow();
-
   GuiDrawAutoExposureWindow();
-
   GuiDrawCameraWindow();
+  GuiDrawShadowWindow();
 }

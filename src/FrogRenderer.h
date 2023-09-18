@@ -128,6 +128,7 @@ private:
   void GuiDrawBloomWindow();
   void GuiDrawAutoExposureWindow();
   void GuiDrawCameraWindow();
+  void GuiDrawShadowWindow();
 
   // constants
   static constexpr int gMaxViews = 16;
@@ -326,4 +327,6 @@ private:
   Techniques::VirtualShadowMaps::Context vsmContext;
   Techniques::VirtualShadowMaps::DirectionalVirtualShadowMap vsmSun;
   Fwog::GraphicsPipeline vsmShadowPipeline;
+  Fwog::TypedBuffer<uint32_t> vsmShadowUniformBuffer;
+  Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};
 };

@@ -63,7 +63,7 @@ namespace Techniques::VirtualShadowMaps
   }
 
   Context::Context(const CreateInfo& createInfo)
-    : freeLayersBitmask_(size_t(std::ceilf(float(createInfo.maxVsms) / 32)), 0xFFFFFFu),
+    : freeLayersBitmask_(size_t(std::ceil(float(createInfo.maxVsms) / 32)), 0xFFFFFFu),
       pageTables_(
         Fwog::TextureCreateInfo{
           .imageType = Fwog::ImageType::TEX_2D_ARRAY,
@@ -164,32 +164,26 @@ namespace Techniques::VirtualShadowMaps
   void Context::ClearDirtyPages()
   {
     // TODO: fix this
-    //Fwog::Compute(
-    //  "VSM Enqueue and Clear Dirty Pages",
-    //  [&]
-    //  {
-    //    Fwog::Cmd::BindComputePipeline(listDirtyPages_);
-    //    Fwog::MemoryBarrier(Barrier::SHADER_STORAGE_BIT | Barrier::IMAGE_ACCESS_BIT);
-    //    Fwog::Cmd::BindImage("i_pageTables", pageTables_, 0);
-    //    Fwog::Cmd::BindStorageBuffer("VsmDirtyPageList", pagesToClear_);
-    //    Fwog::Cmd::BindStorageBuffer("VsmPageClearDispatchParams", pageClearDispatchParams_);
-    //    Fwog::Cmd::DispatchInvocations(pageTables_.Extent().width, pageTables_.Extent().height, pageTables_.GetCreateInfo().arrayLayers);
+    Fwog::Compute(
+      "VSM Enqueue and Clear Dirty Pages",
+      [&]
+      {
+        Fwog::Cmd::BindComputePipeline(listDirtyPages_);
+        Fwog::MemoryBarrier(Barrier::SHADER_STORAGE_BIT | Barrier::IMAGE_ACCESS_BIT);
+        Fwog::Cmd::BindImage("i_pageTables", pageTables_, 0);
+        Fwog::Cmd::BindStorageBuffer("VsmDirtyPageList", pagesToClear_);
+        Fwog::Cmd::BindStorageBuffer("VsmPageClearDispatchParams", pageClearDispatchParams_);
+        Fwog::Cmd::DispatchInvocations(pageTables_.Extent().width, pageTables_.Extent().height, pageTables_.GetCreateInfo().arrayLayers);
 
-    //    Fwog::Cmd::BindComputePipeline(clearDirtyPages_);
-    //    Fwog::MemoryBarrier(Barrier::COMMAND_BUFFER_BIT | Barrier::SHADER_STORAGE_BIT);
-    //    Fwog::Cmd::BindImage("i_physicalPages", pages_, 0);
-    //    Fwog::Cmd::DispatchIndirect(pageClearDispatchParams_, 0);
+        Fwog::Cmd::BindComputePipeline(clearDirtyPages_);
+        Fwog::MemoryBarrier(Barrier::COMMAND_BUFFER_BIT | Barrier::SHADER_STORAGE_BIT);
+        Fwog::Cmd::BindImage("i_physicalPages", pages_, 0);
+        Fwog::Cmd::DispatchIndirect(pageClearDispatchParams_, 0);
 
-    //    Fwog::MemoryBarrier(Barrier::BUFFER_UPDATE_BIT);
-    //    pageClearDispatchParams_.FillData({.offset = offsetof(Fwog::DispatchIndirectCommand, groupCountZ), .size = sizeof(uint32_t)});
-    //    pagesToClear_.FillData({.offset = 0, .size = sizeof(uint32_t)});
-    //  });
-
-    Fwog::MemoryBarrier(Barrier::IMAGE_ACCESS_BIT | Barrier::BUFFER_UPDATE_BIT);
-    pageClearDispatchParams_.FillData({.offset = offsetof(Fwog::DispatchIndirectCommand, groupCountZ), .size = sizeof(uint32_t)});
-    pagesToClear_.FillData({.offset = 0, .size = sizeof(uint32_t)});
-    constexpr uint32_t beeg = ~0u;
-    pages_.ClearImage({.data = &beeg});
+        Fwog::MemoryBarrier(Barrier::BUFFER_UPDATE_BIT);
+        pageClearDispatchParams_.FillData({.offset = offsetof(Fwog::DispatchIndirectCommand, groupCountZ), .size = sizeof(uint32_t)});
+        pagesToClear_.FillData({.offset = 0, .size = sizeof(uint32_t)});
+      });
   }
 
   DirectionalVirtualShadowMap::DirectionalVirtualShadowMap(const CreateInfo& createInfo)

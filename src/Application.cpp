@@ -294,6 +294,13 @@ Application::Application(const CreateInfo& createInfo)
     TracyGpuZoneTransient(scopeGpu, renderInfo.name.data(), true)
     func();
   };
+  auto fwogRenderNoAttachmentsHook = [](const Fwog::RenderNoAttachmentsInfo& renderInfo, const std::function<void()>& func)
+  {
+    ZoneTransientN(scope, renderInfo.name.data(), true);
+    ZoneColorV(scope, 0xFF3000);
+    TracyGpuZoneTransient(scopeGpu, renderInfo.name.data(), true)
+    func();
+  };
   auto fwogComputeHook = [](std::string_view name, const std::function<void()>& func)
   {
     ZoneTransientN(scope, name.data(), true);
@@ -305,6 +312,7 @@ Application::Application(const CreateInfo& createInfo)
     .verboseMessageCallback = fwogCallback,
     .renderToSwapchainHook = fwogRenderToSwapchainHook,
     .renderHook = fwogRenderHook,
+    .renderNoAttachmentsHook = fwogRenderNoAttachmentsHook,
     .computeHook = fwogComputeHook,
   });
 

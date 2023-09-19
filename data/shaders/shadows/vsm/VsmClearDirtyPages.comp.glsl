@@ -11,7 +11,7 @@ void main()
 {
   const ivec3 gid = ivec3(gl_GlobalInvocationID.xyz);
 
-  if (any(greaterThanEqual(gid, imageSize(i_pageTables))))
+  if (any(greaterThanEqual(gid.xy, ivec2(PAGE_SIZE))))
   {
     return;
   }

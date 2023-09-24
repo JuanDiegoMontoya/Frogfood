@@ -83,13 +83,7 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   ret.shadowDepth = 0;
   ret.projectedDepth = 0;
 
-  PageAddress addr;
-
-  if (!GetClipmapPageFromDepth(s_gDepth, ivec2(gl_FragCoord.xy), addr))
-  {
-    ret.shadow = 1.0;
-    return ret;
-  }
+  PageAddressInfo addr = GetClipmapPageFromDepth(s_gDepth, ivec2(gl_FragCoord.xy));
 
   ret.vsmUv = addr.pageUv;
   ret.projectedDepth = addr.projectedDepth;
@@ -279,21 +273,21 @@ void main()
   o_color = finalColor;
 
   // Disco view (hashed physical address or clipmap level)
-  // if (GetIsPageVisible(shadowVsm.pageData))
-  // {
-  //   const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
-  //   //vec3 color = 2.0 * hsv_to_rgb(vec3(float(GetPagePhysicalAddress(shadowVsm.pageData)) * GOLDEN_CONJ, 0.875, 0.85));
-  //   vec3 color = 2.0 * hsv_to_rgb(vec3(shadowVsm.clipmapLevel*2 * GOLDEN_CONJ, 0.875, 0.85));
-  //   //vec4 color = 
-  //   o_color.rgb += color;
-  // }
+  if (GetIsPageVisible(shadowVsm.pageData))
+  {
+    const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
+    //vec3 color = 2.0 * hsv_to_rgb(vec3(float(GetPagePhysicalAddress(shadowVsm.pageData)) * GOLDEN_CONJ, 0.875, 0.85));
+    vec3 color = 2.0 * hsv_to_rgb(vec3(shadowVsm.clipmapLevel*2 * GOLDEN_CONJ, 0.875, 0.85));
+    //vec4 color = 
+    o_color.rgb += color;
+  }
 
   // Page outlines  
-  // const vec2 pageUv = fract(shadowVsm.vsmUv);
-  // if (pageUv.x < .02 || pageUv.y < .02 || pageUv.x > .98 || pageUv.y > .98)
-  // {
-  //   o_color.rgb = vec3(1, 0, 0);
-  // }
+  const vec2 pageUv = fract(shadowVsm.vsmUv);
+  if (pageUv.x < .02 || pageUv.y < .02 || pageUv.x > .98 || pageUv.y > .98)
+  {
+    o_color.rgb = vec3(1, 0, 0);
+  }
 
   // UV + shadow map depth view
   // if (GetIsPageVisible(shadowVsm.pageData))

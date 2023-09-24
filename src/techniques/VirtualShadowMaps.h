@@ -130,11 +130,19 @@ namespace Techniques::VirtualShadowMaps
     // Call only when the light itself changes, since this invalidates ALL pages
     void UpdateExpensive(const glm::mat4& viewMat, float firstClipmapWidth);
 
+    // Cheap, call every frame
+    void UpdateOffset(const glm::mat4& viewMatNoTranslation, glm::vec3 worldOffset, glm::vec3 dir);
+
     void BindResourcesForDrawing();
 
     [[nodiscard]] std::span<const glm::mat4> GetProjections() const noexcept
     {
       return {clipmapProjections.data(), numClipmaps_};
+    }
+
+    [[nodiscard]] std::span<const glm::mat4> GetViews() const noexcept
+    {
+      return {clipmapViews.data(), numClipmaps_};
     }
 
     [[nodiscard]] std::span<const uint32_t> GetClipmapTableIndices() const noexcept
@@ -157,16 +165,22 @@ namespace Techniques::VirtualShadowMaps
     {
       std::array<glm::mat4, MAX_CLIPMAPS> clipmapViewProjections;
       std::array<uint32_t, MAX_CLIPMAPS> clipmapTableIndices;
+      std::array<glm::ivec2, MAX_CLIPMAPS> clipmapOrigins;
       uint32_t numClipmaps;
       float firstClipmapTexelLength;
-      float lodBias;
     };
 
     Context& context_;
     uint32_t numClipmaps_;
     uint32_t virtualExtent_;
     MarkVisiblePagesDirectionalUniforms uniforms_{};
+
+    // Subsequent projections are 2x larger than the previous on X and Y
     std::array<glm::mat4, MAX_CLIPMAPS> clipmapProjections{};
+
+    // Shifted view matrix of each clipmap
+    std::array<glm::mat4, MAX_CLIPMAPS> clipmapViews{};
+
     Fwog::TypedBuffer<MarkVisiblePagesDirectionalUniforms> uniformBuffer_;
   };
 } // namespace Techniques::VirtualShadowMaps

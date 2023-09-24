@@ -18,11 +18,7 @@ void main()
     return;
   }
 
-  PageAddress addr;
-  if (!GetClipmapPageFromDepth(s_gDepth, gid, addr))
-  {
-    return;
-  }
+  PageAddressInfo addr = GetClipmapPageFromDepth(s_gDepth, gid);
 
   const uint pageData = imageAtomicOr(i_pageTables, addr.pageAddress, 1);
 

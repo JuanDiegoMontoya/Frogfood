@@ -16,6 +16,7 @@ layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUnif
 {
   mat4 clipmapViewProjections[MAX_CLIPMAPS];
   uint clipmapTableIndices[MAX_CLIPMAPS];
+  ivec2 clipmapPageOffsets[MAX_CLIPMAPS];
   uint numClipmaps;
 
   // The length, in world space, of a side of single (square) texel in the first clipmap
@@ -156,7 +157,7 @@ uint AtomicMinPageTexel(ivec2 texel, uint page, uint value)
   return imageAtomicMin(i_physicalPages, pageCorner + texel, value);
 }
 
-struct PageAddress
+struct PageAddressInfo
 {
   ivec3 pageAddress;
   vec2 pageUv;
@@ -166,7 +167,7 @@ struct PageAddress
 
 // Analyzes the provided depth buffer and returns and address and data of a page.
 // Works for clipmaps only.
-bool GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid, out PageAddress addr)
+PageAddressInfo GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid)
 {
   const vec2 texel = 1.0 / textureSize(depthBuffer, 0);
   const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
@@ -187,24 +188,20 @@ bool GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid, out PageAddress a
 
   const vec3 posW = UnprojectUV_ZO(depth, uvCenter, perFrameUniforms.invViewProj);
   const vec4 posLightC = clipmapUniforms.clipmapViewProjections[clipmapLevel] * vec4(posW, 1.0);
-  const vec2 posLightUv = (posLightC.xy / posLightC.w) * 0.5 + 0.5;
-
-  // Sample is outside the clipmap
-  if (any(greaterThanEqual(posLightUv, vec2(1))) || any(lessThan(posLightUv, vec2(0))))
-  {
-    return false;
-  }
+  const vec2 posLightUv = fract((posLightC.xy / posLightC.w) * 0.5 + 0.5);
 
   const ivec2 posLightTexel = ivec2(posLightUv * imageSize(i_pageTables).xy);
   const ivec3 pageAddress = ivec3(posLightTexel, clipmapIndex);
 
-  // LSB (bit 0): set to 1 if page is visible
+  PageAddressInfo addr;
   addr.pageAddress = pageAddress;
-  addr.pageUv = PAGE_SIZE * mod(posLightUv, 1.0 / PAGE_SIZE);
+  // Tile UV across VSM
+  const ivec2 tableSize = imageSize(i_pageTables).xy;
+  addr.pageUv = tableSize * mod(posLightUv, 1.0 / tableSize);
   addr.projectedDepth = posLightC.z / posLightC.w;
   addr.clipmapLevel = clipmapLevel;
 
-  return true;
+  return addr;
 }
 
 #endif // VSM_COMMON_H

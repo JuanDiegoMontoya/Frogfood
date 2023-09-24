@@ -25,6 +25,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
 #include <array>
@@ -152,8 +153,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   if (!filename)
   {
-    Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}), true);
+    Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
@@ -497,14 +498,17 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   shadowUniformsBuffer.UpdateData(shadowUniforms);
 
-  glm::vec3 eye = glm::vec3{shadingUniforms.sunDir * -5.f};
-  float eyeWidth = 7.0f;
+  const glm::vec3 eye = glm::vec3{-shadingUniforms.sunDir};
+  constexpr float eyeWidth = 7.0f;
   // shadingUniforms.viewPos = glm::vec4(camera.position, 0);
   shadingUniforms.sunProj = glm::orthoZO(-eyeWidth, eyeWidth, -eyeWidth, eyeWidth, -10.0f, 10.f);
-  shadingUniforms.sunView = glm::lookAt(eye, glm::vec3(0), glm::vec3{0, 1, 0});
+  //shadingUniforms.sunView = glm::lookAt(eye, glm::vec3(0), glm::vec3{0, 1, 0});
+  shadingUniforms.sunView = glm::lookAt(eye + mainCamera.position, mainCamera.position, glm::vec3{0, 1, 0});
+  //const auto sunViewNoTranslation = glm::translate(shadingUniforms.sunView, mainCamera.position);
+  const auto sunViewNoTranslation = glm::lookAt(eye, glm::vec3(0), glm::vec3{0, 1, 0});
   shadingUniforms.sunViewProj = shadingUniforms.sunProj * shadingUniforms.sunView;
   shadingUniformsBuffer.UpdateData(shadingUniforms);
-
+  
   views[1] = { // Shadow View
     .proj = shadingUniforms.sunProj,
     .view = shadingUniforms.sunView,
@@ -515,14 +519,15 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   MakeFrustumPlanes(shadingUniforms.sunViewProj, views[1].frustumPlanes);
 
   vsmSun.UpdateExpensive(shadingUniforms.sunView, 10);
+  vsmSun.UpdateOffset(sunViewNoTranslation, mainCamera.position, eye);
 
+  // Sun VSMs
   for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
   {
     views[2 + i] = {
-      // sun vsm 0
       .proj = vsmSun.GetProjections()[i],
-      .view = shadingUniforms.sunView,
-      .viewProj = vsmSun.GetProjections()[i] * shadingUniforms.sunView,
+      .view = vsmSun.GetViews()[i],
+      .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViews()[i],
       .cameraPos = {}, // unused
       .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
     };

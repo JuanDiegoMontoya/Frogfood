@@ -8,13 +8,15 @@
 
 layout(binding = 0, std140) uniform VsmShadowUniforms
 {
-  uint vsmIndex;
+  uint clipmapLod;
 };
 
 void main()
 {
-  const ivec2 pageAddressXy = ivec2(gl_FragCoord.xy) / PAGE_SIZE;
-  const uint pageData = imageLoad(i_pageTables, ivec3(pageAddressXy, vsmIndex)).x;
+  const uint clipmapIndex = clipmapUniforms.clipmapTableIndices[clipmapLod];
+  const ivec2 pageOffset = clipmapUniforms.clipmapPageOffsets[clipmapLod];
+  const ivec2 pageAddressXy = (ivec2(gl_FragCoord.xy) / PAGE_SIZE + pageOffset) % imageSize(i_pageTables).xy;
+  const uint pageData = imageLoad(i_pageTables, ivec3(pageAddressXy, clipmapLod)).x;
   const ivec2 pageTexel = ivec2(gl_FragCoord.xy) % PAGE_SIZE;
   if (GetIsPageBacked(pageData) && GetIsPageDirty(pageData))
   {

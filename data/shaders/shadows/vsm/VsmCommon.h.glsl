@@ -171,14 +171,15 @@ PageAddressInfo GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid)
 {
   const vec2 texel = 1.0 / textureSize(depthBuffer, 0);
   const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
-  const vec2 uvTopLeft = uvCenter + vec2(-texel.x, texel.y) * 0.5;
-  const vec2 uvTopRight = uvCenter + vec2(texel.x, texel.y) * 0.5;
+  // Unproject arbitrary, but opposing sides of the pixel (assume square) to compute side length
+  const vec2 uvLeft = uvCenter + vec2(-texel.x, 0) * 0.5;
+  const vec2 uvRight = uvCenter + vec2(texel.x, 0) * 0.5;
 
   const float depth = texelFetch(depthBuffer, gid, 0).x;
 
   const mat4 invProj = inverse(perFrameUniforms.proj);
-  const vec3 topLeftV = UnprojectUV_ZO(depth, uvTopLeft, invProj);
-  const vec3 topRightV = UnprojectUV_ZO(depth, uvTopRight, invProj);
+  const vec3 topLeftV = UnprojectUV_ZO(depth, uvLeft, invProj);
+  const vec3 topRightV = UnprojectUV_ZO(depth, uvRight, invProj);
 
   const float projLength = distance(topLeftV, topRightV);
 

@@ -239,11 +239,11 @@ namespace Techniques::VirtualShadowMaps
     {
       const auto width = firstClipmapWidth * (1 << i) / 2.0f;
       // TODO: increase Z range for higher clipmaps (or for all?)
-      clipmapProjections[i] = glm::orthoZO(-width, width, -width, width, -100.f, 100.f);
+      stableProjections[i] = glm::orthoZO(-width, width, -width, width, -1000.f, 1000.f);
+      clipmapProjections[i] = stableProjections[i];
       
       uniforms_.clipmapViewProjections[i] = clipmapProjections[i] * viewMat;
       uniforms_.clipmapOrigins[i] = {};
-      clipmapViews[i] = viewMat;
     }
 
     uniformBuffer_.UpdateData(uniforms_);
@@ -257,27 +257,23 @@ namespace Techniques::VirtualShadowMaps
     }
   }
 
-  void DirectionalVirtualShadowMap::UpdateOffset(const glm::mat4& viewMatNoTranslation, glm::vec3 worldOffset, glm::vec3 dir)
+  void DirectionalVirtualShadowMap::UpdateOffset(const glm::mat4& viewMatNoTranslation, glm::vec3 worldOffset)
   {
     for (uint32_t i = 0; i < uniforms_.numClipmaps; i++)
     {
       // Find the offset from the un-translated view matrix
-      uniforms_.clipmapViewProjections[i] = clipmapProjections[i] * viewMatNoTranslation;
-      const auto clip = clipmapProjections[i] * viewMatNoTranslation * glm::vec4(worldOffset, 1);
+      uniforms_.clipmapViewProjections[i] = stableProjections[i] * viewMatNoTranslation;
+      const auto clip = stableProjections[i] * viewMatNoTranslation * glm::vec4(worldOffset, 1);
       const auto ndc = clip / clip.w;
       const auto uv = glm::vec2(ndc) * 0.5f; // Don't add the 0.5, since we want the center to be 0
       const auto pageOffset = glm::ivec2(uv * glm::vec2(context_.pageTables_.Extent().width, context_.pageTables_.Extent().height));
       const auto oldOrigin = uniforms_.clipmapOrigins[i];
       uniforms_.clipmapOrigins[i] = pageOffset;
 
-      // Shift un-translated view matrix by full pages
-      // Calculate world-space shift
       const auto ndcShift = 2.0f * glm::vec2((float)pageOffset.x / context_.pageTables_.Extent().width, (float)pageOffset.y / context_.pageTables_.Extent().height);
-      // Use Z=0.5 to avoid shifting light matrix forward or backward. This only works if the near and far planes are symmetric (e.g. near = -100, far = 100)
-      const auto worldShiftP = glm::inverse(uniforms_.clipmapViewProjections[i]) * glm::vec4(ndcShift, 0.5f, 1);
-      const auto worldShift = glm::vec3(worldShiftP) / worldShiftP.w;
-
-      clipmapViews[i] = glm::lookAt(dir + worldShift, worldShift, glm::vec3(0, 1, 0));
+      
+      // Shift rendering projection matrix by opposite of page offset, in clip space
+      clipmapProjections[i] = glm::translate(glm::mat4(1), glm::vec3(-ndcShift, 0)) * stableProjections[i];
 
       if (oldOrigin != pageOffset)
       {

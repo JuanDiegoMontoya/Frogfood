@@ -100,10 +100,10 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   const uint physicalAddress = GetPagePhysicalAddress(ret.pageData);
   ret.shadowDepth = uintBitsToFloat(LoadPageTexel(pageTexel, physicalAddress));
 
-  const float magicForFarClipmaps = 0.1;
+  const float magicClipmapLevelBias = 0.1;
   const float magicConstantBias = 2.0 / (1 << 23);
-  const float halfOrthoFrustumLength = 200.0 / 2;
-  const float shadowTexelSize = exp2(addr.clipmapLevel + (addr.clipmapLevel * magicForFarClipmaps)) * clipmapUniforms.firstClipmapTexelLength;
+  const float halfOrthoFrustumLength = 2000.0 / 2;
+  const float shadowTexelSize = exp2(addr.clipmapLevel + (addr.clipmapLevel * magicClipmapLevelBias)) * clipmapUniforms.firstClipmapTexelLength;
   const float bias = magicConstantBias + GetShadowBias(normal, -shadingUniforms.sunDir.xyz, shadowTexelSize) / halfOrthoFrustumLength;
   if (ret.shadowDepth + bias < ret.projectedDepth)
   {

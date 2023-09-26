@@ -131,18 +131,13 @@ namespace Techniques::VirtualShadowMaps
     void UpdateExpensive(const glm::mat4& viewMat, float firstClipmapWidth);
 
     // Cheap, call every frame
-    void UpdateOffset(const glm::mat4& viewMatNoTranslation, glm::vec3 worldOffset, glm::vec3 dir);
+    void UpdateOffset(const glm::mat4& viewMatNoTranslation, glm::vec3 worldOffset);
 
     void BindResourcesForDrawing();
 
     [[nodiscard]] std::span<const glm::mat4> GetProjections() const noexcept
     {
       return {clipmapProjections.data(), numClipmaps_};
-    }
-
-    [[nodiscard]] std::span<const glm::mat4> GetViews() const noexcept
-    {
-      return {clipmapViews.data(), numClipmaps_};
     }
 
     [[nodiscard]] std::span<const uint32_t> GetClipmapTableIndices() const noexcept
@@ -176,10 +171,10 @@ namespace Techniques::VirtualShadowMaps
     MarkVisiblePagesDirectionalUniforms uniforms_{};
 
     // Subsequent projections are 2x larger than the previous on X and Y
-    std::array<glm::mat4, MAX_CLIPMAPS> clipmapProjections{};
+    std::array<glm::mat4, MAX_CLIPMAPS> stableProjections{};
 
-    // Shifted view matrix of each clipmap
-    std::array<glm::mat4, MAX_CLIPMAPS> clipmapViews{};
+    // Projections that are offset by an amount proportional to the viewer
+    std::array<glm::mat4, MAX_CLIPMAPS> clipmapProjections{};
 
     Fwog::TypedBuffer<MarkVisiblePagesDirectionalUniforms> uniformBuffer_;
   };

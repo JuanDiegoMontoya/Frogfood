@@ -64,7 +64,7 @@ if(FROGRENDER_FSR2_ENABLE)
     FetchContent_Declare(
         fsr2
         GIT_REPOSITORY https://github.com/JuanDiegoMontoya/FidelityFX-FSR2.git
-        GIT_TAG        a5d60a6f581182166dbb5fac89b77212e028ea91
+        GIT_TAG        e6259912ed19d247ed431e2bc212085b01f74fc9
         GIT_SUBMODULES ""
     )
     FetchContent_MakeAvailable(fsr2)
@@ -76,8 +76,6 @@ FetchContent_Declare(
     GIT_TAG         v0.9.1
 )
 
-option(TRACY_ENABLE "Enable profiling" ON)
-option(TRACY_ONLY_IPV4 "IPv4 only" ON)
 option(TRACY_ENABLE "Enable profiling" ON)
 option(TRACY_ONLY_IPV4 "IPv4 only" ON)
 

@@ -153,8 +153,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   if (!filename)
   {
-    //Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}), true);
-    Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
+    Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
@@ -519,15 +519,15 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   MakeFrustumPlanes(shadingUniforms.sunViewProj, views[1].frustumPlanes);
 
   vsmSun.UpdateExpensive(shadingUniforms.sunView, 10);
-  vsmSun.UpdateOffset(sunViewNoTranslation, mainCamera.position, eye);
+  vsmSun.UpdateOffset(sunViewNoTranslation, mainCamera.position);
 
   // Sun VSMs
   for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
   {
     views[2 + i] = {
       .proj = vsmSun.GetProjections()[i],
-      .view = vsmSun.GetViews()[i],
-      .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViews()[i],
+      .view = sunViewNoTranslation,
+      .viewProj = vsmSun.GetProjections()[i] * sunViewNoTranslation,
       .cameraPos = {}, // unused
       .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
     };

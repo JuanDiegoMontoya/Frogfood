@@ -20,7 +20,7 @@ void main()
 
   PageAddressInfo addr = GetClipmapPageFromDepth(s_gDepth, gid);
 
-  const uint pageData = imageAtomicOr(i_pageTables, addr.pageAddress, 1);
+  const uint pageData = imageAtomicOr(i_pageTables, addr.pageAddress, PAGE_VISIBLE_BIT);
 
   if (!GetIsPageVisible(pageData))
   {
@@ -34,7 +34,7 @@ void main()
     {
       VsmPageAllocRequest request;
       request.pageTableAddress = addr.pageAddress;
-      request.pageTableLevel = 0; // TODO: change for lower-res clipmaps
+      request.pageTableLevel = 0; // TODO: change for lower-res mipmaps
       TryPushAllocRequest(request);
     }
   }

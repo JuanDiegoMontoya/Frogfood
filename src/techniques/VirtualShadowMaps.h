@@ -45,6 +45,8 @@ namespace Techniques::VirtualShadowMaps
     void FreeLayer(uint32_t layerIndex);
     void ResetPageVisibility();
 
+    void FreeNonVisiblePages();
+
     /// ALLOCATOR
     void AllocateRequestedPages();
 
@@ -69,7 +71,7 @@ namespace Techniques::VirtualShadowMaps
     Fwog::Texture pageTables_;
 
     // Physical memory used to back various VSMs
-    Fwog::Texture pages_;
+    Fwog::Texture physicalPages_;
 
     // Bitmask indicating whether each page is visible this frame
     // Only non-visible pages should be evicted
@@ -101,6 +103,7 @@ namespace Techniques::VirtualShadowMaps
     Fwog::ComputePipeline markVisiblePages_;
     Fwog::ComputePipeline listDirtyPages_;
     Fwog::ComputePipeline clearDirtyPages_;
+    Fwog::ComputePipeline freeNonVisiblePages_;
   };
 
   class DirectionalVirtualShadowMap
@@ -128,16 +131,21 @@ namespace Techniques::VirtualShadowMaps
 
     // Invalidates ALL pages in the referenced VSMs.
     // Call only when the light itself changes, since this invalidates ALL pages
-    void UpdateExpensive(const glm::mat4& viewMat, float firstClipmapWidth);
+    void UpdateExpensive(glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth);
 
     // Cheap, call every frame
-    void UpdateOffset(const glm::mat4& viewMatNoTranslation, glm::vec3 worldOffset);
+    void UpdateOffset(glm::vec3 worldOffset);
 
     void BindResourcesForDrawing();
 
     [[nodiscard]] std::span<const glm::mat4> GetProjections() const noexcept
     {
-      return {clipmapProjections.data(), numClipmaps_};
+      return {stableProjections.data(), numClipmaps_};
+    }
+
+    [[nodiscard]] std::span<const glm::mat4> GetViewMatrices() const noexcept
+    {
+      return {viewMatrices.data(), numClipmaps_};
     }
 
     [[nodiscard]] std::span<const uint32_t> GetClipmapTableIndices() const noexcept
@@ -158,7 +166,7 @@ namespace Techniques::VirtualShadowMaps
   private:
     struct MarkVisiblePagesDirectionalUniforms
     {
-      std::array<glm::mat4, MAX_CLIPMAPS> clipmapViewProjections;
+      std::array<glm::mat4, MAX_CLIPMAPS> clipmapStableViewProjections;
       std::array<uint32_t, MAX_CLIPMAPS> clipmapTableIndices;
       std::array<glm::ivec2, MAX_CLIPMAPS> clipmapOrigins;
       uint32_t numClipmaps;
@@ -170,11 +178,15 @@ namespace Techniques::VirtualShadowMaps
     uint32_t virtualExtent_;
     MarkVisiblePagesDirectionalUniforms uniforms_{};
 
+    // View matrix with rotation, but no translation component
+    glm::mat4 stableViewMatrix{};
+
+    // Per-clipmap view matrices that are offset by an amount proportional to the viewer's position.
+    // Used for rendering the shadow map.
+    std::array<glm::mat4, MAX_CLIPMAPS> viewMatrices{};
+
     // Subsequent projections are 2x larger than the previous on X and Y
     std::array<glm::mat4, MAX_CLIPMAPS> stableProjections{};
-
-    // Projections that are offset by an amount proportional to the viewer
-    std::array<glm::mat4, MAX_CLIPMAPS> clipmapProjections{};
 
     Fwog::TypedBuffer<MarkVisiblePagesDirectionalUniforms> uniformBuffer_;
   };

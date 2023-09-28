@@ -14,6 +14,13 @@
   #include "src/ffx-fsr2-api/gl/ffx_fsr2_gl.h"
 #endif
 
+#include <cmath>
+
+inline glm::vec3 PolarToCartesian(float elevation, float azimuth)
+{
+  return {std::sin(elevation) * std::cos(azimuth), std::cos(elevation), std::sin(elevation) * std::sin(azimuth)};
+}
+
 namespace Debug
 {
   struct Line
@@ -79,11 +86,8 @@ private:
 
   struct ShadingUniforms
   {
-    glm::mat4 sunViewProj;
     glm::vec4 sunDir;
     glm::vec4 sunStrength;
-    glm::mat4 sunView;
-    glm::mat4 sunProj;
     glm::vec2 random;
     glm::uint numberOfLights;
     glm::uint _padding;
@@ -329,4 +333,5 @@ private:
   Fwog::GraphicsPipeline vsmShadowPipeline;
   Fwog::TypedBuffer<uint32_t> vsmShadowUniformBuffer;
   Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};
+  float vsmFirstClipmapWidth = 10.0f;
 };

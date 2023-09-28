@@ -16,7 +16,11 @@ void main()
     return;
   }
 
+  // Preserve allocations for pages that are visible
   uint pageData = imageLoad(i_pageTables, gid).x;
-  pageData = SetIsPageVisible(pageData, false);
-  imageStore(i_pageTables, gid, uvec4(pageData, 0, 0, 0));
+  if (!GetIsPageVisible(pageData) && GetIsPageBacked(pageData))
+  {
+    pageData = SetIsPageBacked(pageData, false);
+    imageStore(i_pageTables, gid, uvec4(pageData, 0, 0, 0));
+  }
 }

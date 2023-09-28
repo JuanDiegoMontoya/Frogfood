@@ -24,11 +24,8 @@ layout(location = 0) out vec3 o_color;
 
 layout(binding = 1, std140) uniform ShadingUniforms
 {
-  mat4 sunViewProj;
   vec4 sunDir;
   vec4 sunStrength;
-  mat4 sunView;
-  mat4 sunProj;
   vec2 random;
   uint numberOfLights;
   uint _padding;
@@ -139,18 +136,18 @@ float ShadowPCF(vec2 uv, float viewDepth, float bias)
 
 // Marches a ray in view space until it collides with the height field defined by the shadow map.
 // We assume the height field has a certain thickness so rays can pass behind it
-float MarchShadowRay(vec3 rayLightViewPos, vec3 rayLightViewDir, float bias)
+float MarchShadowRay(vec3 rayLightViewPos, vec3 rayLightViewDir, float bias, mat4 lightProj, mat4 lightInvProj)
 {
   for (int stepIdx = 0; stepIdx < shadowUniforms.stepsPerRay; stepIdx++)
   {
     rayLightViewPos += rayLightViewDir * shadowUniforms.rayStepSize;
 
-    vec4 rayLightClipPos = shadingUniforms.sunProj * vec4(rayLightViewPos, 1.0);
+    vec4 rayLightClipPos = lightProj * vec4(rayLightViewPos, 1.0);
     rayLightClipPos.xy /= rayLightClipPos.w; // to NDC
     rayLightClipPos.xy = rayLightClipPos.xy * 0.5 + 0.5; // to UV
     float shadowMapWindowZ = /*bias*/ + textureLod(s_rsmDepth, rayLightClipPos.xy, 0.0).x;
     // Note: view Z gets *smaller* as we go deeper into the frusum (farther from the camera)
-    float shadowMapViewZ = UnprojectUV_ZO(shadowMapWindowZ, rayLightClipPos.xy, inverse(shadingUniforms.sunProj)).z;
+    float shadowMapViewZ = UnprojectUV_ZO(shadowMapWindowZ, rayLightClipPos.xy, lightInvProj).z;
 
     // Positive dDepth: tested position is below the shadow map
     // Negative dDepth: tested position is above
@@ -172,7 +169,7 @@ float MarchShadowRay(vec3 rayLightViewPos, vec3 rayLightViewDir, float bias)
   return 1.0;
 }
 
-float ShadowRayTraced(vec3 fragWorldPos, vec3 lightDir, float bias)
+float ShadowRayTraced(vec3 fragWorldPos, vec3 lightDir, float bias, mat4 lightView, mat4 lightProj, mat4 lightInvProj)
 {
   float lightOcclusion = 0.0;
 
@@ -182,18 +179,18 @@ float ShadowRayTraced(vec3 fragWorldPos, vec3 lightDir, float bias)
     xi = fract(xi + hash(gl_FragCoord.xy) + shadingUniforms.random);
     vec3 newLightDir = RandVecInCone(xi, lightDir, shadowUniforms.sourceAngleRad);
 
-    vec3 rayLightViewDir = (shadingUniforms.sunView * vec4(newLightDir, 0.0)).xyz;
-    vec3 rayLightViewPos = (shadingUniforms.sunView * vec4(fragWorldPos, 1.0)).xyz;
+    vec3 rayLightViewDir = (lightView * vec4(newLightDir, 0.0)).xyz;
+    vec3 rayLightViewPos = (lightView * vec4(fragWorldPos, 1.0)).xyz;
 
-    lightOcclusion += MarchShadowRay(rayLightViewPos, rayLightViewDir, bias);
+    lightOcclusion += MarchShadowRay(rayLightViewPos, rayLightViewDir, bias, lightProj, lightInvProj);
   }
 
   return lightOcclusion / shadowUniforms.shadowRays;
 }
 
-float Shadow(vec3 fragWorldPos, vec3 normal, vec3 lightDir)
+float Shadow(vec3 fragWorldPos, vec3 normal, vec3 lightDir, mat4 lightViewProj)
 {
-  vec4 clip = shadingUniforms.sunViewProj * vec4(fragWorldPos, 1.0);
+  vec4 clip = lightViewProj * vec4(fragWorldPos, 1.0);
   vec2 uv = clip.xy * .5 + .5;
   if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1)
   {
@@ -208,8 +205,8 @@ float Shadow(vec3 fragWorldPos, vec3 normal, vec3 lightDir)
 
   switch (shadowUniforms.shadowMode)
   {
-    case 0: return ShadowPCF(uv, clip.z * .5 + .5, bias);
-    case 1: return ShadowRayTraced(fragWorldPos, lightDir, bias);
+    //case 0: return ShadowPCF(uv, clip.z * .5 + .5, bias);
+    //case 1: return ShadowRayTraced(fragWorldPos, lightDir, bias);
     default: return 1.0;
   }
 }

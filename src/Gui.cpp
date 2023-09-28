@@ -501,6 +501,11 @@ void FrogRenderer::GuiDrawShadowWindow()
     {
       vsmContext.UpdateUniforms(vsmUniforms);
     }
+
+    if (ImGui::SliderFloat("First clipmap width", &vsmFirstClipmapWidth, 1.0f, 100.0f))
+    {
+      vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth);
+    }
   }
   ImGui::End();
 }
@@ -537,8 +542,13 @@ void FrogRenderer::OnGui(double dt)
     ImGui::SetTooltip("If set, the internal render resolution is equal to the viewport.\nOtherwise, it will be the window's framebuffer size,\nresulting in potentially non-square pixels in the viewport");
   }
 
-  ImGui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
-  ImGui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
+  auto sunRotated = ImGui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
+  sunRotated |= ImGui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
+  if (sunRotated)
+  {
+    vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth);
+  }
+
   ImGui::ColorEdit3("Sun Color", &sunColor[0], ImGuiColorEditFlags_Float);
   ImGui::SliderFloat("Sun Strength", &sunStrength, 0, 500, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
 

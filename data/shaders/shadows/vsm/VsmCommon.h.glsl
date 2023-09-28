@@ -8,6 +8,10 @@
 #define MAX_CLIPMAPS 32
 #define PAGE_SIZE 128
 
+#define PAGE_VISIBLE_BIT (1u)
+#define PAGE_DIRTY_BIT (2u)
+#define PAGE_BACKED_BIT (4u)
+
 ////////////// Resources
 layout(binding = 0, r32ui) uniform restrict uimage2DArray i_pageTables;
 layout(binding = 1, r32ui) uniform restrict uimage2D i_physicalPages;
@@ -70,17 +74,17 @@ layout(binding = 4, std430) restrict buffer VsmPageClearDispatchParams
 ////////////// Helpers
 bool GetIsPageVisible(uint pageData)
 {
-  return (pageData & 1u) != 0u;
+  return (pageData & PAGE_VISIBLE_BIT) != 0u;
 }
 
 bool GetIsPageDirty(uint pageData)
 {
-  return (pageData & 2u) != 0u;
+  return (pageData & PAGE_DIRTY_BIT) != 0u;
 }
 
 bool GetIsPageBacked(uint pageData)
 {
-  return (pageData & 4u) != 0u;
+  return (pageData & PAGE_BACKED_BIT) != 0u;
 }
 
 uint GetPagePhysicalAddress(uint pageData)
@@ -90,17 +94,17 @@ uint GetPagePhysicalAddress(uint pageData)
 
 uint SetIsPageVisible(uint pageData, bool isVisible)
 {
-  return (pageData & ~1u) | (1u * uint(isVisible));
+  return (pageData & ~PAGE_VISIBLE_BIT) | (PAGE_VISIBLE_BIT * uint(isVisible));
 }
 
 uint SetIsPageDirty(uint pageData, bool isDirty)
 {
-  return (pageData & ~2u) | (2u * uint(isDirty));
+  return (pageData & ~PAGE_DIRTY_BIT) | (PAGE_DIRTY_BIT * uint(isDirty));
 }
 
 uint SetIsPageBacked(uint pageData, bool isBacked)
 {
-  return (pageData & ~4u) | (4u * uint(isBacked));
+  return (pageData & ~PAGE_BACKED_BIT) | (PAGE_BACKED_BIT * uint(isBacked));
 }
 
 uint SetPagePhysicalAddress(uint pageData, uint physicalAddress)

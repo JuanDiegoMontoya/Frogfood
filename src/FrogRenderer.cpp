@@ -157,6 +157,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}), true);
 
@@ -426,7 +427,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormal, frame.gNormalPrev);
 
-  shadingUniforms.sunDir = glm::vec4(sin(sunElevation) * cos(sunAzimuth), cos(sunElevation), sin(sunElevation) * sin(sunAzimuth), 0);
+  shadingUniforms.sunDir = glm::vec4(PolarToCartesian(sunElevation, sunAzimuth), 0);
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
 
   const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
@@ -438,11 +439,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   ss.addressModeU = Fwog::AddressMode::REPEAT;
   ss.addressModeV = Fwog::AddressMode::REPEAT;
   auto nearestSampler = Fwog::Sampler(ss);
-
-  ss.lodBias = 0;
-  ss.compareEnable = true;
-  ss.compareOp = Fwog::CompareOp::LESS;
-  auto shadowSampler = Fwog::Sampler(ss);
 
   ss = {};
   ss.minFilter = Fwog::Filter::NEAREST;
@@ -461,7 +457,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 
-  const auto viewCount = 2 + vsmSun.NumClipmaps();
+  const auto viewCount = 1 + vsmSun.NumClipmaps();
 
   std::array<View, gMaxViews> views = {};
   views[0] = { // Main View
@@ -497,41 +493,29 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   globalUniformsBuffer.UpdateData(mainCameraUniforms);
 
   shadowUniformsBuffer.UpdateData(shadowUniforms);
-
-  const glm::vec3 eye = glm::vec3{-shadingUniforms.sunDir};
-  constexpr float eyeWidth = 7.0f;
-  // shadingUniforms.viewPos = glm::vec4(camera.position, 0);
-  shadingUniforms.sunProj = glm::orthoZO(-eyeWidth, eyeWidth, -eyeWidth, eyeWidth, -10.0f, 10.f);
-  //shadingUniforms.sunView = glm::lookAt(eye, glm::vec3(0), glm::vec3{0, 1, 0});
-  shadingUniforms.sunView = glm::lookAt(eye + mainCamera.position, mainCamera.position, glm::vec3{0, 1, 0});
-  //const auto sunViewNoTranslation = glm::translate(shadingUniforms.sunView, mainCamera.position);
-  const auto sunViewNoTranslation = glm::lookAt(eye, glm::vec3(0), glm::vec3{0, 1, 0});
-  shadingUniforms.sunViewProj = shadingUniforms.sunProj * shadingUniforms.sunView;
-  shadingUniformsBuffer.UpdateData(shadingUniforms);
   
-  views[1] = { // Shadow View
-    .proj = shadingUniforms.sunProj,
-    .view = shadingUniforms.sunView,
-    .viewProj = shadingUniforms.sunViewProj,
-    .cameraPos = {}, // unused
-    .viewport = {0.0f, 0.0f, static_cast<float>(gShadowmapWidth), static_cast<float>(gShadowmapHeight)},
-  };
-  MakeFrustumPlanes(shadingUniforms.sunViewProj, views[1].frustumPlanes);
+  shadingUniformsBuffer.UpdateData(shadingUniforms);
 
-  vsmSun.UpdateExpensive(shadingUniforms.sunView, 10);
-  vsmSun.UpdateOffset(sunViewNoTranslation, mainCamera.position);
+  if (frameIndex == 1)
+  {
+    vsmSun.UpdateExpensive(mainCamera.position, glm::vec3{-shadingUniforms.sunDir}, vsmFirstClipmapWidth);
+  }
+  else
+  {
+    vsmSun.UpdateOffset(mainCamera.position);
+  }
 
   // Sun VSMs
   for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
   {
-    views[2 + i] = {
+    views[1 + i] = {
       .proj = vsmSun.GetProjections()[i],
-      .view = sunViewNoTranslation,
-      .viewProj = vsmSun.GetProjections()[i] * sunViewNoTranslation,
+      .view = vsmSun.GetViewMatrices()[i],
+      .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
       .cameraPos = {}, // unused
       .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
     };
-    MakeFrustumPlanes(views[2 + i].viewProj, views[2 + i].frustumPlanes);
+    MakeFrustumPlanes(views[1 + i].viewProj, views[1 + i].frustumPlanes);
   }
 
   viewBuffer->UpdateData(std::span<const View>(views));
@@ -572,10 +556,11 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       });
   }
 
-   vsmContext.ResetPageVisibility();
-   vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
-   vsmContext.AllocateRequestedPages();
-   vsmContext.ClearDirtyPages();
+  vsmContext.ResetPageVisibility();
+  vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
+  vsmContext.FreeNonVisiblePages();
+  vsmContext.AllocateRequestedPages();
+  vsmContext.ClearDirtyPages();
 
   const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
   Fwog::RenderNoAttachments(
@@ -603,33 +588,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
       {
         vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
-        Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, (2 + i) * sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
+        Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, (1 + i) * sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
       }
-    });
-
-  auto shadowAttachment = Fwog::RenderDepthStencilAttachment{
-    .texture = shadowCascades,
-    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = {.depth = 1.0},
-  };
-  Fwog::Render(
-    {
-      .name = "Main Shadow Pass",
-      .viewport = {Fwog::Viewport{.drawRect = {{0, 0}, {gShadowmapWidth, gShadowmapHeight}}}},
-      .depthAttachment = shadowAttachment,
-    },
-    [&]
-    {
-      Fwog::Cmd::BindGraphicsPipeline(shadowMainPipeline);
-      Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
-      Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
-      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
-      Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
-      Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
-      Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
-      Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
-      Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
     });
 
   auto visbufferAttachment = Fwog::RenderColorAttachment{
@@ -823,82 +783,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         Fwog::Cmd::Draw(3, 1, 0, materialId);
       }
     });
-
-
-  /*// Shadow map (RSM) scene pass
-  rsmUniforms.UpdateData(shadingUniforms.sunViewProj);
-  auto rcolorAttachment = Fwog::RenderColorAttachment{
-    .texture = rsmFlux,
-    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-  };
-  auto rnormalAttachment = Fwog::RenderColorAttachment{
-    .texture = rsmNormal,
-    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-  };
-  auto rdepthAttachment = Fwog::RenderDepthStencilAttachment{
-    .texture = rsmDepth,
-    .loadOp = Fwog::AttachmentLoadOp::CLEAR,
-    .clearValue = {.depth = 1.0f},
-  };
-  Fwog::RenderColorAttachment crAttachments[] = {rcolorAttachment, rnormalAttachment};
-  Fwog::Render(
-    {
-      .name = "RSM Scene",
-      .colorAttachments = crAttachments,
-      .depthAttachment = rdepthAttachment,
-    },
-    [&]
-    {
-      Fwog::Cmd::BindGraphicsPipeline(rsmScenePipeline);
-      Fwog::Cmd::BindUniformBuffer(0, rsmUniforms);
-      Fwog::Cmd::BindUniformBuffer(1, shadingUniformsBuffer);
-      Fwog::Cmd::BindUniformBuffer(2, materialUniformsBuffer);
-
-      Fwog::Cmd::BindStorageBuffer(1, *meshUniformBuffer, 0);
-      for (uint32_t i = 0; i < static_cast<uint32_t>(scene.meshes.size()); i++)
-      {
-        const auto& mesh = scene.meshes[i];
-        const auto& material = scene.materials[mesh.materialIdx];
-        materialUniformsBuffer.UpdateData(material.gpuMaterial);
-        if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE)
-        {
-          const auto& textureSampler = material.albedoTextureSampler.value();
-          Fwog::Cmd::BindSampledImage(0, textureSampler.texture, Fwog::Sampler(textureSampler.sampler));
-        }
-        Fwog::Cmd::BindVertexBuffer(0, mesh.vertexBuffer, 0, sizeof(Utility::Vertex));
-        Fwog::Cmd::BindIndexBuffer(mesh.indexBuffer, Fwog::IndexType::UNSIGNED_INT);
-        Fwog::Cmd::DrawIndexed(static_cast<uint32_t>(mesh.indexBuffer.Size()) / sizeof(uint32_t), 1, 0, 0, i);
-      }
-    });
-
-  {
-    auto rsmCameraUniforms = RSM::CameraUniforms{
-      .viewProj = projUnjittered * mainCamera.GetViewMatrix(),
-      .invViewProj = glm::inverse(viewProjUnjittered),
-      .proj = projUnjittered,
-      .cameraPos = glm::vec4(mainCamera.position, 0),
-      .viewDir = mainCamera.GetForwardDir(),
-      .jitterOffset = jitterOffset,
-      .lastFrameJitterOffset = fsr2Enable ? GetJitterOffset(frameIndex - 1, renderWidth, renderHeight, windowWidth) : glm::vec2{},
-    };
-    static Fwog::TimerQueryAsync timer(5);
-    if (auto t = timer.PopTimestamp())
-    {
-      rsmPerformance = *t / 10e5;
-    }
-    Fwog::TimerScoped scopedTimer(timer);
-    frame.rsm->ComputeIndirectLighting(shadingUniforms.sunViewProj,
-                                       rsmCameraUniforms,
-                                       frame.gAlbedo.value(),
-                                       frame.gNormal.value(),
-                                       frame.gDepth.value(),
-                                       rsmFlux,
-                                       rsmNormal,
-                                       rsmDepth,
-                                       frame.gDepthPrev.value(),
-                                       frame.gNormalPrev.value(),
-                                       frame.gMotion.value());
-  }*/
 
   // shading pass (full screen tri)
   auto shadingColorAttachment = Fwog::RenderColorAttachment{

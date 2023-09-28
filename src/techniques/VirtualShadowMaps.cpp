@@ -58,6 +58,15 @@ namespace Techniques::VirtualShadowMaps
         .shader = &comp,
       });
     }
+
+    Fwog::ComputePipeline CreateFreeNonVisiblePagesPipeline()
+    {
+      auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmFreeNonVisiblePages.comp.glsl");
+
+      return Fwog::ComputePipeline({
+        .shader = &comp,
+      });
+    }
     
     using Barrier = Fwog::MemoryBarrierBit;
   }
@@ -73,7 +82,7 @@ namespace Techniques::VirtualShadowMaps
           .arrayLayers = ((createInfo.maxVsms + 31) / 32) * 32, // Round up to the nearest multiple of 32 so we don't have any overflowing bits
         },
         "VSM Page Mappings"),
-      pages_(Fwog::CreateTexture2D({(uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize, (uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize}, Fwog::Format::R32_UINT, "VSM Physical Pages")),
+      physicalPages_(Fwog::CreateTexture2D({(uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize, (uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize}, Fwog::Format::R32_UINT, "VSM Physical Pages")),
       visiblePagesBitmask_(sizeof(uint32_t) * createInfo.numPages / 32),
       pageVisibleTimeTree_(sizeof(uint32_t) * createInfo.numPages * 2),
       uniformBuffer_(VsmGlobalUniforms{}, Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
@@ -84,7 +93,8 @@ namespace Techniques::VirtualShadowMaps
       allocatePages_(CreateAllocatorPipeline()),
       markVisiblePages_(CreateMarkVisiblePipeline()),
       listDirtyPages_(CreateListDirtyPagesPipeline()),
-      clearDirtyPages_(CreateClearDirtyPagesPipeline())
+      clearDirtyPages_(CreateClearDirtyPagesPipeline()),
+      freeNonVisiblePages_(CreateFreeNonVisiblePagesPipeline())
   {
     // Clear every page mapping to zero
     for (uint32_t level = 0; level < mipLevels; level++)
@@ -94,7 +104,7 @@ namespace Techniques::VirtualShadowMaps
       });
     }
 
-    pages_.ClearImage({});
+    physicalPages_.ClearImage({});
     visiblePagesBitmask_.FillData();
     pageVisibleTimeTree_.FillData();
   }
@@ -148,6 +158,26 @@ namespace Techniques::VirtualShadowMaps
       });
   }
 
+  // TODO: See TODO for ResetPageVisibility (should allow batching updates instead of operating on whole VSM every time)
+  void Context::FreeNonVisiblePages()
+  {
+    Fwog::Compute(
+      "VSM Free Non-Visible Pages",
+      [&]
+      {
+        Fwog::Cmd::BindComputePipeline(freeNonVisiblePages_);
+        Fwog::MemoryBarrier(Barrier::IMAGE_ACCESS_BIT);
+
+        for (uint32_t i = 0; i < pageTables_.GetCreateInfo().mipLevels; i++)
+        {
+          Fwog::Cmd::BindImage(0, pageTables_, i);
+          auto extent = pageTables_.Extent() / (1 << i);
+          extent.depth = pageTables_.GetCreateInfo().arrayLayers;
+          Fwog::Cmd::DispatchInvocations(extent);
+        }
+      });
+  }
+
   void Context::AllocateRequestedPages()
   {
     Fwog::Compute(
@@ -179,7 +209,7 @@ namespace Techniques::VirtualShadowMaps
 
         Fwog::Cmd::BindComputePipeline(clearDirtyPages_);
         Fwog::MemoryBarrier(Barrier::COMMAND_BUFFER_BIT | Barrier::SHADER_STORAGE_BIT);
-        Fwog::Cmd::BindImage("i_physicalPages", pages_, 0);
+        Fwog::Cmd::BindImage("i_physicalPages", physicalPages_, 0);
         Fwog::Cmd::DispatchIndirect(pageClearDispatchParams_, 0);
 
         Fwog::MemoryBarrier(Barrier::BUFFER_UPDATE_BIT);
@@ -230,40 +260,41 @@ namespace Techniques::VirtualShadowMaps
       });
   }
 
-  void DirectionalVirtualShadowMap::UpdateExpensive(const glm::mat4& viewMat, float firstClipmapWidth)
+  void DirectionalVirtualShadowMap::UpdateExpensive(glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth)
   {
     const auto sideLength = firstClipmapWidth / virtualExtent_;
     uniforms_.firstClipmapTexelLength = sideLength;
+
+    auto up = glm::vec3(0, 1, 0);
+    if (1.0f - glm::abs(glm::dot(direction, up)) < 1e-4f)
+    {
+      up = glm::vec3(0, 0, 1);
+    }
     
+    stableViewMatrix = glm::lookAt(direction, glm::vec3(0), up);
+
     for (uint32_t i = 0; i < uniforms_.numClipmaps; i++)
     {
       const auto width = firstClipmapWidth * (1 << i) / 2.0f;
       // TODO: increase Z range for higher clipmaps (or for all?)
       stableProjections[i] = glm::orthoZO(-width, width, -width, width, -1000.f, 1000.f);
-      clipmapProjections[i] = stableProjections[i];
-      
-      uniforms_.clipmapViewProjections[i] = clipmapProjections[i] * viewMat;
-      uniforms_.clipmapOrigins[i] = {};
-    }
 
-    uniformBuffer_.UpdateData(uniforms_);
-
-    // Invalidate all clipmaps (clearing to 0 marks pages as not backed)
-    for (uint32_t i = 0; i < uniforms_.numClipmaps; i++)
-    {
+      // Invalidate all clipmaps (clearing to 0 marks pages as not backed, not dirty, and not visible)
       auto extent = context_.pageTables_.Extent();
       extent.depth = 1;
       context_.pageTables_.ClearImage({.offset = {0, 0, uniforms_.clipmapTableIndices[i]}, .extent = extent});
     }
+
+    this->UpdateOffset(worldOffset);
   }
 
-  void DirectionalVirtualShadowMap::UpdateOffset(const glm::mat4& viewMatNoTranslation, glm::vec3 worldOffset)
+  void DirectionalVirtualShadowMap::UpdateOffset(glm::vec3 worldOffset)
   {
     for (uint32_t i = 0; i < uniforms_.numClipmaps; i++)
     {
       // Find the offset from the un-translated view matrix
-      uniforms_.clipmapViewProjections[i] = stableProjections[i] * viewMatNoTranslation;
-      const auto clip = stableProjections[i] * viewMatNoTranslation * glm::vec4(worldOffset, 1);
+      uniforms_.clipmapStableViewProjections[i] = stableProjections[i] * stableViewMatrix;
+      const auto clip = stableProjections[i] * stableViewMatrix * glm::vec4(worldOffset, 1);
       const auto ndc = clip / clip.w;
       const auto uv = glm::vec2(ndc) * 0.5f; // Don't add the 0.5, since we want the center to be 0
       const auto pageOffset = glm::ivec2(uv * glm::vec2(context_.pageTables_.Extent().width, context_.pageTables_.Extent().height));
@@ -272,8 +303,9 @@ namespace Techniques::VirtualShadowMaps
 
       const auto ndcShift = 2.0f * glm::vec2((float)pageOffset.x / context_.pageTables_.Extent().width, (float)pageOffset.y / context_.pageTables_.Extent().height);
       
-      // Shift rendering projection matrix by opposite of page offset, in clip space
-      clipmapProjections[i] = glm::translate(glm::mat4(1), glm::vec3(-ndcShift, 0)) * stableProjections[i];
+      // Shift rendering projection matrix by opposite of page offset in clip space, then apply *only* that shift to the view matrix
+      const auto shiftedProjection = glm::translate(glm::mat4(1), glm::vec3(-ndcShift, 0)) * stableProjections[i];
+      viewMatrices[i] = glm::inverse(stableProjections[i]) * shiftedProjection * stableViewMatrix;
 
       if (oldOrigin != pageOffset)
       {
@@ -289,6 +321,6 @@ namespace Techniques::VirtualShadowMaps
     Fwog::Cmd::BindStorageBuffer(5, uniformBuffer_);
     Fwog::Cmd::BindUniformBuffer(6, context_.uniformBuffer_);
     Fwog::Cmd::BindImage(0, context_.pageTables_, 0);
-    Fwog::Cmd::BindImage(1, context_.pages_, 0);
+    Fwog::Cmd::BindImage(1, context_.physicalPages_, 0);
   }
 } // namespace Techniques

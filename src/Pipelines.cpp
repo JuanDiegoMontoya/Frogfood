@@ -277,4 +277,40 @@ namespace Pipelines
         },
     });
   }
+
+  Fwog::GraphicsPipeline ViewerVsm()
+  {
+    auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmDebugPageTable.frag.glsl");
+
+    return Fwog::GraphicsPipeline({
+      .vertexShader = &vs,
+      .fragmentShader = &fs,
+      .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+    });
+  }
+
+  Fwog::GraphicsPipeline ViewerVsmPhysicalPages()
+  {
+    auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmPhysicalPages.frag.glsl");
+
+    return Fwog::GraphicsPipeline({
+      .vertexShader = &vs,
+      .fragmentShader = &fs,
+      .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+    });
+  }
+
+  Fwog::GraphicsPipeline ViewerVsmBitmaskHzb()
+  {
+    auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmBitmaskHzb.frag.glsl");
+
+    return Fwog::GraphicsPipeline({
+      .vertexShader = &vs,
+      .fragmentShader = &fs,
+      .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+    });
+  }
 } // namespace Pipelines

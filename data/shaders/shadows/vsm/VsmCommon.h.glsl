@@ -5,16 +5,17 @@
 #ifndef VSM_COMMON_H
 #define VSM_COMMON_H
 
-#define MAX_CLIPMAPS 32
 #define PAGE_SIZE 128
+#define MAX_CLIPMAPS 32
 
 #define PAGE_VISIBLE_BIT (1u)
 #define PAGE_DIRTY_BIT (2u)
 #define PAGE_BACKED_BIT (4u)
 
 ////////////// Resources
-layout(binding = 0, r32ui) uniform restrict uimage2DArray i_pageTables;
-layout(binding = 1, r32ui) uniform restrict uimage2D i_physicalPages;
+layout(binding = 0, r32ui) uniform restrict uimage2DArray i_pageTables; // Level 0
+layout(binding = 1, r32f) uniform restrict image2D i_physicalPages;   // Level 0
+layout(binding = 10) uniform usampler2DArray s_vsmBitmaskHzb;
 
 layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUniforms
 {
@@ -25,51 +26,24 @@ layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUnif
 
   // The length, in world space, of a side of single (square) texel in the first clipmap
   float firstClipmapTexelLength;
+  float projectionZLength;
 }clipmapUniforms;
+
+#define VSM_HZB_PHYSICAL_RETURN_ONE (1 << 0)
+#define VSM_HZB_VIRTUAL_RETURN_ONE (1 << 1)
+#define VSM_FORCE_DIRTY_VISIBLE_PAGES (1 << 2)
 
 layout(binding = 6, std140) uniform VsmGlobalUniforms
 {
   float lodBias;
+  uint debugFlags;
 }vsmUniforms;
-
-struct VsmPageAllocRequest
-{
-  // Address of the requester
-  ivec3 pageTableAddress;
-
-  // Unused until local lights are supported
-  uint pageTableLevel;
-};
-
-layout(binding = 0, std430) restrict buffer VsmPageAllocRequests
-{
-  uint count;
-  VsmPageAllocRequest data[];
-}allocRequests;
-
-layout(binding = 1, std430) restrict buffer VsmVisiblePagesBitmask
-{
-  uint data[];
-}visiblePagesBitmask;
-
-layout(binding = 2, std430) restrict buffer VsmVisibleTimeTree
-{
-  uint time[];
-}lastTimeVisible;
 
 layout(binding = 3, std430) restrict buffer VsmDirtyPageList
 {
   uint count;
   uint data[];
 }dirtyPageList;
-
-// Indirect dispatch params for clearing dirty pages (these pages will then be rendered)
-layout(binding = 4, std430) restrict buffer VsmPageClearDispatchParams
-{
-  uint groupCountX;
-  uint groupCountY;
-  uint groupCountZ;
-}pageClearDispatch;
 
 ////////////// Helpers
 bool GetIsPageVisible(uint pageData)
@@ -112,20 +86,6 @@ uint SetPagePhysicalAddress(uint pageData, uint physicalAddress)
   return (pageData & 65535u) | (physicalAddress << 16);
 }
 
-bool TryPushAllocRequest(VsmPageAllocRequest request)
-{
-  uint index = atomicAdd(allocRequests.count, 1);
-
-  if (index >= allocRequests.data.length())
-  {
-    atomicAdd(allocRequests.count, -1);
-    return false;
-  }
-
-  allocRequests.data[index] = request;
-  return true;
-}
-
 bool TryPushPageClear(uint pageIndex)
 {
   uint index = atomicAdd(dirtyPageList.count, 1);
@@ -140,25 +100,23 @@ bool TryPushPageClear(uint pageIndex)
   return true;
 }
 
-uint LoadPageTexel(ivec2 texel, uint page)
+float LoadPageTexel(ivec2 texel, uint page)
 {
   const int atlasWidth = imageSize(i_physicalPages).x / PAGE_SIZE;
   const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
   return imageLoad(i_physicalPages, pageCorner + texel).x;
 }
 
-void StorePageTexel(ivec2 texel, uint page, uint value)
+void StorePageTexel(ivec2 texel, uint page, float value)
 {
   const int atlasWidth = imageSize(i_physicalPages).x / PAGE_SIZE;
   const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
-  imageStore(i_physicalPages, pageCorner + texel, uvec4(value, 0, 0, 0));
+  imageStore(i_physicalPages, pageCorner + texel, vec4(value, 0, 0, 0));
 }
 
-uint AtomicMinPageTexel(ivec2 texel, uint page, uint value)
+bool SampleVsmBitmaskHzb(uint vsmIndex, vec2 uv, int level)
 {
-  const int atlasWidth = imageSize(i_physicalPages).x / PAGE_SIZE;
-  const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
-  return imageAtomicMin(i_physicalPages, pageCorner + texel, value);
+  return bool(textureLod(s_vsmBitmaskHzb, vec3(fract(uv), vsmIndex), level).x);
 }
 
 struct PageAddressInfo
@@ -171,15 +129,13 @@ struct PageAddressInfo
 
 // Analyzes the provided depth buffer and returns and address and data of a page.
 // Works for clipmaps only.
-PageAddressInfo GetClipmapPageFromDepth(sampler2D depthBuffer, ivec2 gid)
+PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBufferSize)
 {
-  const vec2 texel = 1.0 / textureSize(depthBuffer, 0);
+  const vec2 texel = 1.0 / depthBufferSize;
   const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
   // Unproject arbitrary, but opposing sides of the pixel (assume square) to compute side length
   const vec2 uvLeft = uvCenter + vec2(-texel.x, 0) * 0.5;
   const vec2 uvRight = uvCenter + vec2(texel.x, 0) * 0.5;
-
-  const float depth = texelFetch(depthBuffer, gid, 0).x;
 
   const mat4 invProj = inverse(perFrameUniforms.proj);
   const vec3 topLeftV = UnprojectUV_ZO(depth, uvLeft, invProj);

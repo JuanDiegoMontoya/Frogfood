@@ -4,7 +4,9 @@
 
 #include "../../Math.h.glsl"
 #include "../../GlobalUniforms.h.glsl"
+#include "../../Config.shared.h"
 #include "VsmCommon.h.glsl"
+#include "VsmAllocRequest.h.glsl"
 
 layout(binding = 0) uniform sampler2D s_gDepth;
 
@@ -18,9 +20,21 @@ void main()
     return;
   }
 
-  PageAddressInfo addr = GetClipmapPageFromDepth(s_gDepth, gid);
+  const float depthSample = texelFetch(s_gDepth, gid, 0).x;
+
+  if (depthSample == FAR_DEPTH)
+  {
+    return;
+  }
+
+  PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
 
   const uint pageData = imageAtomicOr(i_pageTables, addr.pageAddress, PAGE_VISIBLE_BIT);
+
+  if ((vsmUniforms.debugFlags & VSM_FORCE_DIRTY_VISIBLE_PAGES) != 0)
+  {
+    imageAtomicOr(i_pageTables, addr.pageAddress, PAGE_DIRTY_BIT);
+  }
 
   if (!GetIsPageVisible(pageData))
   {

@@ -1,14 +1,16 @@
 ﻿#include "FrogRenderer.h"
 
+#include <Fwog/Rendering.h>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
-#include <glad/gl.h>
 #include <GLFW/glfw3.h>
+#include <glad/gl.h>
 
 #include <algorithm>
-#include <string>
 #include <filesystem>
+#include <string>
 
 #include "IconsMaterialDesign.h"
 
@@ -26,7 +28,7 @@ void FrogRenderer::InitGui()
 
   constexpr float fontSize = 18;
   ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/RobotoCondensed-Regular.ttf", fontSize);
-  //constexpr float iconFontSize = fontSize * 2.0f / 3.0f; // if GlyphOffset.y is not biased, uncomment this
+  // constexpr float iconFontSize = fontSize * 2.0f / 3.0f; // if GlyphOffset.y is not biased, uncomment this
 
   // These fonts appear to interfere, possibly due to having overlapping ranges.
   // Loading FA first appears to cause less breakage
@@ -53,7 +55,7 @@ void FrogRenderer::InitGui()
   }
 
   ImGui::StyleColorsDark();
-  
+
   auto& style = ImGui::GetStyle();
   style.Colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
   style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
@@ -318,6 +320,24 @@ void FrogRenderer::GuiDrawDebugWindow()
 
     ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
     ImGui::Checkbox("Render to Screen", &debugRenderToSwapchain);
+
+    ImGui::Separator();
+    bool vsmShowClipmapID    = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_CLIPMAP_ID;
+    bool vsmShowPageAddress  = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_ADDRESS;
+    bool vsmShowPageOutlines = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES;
+    bool vsmShowShadowDepth  = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH;
+    bool vsmShowDirtyPages   = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES;
+    ImGui::Checkbox("Show Clipmap ID", &vsmShowClipmapID);
+    ImGui::Checkbox("Show Page Address", &vsmShowPageAddress);
+    ImGui::Checkbox("Show Page Outlines", &vsmShowPageOutlines);
+    ImGui::Checkbox("Show Shadow Depth", &vsmShowShadowDepth);
+    ImGui::Checkbox("Show Dirty Pages", &vsmShowDirtyPages);
+    shadingUniforms.debugFlags = 0;
+    shadingUniforms.debugFlags |= vsmShowClipmapID    ? (uint32_t)ShadingDebugFlag::VSM_SHOW_CLIPMAP_ID : 0;
+    shadingUniforms.debugFlags |= vsmShowPageAddress  ? (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_ADDRESS : 0;
+    shadingUniforms.debugFlags |= vsmShowPageOutlines ? (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES : 0;
+    shadingUniforms.debugFlags |= vsmShowShadowDepth  ? (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH : 0;
+    shadingUniforms.debugFlags |= vsmShowDirtyPages   ? (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES : 0;
   }
   ImGui::End();
 }
@@ -350,7 +370,7 @@ void FrogRenderer::GuiDrawLightsArray()
       }
 
       const auto id = std::string("##") + typePreview + " Light " + std::to_string(i);
-      
+
       if (ImGui::Button((ICON_FA_TRASH_CAN + id).c_str()))
       {
         // Erasing from the middle is inefficient, but leads to more intuitive UX compared to swap & pop
@@ -494,17 +514,118 @@ void FrogRenderer::GuiDrawCameraWindow()
 
 void FrogRenderer::GuiDrawShadowWindow()
 {
+  // TODO: pick icon for this window
   if (ImGui::Begin(" Shadow"))
   {
     ImGui::TextUnformatted("VSM");
-    if (ImGui::SliderFloat("LoD Bias", &vsmUniforms.lodBias, -3, 3, "%.2f"))
+    ImGui::SliderFloat("LoD Bias", &vsmUniforms.lodBias, -3, 3, "%.2f");
+
+    if (ImGui::SliderFloat("First Clipmap Width", &vsmFirstClipmapWidth, 1.0f, 100.0f))
     {
-      vsmContext.UpdateUniforms(vsmUniforms);
+      vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
     }
 
-    if (ImGui::SliderFloat("First clipmap width", &vsmFirstClipmapWidth, 1.0f, 100.0f))
+    if (ImGui::SliderFloat("Projection Z Length", &vsmDirectionalProjectionZLength, 1.0f, 3000.0f, "%.2f", ImGuiSliderFlags_Logarithmic))
     {
-      vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth);
+      vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+    }
+
+    bool vsmHzbPhysicalReturnOne = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_PHYSICAL_RETURN_ONE;
+    bool vsmHzbVirtualReturnOne = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_VIRTUAL_RETURN_ONE;
+    bool vsmForceDirtyVisiblePages = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES;
+    ImGui::Checkbox("Force Physical HZB Success", &vsmHzbPhysicalReturnOne);
+    ImGui::Checkbox("Force Virtual HZB Success", &vsmHzbVirtualReturnOne);
+    ImGui::Checkbox("Force Dirty Visible Pages", &vsmForceDirtyVisiblePages);
+    vsmUniforms.debugFlags = 0;
+    vsmUniforms.debugFlags |= vsmHzbPhysicalReturnOne ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_PHYSICAL_RETURN_ONE : 0;
+    vsmUniforms.debugFlags |= vsmHzbVirtualReturnOne ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_VIRTUAL_RETURN_ONE : 0;
+    vsmUniforms.debugFlags |= vsmForceDirtyVisiblePages ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES : 0;
+  }
+  ImGui::End();
+}
+
+void FrogRenderer::GuiDrawViewer()
+{
+  // TODO: pick icon for this window (eye?)
+  if (ImGui::Begin(" Viewer##viewer_window"))
+  {
+    bool selectedTex = false;
+
+    struct TexInfo
+    {
+      bool operator==(const TexInfo&) const noexcept = default;
+      std::string name;
+      Fwog::GraphicsPipeline* pipeline;
+    };
+    auto map = std::unordered_map<const Fwog::Texture*, TexInfo>();
+    map[nullptr] = {"None", nullptr};
+    map[&vsmContext.pageTables_] = {"VSM Page Tables", &viewerVsmPageTablesPipeline};
+    map[&vsmContext.physicalPages_] = {"VSM Physical Pages", &viewerVsmPhysicalPagesPipeline};
+    map[&vsmContext.vsmBitmaskHzb_] = {"VSM Bitmask HZB", &viewerVsmBitmaskHzbPipeline};
+
+    if (ImGui::BeginCombo("Texture", map.find(viewerCurrentTexture)->second.name.c_str()))
+    {
+      if (ImGui::Selectable(map[nullptr].name.c_str()))
+      {
+        viewerCurrentTexture = nullptr;
+      }
+      if (ImGui::Selectable(map[&vsmContext.pageTables_].name.c_str()))
+      {
+        viewerCurrentTexture = &vsmContext.pageTables_;
+        selectedTex = true;
+      }
+      if (ImGui::Selectable(map[&vsmContext.physicalPages_].name.c_str()))
+      {
+        viewerCurrentTexture = &vsmContext.physicalPages_;
+        selectedTex = true;
+      }
+      if (ImGui::Selectable(map[&vsmContext.vsmBitmaskHzb_].name.c_str()))
+      {
+        viewerCurrentTexture = &vsmContext.vsmBitmaskHzb_;
+        selectedTex = true;
+      }
+
+      ImGui::EndCombo();
+    }
+
+    if (selectedTex)
+    {
+      viewerOutputTexture = Fwog::CreateTexture2D({viewerCurrentTexture->Extent().width, viewerCurrentTexture->Extent().height}, Fwog::Format::R8G8B8A8_UNORM);
+      glTextureParameteri(viewerOutputTexture->Handle(), GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTextureParameteri(viewerOutputTexture->Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+    
+    if (viewerOutputTexture && viewerCurrentTexture)
+    {
+      ImGui::SliderInt("Layer", &viewerUniforms.texLayer, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().arrayLayers - 1));
+      ImGui::SliderInt("Level", &viewerUniforms.texLevel, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().mipLevels - 1));
+
+      viewerUniformsBuffer.UpdateData(viewerUniforms);
+
+      auto attachment = Fwog::RenderColorAttachment{
+        .texture = viewerOutputTexture.value(),
+        .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+      };
+      Fwog::Render(
+        {
+          .name = "Texture Viewer",
+          .colorAttachments = {&attachment, 1},
+        },
+        [&]
+        {
+          Fwog::Cmd::BindGraphicsPipeline(*map.find(viewerCurrentTexture)->second.pipeline);
+          Fwog::Cmd::BindSampledImage(0,
+                                      *viewerCurrentTexture,
+                                      Fwog::Sampler(Fwog::SamplerState{
+                                        .minFilter = Fwog::Filter::NEAREST,
+                                        .magFilter = Fwog::Filter::NEAREST,
+                                        .mipmapFilter = Fwog::Filter::NEAREST,
+                                      }));
+          Fwog::Cmd::BindUniformBuffer(0, viewerUniformsBuffer);
+          Fwog::Cmd::Draw(3, 1, 0, 0);
+        });
+
+      ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(viewerOutputTexture.value().Handle())), ImGui::GetContentRegionAvail(), {0, 1}, {1, 0});
     }
   }
   ImGui::End();
@@ -514,11 +635,10 @@ void FrogRenderer::OnGui(double dt)
 {
   GuiDrawDockspace();
 
-  ImGui::ShowDemoWindow();
+  //ImGui::ShowDemoWindow();
 
   ImGui::Begin("Reflective Shadow Maps");
   ImGui::Text("Performance: %f ms", rsmPerformance);
-  frame.rsm->DrawGui();
   ImGui::End();
 
   GuiDrawFsrWindow();
@@ -539,14 +659,15 @@ void FrogRenderer::OnGui(double dt)
   }
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
   {
-    ImGui::SetTooltip("If set, the internal render resolution is equal to the viewport.\nOtherwise, it will be the window's framebuffer size,\nresulting in potentially non-square pixels in the viewport");
+    ImGui::SetTooltip("If set, the internal render resolution is equal to the viewport.\nOtherwise, it will be the window's framebuffer size,\nresulting in "
+                      "potentially non-square pixels in the viewport");
   }
 
   auto sunRotated = ImGui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
   sunRotated |= ImGui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
   if (sunRotated)
   {
-    vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth);
+    vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
   }
 
   ImGui::ColorEdit3("Sun Color", &sunColor[0], ImGuiColorEditFlags_Float);
@@ -557,9 +678,7 @@ void FrogRenderer::OnGui(double dt)
   ImGui::TextUnformatted("Shadow");
 
   auto SliderUint = [](const char* label, uint32_t* v, uint32_t v_min, uint32_t v_max) -> bool
-  {
-    return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u");
-  };
+  { return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u"); };
 
   int shadowMode = shadowUniforms.shadowMode;
   ImGui::RadioButton("PCF", &shadowMode, 0);
@@ -595,18 +714,7 @@ void FrogRenderer::OnGui(double dt)
     ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gEmissionSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
 
     ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gDepthSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
-    ImGui::SameLine();
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gRsmIlluminanceSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
 
-    ImGui::EndTabItem();
-  }
-  if (ImGui::BeginTabItem("RSM Buffers"))
-  {
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(rsmDepthSwizzled.Handle())), {100, 100}, {0, 1}, {1, 0});
-    ImGui::SameLine();
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(rsmNormalSwizzled.Handle())), {100, 100}, {0, 1}, {1, 0});
-    ImGui::SameLine();
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(rsmFluxSwizzled.Handle())), {100, 100}, {0, 1}, {1, 0});
     ImGui::EndTabItem();
   }
   ImGui::EndTabBar();
@@ -639,7 +747,7 @@ void FrogRenderer::OnGui(double dt)
   }();
 
   aspectRatio = viewportContentSize.x / viewportContentSize.y;
-  
+
   ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
 
   const bool viewportIsHovered = ImGui::IsItemHovered();
@@ -654,4 +762,5 @@ void FrogRenderer::OnGui(double dt)
   GuiDrawAutoExposureWindow();
   GuiDrawCameraWindow();
   GuiDrawShadowWindow();
+  GuiDrawViewer();
 }

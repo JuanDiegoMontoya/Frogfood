@@ -2,6 +2,7 @@
 
 #include "../RendererUtilities.h"
 
+#include <Fwog/Buffer.h>
 #include <Fwog/Rendering.h>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -67,6 +68,15 @@ namespace Techniques::VirtualShadowMaps
         .shader = &comp,
       });
     }
+
+    Fwog::ComputePipeline CreateReduceVsmHzbPipeline()
+    {
+      auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmReduceBitmaskHzb.comp.glsl");
+
+      return Fwog::ComputePipeline({
+        .shader = &comp,
+      });
+    }
     
     using Barrier = Fwog::MemoryBarrierBit;
   }
@@ -77,12 +87,39 @@ namespace Techniques::VirtualShadowMaps
         Fwog::TextureCreateInfo{
           .imageType = Fwog::ImageType::TEX_2D_ARRAY,
           .format = Fwog::Format::R32_UINT, // Ideally 16 bits, but image atomics are limited to 32-bit integer types
-          .extent = Fwog::Extent3D{maxExtent, maxExtent, 1} / pageSize,
-          .mipLevels = mipLevels,
+          .extent = Fwog::Extent3D{pageTableSize, pageTableSize, 1},
+          .mipLevels = pageTableMipLevels,
           .arrayLayers = ((createInfo.maxVsms + 31) / 32) * 32, // Round up to the nearest multiple of 32 so we don't have any overflowing bits
         },
-        "VSM Page Mappings"),
-      physicalPages_(Fwog::CreateTexture2D({(uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize, (uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize}, Fwog::Format::R32_UINT, "VSM Physical Pages")),
+        "VSM Page Tables"),
+      //pageTablesHzb_(
+      //  Fwog::TextureCreateInfo{
+      //    .imageType = Fwog::ImageType::TEX_2D_ARRAY,
+      //    .format = Fwog::Format::R32_FLOAT,
+      //    .extent = pageTables_.Extent(),
+      //    .mipLevels = pageTableMipLevels,
+      //    .arrayLayers = pageTables_.GetCreateInfo().arrayLayers,
+      //  },
+      //  "VSM Page Tables HZB"),
+      vsmBitmaskHzb_(
+        Fwog::TextureCreateInfo{
+          .imageType = Fwog::ImageType::TEX_2D_ARRAY,
+          .format = Fwog::Format::R8_UINT,
+          .extent = pageTables_.Extent(),
+          .mipLevels = pageTableMipLevels,
+          .arrayLayers = pageTables_.GetCreateInfo().arrayLayers,
+        },
+        "VSM Bitmask HZB"),
+      physicalPages_(
+        Fwog::TextureCreateInfo{
+          .imageType = Fwog::ImageType::TEX_2D,
+          .format = Fwog::Format::R32_FLOAT,
+          .extent = {(uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize, (uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize},
+          .mipLevels = 1,
+          .arrayLayers = 1,
+        },
+        "VSM Physical Pages"),
+      physicalPagesUint_(physicalPages_.CreateFormatView(Fwog::Format::R32_UINT)),
       visiblePagesBitmask_(sizeof(uint32_t) * createInfo.numPages / 32),
       pageVisibleTimeTree_(sizeof(uint32_t) * createInfo.numPages * 2),
       uniformBuffer_(VsmGlobalUniforms{}, Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
@@ -94,10 +131,13 @@ namespace Techniques::VirtualShadowMaps
       markVisiblePages_(CreateMarkVisiblePipeline()),
       listDirtyPages_(CreateListDirtyPagesPipeline()),
       clearDirtyPages_(CreateClearDirtyPagesPipeline()),
-      freeNonVisiblePages_(CreateFreeNonVisiblePagesPipeline())
+      freeNonVisiblePages_(CreateFreeNonVisiblePagesPipeline()),
+      //reducePhysicalPages_(CreateReducePhysicalPipeline()),
+      //reduceVirtualPages_(CreateReduceVirtualPipeline()),
+      reduceVsmHzb_(CreateReduceVsmHzbPipeline())
   {
     // Clear every page mapping to zero
-    for (uint32_t level = 0; level < mipLevels; level++)
+    for (uint32_t level = 0; level < pageTableMipLevels; level++)
     {
       pageTables_.ClearImage({
         .level = level,
@@ -124,7 +164,7 @@ namespace Techniques::VirtualShadowMaps
         return static_cast<uint32_t>(i * 32 + bit);
       }
     }
-
+    
     return std::nullopt;
   }
 
@@ -218,6 +258,23 @@ namespace Techniques::VirtualShadowMaps
       });
   }
 
+  void Context::BindResourcesForCulling()
+  {
+    Fwog::Cmd::BindImage(0, pageTables_, 0);
+
+    const auto sampler = Fwog::Sampler(Fwog::SamplerState{
+      .minFilter = Fwog::Filter::NEAREST,
+      .magFilter = Fwog::Filter::NEAREST,
+      .mipmapFilter = Fwog::Filter::NEAREST,
+      .addressModeU = Fwog::AddressMode::REPEAT,
+      .addressModeV = Fwog::AddressMode::REPEAT,
+    });
+
+    Fwog::Cmd::BindSampledImage(8, physicalPages_, sampler);
+    //Fwog::Cmd::BindSampledImage(9, pageTablesHzb_, sampler);
+    Fwog::Cmd::BindSampledImage(10, vsmBitmaskHzb_, sampler);
+  }
+
   DirectionalVirtualShadowMap::DirectionalVirtualShadowMap(const CreateInfo& createInfo)
     : context_(createInfo.context),
       numClipmaps_(createInfo.numClipmaps),
@@ -260,10 +317,11 @@ namespace Techniques::VirtualShadowMaps
       });
   }
 
-  void DirectionalVirtualShadowMap::UpdateExpensive(glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth)
+  void DirectionalVirtualShadowMap::UpdateExpensive(glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth, float projectionZLength)
   {
     const auto sideLength = firstClipmapWidth / virtualExtent_;
     uniforms_.firstClipmapTexelLength = sideLength;
+    uniforms_.projectionZLength = projectionZLength;
 
     auto up = glm::vec3(0, 1, 0);
     if (1.0f - glm::abs(glm::dot(direction, up)) < 1e-4f)
@@ -277,7 +335,7 @@ namespace Techniques::VirtualShadowMaps
     {
       const auto width = firstClipmapWidth * (1 << i) / 2.0f;
       // TODO: increase Z range for higher clipmaps (or for all?)
-      stableProjections[i] = glm::orthoZO(-width, width, -width, width, -1000.f, 1000.f);
+      stableProjections[i] = glm::orthoZO(-width, width, -width, width, -projectionZLength / 2.0f, projectionZLength / 2.0f);
 
       // Invalidate all clipmaps (clearing to 0 marks pages as not backed, not dirty, and not visible)
       auto extent = context_.pageTables_.Extent();
@@ -298,7 +356,7 @@ namespace Techniques::VirtualShadowMaps
       const auto ndc = clip / clip.w;
       const auto uv = glm::vec2(ndc) * 0.5f; // Don't add the 0.5, since we want the center to be 0
       const auto pageOffset = glm::ivec2(uv * glm::vec2(context_.pageTables_.Extent().width, context_.pageTables_.Extent().height));
-      const auto oldOrigin = uniforms_.clipmapOrigins[i];
+      //const auto oldOrigin = uniforms_.clipmapOrigins[i];
       uniforms_.clipmapOrigins[i] = pageOffset;
 
       const auto ndcShift = 2.0f * glm::vec2((float)pageOffset.x / context_.pageTables_.Extent().width, (float)pageOffset.y / context_.pageTables_.Extent().height);
@@ -307,10 +365,8 @@ namespace Techniques::VirtualShadowMaps
       const auto shiftedProjection = glm::translate(glm::mat4(1), glm::vec3(-ndcShift, 0)) * stableProjections[i];
       viewMatrices[i] = glm::inverse(stableProjections[i]) * shiftedProjection * stableViewMatrix;
 
-      if (oldOrigin != pageOffset)
-      {
-        // TODO: invalidate pages on the edge
-      }
+      //uniforms_.clipmapOrigins[i] = {};
+      //viewMatrices[i] = stableViewMatrix;
     }
 
     uniformBuffer_.UpdateData(uniforms_);
@@ -322,5 +378,43 @@ namespace Techniques::VirtualShadowMaps
     Fwog::Cmd::BindUniformBuffer(6, context_.uniformBuffer_);
     Fwog::Cmd::BindImage(0, context_.pageTables_, 0);
     Fwog::Cmd::BindImage(1, context_.physicalPages_, 0);
+  }
+  
+  void DirectionalVirtualShadowMap::GenerateBitmaskHzb()
+  {
+     Fwog::Compute(
+      "VSM Generate Bitmap HZB",
+      [&]
+      {
+        // TODO: only reduce necessary VSMs
+        Fwog::Cmd::BindComputePipeline(context_.reduceVsmHzb_);
+        Fwog::MemoryBarrier(Barrier::TEXTURE_FETCH_BIT);
+
+        auto uniforms = Fwog::TypedBuffer<int32_t>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+        Fwog::Cmd::BindUniformBuffer(7, uniforms);
+        Fwog::Cmd::BindImage(0, context_.pageTables_, 0);
+
+        for (uint32_t currentPass = 0; currentPass <= (uint32_t)std::log2(pageTableSize); currentPass++)
+        {
+          Fwog::MemoryBarrier(Barrier::IMAGE_ACCESS_BIT);
+          if (currentPass > 0)
+          {
+            Fwog::Cmd::BindImage("i_srcVsmBitmaskHzb", context_.vsmBitmaskHzb_, currentPass - 1);
+          }
+
+          Fwog::Cmd::BindImage("i_dstVsmBitmaskHzb", context_.vsmBitmaskHzb_, currentPass);
+
+          uniforms.UpdateData(currentPass);
+
+          auto invocations = Fwog::Extent3D{
+            context_.vsmBitmaskHzb_.Extent().width,
+            context_.vsmBitmaskHzb_.Extent().height,
+            1,
+          };
+          invocations = invocations >> currentPass;
+          invocations.depth = context_.vsmBitmaskHzb_.GetCreateInfo().arrayLayers;
+          Fwog::Cmd::DispatchInvocations(invocations);
+        }
+      });
   }
 } // namespace Techniques

@@ -17,5 +17,5 @@ void main()
   }
 
   const uint pageAddress = dirtyPageList.data[gid.z];
-  StorePageTexel(gid.xy, pageAddress, -1);
+  StorePageTexel(gid.xy, pageAddress, 1.0);
 }

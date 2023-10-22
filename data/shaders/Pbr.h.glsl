@@ -65,7 +65,7 @@ float Fd_Lambert()
   return 1.0 / 3.1415926;
 }
 
-// Disney diffuse BRDF. Apparently not energy-conserving, but takes into account surface roughness, unlike 
+// Disney diffuse BRDF. Apparently not energy-conserving, but takes into account surface roughness, unlike Lambert's
 float Fd_Burley(float NoV, float NoL, float LoH, float roughness)
 {
   float f90 = 0.5 + 2.0 * roughness * LoH * LoH;
@@ -81,7 +81,7 @@ struct Surface
   vec3 position;
   float metallic;
   float perceptualRoughness;
-  float reflectance; // = 0.04
+  float reflectance; // = 0.5
   float f90;
 };
 

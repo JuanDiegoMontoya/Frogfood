@@ -19,5 +19,5 @@ void main()
   const vec2 uv = PackedToVec2(vertex.uv);
   const mat4 transform = transforms[instanceId];
 
-  gl_Position = views[viewId].viewProj * transform * vec4(position, 1.0);
+  gl_Position = view.viewProj * transform * vec4(position, 1.0);
 }

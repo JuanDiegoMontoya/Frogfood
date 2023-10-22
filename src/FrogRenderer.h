@@ -1,6 +1,5 @@
 #pragma once
 #include "Application.h"
-#include "RsmTechnique.h"
 #include "SceneLoader.h"
 #include "PCG.h"
 #include "techniques/Bloom.h"
@@ -72,17 +71,32 @@ private:
     uint32_t _padding[1];
   };
 
-  struct View {
+  struct View
+  {
     glm::mat4 oldProj;
     glm::mat4 oldView;
     glm::mat4 oldViewProj;
     glm::mat4 proj;
     glm::mat4 view;
     glm::mat4 viewProj;
+    glm::mat4 oldViewProjStableForVsmOnly;
     glm::vec4 cameraPos;
     glm::vec4 frustumPlanes[6];
     glm::vec4 viewport;
+    glm::uint isVirtual{};
+    glm::uint virtualTableIndex;
+    glm::uvec2 _padding;
   };
+
+  enum class ShadingDebugFlag : uint32_t
+  {
+    VSM_SHOW_CLIPMAP_ID    = 1 << 0,
+    VSM_SHOW_PAGE_ADDRESS  = 1 << 1,
+    VSM_SHOW_PAGE_OUTLINES = 1 << 2,
+    VSM_SHOW_SHADOW_DEPTH  = 1 << 3,
+    VSM_SHOW_DIRTY_PAGES   = 1 << 4,
+  };
+  //FWOG_DECLARE_FLAG_TYPE(ShadingDebugFlags, ShadingDebugFlag, uint32_t)
 
   struct ShadingUniforms
   {
@@ -90,7 +104,7 @@ private:
     glm::vec4 sunStrength;
     glm::vec2 random;
     glm::uint numberOfLights;
-    glm::uint _padding;
+    uint32_t debugFlags{};
   };
 
   struct ShadowUniforms
@@ -133,12 +147,9 @@ private:
   void GuiDrawAutoExposureWindow();
   void GuiDrawCameraWindow();
   void GuiDrawShadowWindow();
+  void GuiDrawViewer();
 
-  // constants
-  static constexpr int gMaxViews = 16;
-  static constexpr int gMaxCascades = 4;
-  static constexpr int gShadowmapWidth = 2048;
-  static constexpr int gShadowmapHeight = 2048;
+  void CullMeshletsForView(const View& view, std::string_view name = "Cull Meshlet Pass");
 
   double rsmPerformance = 0;
   double fsr2Performance = 0;
@@ -210,31 +221,14 @@ private:
     // Final tonemapped color
     std::optional<Fwog::Texture> colorLdrWindowRes;
 
-    // Per-technique frame resources
-    std::optional<RSM::RsmTechnique> rsm;
-
     // For debug drawing with ImGui
     std::optional<Fwog::TextureView> gAlbedoSwizzled;
     std::optional<Fwog::TextureView> gRoughnessMetallicAoSwizzled;
     std::optional<Fwog::TextureView> gEmissionSwizzled;
     std::optional<Fwog::TextureView> gNormalSwizzled;
     std::optional<Fwog::TextureView> gDepthSwizzled;
-    std::optional<Fwog::TextureView> gRsmIlluminanceSwizzled;
   };
   Frame frame{};
-
-  // Reflective shadow map textures
-  Fwog::Texture rsmFlux;
-  Fwog::Texture rsmNormal;
-  Fwog::Texture rsmDepth;
-
-  // Cascaded Shadow Maps
-  Fwog::Texture shadowCascades;
-
-  // For debug drawing with ImGui
-  Fwog::TextureView rsmFluxSwizzled;
-  Fwog::TextureView rsmNormalSwizzled;
-  Fwog::TextureView rsmDepthSwizzled;
 
   ShadingUniforms shadingUniforms{};
   ShadowUniforms shadowUniforms{};
@@ -285,8 +279,8 @@ private:
   Fwog::TypedBuffer<TonemapUniforms> tonemapUniformBuffer;
   TonemapUniforms tonemapUniforms{};
 
-  uint32_t renderWidth;
-  uint32_t renderHeight;
+  uint32_t renderWidth{};
+  uint32_t renderHeight{};
   uint32_t frameIndex = 0;
   uint32_t seed = PCG::Hash(17);
 
@@ -295,8 +289,8 @@ private:
   bool fsr2Enable = true;
   bool fsr2FirstInit = true;
   float fsr2Sharpness = 0;
-  float fsr2Ratio = 1.7f; // FFX_FSR2_QUALITY_MODE_BALANCED
-  FfxFsr2Context fsr2Context;
+  float fsr2Ratio = 1.5f; // FFX_FSR2_QUALITY_MODE_QUALITY
+  FfxFsr2Context fsr2Context{};
   std::unique_ptr<char[]> fsr2ScratchMemory;
 #else
   const bool fsr2Enable = false;
@@ -334,4 +328,20 @@ private:
   Fwog::TypedBuffer<uint32_t> vsmShadowUniformBuffer;
   Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};
   float vsmFirstClipmapWidth = 10.0f;
+  float vsmDirectionalProjectionZLength = 100.0f;
+
+  // Texture viewer
+  struct ViewerUniforms
+  {
+    int32_t texLayer = 0;
+    int32_t texLevel = 0;
+  };
+
+  ViewerUniforms viewerUniforms{};
+  Fwog::TypedBuffer<ViewerUniforms> viewerUniformsBuffer;
+  const Fwog::Texture* viewerCurrentTexture = nullptr;
+  Fwog::GraphicsPipeline viewerVsmPageTablesPipeline;
+  Fwog::GraphicsPipeline viewerVsmPhysicalPagesPipeline;
+  Fwog::GraphicsPipeline viewerVsmBitmaskHzbPipeline;
+  std::optional<Fwog::Texture> viewerOutputTexture;
 };

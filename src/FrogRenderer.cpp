@@ -4,6 +4,7 @@
 
 #include <Fwog/BasicTypes.h>
 #include <Fwog/Buffer.h>
+#include <Fwog/DebugMarker.h>
 #include <Fwog/Pipeline.h>
 #include <Fwog/Rendering.h>
 #include <Fwog/Shader.h>
@@ -59,9 +60,10 @@ static void MakeFrustumPlanes(const glm::mat4& viewProj, glm::vec4(&planes)[6])
   for (auto i = 0; i < 4; ++i) { planes[4][i] = viewProj[i][3] + viewProj[i][2]; }
   for (auto i = 0; i < 4; ++i) { planes[5][i] = viewProj[i][3] - viewProj[i][2]; }
 
-  for (auto& plane : planes) {
-      plane /= glm::length(glm::vec3(plane));
-      plane.w = -plane.w;
+  for (auto& plane : planes)
+  {
+    plane /= glm::length(glm::vec3(plane));
+    plane.w = -plane.w;
   }
 }
 
@@ -73,18 +75,44 @@ static glm::vec3 UnprojectUV_ZO(float depth, glm::vec2 uv, const glm::mat4& invX
   return glm::vec3(world) / world.w;
 }
 
+static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near, float far)
+{
+  auto lines = std::vector<Debug::Line>{};
+
+  // Get frustum corners in world space
+  auto tln = UnprojectUV_ZO(near, {0, 1}, invViewProj);
+  auto trn = UnprojectUV_ZO(near, {1, 1}, invViewProj);
+  auto bln = UnprojectUV_ZO(near, {0, 0}, invViewProj);
+  auto brn = UnprojectUV_ZO(near, {1, 0}, invViewProj);
+
+  // Far corners are lerped slightly to near in case it is an infinite projection
+  auto tlf = UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 1}, invViewProj);
+  auto trf = UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 1}, invViewProj);
+  auto blf = UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 0}, invViewProj);
+  auto brf = UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 0}, invViewProj);
+
+  // Connect-the-dots
+  // Near and far "squares"
+  lines.emplace_back(tln, color, trn, color);
+  lines.emplace_back(bln, color, brn, color);
+  lines.emplace_back(tln, color, bln, color);
+  lines.emplace_back(trn, color, brn, color);
+  lines.emplace_back(tlf, color, trf, color);
+  lines.emplace_back(blf, color, brf, color);
+  lines.emplace_back(tlf, color, blf, color);
+  lines.emplace_back(trf, color, brf, color);
+
+  // Lines connecting near and far planes
+  lines.emplace_back(tln, color, tlf, color);
+  lines.emplace_back(trn, color, trf, color);
+  lines.emplace_back(bln, color, blf, color);
+  lines.emplace_back(brn, color, brf, color);
+
+  return lines;
+}
+
 FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optional<std::string_view> filename, float scale, bool binary)
   : Application(createInfo),
-    // Create RSM textures
-    rsmFlux(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::R11G11B10_FLOAT)),
-    rsmNormal(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::R16G16B16_SNORM)),
-    rsmDepth(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D16_UNORM)),
-    // Needs Fwog::CreateTexture2DLayer, for now it'll only be single cascade
-    // shadowCascades(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D32_FLOAT)),
-    shadowCascades(Fwog::CreateTexture2D({gShadowmapWidth, gShadowmapHeight}, Fwog::Format::D32_FLOAT)),
-    rsmFluxSwizzled(rsmFlux.CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE})),
-    rsmNormalSwizzled(rsmNormal.CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE})),
-    rsmDepthSwizzled(rsmDepth.CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE})),
     // Create constant-size buffers
     globalUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     shadingUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
@@ -118,7 +146,11 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
       .numClipmaps = 10,
     }),
     vsmShadowPipeline(Pipelines::ShadowVsm()),
-    vsmShadowUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE)
+    vsmShadowUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
+    viewerUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
+    viewerVsmPageTablesPipeline(Pipelines::ViewerVsm()),
+    viewerVsmPhysicalPagesPipeline(Pipelines::ViewerVsmPhysicalPages()),
+    viewerVsmBitmaskHzbPipeline(Pipelines::ViewerVsmBitmaskHzb())
 {
   ZoneScoped;
   int x = 0;
@@ -160,6 +192,9 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain.glb", glm::scale(glm::vec3{0.125f}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::translate(glm::vec3(0, 100, 0)), glm::vec3{1000.0f}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/powerplant.glb", glm::scale(glm::vec3{1.0f}), true);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}), false);
 
@@ -169,11 +204,6 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::scale(glm::vec3{1}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::scale(glm::vec3{1}), true);
-
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/deccer-cubes/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{0.5f}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{.5}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_inverted_cube.glb", glm::scale(glm::vec3{.25}), true);
-
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/deccer_balls.gltf", glm::scale(glm::vec3{1}), false);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/MetalRoughSpheres/glTF-Binary/MetalRoughSpheres.glb", glm::scale(glm::vec3{1}), true);
   }
@@ -189,10 +219,10 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   indexBuffer = Fwog::TypedBuffer<uint32_t>(scene.indices);
   primitiveBuffer = Fwog::TypedBuffer<uint8_t>(scene.primitives);
   transformBuffer = Fwog::TypedBuffer<glm::mat4>(scene.transforms);
-  meshletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(gMaxViews, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+  meshletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   const auto maxPrimitives = scene.primitives.size() * 3;
-  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxPrimitives * gMaxViews);
+  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxPrimitives);
 
   std::vector<Utility::GpuMaterial> materials(scene.materials.size());
   std::transform(scene.materials.begin(), scene.materials.end(), materials.begin(), [](const auto& m)
@@ -209,12 +239,12 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   meshUniformBuffer.emplace(meshUniforms, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
-  viewBuffer = Fwog::TypedBuffer<View>(gMaxViews, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+  viewBuffer = Fwog::TypedBuffer<View>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   // clusterTexture({.imageType = Fwog::ImageType::TEX_3D,
   //                                      .format = Fwog::Format::R16G16_UINT,
   //                                      .extent = {16, 9, 24},
-  //                                      .mipLevels = 1,
+  //                                      .pageTableMipLevels = 1,
   //                                      .arrayLayers = 1,
   //                                      .sampleCount = Fwog::SampleCount::SAMPLES_1},
   //                                     "Cluster Texture");
@@ -302,22 +332,12 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
   frame.colorHdrBloomScratchBuffer = Fwog::CreateTexture2DMip({newWidth / 2, newHeight / 2}, Fwog::Format::R11G11B10_FLOAT, 8);
   frame.colorLdrWindowRes = Fwog::CreateTexture2D({newWidth, newHeight}, Fwog::Format::R8G8B8A8_UNORM, "colorLdrWindowRes");
 
-  if (!frame.rsm)
-  {
-    frame.rsm = RSM::RsmTechnique(renderWidth, renderHeight);
-  }
-  else
-  {
-    frame.rsm->SetResolution(renderWidth, renderHeight);
-  }
-
   // create debug views
   frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gRoughnessMetallicAoSwizzled = frame.gMetallicRoughnessAo->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gEmissionSwizzled = frame.gEmission->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gNormalSwizzled = frame.gNormal->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
-  frame.gRsmIlluminanceSwizzled = frame.rsm->GetIndirectLighting().CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
 }
 
 void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
@@ -334,38 +354,14 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
 
   if (debugDisplayMainFrustum)
   {
-    auto invViewProj = glm::inverse(debugMainViewProj);
+    auto mainFrustumLines = GenerateFrustumWireframe(glm::inverse(debugMainViewProj), glm::vec4(10, 1, 10, 1), NEAR_DEPTH, FAR_DEPTH);
+    debugLines.insert(debugLines.end(), mainFrustumLines.begin(), mainFrustumLines.end());
 
-    auto color = glm::vec4(10, 1, 10, 1);
-
-    // Get frustum corners in world space
-    auto tln = UnprojectUV_ZO(NEAR_DEPTH, {0, 1}, invViewProj);
-    auto trn = UnprojectUV_ZO(NEAR_DEPTH, {1, 1}, invViewProj);
-    auto bln = UnprojectUV_ZO(NEAR_DEPTH, {0, 0}, invViewProj);
-    auto brn = UnprojectUV_ZO(NEAR_DEPTH, {1, 0}, invViewProj);
-
-    // Far corners are lerped slightly to near in case it is an infinite projection
-    auto tlf = UnprojectUV_ZO(glm::mix(FAR_DEPTH, NEAR_DEPTH, 1e-5), {0, 1}, invViewProj);
-    auto trf = UnprojectUV_ZO(glm::mix(FAR_DEPTH, NEAR_DEPTH, 1e-5), {1, 1}, invViewProj);
-    auto blf = UnprojectUV_ZO(glm::mix(FAR_DEPTH, NEAR_DEPTH, 1e-5), {0, 0}, invViewProj);
-    auto brf = UnprojectUV_ZO(glm::mix(FAR_DEPTH, NEAR_DEPTH, 1e-5), {1, 0}, invViewProj);
-
-    // Connect-the-dots
-    // Near and far "squares"
-    debugLines.emplace_back(tln, color, trn, color);
-    debugLines.emplace_back(bln, color, brn, color);
-    debugLines.emplace_back(tln, color, bln, color);
-    debugLines.emplace_back(trn, color, brn, color);
-    debugLines.emplace_back(tlf, color, trf, color);
-    debugLines.emplace_back(blf, color, brf, color);
-    debugLines.emplace_back(tlf, color, blf, color);
-    debugLines.emplace_back(trf, color, brf, color);
-
-    // Lines connecting near and far planes
-    debugLines.emplace_back(tln, color, tlf, color);
-    debugLines.emplace_back(trn, color, trf, color);
-    debugLines.emplace_back(bln, color, blf, color);
-    debugLines.emplace_back(brn, color, brf, color);
+    for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
+    {
+      auto lines = GenerateFrustumWireframe(glm::inverse(vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i]), glm::vec4(1, 1, 10, 1), 0, 1);
+      debugLines.insert(debugLines.end(), lines.begin(), lines.end());
+    }
   }
   
   if (clearDebugAabbsEachFrame)
@@ -403,6 +399,7 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
   }
 
   tonemapUniformBuffer.UpdateData(tonemapUniforms);
+  vsmContext.UpdateUniforms(vsmUniforms);
 }
 
 static glm::vec2 GetJitterOffset(
@@ -419,6 +416,48 @@ static glm::vec2 GetJitterOffset(
 #else
   return {0, 0};
 #endif
+}
+
+void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
+{
+  Fwog::SamplerState ss = {};
+  ss.minFilter = Fwog::Filter::NEAREST;
+  ss.magFilter = Fwog::Filter::NEAREST;
+  ss.mipmapFilter = Fwog::Filter::NEAREST;
+  auto hzbSampler = Fwog::Sampler(ss);
+
+  viewBuffer->UpdateData(view);
+
+  // Clear all the fields to zero, then set the instance count to one (this way should be more efficient than a CPU-side buffer update)
+  const auto drawCommand = Fwog::DrawIndexedIndirectCommand{
+    .indexCount = 0,
+    .instanceCount = 1,
+    .firstIndex = 0,
+    .vertexOffset = 0,
+    .firstInstance = 0,
+  };
+  meshletIndirectCommand->UpdateData(drawCommand, 0);
+
+  Fwog::Compute(
+    name,
+    [&]
+    {
+      Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
+      Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *instancedMeshletBuffer);
+      Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
+      Fwog::Cmd::BindStorageBuffer("IndirectDrawCommand", *meshletIndirectCommand);
+      Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+      Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
+      // Fwog::Cmd::BindStorageBuffer("DebugAabbBuffer", debugGpuAabbsBuffer.value());
+      // Fwog::Cmd::BindStorageBuffer("DebugRectBuffer", debugGpuRectsBuffer.value());
+      Fwog::Cmd::BindUniformBuffer(6, vsmContext.uniformBuffer_);
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
+      Fwog::Cmd::BindSampledImage("s_hzb", *frame.hzb, hzbSampler);
+      vsmContext.BindResourcesForCulling();
+      Fwog::Cmd::Dispatch(((uint32_t)scene.meshlets.size() + 3) / 4, 1, 1);
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
+    });
 }
 
 void FrogRenderer::OnRender([[maybe_unused]] double dt)
@@ -456,11 +495,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
-
-  const auto viewCount = 1 + vsmSun.NumClipmaps();
-
-  std::array<View, gMaxViews> views = {};
-  views[0] = { // Main View
+  
+  auto mainView = View{
     .proj = projUnjittered,
     .view = mainCamera.GetViewMatrix(),
     .viewProj = viewProjUnjittered,
@@ -472,7 +508,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   {
     // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
     // We should probably emit the far plane regardless, but alas, one thing at a time.
-    MakeFrustumPlanes(viewProjUnjittered, views[0].frustumPlanes);
+    MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
     debugMainViewProj = viewProjUnjittered;
   }
 
@@ -498,99 +534,17 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   if (frameIndex == 1)
   {
-    vsmSun.UpdateExpensive(mainCamera.position, glm::vec3{-shadingUniforms.sunDir}, vsmFirstClipmapWidth);
+    vsmSun.UpdateExpensive(mainCamera.position, glm::vec3{-shadingUniforms.sunDir}, vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
   }
   else
   {
     vsmSun.UpdateOffset(mainCamera.position);
   }
 
-  // Sun VSMs
-  for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
-  {
-    views[1 + i] = {
-      .proj = vsmSun.GetProjections()[i],
-      .view = vsmSun.GetViewMatrices()[i],
-      .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
-      .cameraPos = {}, // unused
-      .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
-    };
-    MakeFrustumPlanes(views[1 + i].viewProj, views[1 + i].frustumPlanes);
-  }
-
-  viewBuffer->UpdateData(std::span<const View>(views));
-
   if (executeMeshletGeneration)
   {
-    // Clear all the fields to zero, then set the instance count to one (this way should be more efficient than a CPU-side buffer update)
-    meshletIndirectCommand->FillData();
-    for (uint32_t i = 0; i < gMaxViews; ++i) {
-      const auto maxIndices = scene.primitives.size() * 3;
-      const auto drawCommand = Fwog::DrawIndexedIndirectCommand{
-        .indexCount = 0,
-        .instanceCount = 1,
-        .firstIndex = static_cast<uint32_t>(i * maxIndices),
-        .vertexOffset = 0,
-        .firstInstance = i,
-      };
-      meshletIndirectCommand->UpdateData(drawCommand, i);
-    }
-
-    Fwog::Compute(
-      "Meshlet Generate Pass",
-      [&]
-      {
-        Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
-        Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-        Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *instancedMeshletBuffer);
-        Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
-        Fwog::Cmd::BindStorageBuffer("IndirectDrawCommand", *meshletIndirectCommand);
-        Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
-        Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
-        Fwog::Cmd::BindStorageBuffer("DebugAabbBuffer", debugGpuAabbsBuffer.value());
-        Fwog::Cmd::BindStorageBuffer("DebugRectBuffer", debugGpuRectsBuffer.value());
-        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
-        Fwog::Cmd::BindSampledImage("hzb", *frame.hzb, hzbSampler);
-        Fwog::Cmd::Dispatch((meshletCount + 3) / 4, viewCount, 1);
-        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
-      });
+    CullMeshletsForView(mainView, "Cull Meshlets Main");
   }
-
-  vsmContext.ResetPageVisibility();
-  vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
-  vsmContext.FreeNonVisiblePages();
-  vsmContext.AllocateRequestedPages();
-  vsmContext.ClearDirtyPages();
-
-  const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
-  Fwog::RenderNoAttachments(
-    {
-      .name = "VSM Render Sun Clipmaps",
-      .viewport = {{{0, 0}, vsmExtent}},
-      .framebufferSize = {vsmExtent.width, vsmExtent.height, 1},
-      .framebufferSamples = Fwog::SampleCount::SAMPLES_1,
-    },
-    [&]
-    {
-      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
-      Fwog::Cmd::BindGraphicsPipeline(vsmShadowPipeline);
-      Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
-      Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
-      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
-      Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
-      Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
-      Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
-      vsmSun.BindResourcesForDrawing();
-      Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
-      Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
-
-      for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
-      {
-        vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
-        Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, (1 + i) * sizeof(Fwog::DrawIndexedIndirectCommand), 1, 0);
-      }
-    });
 
   auto visbufferAttachment = Fwog::RenderColorAttachment{
     .texture = frame.visbuffer.value(),
@@ -622,6 +576,67 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
     });
+
+  // VSMs
+  {
+    const auto debugMarker = Fwog::ScopedDebugMarker("Virtual Shadow Maps");
+    vsmContext.ResetPageVisibility();
+    vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
+    vsmContext.FreeNonVisiblePages();
+    vsmContext.AllocateRequestedPages();
+    vsmSun.GenerateBitmaskHzb();
+    vsmContext.ClearDirtyPages();
+
+    // Sun VSMs
+    for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
+    {
+      auto sunCurrentClipmapView = View{
+        .oldViewProj =
+          vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i], // TODO: this is slightly wrong, but hopefully an old viewProj won't be needed in the future
+        .proj = vsmSun.GetProjections()[i],
+        .view = vsmSun.GetViewMatrices()[i],
+        .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
+        .oldViewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
+        .cameraPos = {}, // unused
+        .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
+        .isVirtual = true,
+        .virtualTableIndex = vsmSun.GetClipmapTableIndices()[i],
+      };
+      MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
+
+      CullMeshletsForView(sunCurrentClipmapView, "Cull Sun VSM Meshlets, View " + std::to_string(i));
+
+      const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+      Fwog::RenderNoAttachments(
+        {
+          .name = "VSM Render Sun Clipmaps",
+          .viewport = {{{0, 0}, vsmExtent}},
+          .framebufferSize = {vsmExtent.width, vsmExtent.height, 1},
+          .framebufferSamples = Fwog::SampleCount::SAMPLES_1,
+        },
+        [&]
+        {
+          Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+          Fwog::Cmd::BindGraphicsPipeline(vsmShadowPipeline);
+          Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+          Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
+          Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
+          Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
+          Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
+          Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+          Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
+          vsmSun.BindResourcesForDrawing();
+          Fwog::Cmd::BindImage(1, vsmContext.physicalPagesUint_, 0);
+          Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
+          Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
+
+          vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
+          Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
+        });
+    }
+  }
+
+  //vsmSun.GenerateHZB();
 
   if (generateHizBuffer)
   {
@@ -981,8 +996,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
           tex = &frame.gNormal.value();
         if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS)
           tex = &frame.gDepth.value();
-        if (glfwGetKey(window, GLFW_KEY_F4) == GLFW_PRESS)
-          tex = &frame.rsm->GetIndirectLighting();
         if (tex)
         {
           Fwog::Cmd::BindGraphicsPipeline(debugTexturePipeline);

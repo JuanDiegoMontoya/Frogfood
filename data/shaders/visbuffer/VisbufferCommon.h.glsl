@@ -54,16 +54,21 @@ struct Meshlet
   PackedVec3 aabbMax;
 };
 
-struct View {
+struct View
+{
   mat4 oldProj;
   mat4 oldView;
   mat4 oldViewProj;
   mat4 proj;
   mat4 view;
   mat4 viewProj;
+  mat4 oldViewProjStableForVsmOnly;
   vec4 cameraPos;
   vec4 frustumPlanes[6];
   vec4 viewport;
+  uint isVirtual;
+  uint virtualTableIndex;
+  uvec2 _padding;
 };
 
 struct GpuMaterial
@@ -105,7 +110,7 @@ layout (std430, binding = 4) restrict readonly buffer TransformBuffer
 
 layout (std430, binding = 6) restrict buffer IndirectDrawCommand
 {
-  DrawElementsIndirectCommand commands[];
+  DrawElementsIndirectCommand indirectCommand;
 };
 
 layout (std140, binding = 7) restrict readonly buffer MaterialBuffer
@@ -115,7 +120,7 @@ layout (std140, binding = 7) restrict readonly buffer MaterialBuffer
 
 layout (std140, binding = 8) restrict readonly buffer ViewBuffer
 {
-  View views[];
+  View view;
 };
 
 #endif // VISBUFFER_COMMON_H

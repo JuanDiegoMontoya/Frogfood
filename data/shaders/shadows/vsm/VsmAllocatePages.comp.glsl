@@ -5,6 +5,7 @@
 #include "../../Math.h.glsl"
 #include "../../GlobalUniforms.h.glsl"
 #include "VsmCommon.h.glsl"
+#include "VsmAllocRequest.h.glsl"
 
 /*
 // Traverse the linearized tree with the following indices:

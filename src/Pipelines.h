@@ -17,4 +17,7 @@ namespace Pipelines
   Fwog::GraphicsPipeline DebugLines();
   Fwog::GraphicsPipeline DebugAabbs();
   Fwog::GraphicsPipeline DebugRects();
+  Fwog::GraphicsPipeline ViewerVsm();
+  Fwog::GraphicsPipeline ViewerVsmPhysicalPages();
+  Fwog::GraphicsPipeline ViewerVsmBitmaskHzb();
 }

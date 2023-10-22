@@ -14,10 +14,19 @@
 namespace Techniques::VirtualShadowMaps
 {
   inline constexpr uint32_t pageSize = 128;
-  inline constexpr uint32_t maxExtent = 16384; // 2^14
+  //inline constexpr uint32_t maxExtent = 16384; // 2^14
+  inline constexpr uint32_t maxExtent = 4096;
   inline constexpr uint32_t minExtent = pageSize;
-  inline const uint32_t mipLevels = 1 + static_cast<uint32_t>(std::log2(maxExtent / pageSize));
+  inline constexpr uint32_t pageTableSize = maxExtent / pageSize;
+  inline const uint32_t pageTableMipLevels = 1 + static_cast<uint32_t>(std::log2(pageTableSize));
   inline constexpr uint32_t MAX_CLIPMAPS = 32;
+
+  enum class DebugFlag
+  {
+    VSM_HZB_PHYSICAL_RETURN_ONE = 1 << 0,
+    VSM_HZB_VIRTUAL_RETURN_ONE = 1 << 1,
+    VSM_FORCE_DIRTY_VISIBLE_PAGES = 1 << 2,
+  };
 
   class Context
   {
@@ -34,7 +43,8 @@ namespace Techniques::VirtualShadowMaps
     struct VsmGlobalUniforms
     {
       float lodBias{};
-      char _padding[12]{};
+      uint32_t debugFlags{};
+      char _padding[8]{};
     };
 
     void UpdateUniforms(const VsmGlobalUniforms& uniforms);
@@ -52,6 +62,8 @@ namespace Techniques::VirtualShadowMaps
 
     void ClearDirtyPages();
 
+    void BindResourcesForCulling();
+
   private:
     friend class DirectionalVirtualShadowMap;
 
@@ -68,10 +80,22 @@ namespace Techniques::VirtualShadowMaps
     // Bit 2: is this page allocated? This could be implemented as a special page address
     // Bits 3-15: reserved
     // Bits 16-31: page address from 0 to 2^16-1
+  public:
     Fwog::Texture pageTables_;
+  private:
 
+    // Reduced depth version of the page table.
+    // Level 0 of this texture holds the reduction of the final mip of the corresponding physical pages
+    // (which should be 2x2).
+    // Un-backed pages have NEAR depth (0) so that objects which only overlap them are culled.
+    //Fwog::Texture pageTablesHzb_;
+
+  public:
+    Fwog::Texture vsmBitmaskHzb_;
     // Physical memory used to back various VSMs
     Fwog::Texture physicalPages_;
+    Fwog::TextureView physicalPagesUint_; // For doing atomic ops
+  private:
 
     // Bitmask indicating whether each page is visible this frame
     // Only non-visible pages should be evicted
@@ -82,7 +106,9 @@ namespace Techniques::VirtualShadowMaps
     Fwog::Buffer pageVisibleTimeTree_;
 
     /// BUFFERS
+  public:
     Fwog::TypedBuffer<VsmGlobalUniforms> uniformBuffer_;
+  private:
 
     struct PageAllocRequest
     {
@@ -104,6 +130,9 @@ namespace Techniques::VirtualShadowMaps
     Fwog::ComputePipeline listDirtyPages_;
     Fwog::ComputePipeline clearDirtyPages_;
     Fwog::ComputePipeline freeNonVisiblePages_;
+    //Fwog::ComputePipeline reducePhysicalPages_;
+    //Fwog::ComputePipeline reduceVirtualPages_;
+    Fwog::ComputePipeline reduceVsmHzb_;
   };
 
   class DirectionalVirtualShadowMap
@@ -131,12 +160,14 @@ namespace Techniques::VirtualShadowMaps
 
     // Invalidates ALL pages in the referenced VSMs.
     // Call only when the light itself changes, since this invalidates ALL pages
-    void UpdateExpensive(glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth);
+    void UpdateExpensive(glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth, float projectionZLength);
 
     // Cheap, call every frame
     void UpdateOffset(glm::vec3 worldOffset);
 
     void BindResourcesForDrawing();
+
+    void GenerateBitmaskHzb();
 
     [[nodiscard]] std::span<const glm::mat4> GetProjections() const noexcept
     {
@@ -163,6 +194,11 @@ namespace Techniques::VirtualShadowMaps
       return numClipmaps_;
     }
 
+    [[nodiscard]] glm::mat4 GetStableViewMatrix() const noexcept
+    {
+      return stableViewMatrix;
+    }
+
   private:
     struct MarkVisiblePagesDirectionalUniforms
     {
@@ -171,6 +207,7 @@ namespace Techniques::VirtualShadowMaps
       std::array<glm::ivec2, MAX_CLIPMAPS> clipmapOrigins;
       uint32_t numClipmaps;
       float firstClipmapTexelLength;
+      float projectionZLength;
     };
 
     Context& context_;

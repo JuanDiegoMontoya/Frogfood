@@ -1,5 +1,7 @@
 #include "RendererUtilities.h"
 
+#define STB_INCLUDE_IMPLEMENTATION
+#define STB_INCLUDE_LINE_GLSL
 #include "stb_include.h"
 
 Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesystem::path& path)

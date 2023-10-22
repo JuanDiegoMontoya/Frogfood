@@ -5,8 +5,8 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include FWOG_OPENGL_HEADER
 #include <GLFW/glfw3.h>
-#include <glad/gl.h>
 
 #include <algorithm>
 #include <filesystem>

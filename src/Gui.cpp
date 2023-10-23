@@ -530,15 +530,12 @@ void FrogRenderer::GuiDrawShadowWindow()
       vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
     }
 
-    bool vsmHzbPhysicalReturnOne = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_PHYSICAL_RETURN_ONE;
-    bool vsmHzbVirtualReturnOne = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_VIRTUAL_RETURN_ONE;
+    bool vsmHzbForceSuccess = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS;
     bool vsmForceDirtyVisiblePages = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES;
-    ImGui::Checkbox("Force Physical HZB Success", &vsmHzbPhysicalReturnOne);
-    ImGui::Checkbox("Force Virtual HZB Success", &vsmHzbVirtualReturnOne);
+    ImGui::Checkbox("Force VSM HZB Success", &vsmHzbForceSuccess);
     ImGui::Checkbox("Force Dirty Visible Pages", &vsmForceDirtyVisiblePages);
     vsmUniforms.debugFlags = 0;
-    vsmUniforms.debugFlags |= vsmHzbPhysicalReturnOne ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_PHYSICAL_RETURN_ONE : 0;
-    vsmUniforms.debugFlags |= vsmHzbVirtualReturnOne ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_VIRTUAL_RETURN_ONE : 0;
+    vsmUniforms.debugFlags |= vsmHzbForceSuccess ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS : 0;
     vsmUniforms.debugFlags |= vsmForceDirtyVisiblePages ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES : 0;
   }
   ImGui::End();

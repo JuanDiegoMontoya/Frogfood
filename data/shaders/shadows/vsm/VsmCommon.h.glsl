@@ -29,9 +29,8 @@ layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUnif
   float projectionZLength;
 }clipmapUniforms;
 
-#define VSM_HZB_PHYSICAL_RETURN_ONE (1 << 0)
-#define VSM_HZB_VIRTUAL_RETURN_ONE (1 << 1)
-#define VSM_FORCE_DIRTY_VISIBLE_PAGES (1 << 2)
+#define VSM_HZB_FORCE_SUCCESS (1 << 0)
+#define VSM_FORCE_DIRTY_VISIBLE_PAGES (1 << 1)
 
 layout(binding = 6, std140) uniform VsmGlobalUniforms
 {
@@ -116,6 +115,10 @@ void StorePageTexel(ivec2 texel, uint page, float value)
 
 bool SampleVsmBitmaskHzb(uint vsmIndex, vec2 uv, int level)
 {
+  if ((vsmUniforms.debugFlags & VSM_HZB_FORCE_SUCCESS) != 0)
+  {
+    return true;
+  }
   return bool(textureLod(s_vsmBitmaskHzb, vec3(fract(uv), vsmIndex), level).x);
 }
 

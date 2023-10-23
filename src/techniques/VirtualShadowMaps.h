@@ -23,9 +23,8 @@ namespace Techniques::VirtualShadowMaps
 
   enum class DebugFlag
   {
-    VSM_HZB_PHYSICAL_RETURN_ONE = 1 << 0,
-    VSM_HZB_VIRTUAL_RETURN_ONE = 1 << 1,
-    VSM_FORCE_DIRTY_VISIBLE_PAGES = 1 << 2,
+    VSM_HZB_FORCE_SUCCESS = 1 << 0,
+    VSM_FORCE_DIRTY_VISIBLE_PAGES = 1 << 1,
   };
 
   class Context
@@ -83,12 +82,6 @@ namespace Techniques::VirtualShadowMaps
   public:
     Fwog::Texture pageTables_;
   private:
-
-    // Reduced depth version of the page table.
-    // Level 0 of this texture holds the reduction of the final mip of the corresponding physical pages
-    // (which should be 2x2).
-    // Un-backed pages have NEAR depth (0) so that objects which only overlap them are culled.
-    //Fwog::Texture pageTablesHzb_;
 
   public:
     Fwog::Texture vsmBitmaskHzb_;

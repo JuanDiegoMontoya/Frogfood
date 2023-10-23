@@ -185,7 +185,8 @@ bool IsMeshletOccludedVsm(in uint meshletId)
 
     clip.z = max(clip.z, 0.0);
     clip /= clip.w;
-    clip.xy = clamp(clip.xy, -1.0, 1.0);
+    // Since we are using the stable viewProj, we explicitly want to allow the NDC to go outside [-1, 1]!
+    //clip.xy = clamp(clip.xy, -1.0, 1.0);
     clip.xy = clip.xy * 0.5 + 0.5;
     minXY = min(minXY, clip.xy);
     maxXY = max(maxXY, clip.xy);
@@ -193,7 +194,6 @@ bool IsMeshletOccludedVsm(in uint meshletId)
   }
 
   const vec4 boxUvs = vec4(minXY, maxXY);
-  //const vec2 hzbSize = vec2(textureSize(s_virtualPages, 0).xy) * PAGE_SIZE;
   const vec2 hzbSize = vec2(textureSize(s_vsmBitmaskHzb, 0));
   const float width = (boxUvs.z - boxUvs.x) * hzbSize.x;
   const float height = (boxUvs.w - boxUvs.y) * hzbSize.y;
@@ -278,7 +278,7 @@ void main()
   {
     sh_isMeshletValid[meshletOffset] = meshletId < perFrameUniforms.meshletCount && IsMeshletVisible(meshletId);
 
-    if (sh_isMeshletValid[meshletOffset])
+    if (sh_isMeshletValid[meshletOffset] && view.isVirtual == 0)
     {
 #ifdef ENABLE_DEBUG_DRAWING
       DebugDrawMeshletAabb(meshletId);

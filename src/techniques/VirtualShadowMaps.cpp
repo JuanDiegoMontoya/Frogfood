@@ -92,15 +92,6 @@ namespace Techniques::VirtualShadowMaps
           .arrayLayers = ((createInfo.maxVsms + 31) / 32) * 32, // Round up to the nearest multiple of 32 so we don't have any overflowing bits
         },
         "VSM Page Tables"),
-      //pageTablesHzb_(
-      //  Fwog::TextureCreateInfo{
-      //    .imageType = Fwog::ImageType::TEX_2D_ARRAY,
-      //    .format = Fwog::Format::R32_FLOAT,
-      //    .extent = pageTables_.Extent(),
-      //    .mipLevels = pageTableMipLevels,
-      //    .arrayLayers = pageTables_.GetCreateInfo().arrayLayers,
-      //  },
-      //  "VSM Page Tables HZB"),
       vsmBitmaskHzb_(
         Fwog::TextureCreateInfo{
           .imageType = Fwog::ImageType::TEX_2D_ARRAY,
@@ -271,7 +262,6 @@ namespace Techniques::VirtualShadowMaps
     });
 
     Fwog::Cmd::BindSampledImage(8, physicalPages_, sampler);
-    //Fwog::Cmd::BindSampledImage(9, pageTablesHzb_, sampler);
     Fwog::Cmd::BindSampledImage(10, vsmBitmaskHzb_, sampler);
   }
 

@@ -609,7 +609,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
       Fwog::RenderNoAttachments(
         {
-          .name = "VSM Render Sun Clipmaps",
+          .name = "Render Clipmap",
           .viewport = {{{0, 0}, vsmExtent}},
           .framebufferSize = {vsmExtent.width, vsmExtent.height, 1},
           .framebufferSamples = Fwog::SampleCount::SAMPLES_1,

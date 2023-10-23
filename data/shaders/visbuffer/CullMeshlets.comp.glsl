@@ -278,10 +278,13 @@ void main()
   {
     sh_isMeshletValid[meshletOffset] = meshletId < perFrameUniforms.meshletCount && IsMeshletVisible(meshletId);
 
-    if (sh_isMeshletValid[meshletOffset] && view.isVirtual == 0)
+    if (sh_isMeshletValid[meshletOffset])
     {
 #ifdef ENABLE_DEBUG_DRAWING
-      DebugDrawMeshletAabb(meshletId);
+      if (view.isVirtual == 0)
+      {
+        DebugDrawMeshletAabb(meshletId);
+      }
 #endif // ENABLE_DEBUG_DRAWING
 
       sh_baseIndex[meshletOffset] = atomicAdd(indirectCommand.indexCount, meshlets[meshletId].primitiveCount * 3);

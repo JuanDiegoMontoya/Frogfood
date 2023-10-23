@@ -3,7 +3,7 @@
 
 namespace Pipelines
 {
-  Fwog::ComputePipeline MeshletGenerate();
+  Fwog::ComputePipeline CullMeshlets();
   Fwog::ComputePipeline HzbCopy();
   Fwog::ComputePipeline HzbReduce();
   Fwog::GraphicsPipeline Visbuffer();

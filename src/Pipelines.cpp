@@ -12,9 +12,9 @@
 
 namespace Pipelines
 {
-  Fwog::ComputePipeline MeshletGenerate()
+  Fwog::ComputePipeline CullMeshlets()
   {
-    auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/Visbuffer.comp.glsl");
+    auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/CullMeshlets.comp.glsl");
 
     return Fwog::ComputePipeline({
       .shader = &comp,

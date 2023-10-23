@@ -119,7 +119,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     shadowUniformsBuffer(shadowUniforms, Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     rsmUniforms(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     // Create the pipelines used in the application
-    meshletGeneratePipeline(Pipelines::MeshletGenerate()),
+    cullMeshletsPipeline(Pipelines::CullMeshlets()),
     hzbCopyPipeline(Pipelines::HzbCopy()),
     hzbReducePipeline(Pipelines::HzbReduce()),
     visbufferPipeline(Pipelines::Visbuffer()),
@@ -442,7 +442,7 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
     name,
     [&]
     {
-      Fwog::Cmd::BindComputePipeline(meshletGeneratePipeline);
+      Fwog::Cmd::BindComputePipeline(cullMeshletsPipeline);
       Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
       Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *instancedMeshletBuffer);
       Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);

@@ -252,7 +252,7 @@ private:
 
   Fwog::TypedBuffer<glm::mat4> rsmUniforms;
 
-  Fwog::ComputePipeline meshletGeneratePipeline;
+  Fwog::ComputePipeline cullMeshletsPipeline;
   Fwog::ComputePipeline hzbCopyPipeline;
   Fwog::ComputePipeline hzbReducePipeline;
   Fwog::GraphicsPipeline visbufferPipeline;

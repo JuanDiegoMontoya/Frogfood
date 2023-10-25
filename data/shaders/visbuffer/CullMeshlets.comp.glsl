@@ -49,17 +49,24 @@ void DebugDrawMeshletAabb(in uint meshletId)
 }
 #endif // ENABLE_DEBUG_DRAWING
 
-#define WG_SIZE 256
-#define MESHLET_PER_WG (WG_SIZE / MAX_PRIMITIVES)
-
-layout (local_size_x = WG_SIZE, local_size_y = 1, local_size_z = 1) in;
-
 layout (binding = 0) uniform sampler2D s_hzb;
 
 layout (std430, binding = 3) writeonly buffer MeshletPackedBuffer
 {
   uint data[];
 } indexBuffer;
+
+layout(std430, binding = 9) restrict buffer MeshletVisibilityBuffer
+{
+  uint indices[];
+} visibleMeshlets;
+
+layout(std430, binding = 10) restrict buffer CullTrianglesDispatchParams
+{
+  uint groupCountX;
+  uint groupCountY;
+  uint groupCountZ;
+} cullTrianglesDispatch;
 
 bool IsAABBInsidePlane(in vec3 center, in vec3 extent, in vec4 plane)
 {
@@ -167,9 +174,6 @@ bool IsMeshletOccludedVsm(in uint meshletId)
     aabbMin + vec3(aabbSize.x, 0.0, aabbSize.z),
     aabbMin + aabbSize);
 
-  // The nearest projected depth of the object's AABB
-  float nearestZ = 1.0;
-
   // Min and max projected coordinates of the object's AABB in UV space
   vec2 minXY = vec2(1.0);
   vec2 maxXY = vec2(0.0);
@@ -187,10 +191,9 @@ bool IsMeshletOccludedVsm(in uint meshletId)
     clip /= clip.w;
     // Since we are using the stable viewProj, we explicitly want to allow the NDC to go outside [-1, 1]!
     //clip.xy = clamp(clip.xy, -1.0, 1.0);
-    clip.xy = clip.xy * 0.5 + 0.5;
+    clip.xy = fract(clip.xy * 0.5 + 0.5);
     minXY = min(minXY, clip.xy);
     maxXY = max(maxXY, clip.xy);
-    nearestZ = clamp(min(nearestZ, clip.z), 0.0, 1.0);
   }
 
   const vec4 boxUvs = vec4(minXY, maxXY);
@@ -263,43 +266,19 @@ bool IsMeshletVisible(in uint meshletId)
   return true;
 }
 
-shared uint sh_baseIndex[MESHLET_PER_WG];
-shared uint sh_primitiveCount[MESHLET_PER_WG];
-shared bool sh_isMeshletValid[MESHLET_PER_WG];
-
+layout (local_size_x = 128) in;
 void main()
 {
-  const uint meshletBaseId = gl_WorkGroupID.x * MESHLET_PER_WG;
-  const uint meshletOffset = gl_LocalInvocationID.x / MAX_PRIMITIVES;
-  const uint localId = gl_LocalInvocationID.x % MAX_PRIMITIVES;
-  const uint meshletId = meshletBaseId + meshletOffset;
+  const uint meshletId = gl_GlobalInvocationID.x;
 
-  if (localId == 0)
+  if (meshletId >= perFrameUniforms.meshletCount)
   {
-    sh_isMeshletValid[meshletOffset] = meshletId < perFrameUniforms.meshletCount && IsMeshletVisible(meshletId);
-
-    if (sh_isMeshletValid[meshletOffset])
-    {
-#ifdef ENABLE_DEBUG_DRAWING
-      if (view.isVirtual == 0)
-      {
-        DebugDrawMeshletAabb(meshletId);
-      }
-#endif // ENABLE_DEBUG_DRAWING
-
-      sh_baseIndex[meshletOffset] = atomicAdd(indirectCommand.indexCount, meshlets[meshletId].primitiveCount * 3);
-      sh_primitiveCount[meshletOffset] = meshlets[meshletId].primitiveCount;
-    }
+    return;
   }
 
-  barrier();
-
-  if (sh_isMeshletValid[meshletOffset] && localId < sh_primitiveCount[meshletOffset])
+  if (IsMeshletVisible(meshletId))
   {
-    const uint baseId = localId * 3;
-    const uint indexOffset = sh_baseIndex[meshletOffset] + baseId;
-    indexBuffer.data[indexOffset + 0] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 0) & MESHLET_PRIMITIVE_MASK);
-    indexBuffer.data[indexOffset + 1] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 1) & MESHLET_PRIMITIVE_MASK);
-    indexBuffer.data[indexOffset + 2] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((baseId + 2) & MESHLET_PRIMITIVE_MASK);
+    const uint idx = atomicAdd(cullTrianglesDispatch.groupCountX, 1);
+    visibleMeshlets.indices[idx] = meshletId;
   }
 }

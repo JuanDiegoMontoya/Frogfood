@@ -21,6 +21,15 @@ namespace Pipelines
     });
   }
 
+  Fwog::ComputePipeline CullTriangles()
+  {
+    auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/CullTriangles.comp.glsl");
+
+    return Fwog::ComputePipeline({
+      .shader = &comp,
+    });
+  }
+
   Fwog::ComputePipeline HzbCopy()
   {
     auto comp = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBCopy.comp.glsl");
@@ -86,19 +95,6 @@ namespace Pipelines
       .depthState = {.depthTestEnable = true, .depthWriteEnable = false, .depthCompareOp = Fwog::CompareOp::EQUAL},
     });
   }
-
-  /*static Fwog::GraphicsPipeline CreateShadowPipeline()
-  {
-    auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/SceneDeferredPbr.vert.glsl");
-    auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/RSMScenePbr.frag.glsl");
-
-    return Fwog::GraphicsPipeline({
-      .vertexShader = &vs,
-      .fragmentShader = &fs,
-      .vertexInputState = {sceneInputBindingDescs},
-      .depthState = {.depthTestEnable = true, .depthWriteEnable = true},
-    });
-  }*/
 
   Fwog::GraphicsPipeline Shading()
   {

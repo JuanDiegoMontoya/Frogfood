@@ -117,9 +117,9 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     globalUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     shadingUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     shadowUniformsBuffer(shadowUniforms, Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
-    rsmUniforms(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     // Create the pipelines used in the application
     cullMeshletsPipeline(Pipelines::CullMeshlets()),
+    cullTrianglesPipeline(Pipelines::CullTriangles()),
     hzbCopyPipeline(Pipelines::HzbCopy()),
     hzbReducePipeline(Pipelines::HzbReduce()),
     visbufferPipeline(Pipelines::Visbuffer()),
@@ -223,6 +223,9 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
 
   const auto maxPrimitives = scene.primitives.size() * 3;
   instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxPrimitives);
+
+  cullTrianglesDispatchParams = Fwog::TypedBuffer(Fwog::DispatchIndirectCommand{0, 1, 1});
+  visibleMeshletIds = Fwog::TypedBuffer<uint32_t>(scene.meshlets.size());
 
   std::vector<Utility::GpuMaterial> materials(scene.materials.size());
   std::transform(scene.materials.begin(), scene.materials.end(), materials.begin(), [](const auto& m)
@@ -438,6 +441,9 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
   };
   meshletIndirectCommand->UpdateData(drawCommand, 0);
 
+  // Clear groupCountX
+  cullTrianglesDispatchParams->FillData({.size = sizeof(uint32_t)});
+
   Fwog::Compute(
     name,
     [&]
@@ -449,13 +455,21 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
       Fwog::Cmd::BindStorageBuffer("IndirectDrawCommand", *meshletIndirectCommand);
       Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
       Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
+      Fwog::Cmd::BindStorageBuffer("MeshletVisibilityBuffer", visibleMeshletIds.value());
+      Fwog::Cmd::BindStorageBuffer("CullTrianglesDispatchParams", cullTrianglesDispatchParams.value());
       // Fwog::Cmd::BindStorageBuffer("DebugAabbBuffer", debugGpuAabbsBuffer.value());
       // Fwog::Cmd::BindStorageBuffer("DebugRectBuffer", debugGpuRectsBuffer.value());
       Fwog::Cmd::BindUniformBuffer(6, vsmContext.uniformBuffer_);
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
       Fwog::Cmd::BindSampledImage("s_hzb", *frame.hzb, hzbSampler);
       vsmContext.BindResourcesForCulling();
-      Fwog::Cmd::Dispatch(((uint32_t)scene.meshlets.size() + 3) / 4, 1, 1);
+      Fwog::Cmd::DispatchInvocations((uint32_t)scene.meshlets.size(), 1, 1);
+
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
+
+      Fwog::Cmd::BindComputePipeline(cullTrianglesPipeline);
+      Fwog::Cmd::DispatchIndirect(cullTrianglesDispatchParams.value(), 0);
+
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
     });
 }

@@ -249,17 +249,17 @@ private:
   // Output
   std::optional<Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>> meshletIndirectCommand;
   std::optional<Fwog::TypedBuffer<uint32_t>> instancedMeshletBuffer;
-
-  Fwog::TypedBuffer<glm::mat4> rsmUniforms;
+  std::optional<Fwog::TypedBuffer<Fwog::DispatchIndirectCommand>> cullTrianglesDispatchParams;
+  std::optional<Fwog::TypedBuffer<uint32_t>> visibleMeshletIds;
 
   Fwog::ComputePipeline cullMeshletsPipeline;
+  Fwog::ComputePipeline cullTrianglesPipeline;
   Fwog::ComputePipeline hzbCopyPipeline;
   Fwog::ComputePipeline hzbReducePipeline;
   Fwog::GraphicsPipeline visbufferPipeline;
   Fwog::GraphicsPipeline shadowMainPipeline;
   Fwog::GraphicsPipeline materialDepthPipeline;
   Fwog::GraphicsPipeline visbufferResolvePipeline;
-  //Fwog::GraphicsPipeline rsmScenePipeline;
   Fwog::GraphicsPipeline shadingPipeline;
   Fwog::ComputePipeline tonemapPipeline;
   Fwog::GraphicsPipeline debugTexturePipeline;

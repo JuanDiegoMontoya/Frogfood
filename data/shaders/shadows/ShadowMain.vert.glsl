@@ -2,6 +2,9 @@
 #extension GL_GOOGLE_include_directive : enable
 #include "../visbuffer/VisbufferCommon.h.glsl"
 
+layout(location = 0) out vec2 v_uv;
+layout(location = 1) out uint v_meshletId;
+
 void main()
 {
   const uint meshletId = (uint(gl_VertexID) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
@@ -16,8 +19,9 @@ void main()
   const uint index = indices[indexOffset + primitive];
   const Vertex vertex = vertices[vertexOffset + index];
   const vec3 position = PackedToVec3(vertex.position);
-  const vec2 uv = PackedToVec2(vertex.uv);
   const mat4 transform = transforms[instanceId];
 
-  gl_Position = view.viewProj * transform * vec4(position, 1.0);
+  v_meshletId = meshletId;
+  v_uv = PackedToVec2(vertex.uv);
+  gl_Position = currentView.viewProj * transform * vec4(position, 1.0);
 }

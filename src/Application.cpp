@@ -105,6 +105,7 @@ namespace
         id == 131222 ||
         id == 131154 || // NV: pixel transfer is synchronized with 3D rendering
         id == 131220 || // NV: A fragment shader is required to render to an integer framebuffer
+        id == 131140 || // NV: Blending is enabled while an integer render texture is in the bound framebuffer
         id == 0         // gl{Push, Pop}DebugGroup
       )
       return;

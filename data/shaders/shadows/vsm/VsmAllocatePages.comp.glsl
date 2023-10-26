@@ -2,79 +2,8 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
-#include "../../Math.h.glsl"
-#include "../../GlobalUniforms.h.glsl"
 #include "VsmCommon.h.glsl"
 #include "VsmAllocRequest.h.glsl"
-
-/*
-// Traverse the linearized tree with the following indices:
-//              0
-//        /           \
-//       1             2
-//     /   \         /   \
-//    3     4       5     6
-//   /\     /\     /\     /\
-//  7  8   9 10   11 12 13 14
-//
-uint AllocatePage(VsmPageAllocRequest request)
-{
-  const uint oldest = lastTimeVisible.time[0];
-  
-  // Current (parent) index
-  uint currentTreeIndex = 0;
-
-  // TODO: temp
-  const uint numLevels = 4;
-
-  // Traverse down tree to find real index
-  for (uint level = 0; level < numLevels - 1; level++)
-  {
-    // Compare age of children
-    const uint leftIndex = currentTreeIndex * 2 + 1;
-    const uint rightIndex = currentTreeIndex * 2 + 2;
-
-    const uint lTime = lastTimeVisible.time[leftIndex];
-    const uint rTime = lastTimeVisible.time[rightIndex];
-
-    if (rTime < lTime)
-    {
-      currentTreeIndex = rightIndex;
-    }
-    else
-    {
-      currentTreeIndex = leftIndex;
-    }
-  }
-
-  // The real index is the current tree index minus the number of non-leaf nodes
-  const uint realIndex = currentTreeIndex - uint(exp2(numLevels)) - 1;
-
-  uint currentOldest = oldest;
-
-  // Update tree by traversing back up
-  for (uint level = 0; level < numLevels; level++)
-  {
-    // Children are stored at sequential indices (see above diagram).
-    // Children with an even index are always the second child, so we can subtract one to find the other child.
-    // Likewise, children with an odd index are the first child, so we can just add one to find the other.
-    const uint siblingIndex = currentTreeIndex + (currentTreeIndex % 2) == 1 ? 1 : -1;
-
-    const uint sTime = lastTimeVisible.time[siblingIndex];
-
-    // TODO: fix
-    if (sTime >= currentOldest)
-    {
-      break;
-    }
-
-    // Traverse to the parent
-    currentTreeIndex = (currentTreeIndex - 1) / 2;
-  }
-
-  return realIndex;
-}
-*/
 
 void AllocatePageSimple(VsmPageAllocRequest request)
 {

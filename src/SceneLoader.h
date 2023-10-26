@@ -112,6 +112,11 @@ namespace Utility
     std::vector<glm::mat4> transforms;
     std::vector<GpuLight> lights;
   };
+  
+  // TODO: maybe customizeable (not recommended though)
+  inline constexpr auto maxMeshletIndices = 64u;
+  inline constexpr auto maxMeshletPrimitives = 64u;
+  inline constexpr auto meshletConeWeight = 0.0f;
 
   bool LoadModelFromFileMeshlet(SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool binary);
 }

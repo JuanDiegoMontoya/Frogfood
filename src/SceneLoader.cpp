@@ -872,11 +872,6 @@ namespace Utility
     std::vector<glm::mat4> transforms;
     transforms.reserve(loadedScene->meshInstances.size());
 
-    // TODO: maybe customizeable (not recommended though)
-    constexpr auto maxIndices = 64u;
-    constexpr auto maxPrimitives = 64u;
-    constexpr auto coneWeight = 0.0f;
-
     struct MeshletInfo
     {
       const RawMesh* rawMeshPtr{};
@@ -898,15 +893,15 @@ namespace Utility
       {
         ZoneScopedN("Create meshlets for mesh");
 
-        const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxIndices, maxPrimitives);
+        const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxMeshletIndices, maxMeshletPrimitives);
 
         MeshletInfo meshletInfo;
         auto& [rawMeshPtr, vertices, meshletIndices, meshletPrimitives, rawMeshlets] = meshletInfo;
 
         rawMeshPtr = &mesh;
         vertices = mesh.vertices;
-        meshletIndices.resize(maxMeshlets * maxIndices);
-        meshletPrimitives.resize(maxMeshlets * maxPrimitives * 3);
+        meshletIndices.resize(maxMeshlets * maxMeshletIndices);
+        meshletPrimitives.resize(maxMeshlets * maxMeshletPrimitives * 3);
         rawMeshlets.resize(maxMeshlets);
         
         const auto meshletCount = [&]
@@ -920,9 +915,9 @@ namespace Utility
                                        reinterpret_cast<const float*>(mesh.vertices.data()),
                                        mesh.vertices.size(),
                                        sizeof(Vertex),
-                                       maxIndices,
-                                       maxPrimitives,
-                                       coneWeight);
+                                       maxMeshletIndices,
+                                       maxMeshletPrimitives,
+                                       meshletConeWeight);
         }();
 
         auto& lastMeshlet = rawMeshlets[meshletCount - 1];

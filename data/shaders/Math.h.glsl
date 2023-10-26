@@ -50,4 +50,14 @@ float Remap(float val, float start1, float end1, float start2, float end2)
   return (val - start1) / (end1 - start1) * (end2 - start2) + start2;
 }
 
+void ApplyLodBiasToGradient(inout vec2 dxuv, inout vec2 dyuv, float bias)
+{
+  float ddx2 = dot(dxuv, dxuv);
+  float ddy2 = dot(dyuv, dyuv);
+  float actual_mip = exp2(bias + 0.5 * log2(max(ddx2, ddy2)));
+  float min_mip = sqrt(min(ddx2, ddy2));
+  dxuv *= actual_mip / min_mip;
+  dyuv *= actual_mip / min_mip;
+}
+
 #endif // MATH_H

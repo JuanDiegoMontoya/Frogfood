@@ -1,10 +1,10 @@
 #ifndef CONFIG_SHARED_H
 #define CONFIG_SHARED_H
 
-#define DEPTH_ZERO_TO_ONE
-#define REVERSE_Z
+#define DEPTH_ZERO_TO_ONE 1
+#define REVERSE_Z         1
 
-#ifdef REVERSE_Z
+#if REVERSE_Z
   #define NEAR_DEPTH 1.0f
   #define FAR_DEPTH 0.0f
   #define Z_COMPARE_OP_FARTHER <
@@ -16,7 +16,7 @@
 
 #ifdef __cplusplus
 #include <Fwog/BasicTypes.h>
-  #ifdef REVERSE_Z
+  #if REVERSE_Z
     inline constexpr auto FWOG_COMPARE_OP_NEARER = Fwog::CompareOp::GREATER;
   #else
     inline constexpr auto FWOG_COMPARE_OP_NEARER = Fwog::CompareOp::LESS;

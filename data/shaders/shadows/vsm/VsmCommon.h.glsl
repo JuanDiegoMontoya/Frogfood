@@ -1,9 +1,10 @@
 // #version 450 core
 // #extension GL_GOOGLE_include_directive : enable
-// #include "../../Math.h.glsl"
-// #include "../../GlobalUniforms.h.glsl"
 #ifndef VSM_COMMON_H
 #define VSM_COMMON_H
+
+#include "../../Math.h.glsl"
+#include "../../GlobalUniforms.h.glsl"
 
 #define PAGE_SIZE 128
 #define MAX_CLIPMAPS 32
@@ -140,14 +141,14 @@ PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBuffe
   const vec2 uvLeft = uvCenter + vec2(-texel.x, 0) * 0.5;
   const vec2 uvRight = uvCenter + vec2(texel.x, 0) * 0.5;
 
-  const mat4 invProj = inverse(perFrameUniforms.proj);
-  const vec3 topLeftV = UnprojectUV_ZO(depth, uvLeft, invProj);
-  const vec3 topRightV = UnprojectUV_ZO(depth, uvRight, invProj);
+  const mat4 invProj = perFrameUniforms.invProj;
+  const vec3 leftV = UnprojectUV_ZO(depth, uvLeft, invProj);
+  const vec3 rightV = UnprojectUV_ZO(depth, uvRight, invProj);
 
-  const float projLength = distance(topLeftV, topRightV);
+  const float projLength = distance(leftV, rightV);
 
   // Assume each clipmap is 2x the side length of the previous
-  const uint clipmapLevel = clamp(uint(ceil(vsmUniforms.lodBias + log2(projLength / clipmapUniforms.firstClipmapTexelLength))), 0, clipmapUniforms.numClipmaps - 1);
+  precise const uint clipmapLevel = clamp(uint(ceil(vsmUniforms.lodBias + log2(projLength / clipmapUniforms.firstClipmapTexelLength))), 0, clipmapUniforms.numClipmaps - 1);
   const uint clipmapIndex = clipmapUniforms.clipmapTableIndices[clipmapLevel];
 
   const vec3 posW = UnprojectUV_ZO(depth, uvCenter, perFrameUniforms.invViewProj);

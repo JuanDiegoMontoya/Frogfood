@@ -26,55 +26,6 @@ layout(binding = 5) uniform sampler2D hzb;
 
 layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
 
-bool IsMeshletOccluded(in uint meshletId, out float level, out float maxLevel)
-{
-  const uint instanceId = meshlets[meshletId].instanceId;
-  const mat4 transform = transforms[instanceId];
-  const vec3 aabbMin = PackedToVec3(meshlets[meshletId].aabbMin);
-  const vec3 aabbMax = PackedToVec3(meshlets[meshletId].aabbMax);
-  const vec3 aabbSize = aabbMax - aabbMin;
-  const vec3[] aabbCorners = vec3[](
-    aabbMin,
-    aabbMin + vec3(aabbSize.x, 0.0, 0.0),
-    aabbMin + vec3(0.0, aabbSize.y, 0.0),
-    aabbMin + vec3(0.0, 0.0, aabbSize.z),
-    aabbMin + vec3(aabbSize.xy, 0.0),
-    aabbMin + vec3(0.0, aabbSize.yz),
-    aabbMin + vec3(aabbSize.x, 0.0, aabbSize.z),
-    aabbMin + aabbSize);
-  float nearestZ = FAR_DEPTH;
-  vec2 minXY = vec2(1.0);
-  vec2 maxXY = vec2(0.0);
-  for (uint i = 0; i < 8; ++i)
-  {
-    vec4 clip = perFrameUniforms.oldViewProjUnjittered * transform * vec4(aabbCorners[i], 1.0);
-    if (clip.w <= 0)
-    {
-      return false;
-    }
-    clip.z = max(clip.z, 0.0);
-    clip /= clip.w;
-    clip.xy = clamp(clip.xy, -1.0, 1.0);
-    clip.xy = clip.xy * 0.5 + 0.5;
-    minXY = min(minXY, clip.xy);
-    maxXY = max(maxXY, clip.xy);
-    nearestZ = clamp(REDUCE_NEAR(nearestZ, clip.z), 0.0, 1.0);
-  }
-  const vec4 boxUvs = vec4(minXY, maxXY);
-  const vec2 hzbSize = vec2(textureSize(hzb, 0));
-  const float width = (boxUvs.z - boxUvs.x) * hzbSize.x;
-  const float height = (boxUvs.w - boxUvs.y) * hzbSize.y;
-  level = log2(max(width, height));
-  maxLevel = floor(log2(max(hzbSize.x, hzbSize.y)));
-  const float[] depth = float[](
-    textureLod(hzb, boxUvs.xy, level).x,
-    textureLod(hzb, boxUvs.zy, level).x,
-    textureLod(hzb, boxUvs.xw, level).x,
-    textureLod(hzb, boxUvs.zw, level).x);
-  const float farHZB = REDUCE_FAR(REDUCE_FAR(REDUCE_FAR(depth[0], depth[1]), depth[2]), depth[3]);
-  return nearestZ Z_COMPARE_OP_FARTHER farHZB;
-}
-
 struct PartialDerivatives
 {
   vec3 lambda; // Barycentric coord for those whomst be wonderin'
@@ -360,14 +311,7 @@ void main()
     normal = normalize(TBN * sampledNormal);
   }
 
-  float level;
-  float maxLevel;
-  bool occluded = IsMeshletOccluded(meshletId, level, maxLevel);
-
   o_albedo = vec4(SampleBaseColor(material, uvGrad).rgb, 1.0);
-  //if (occluded)
-    //o_albedo.rgb = vec3(1, 0, 0);
-//o_albedo.rgb = mix4(vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), vec3(0), level / maxLevel);
   o_metallicRoughnessAo = vec3(
     SampleMetallicRoughness(material, uvGrad),
     SampleOcclusion(material, uvGrad));

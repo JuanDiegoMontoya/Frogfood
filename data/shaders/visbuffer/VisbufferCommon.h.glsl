@@ -34,6 +34,9 @@
 #define MATERIAL_HAS_OCCLUSION          (1u << 3u)
 #define MATERIAL_HAS_EMISSION           (1u << 4u)
 
+#define VIEW_TYPE_MAIN    (0)
+#define VIEW_TYPE_VIRTUAL (1)
+
 struct Vertex
 {
   PackedVec3 position;
@@ -62,11 +65,11 @@ struct View
   mat4 proj;
   mat4 view;
   mat4 viewProj;
-  mat4 oldViewProjStableForVsmOnly;
+  mat4 viewProjStableForVsmOnly;
   vec4 cameraPos;
   vec4 frustumPlanes[6];
   vec4 viewport;
-  uint isVirtual;
+  uint type;
   uint virtualTableIndex;
   uvec2 _padding;
 };
@@ -120,7 +123,7 @@ layout (std140, binding = 7) restrict readonly buffer MaterialBuffer
 
 layout (std140, binding = 8) restrict readonly buffer ViewBuffer
 {
-  View view;
+  View currentView;
 };
 
 #endif // VISBUFFER_COMMON_H

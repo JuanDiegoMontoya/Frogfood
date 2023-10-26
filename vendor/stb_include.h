@@ -55,6 +55,7 @@ char *stb_include_file(const char *filename, const char *inject, const char *pat
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <filesystem>
 
 // glibc users like to live dangerously
 #ifndef _WIN32
@@ -386,7 +387,7 @@ char *stb_include_strings(char **strs, int count, char *inject, char *path_to_in
    return result;
 }
 
-char *stb_include_file(const char *filename, const char *inject, const char *path_to_includes, char error[256])
+char *stb_include_file(const char *filename, const char *inject, [[maybe_unused]] const char *path_to_includes, char error[256])
 {
    size_t len;
    char *result;
@@ -397,7 +398,10 @@ char *stb_include_file(const char *filename, const char *inject, const char *pat
       strcat_s(error, 256, "'");
       return 0;
    }
-   result = stb_include_string(text, inject, path_to_includes, filename, error);
+   // Use the directory of the file being included when searching for further includes
+   const auto path_dir = std::filesystem::path(filename).parent_path();
+   result = stb_include_string(text, inject, path_dir.string().c_str(), filename, error);
+   //result = stb_include_string(text, inject, path_to_includes, filename, error);
    free(text);
    return result;
 }

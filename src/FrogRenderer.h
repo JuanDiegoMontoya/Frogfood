@@ -64,11 +64,18 @@ private:
     glm::mat4 viewProjUnjittered;
     glm::mat4 invViewProj;
     glm::mat4 proj;
+    glm::mat4 invProj;
     glm::vec4 cameraPos;
     uint32_t meshletCount;
     uint32_t maxIndices;
     float bindlessSamplerLodBias;
     uint32_t _padding[1];
+  };
+
+  enum class ViewType : uint32_t
+  {
+    MAIN = 0,
+    VIRTUAL = 1,
   };
 
   struct View
@@ -79,11 +86,11 @@ private:
     glm::mat4 proj;
     glm::mat4 view;
     glm::mat4 viewProj;
-    glm::mat4 oldViewProjStableForVsmOnly;
+    glm::mat4 viewProjStableForVsmOnly;
     glm::vec4 cameraPos;
     glm::vec4 frustumPlanes[6];
     glm::vec4 viewport;
-    glm::uint isVirtual{};
+    ViewType type = ViewType::MAIN;
     glm::uint virtualTableIndex;
     glm::uvec2 _padding;
   };

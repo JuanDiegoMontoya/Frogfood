@@ -8,6 +8,7 @@ layout (binding = 0, std140) uniform PerFrameUniformsBuffer
   mat4 viewProjUnjittered;
   mat4 invViewProj;
   mat4 proj;
+  mat4 invProj;
   vec4 cameraPos;
   uint meshletCount;
   uint maxIndices;

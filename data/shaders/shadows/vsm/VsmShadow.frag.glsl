@@ -1,17 +1,19 @@
 #version 460 core
-
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_ARB_bindless_texture : require
 
-#include "../../Math.h.glsl"
-#include "../../GlobalUniforms.h.glsl"
+#include "../../visbuffer/VisbufferCommon.h.glsl"
 #include "VsmCommon.h.glsl"
 
 layout(binding = 1, r32ui) uniform restrict uimage2D i_physicalPagesUint;
 
-layout(binding = 0, std140) uniform VsmShadowUniforms
+layout(binding = 1, std140) uniform VsmShadowUniforms
 {
   uint clipmapLod;
 };
+
+layout(location = 0) in vec2 v_uv;
+layout(location = 1) in flat uint v_meshletId;
 
 uint AtomicMinPageTexel(ivec2 texel, uint page, float value)
 {
@@ -22,6 +24,32 @@ uint AtomicMinPageTexel(ivec2 texel, uint page, float value)
 
 void main()
 {
+  const Meshlet meshlet = meshlets[v_meshletId];
+  const GpuMaterial material = materials[NonUniformIndex(meshlet.materialId)];
+
+  vec2 dxuv = dFdx(v_uv);
+  vec2 dyuv = dFdy(v_uv);
+
+  if (material.baseColorTextureHandle != uvec2(0) && material.alphaCutoff > 0)
+  {
+    // Apply a mip/lod bias to the sampled value
+    if (perFrameUniforms.bindlessSamplerLodBias != 0)
+    {
+      ApplyLodBiasToGradient(dxuv, dyuv, perFrameUniforms.bindlessSamplerLodBias);
+    }
+
+    float alpha = material.baseColorFactor.a;
+    if (bool(material.flags & MATERIAL_HAS_BASE_COLOR))
+    {
+      alpha *= textureGrad(sampler2D(material.baseColorTextureHandle), v_uv, dxuv, dyuv).a;
+    }
+    
+    if (alpha < material.alphaCutoff)
+    {
+      discard;
+    }
+  }
+
   const uint clipmapIndex = clipmapUniforms.clipmapTableIndices[clipmapLod];
   const ivec2 pageOffset = clipmapUniforms.clipmapPageOffsets[clipmapLod];
   const ivec2 pageAddressXy = (ivec2(gl_FragCoord.xy) / PAGE_SIZE + pageOffset) % imageSize(i_pageTables).xy;

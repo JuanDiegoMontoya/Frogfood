@@ -65,7 +65,7 @@ float GetShadowBias(vec3 N, vec3 L, float texelWidth)
   const float quantize = 2.0 / (1 << 23);
   const float b = texelWidth / 2.0;
   const float NoL = clamp(dot(N, L), 0.0, 1.0);
-  return quantize + b * length(cross(L, N)) / NoL;
+  return quantize + b * length(cross(N, L)) / NoL;
 }
 
 struct ShadowVsmOut
@@ -110,7 +110,8 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   const float halfOrthoFrustumLength = clipmapUniforms.projectionZLength / 2;
   const float shadowTexelSize = exp2(addr.clipmapLevel + (addr.clipmapLevel * magicClipmapLevelBias)) * clipmapUniforms.firstClipmapTexelLength;
   const float bias = magicConstantBias + GetShadowBias(normal, -shadingUniforms.sunDir.xyz, shadowTexelSize) / halfOrthoFrustumLength;
-  if (ret.shadowDepth + bias < ret.projectedDepth)
+
+  if (ret.shadowDepth + min(0.03, bias) < ret.projectedDepth)
   {
     ret.shadow = 0.0;
     return ret;

@@ -18,13 +18,13 @@ struct DebugRect
   float depth;
 };
 
-layout(binding = 10, std430) restrict buffer DebugAabbBuffer
+layout(binding = 11, std430) restrict buffer DebugAabbBuffer
 {
   DrawIndirectCommand drawCommand;
   DebugAabb aabbs[];
 } debugAabbBuffer;
 
-layout(binding = 11, std430) restrict buffer DebugRectBuffer
+layout(binding = 12, std430) restrict buffer DebugRectBuffer
 {
   DrawIndirectCommand drawCommand;
   DebugRect rects[];

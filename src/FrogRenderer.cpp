@@ -221,8 +221,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   transformBuffer = Fwog::TypedBuffer<glm::mat4>(scene.transforms);
   meshletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
-  const auto maxPrimitives = scene.primitives.size() * 3;
-  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxPrimitives);
+  const auto maxIndices = scene.meshlets.size() * Utility::maxMeshletPrimitives * 3;
+  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxIndices);
 
   cullTrianglesDispatchParams = Fwog::TypedBuffer(Fwog::DispatchIndirectCommand{0, 1, 1});
   visibleMeshletIds = Fwog::TypedBuffer<uint32_t>(scene.meshlets.size());
@@ -457,7 +457,7 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
       Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
       Fwog::Cmd::BindStorageBuffer("MeshletVisibilityBuffer", visibleMeshletIds.value());
       Fwog::Cmd::BindStorageBuffer("CullTrianglesDispatchParams", cullTrianglesDispatchParams.value());
-      // Fwog::Cmd::BindStorageBuffer("DebugAabbBuffer", debugGpuAabbsBuffer.value());
+      Fwog::Cmd::BindStorageBuffer(11, debugGpuAabbsBuffer.value());
       // Fwog::Cmd::BindStorageBuffer("DebugRectBuffer", debugGpuRectsBuffer.value());
       Fwog::Cmd::BindUniformBuffer(6, vsmContext.uniformBuffer_);
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
@@ -509,8 +509,15 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
-  
+
+  // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
+  if (executeMeshletGeneration)
+  {
+    mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
+  }
+
   auto mainView = View{
+    .oldViewProj = mainCameraUniforms.oldViewProjUnjittered,
     .proj = projUnjittered,
     .view = mainCamera.GetViewMatrix(),
     .viewProj = viewProjUnjittered,
@@ -525,16 +532,11 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
     debugMainViewProj = viewProjUnjittered;
   }
-
-  // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
-  if (executeMeshletGeneration)
-  {
-    mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
-  }
   mainCameraUniforms.viewProjUnjittered = viewProjUnjittered;
   mainCameraUniforms.viewProj = viewProj;
   mainCameraUniforms.invViewProj = glm::inverse(mainCameraUniforms.viewProj);
   mainCameraUniforms.proj = projJittered;
+  mainCameraUniforms.invProj = glm::inverse(mainCameraUniforms.proj);
   mainCameraUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
   mainCameraUniforms.meshletCount = meshletCount;
   mainCameraUniforms.maxIndices = static_cast<uint32_t>(scene.primitives.size() * 3);
@@ -605,15 +607,14 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
     {
       auto sunCurrentClipmapView = View{
-        .oldViewProj =
-          vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i], // TODO: this is slightly wrong, but hopefully an old viewProj won't be needed in the future
+        .oldViewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
         .proj = vsmSun.GetProjections()[i],
         .view = vsmSun.GetViewMatrices()[i],
         .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
-        .oldViewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
+        .viewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
         .cameraPos = {}, // unused
         .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
-        .isVirtual = true,
+        .type = ViewType::VIRTUAL,
         .virtualTableIndex = vsmSun.GetClipmapTableIndices()[i],
       };
       MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
@@ -639,6 +640,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
           Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
           Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
           Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
+          Fwog::Cmd::BindStorageBuffer("MaterialBuffer", materialStorageBuffer.value());
           vsmSun.BindResourcesForDrawing();
           Fwog::Cmd::BindImage(1, vsmContext.physicalPagesUint_, 0);
           Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
@@ -805,9 +807,6 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
           sampler.lodBias = fsr2LodBias;
           Fwog::Cmd::BindSampledImage("s_emission", texture, Fwog::Sampler(sampler));
         }
-
-        // TODO: this is for debugging only
-        Fwog::Cmd::BindSampledImage(5, frame.hzb.value(), hzbSampler);
 
         Fwog::Cmd::Draw(3, 1, 0, materialId);
       }

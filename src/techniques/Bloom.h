@@ -48,9 +48,10 @@ namespace Techniques
       float width;
       float strength;
       float sourceLod;
+      float targetLod;
       uint32_t numPasses;
       uint32_t isFinalPass;
-      uint32_t _padding[3];
+      uint32_t _padding[2];
     };
 
     Fwog::TypedBuffer<BloomUniforms> uniformBuffer;

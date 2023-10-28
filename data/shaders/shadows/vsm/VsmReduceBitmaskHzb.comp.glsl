@@ -1,14 +1,13 @@
 #version 450 core
 
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_shader_image_load_formatted : require
 
 #include "../../Math.h.glsl"
 #include "../../GlobalUniforms.h.glsl"
 #include "VsmCommon.h.glsl"
 
-layout(binding = 2) uniform restrict readonly uimage2DArray i_srcVsmBitmaskHzb;
-layout(binding = 3) uniform restrict writeonly uimage2DArray i_dstVsmBitmaskHzb;
+layout(binding = 2, r8ui) uniform restrict readonly uimage2DArray i_srcVsmBitmaskHzb;
+layout(binding = 3, r8ui) uniform restrict writeonly uimage2DArray i_dstVsmBitmaskHzb;
 
 layout(binding = 7, std140) uniform VsmReduceUniforms
 {

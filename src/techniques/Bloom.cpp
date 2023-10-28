@@ -133,6 +133,7 @@ namespace Techniques
           }
 
           Fwog::Cmd::BindSampledImage(0, params.scratchTexture, linearSampler);
+          Fwog::Cmd::BindSampledImage(1, *targetTex, linearSampler);
           Fwog::Cmd::BindImage(0, *targetTex, targetLod);
 
           BloomUniforms uniforms{
@@ -141,6 +142,7 @@ namespace Techniques
             .width = params.width,
             .strength = params.strength,
             .sourceLod = static_cast<float>(i),
+            .targetLod = static_cast<float>(targetLod),
             .numPasses = params.passes,
             .isFinalPass = i == 0,
           };

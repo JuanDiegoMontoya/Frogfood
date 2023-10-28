@@ -1,12 +1,12 @@
 #version 460 core
 
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_shader_image_load_formatted : require
 
 #include "BloomCommon.h.glsl"
 
 layout(binding = 0) uniform sampler2D s_source;
-layout(binding = 0) uniform image2D i_target;
+layout(binding = 1) uniform sampler2D s_target;
+layout(binding = 0) uniform writeonly image2D i_target;
 
 layout(local_size_x = 16, local_size_y = 16) in;
 void main()
@@ -21,7 +21,7 @@ void main()
   // center of written pixel
   vec2 uv = (vec2(gid) + 0.5) / uniforms.targetDim;
 
-  vec4 rgba = imageLoad(i_target, gid);
+  vec4 rgba = texelFetch(s_target, gid, int(uniforms.targetLod));
 
   vec4 blurSum = vec4(0);
   blurSum += textureLod(s_source, uv + vec2(-1, -1) * texel * uniforms.width, uniforms.sourceLod) * 1.0 / 16.0;

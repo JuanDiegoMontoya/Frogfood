@@ -144,7 +144,6 @@ void GetMeshletUvBounds(GetMeshletUvBoundsParams params, out vec2 minXY, out vec
   intersectsNearPlane = false;
 }
 
-//bool CullMeshletHiz(in uint meshletId, View view)
 bool CullQuadHiz(vec2 minXY, vec2 maxXY, float nearestZ)
 {
   const vec4 boxUvs = vec4(minXY, maxXY);
@@ -172,8 +171,6 @@ bool CullQuadHiz(vec2 minXY, vec2 maxXY, float nearestZ)
   return true;
 }
 
-// Quick 'n hacky version for virtual shadow maps
-//bool CullMeshletVsm(in uint meshletId, View view)
 bool CullQuadVsm(vec2 minXY, vec2 maxXY, float nearestZ, uint virtualTableIndex)
 {
   const vec4 boxUvs = vec4(minXY, maxXY);

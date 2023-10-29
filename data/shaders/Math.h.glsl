@@ -60,4 +60,9 @@ void ApplyLodBiasToGradient(inout vec2 dxuv, inout vec2 dyuv, float bias)
   dyuv *= actual_mip / min_mip;
 }
 
+bool RectIntersectRect(vec2 bottomLeft0, vec2 topRight0, vec2 bottomLeft1, vec2 topRight1)
+{
+  return !(any(lessThan(topRight0, bottomLeft1)) || any(greaterThan(bottomLeft0, topRight1)));
+}
+
 #endif // MATH_H

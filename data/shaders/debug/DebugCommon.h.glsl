@@ -30,6 +30,7 @@ layout(binding = 12, std430) restrict buffer DebugRectBuffer
   DebugRect rects[];
 } debugRectBuffer;
 
+// World-space box
 bool TryPushDebugAabb(DebugAabb box)
 {
   uint index = atomicAdd(debugAabbBuffer.drawCommand.instanceCount, 1);
@@ -45,6 +46,7 @@ bool TryPushDebugAabb(DebugAabb box)
   return true;
 }
 
+// UV-space rect
 bool TryPushDebugRect(DebugRect rect)
 {
   uint index = atomicAdd(debugRectBuffer.drawCommand.instanceCount, 1);

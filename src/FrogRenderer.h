@@ -74,7 +74,7 @@ private:
 
   enum class ViewType : uint32_t
   {
-    MAIN = 0,
+    MAIN    = 0,
     VIRTUAL = 1,
   };
 

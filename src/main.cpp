@@ -12,6 +12,7 @@
  * [X] FSR 2
  * [X] PBR punctual lights
  * [ ] Skinned animation
+ * [ ] Transparency
  *
  * Low-level
  * [X] Visibility buffer
@@ -20,6 +21,11 @@
  * [ ] Clustered light culling
  * [-] Raster occlusion culling
  * [X] Multi-view
+ * [ ] Triangle culling: https://www.slideshare.net/gwihlidal/optimizing-the-graphics-pipeline-with-compute-gdc-2016
+ *   [X] Back-facing
+ *   [X] Zero-area
+ *   [ ] Small primitive (doesn't overlap pixel)
+ *   [X] Frustum
  *
  * Atmosphere
  * [ ] Sky
@@ -33,8 +39,10 @@
  * [X] Auto exposure
  * [ ] Auto whitepoint
  * [ ] Local tonemapping
+ * [ ] Purkinje shift
  *
  * Tryhard:
+ * [ ] BVH builder
  * [ ] Path tracer
  * [ ] DDGI
  * [ ] Surfel GI

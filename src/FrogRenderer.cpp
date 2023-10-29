@@ -450,7 +450,7 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
     {
       Fwog::Cmd::BindComputePipeline(cullMeshletsPipeline);
       Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *instancedMeshletBuffer);
+
       Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
       Fwog::Cmd::BindStorageBuffer("IndirectDrawCommand", *meshletIndirectCommand);
       Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
@@ -458,7 +458,7 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
       Fwog::Cmd::BindStorageBuffer("MeshletVisibilityBuffer", visibleMeshletIds.value());
       Fwog::Cmd::BindStorageBuffer("CullTrianglesDispatchParams", cullTrianglesDispatchParams.value());
       Fwog::Cmd::BindStorageBuffer(11, debugGpuAabbsBuffer.value());
-      // Fwog::Cmd::BindStorageBuffer("DebugRectBuffer", debugGpuRectsBuffer.value());
+      Fwog::Cmd::BindStorageBuffer(12, debugGpuRectsBuffer.value());
       Fwog::Cmd::BindUniformBuffer(6, vsmContext.uniformBuffer_);
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
       Fwog::Cmd::BindSampledImage("s_hzb", *frame.hzb, hzbSampler);
@@ -468,6 +468,10 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
 
       Fwog::Cmd::BindComputePipeline(cullTrianglesPipeline);
+      Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
+      Fwog::Cmd::BindStorageBuffer("MeshletPackedBuffer", *instancedMeshletBuffer);
       Fwog::Cmd::DispatchIndirect(cullTrianglesDispatchParams.value(), 0);
 
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
@@ -520,7 +524,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     .oldViewProj = mainCameraUniforms.oldViewProjUnjittered,
     .proj = projUnjittered,
     .view = mainCamera.GetViewMatrix(),
-    .viewProj = viewProjUnjittered,
+    //.viewProj = viewProjUnjittered,
+    .viewProj = viewProj,
     .cameraPos = glm::vec4(mainCamera.position, 0.0),
     .viewport = {0.0f, 0.0f, static_cast<float>(renderWidth), static_cast<float>(renderHeight)},
   };

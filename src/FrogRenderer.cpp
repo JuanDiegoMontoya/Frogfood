@@ -517,11 +517,11 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
   if (executeMeshletGeneration)
   {
-    mainCameraUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : mainCameraUniforms.viewProjUnjittered;
+    globalUniforms.oldViewProjUnjittered = frameIndex == 1 ? viewProjUnjittered : globalUniforms.viewProjUnjittered;
   }
 
   auto mainView = View{
-    .oldViewProj = mainCameraUniforms.oldViewProjUnjittered,
+    .oldViewProj = globalUniforms.oldViewProjUnjittered,
     .proj = projUnjittered,
     .view = mainCamera.GetViewMatrix(),
     //.viewProj = viewProjUnjittered,
@@ -537,17 +537,17 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
     debugMainViewProj = viewProjUnjittered;
   }
-  mainCameraUniforms.viewProjUnjittered = viewProjUnjittered;
-  mainCameraUniforms.viewProj = viewProj;
-  mainCameraUniforms.invViewProj = glm::inverse(mainCameraUniforms.viewProj);
-  mainCameraUniforms.proj = projJittered;
-  mainCameraUniforms.invProj = glm::inverse(mainCameraUniforms.proj);
-  mainCameraUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
-  mainCameraUniforms.meshletCount = meshletCount;
-  mainCameraUniforms.maxIndices = static_cast<uint32_t>(scene.primitives.size() * 3);
-  mainCameraUniforms.bindlessSamplerLodBias = fsr2LodBias;
+  globalUniforms.viewProjUnjittered = viewProjUnjittered;
+  globalUniforms.viewProj = viewProj;
+  globalUniforms.invViewProj = glm::inverse(globalUniforms.viewProj);
+  globalUniforms.proj = projJittered;
+  globalUniforms.invProj = glm::inverse(globalUniforms.proj);
+  globalUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
+  globalUniforms.meshletCount = meshletCount;
+  globalUniforms.maxIndices = static_cast<uint32_t>(scene.primitives.size() * 3);
+  globalUniforms.bindlessSamplerLodBias = fsr2LodBias;
 
-  globalUniformsBuffer.UpdateData(mainCameraUniforms);
+  globalUniformsBuffer.UpdateData(globalUniforms);
 
   shadowUniformsBuffer.UpdateData(shadowUniforms);
   

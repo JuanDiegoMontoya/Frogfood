@@ -123,6 +123,33 @@ bool SampleVsmBitmaskHzb(uint vsmIndex, vec2 uv, int level)
   return bool(textureLod(s_vsmBitmaskHzb, vec3(fract(uv), vsmIndex), level).x);
 }
 
+bool CullQuadVsm(vec2 minXY, vec2 maxXY, uint virtualTableIndex)
+{
+  const vec4 boxUvs = vec4(minXY, maxXY);
+  const vec2 hzbSize = vec2(textureSize(s_vsmBitmaskHzb, 0));
+  const float width = (boxUvs.z - boxUvs.x) * hzbSize.x;
+  const float height = (boxUvs.w - boxUvs.y) * hzbSize.y;
+  
+  // Select next level so the box is always in [0.5, 1.0) of a texel of the current level.
+  // If the box is larger than a single texel of the current level, then it could touch nine
+  // texels rather than four! So we need to round up to the next level.
+  const float level = ceil(log2(max(width, height)));
+  const bool[4] vis = bool[](
+    SampleVsmBitmaskHzb(virtualTableIndex, boxUvs.xy, int(level)),
+    SampleVsmBitmaskHzb(virtualTableIndex, boxUvs.zy, int(level)),
+    SampleVsmBitmaskHzb(virtualTableIndex, boxUvs.xw, int(level)),
+    SampleVsmBitmaskHzb(virtualTableIndex, boxUvs.zw, int(level)));
+  const bool isVisible = vis[0] || vis[1] || vis[2] || vis[3];
+
+  // Object is visible if it may overlap at least one active page
+  if (isVisible)
+  {
+    return true;
+  }
+
+  return false;
+}
+
 struct PageAddressInfo
 {
   ivec3 pageAddress;

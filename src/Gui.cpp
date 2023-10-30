@@ -16,7 +16,22 @@
 
 #include "IconsFontAwesome6.h"
 
-static const char* g_defaultIniPath = "config/defaultLayout.ini";
+namespace
+{
+  const char* g_defaultIniPath = "config/defaultLayout.ini";
+
+  bool ImGui_FlagCheckbox(const char* label, uint32_t* v, uint32_t bit)
+  {
+    bool isSet = *v & bit;
+    const bool ret = ImGui::Checkbox(label, &isSet);
+    *v &= ~bit; // Unset the bit
+    if (isSet)
+    {
+      *v |= bit;
+    }
+    return ret;
+  }
+}
 
 void FrogRenderer::InitGui()
 {
@@ -322,22 +337,21 @@ void FrogRenderer::GuiDrawDebugWindow()
     ImGui::Checkbox("Render to Screen", &debugRenderToSwapchain);
 
     ImGui::Separator();
-    bool vsmShowClipmapID    = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_CLIPMAP_ID;
-    bool vsmShowPageAddress  = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_ADDRESS;
-    bool vsmShowPageOutlines = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES;
-    bool vsmShowShadowDepth  = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH;
-    bool vsmShowDirtyPages   = shadingUniforms.debugFlags & (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES;
-    ImGui::Checkbox("Show Clipmap ID", &vsmShowClipmapID);
-    ImGui::Checkbox("Show Page Address", &vsmShowPageAddress);
-    ImGui::Checkbox("Show Page Outlines", &vsmShowPageOutlines);
-    ImGui::Checkbox("Show Shadow Depth", &vsmShowShadowDepth);
-    ImGui::Checkbox("Show Dirty Pages", &vsmShowDirtyPages);
-    shadingUniforms.debugFlags = 0;
-    shadingUniforms.debugFlags |= vsmShowClipmapID    ? (uint32_t)ShadingDebugFlag::VSM_SHOW_CLIPMAP_ID : 0;
-    shadingUniforms.debugFlags |= vsmShowPageAddress  ? (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_ADDRESS : 0;
-    shadingUniforms.debugFlags |= vsmShowPageOutlines ? (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES : 0;
-    shadingUniforms.debugFlags |= vsmShowShadowDepth  ? (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH : 0;
-    shadingUniforms.debugFlags |= vsmShowDirtyPages   ? (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES : 0;
+    ImGui::TextUnformatted("Culling");
+    ImGui_FlagCheckbox("Meshlet: Frustum", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_MESHLET_FRUSTUM);
+    ImGui_FlagCheckbox("Meshlet: Hi-z", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_MESHLET_HIZ);
+    ImGui_FlagCheckbox("Primitive: Back-facing", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_BACKFACE);
+    ImGui_FlagCheckbox("Primitive: Frustum", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_FRUSTUM);
+    ImGui_FlagCheckbox("Primitive: Small", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_SMALL);
+    ImGui_FlagCheckbox("Primitive: VSM", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_VSM);
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Virtual Shadow Maps");
+    ImGui_FlagCheckbox("Show Clipmap ID", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_CLIPMAP_ID);
+    ImGui_FlagCheckbox("Show Page Address", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_ADDRESS);
+    ImGui_FlagCheckbox("Show Page Outlines", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES);
+    ImGui_FlagCheckbox("Show Shadow Depth", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH);
+    ImGui_FlagCheckbox("Show Dirty Pages", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES);
   }
   ImGui::End();
 }
@@ -529,14 +543,9 @@ void FrogRenderer::GuiDrawShadowWindow()
     {
       vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
     }
-
-    bool vsmHzbForceSuccess = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS;
-    bool vsmForceDirtyVisiblePages = vsmUniforms.debugFlags & (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES;
-    ImGui::Checkbox("Force VSM HZB Success", &vsmHzbForceSuccess);
-    ImGui::Checkbox("Force Dirty Visible Pages", &vsmForceDirtyVisiblePages);
-    vsmUniforms.debugFlags = 0;
-    vsmUniforms.debugFlags |= vsmHzbForceSuccess ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS : 0;
-    vsmUniforms.debugFlags |= vsmForceDirtyVisiblePages ? (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES : 0;
+    
+    ImGui_FlagCheckbox("Disable Page Culling", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS);
+    ImGui_FlagCheckbox("Disable Page Caching", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES);
   }
   ImGui::End();
 }

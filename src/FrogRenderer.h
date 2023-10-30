@@ -57,6 +57,16 @@ private:
     glm::mat4 model;
   };
 
+  enum class GlobalFlags : uint32_t
+  {
+    CULL_MESHLET_FRUSTUM    = 1 << 0,
+    CULL_MESHLET_HIZ        = 1 << 1,
+    CULL_PRIMITIVE_BACKFACE = 1 << 2,
+    CULL_PRIMITIVE_FRUSTUM  = 1 << 3,
+    CULL_PRIMITIVE_SMALL    = 1 << 4,
+    CULL_PRIMITIVE_VSM      = 1 << 5,
+  };
+
   struct GlobalUniforms
   {
     glm::mat4 viewProj;
@@ -69,7 +79,14 @@ private:
     uint32_t meshletCount;
     uint32_t maxIndices;
     float bindlessSamplerLodBias;
-    uint32_t _padding[1];
+    uint32_t flags = 
+      (uint32_t)GlobalFlags::CULL_MESHLET_FRUSTUM |
+      (uint32_t)GlobalFlags::CULL_MESHLET_HIZ /*|
+      (uint32_t)GlobalFlags::CULL_PRIMITIVE_BACKFACE |
+      (uint32_t)GlobalFlags::CULL_PRIMITIVE_FRUSTUM |
+      (uint32_t)GlobalFlags::CULL_PRIMITIVE_SMALL |
+      (uint32_t)GlobalFlags::CULL_PRIMITIVE_VSM*/
+      ;
   };
 
   enum class ViewType : uint32_t
@@ -239,7 +256,7 @@ private:
 
   ShadingUniforms shadingUniforms{};
   ShadowUniforms shadowUniforms{};
-  GlobalUniforms mainCameraUniforms{};
+  GlobalUniforms globalUniforms{};
 
   Fwog::TypedBuffer<GlobalUniforms> globalUniformsBuffer;
   Fwog::TypedBuffer<ShadingUniforms> shadingUniformsBuffer;

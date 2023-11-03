@@ -13,7 +13,7 @@ layout(location = 1) in flat uint i_materialId;
 
 layout(location = 0) out vec4 o_albedo;
 layout(location = 1) out vec3 o_metallicRoughnessAo;
-layout(location = 2) out vec3 o_normal;
+layout(location = 2) out vec4 o_normalAndFaceNormal;
 layout(location = 3) out vec3 o_emission;
 layout(location = 4) out vec2 o_motion;
 
@@ -126,9 +126,9 @@ vec2[3] VisbufferLoadUv(in uint[3] indexIds, in uint vertexOffset)
 vec3[3] VisbufferLoadNormal(in uint[3] indexIds, in uint vertexOffset)
 {
   return vec3[3](
-    OctToFloat32x3(unpackSnorm2x16(vertices[vertexOffset + indexIds[0]].normal)),
-    OctToFloat32x3(unpackSnorm2x16(vertices[vertexOffset + indexIds[1]].normal)),
-    OctToFloat32x3(unpackSnorm2x16(vertices[vertexOffset + indexIds[2]].normal))
+    OctToVec3(unpackSnorm2x16(vertices[vertexOffset + indexIds[0]].normal)),
+    OctToVec3(unpackSnorm2x16(vertices[vertexOffset + indexIds[1]].normal)),
+    OctToVec3(unpackSnorm2x16(vertices[vertexOffset + indexIds[2]].normal))
   );
 }
 
@@ -196,16 +196,6 @@ vec4 SampleBaseColor(in GpuMaterial material, in UvGradient uvGrad)
     textureGrad(s_baseColor, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgba;
 }
 
-vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad, vec3 faceNormal, mat3 tbn)
-{
-  if (!bool(material.flags & MATERIAL_HAS_NORMAL))
-  {
-    return faceNormal;
-  }
-  vec3 tangentNormal = textureGrad(s_baseColor, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb * 2.0 - 1.0;
-  return tbn * faceNormal;
-}
-
 vec2 SampleMetallicRoughness(in GpuMaterial material, in UvGradient uvGrad)
 {
   vec2 metallicRoughnessFactor = vec2(material.metallicFactor, material.roughnessFactor);
@@ -250,7 +240,7 @@ vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
   // This allows compatibility with both RG and RGB tangent space normal maps.
   vec2 xy = textureGrad(s_normal, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rg * 2.0 - 1.0;
   float z = sqrt(max(1.0 - xy.x * xy.x - xy.y * xy.y, 0.0));
-  return vec3(xy, z);
+  return vec3(xy * material.normalXyScale, z);
 }
 
 void main()
@@ -280,7 +270,7 @@ void main()
   );
   const PartialDerivatives partialDerivatives = ComputeDerivatives(clipPosition, i_uv * 2.0 - 1.0, resolution);
   const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);
-  //const vec3 normal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));
+  const vec3 flatNormal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));
 
   vec3 smoothNormal = normalize(InterpolateVec3(partialDerivatives, rawNormal));
   mat3 normalMatrix = inverse(transpose(mat3(transform)));
@@ -315,7 +305,8 @@ void main()
   o_metallicRoughnessAo = vec3(
     SampleMetallicRoughness(material, uvGrad),
     SampleOcclusion(material, uvGrad));
-  o_normal = normal;
+  o_normalAndFaceNormal.xy = Vec3ToOct(normal);
+  o_normalAndFaceNormal.zw = Vec3ToOct(flatNormal);
   o_emission = SampleEmission(material, uvGrad);
   o_motion = MakeSmoothMotion(partialDerivatives, worldPosition);
 }

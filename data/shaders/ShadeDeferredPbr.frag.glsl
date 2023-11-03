@@ -68,6 +68,17 @@ float GetShadowBias(vec3 N, vec3 L, float texelWidth)
   return quantize + b * length(cross(N, L)) / NoL;
 }
 
+float CalcVsmShadowBias(uint clipmapLevel, vec3 faceNormal)
+{
+  const float magicClipmapLevelBias = 0.1;
+  const float magicConstantBias = 2.0 / (1 << 23);
+  const float halfOrthoFrustumLength = clipmapUniforms.projectionZLength / 2;
+  const float shadowTexelSize = exp2(clipmapLevel + (clipmapLevel * magicClipmapLevelBias)) * clipmapUniforms.firstClipmapTexelLength;
+  const float bias = magicConstantBias + GetShadowBias(faceNormal, -shadingUniforms.sunDir.xyz, shadowTexelSize) / halfOrthoFrustumLength;
+
+  return bias;
+}
+
 struct ShadowVsmOut
 {
   float shadow;
@@ -105,13 +116,9 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   const uint physicalAddress = GetPagePhysicalAddress(ret.pageData);
   ret.shadowDepth = LoadPageTexel(pageTexel, physicalAddress);
 
-  const float magicClipmapLevelBias = 0.1;
-  const float magicConstantBias = 2.0 / (1 << 23);
-  const float halfOrthoFrustumLength = clipmapUniforms.projectionZLength / 2;
-  const float shadowTexelSize = exp2(addr.clipmapLevel + (addr.clipmapLevel * magicClipmapLevelBias)) * clipmapUniforms.firstClipmapTexelLength;
-  const float bias = magicConstantBias + GetShadowBias(normal, -shadingUniforms.sunDir.xyz, shadowTexelSize) / halfOrthoFrustumLength;
+  const float bias = min(0.03, CalcVsmShadowBias(addr.clipmapLevel, normal));
 
-  if (ret.shadowDepth + min(0.03, bias) < ret.projectedDepth)
+  if (ret.shadowDepth + bias < ret.projectedDepth)
   {
     ret.shadow = 0.0;
     return ret;
@@ -119,6 +126,53 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
 
   ret.shadow = 1.0;
   return ret;
+}
+
+float ShadowVsmPcf(vec3 fragWorldPos, vec3 flatNormal)
+{
+  const ivec2 gid = ivec2(gl_FragCoord.xy);
+  const float depthSample = texelFetch(s_gDepth, gid, 0).x;
+  PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
+
+  
+
+  const float bias = min(0.03, CalcVsmShadowBias(addr.clipmapLevel, flatNormal));
+
+  float lightOcclusion = 0.0;
+
+  for (uint i = 0; i < shadowUniforms.pcfSamples; i++)
+  {
+    vec2 xi = fract(Hammersley(i, shadowUniforms.pcfSamples) + hash(gl_FragCoord.xy) + shadingUniforms.random);
+    float r = sqrt(xi.x);
+    float theta = xi.y * 2.0 * 3.14159;
+    vec2 offset = shadowUniforms.pcfRadius * vec2(r * cos(theta), r * sin(theta));
+
+    const vec2 vsmOffsetUv = fract(addr.vsmUv + offset);
+    const ivec2 vsmTexel = ivec2(vsmOffsetUv * imageSize(i_pageTables).xy * PAGE_SIZE);
+    const ivec2 vsmPage = vsmTexel / PAGE_SIZE;
+    const ivec2 pageTexel = vsmTexel % PAGE_SIZE;
+    const uint pageData = imageLoad(i_pageTables, ivec3(vsmPage, addr.pageAddress.z)).x;
+    if (!GetIsPageBacked(pageData))
+    {
+      lightOcclusion += 1.0;
+      continue;
+      //return 1.0;
+    }
+
+    //const ivec2 pageTexel = ivec2((addr.pageUv + offset) * PAGE_SIZE);
+    const uint physicalAddress = GetPagePhysicalAddress(pageData);
+    float lightDepth = LoadPageTexel(pageTexel, physicalAddress);
+
+
+    //float lightDepth = textureLod(s_rsmDepth, uv + offset, 0).x;
+    lightDepth += bias;
+    if (lightDepth >= addr.projectedDepth)
+    {
+      lightOcclusion += 1.0;
+    }
+  }
+
+  return (lightOcclusion / shadowUniforms.pcfSamples);
 }
 
 float ShadowPCF(vec2 uv, float viewDepth, float bias)
@@ -236,27 +290,30 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 
 void main()
 {
-  vec3 albedo = textureLod(s_gAlbedo, v_uv, 0.0).rgb;
-  vec3 normal = textureLod(s_gNormal, v_uv, 0.0).xyz;
-  float depth = textureLod(s_gDepth, v_uv, 0.0).x;
-  vec3 emission = textureLod(s_emission, v_uv, 0.0).rgb;
-  vec3 metallicRoughnessAo = textureLod(s_metallicRoughnessAo, v_uv, 0.0).rgb;
+  const vec3 albedo = textureLod(s_gAlbedo, v_uv, 0.0).rgb;
+  const vec4 normalOctAndFlatNormalOct = textureLod(s_gNormal, v_uv, 0.0).xyzw;
+  const vec3 normal = OctToVec3(normalOctAndFlatNormalOct.xy);
+  const vec3 flatNormal = OctToVec3(normalOctAndFlatNormalOct.zw);
+  const float depth = textureLod(s_gDepth, v_uv, 0.0).x;
+  const vec3 emission = textureLod(s_emission, v_uv, 0.0).rgb;
+  const vec3 metallicRoughnessAo = textureLod(s_metallicRoughnessAo, v_uv, 0.0).rgb;
 
   if (depth == FAR_DEPTH)
   {
     discard;
   }
 
-  vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, perFrameUniforms.invViewProj);
+  const vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, perFrameUniforms.invViewProj);
   
-  vec3 incidentDir = -shadingUniforms.sunDir.xyz;
-  float cosTheta = max(0.0, dot(incidentDir, normal));
-  vec3 diffuse = albedo * cosTheta * shadingUniforms.sunStrength.rgb;
+  const vec3 incidentDir = -shadingUniforms.sunDir.xyz;
+  const float cosTheta = max(0.0, dot(incidentDir, normal));
+  const vec3 diffuse = albedo * cosTheta * shadingUniforms.sunStrength.rgb;
 
   //float shadow = Shadow(fragWorldPos, normal, -shadingUniforms.sunDir.xyz);
-  ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, normal);
+  ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
   float shadowSun = shadowVsm.shadow;
   //shadowSun = 0;
+  shadowSun = ShadowVsmPcf(fragWorldPos, flatNormal);
   
   vec3 viewDir = normalize(perFrameUniforms.cameraPos.xyz - fragWorldPos);
   

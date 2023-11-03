@@ -172,6 +172,7 @@ private:
   void GuiDrawCameraWindow();
   void GuiDrawShadowWindow();
   void GuiDrawViewer();
+  void GuiDrawMaterialsArray();
 
   void CullMeshletsForView(const View& view, std::string_view name = "Cull Meshlet Pass");
 
@@ -223,7 +224,8 @@ private:
     // G-buffer textures
     std::optional<Fwog::Texture> gAlbedo;
     std::optional<Fwog::Texture> gMetallicRoughnessAo;
-    std::optional<Fwog::Texture> gNormal;
+    std::optional<Fwog::Texture> gNormalAndFaceNormal;
+    std::optional<Fwog::Texture> gFaceNormal;
     std::optional<Fwog::Texture> gEmission;
     std::optional<Fwog::Texture> gMotion;
     std::optional<Fwog::Texture> gDepth;

@@ -517,6 +517,7 @@ namespace Utility
           image.CreateFormatView(image.GetCreateInfo().format),
           LoadSampler(model.samplers[normalTexture.samplerIndex.value()]),
         };
+        material.gpuMaterial.normalXyScale = loaderMaterial.normalTexture->scale;
       }
       
       if (loaderMaterial.pbrData.baseColorTexture.has_value())

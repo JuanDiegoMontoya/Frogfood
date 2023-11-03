@@ -153,9 +153,10 @@ bool CullQuadVsm(vec2 minXY, vec2 maxXY, uint virtualTableIndex)
 struct PageAddressInfo
 {
   ivec3 pageAddress;
-  vec2 pageUv;
+  vec2 pageUv; // UV within a single page
   float projectedDepth;
   uint clipmapLevel;
+  vec2 vsmUv; // UV within the whole VSM
 };
 
 // Analyzes the provided depth buffer and returns and address and data of a page.
@@ -192,6 +193,7 @@ PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBuffe
   addr.pageUv = tableSize * mod(posLightUv, 1.0 / tableSize);
   addr.projectedDepth = posLightC.z / posLightC.w;
   addr.clipmapLevel = clipmapLevel;
+  addr.vsmUv = posLightUv;
 
   return addr;
 }

@@ -31,6 +31,17 @@ namespace
     }
     return ret;
   }
+
+  void ImGui_HoverTooltip(const char* fmt, ...)
+  {
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+      va_list args;
+      va_start(args, fmt);
+      ImGui::SetTooltipV(fmt, args);
+      va_end(args);
+    }
+  }
 }
 
 void FrogRenderer::InitGui()
@@ -544,8 +555,10 @@ void FrogRenderer::GuiDrawShadowWindow()
       vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
     }
     
-    ImGui_FlagCheckbox("Disable Page Culling", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS);
+    ImGui_FlagCheckbox("Disable HPB", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS);
+    ImGui_HoverTooltip("The HPB (hierarchical page buffer) is used to cull\nmeshlets and primitives that are not touching an active page.");
     ImGui_FlagCheckbox("Disable Page Caching", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES);
+    ImGui_HoverTooltip("Page caching reduces the amount of per-frame work\nby only drawing to pages whose visibility changed this frame.");
   }
   ImGui::End();
 }
@@ -637,20 +650,50 @@ void FrogRenderer::GuiDrawViewer()
   ImGui::End();
 }
 
+void FrogRenderer::GuiDrawMaterialsArray()
+{
+  if (ImGui::Begin(" Materials##materials_window"))
+  {
+    int id = 0;
+    for (auto& material : scene.materials)
+    {
+      //ImGui::Text("");
+      ImGui::PushID(id++);
+      if (ImGui::TreeNode("Material"))
+      {
+        auto& gpuMat = material.gpuMaterial;
+        ImGui::SliderFloat("Alpha Cutoff", &gpuMat.alphaCutoff, 0, 1);
+        ImGui::SliderFloat("Metallic Factor", &gpuMat.metallicFactor, 0, 1);
+        ImGui::SliderFloat("Roughness Factor", &gpuMat.roughnessFactor, 0, 1);
+        ImGui::ColorEdit4("Base Color Factor", &gpuMat.baseColorFactor[0]);
+        ImGui::ColorEdit3("Emissive Factor", &gpuMat.emissiveFactor[0]);
+        ImGui::DragFloat("Emissive Strength", &gpuMat.emissiveStrength, 0.25f, 0, 10000);
+        ImGui::SliderFloat("Normal Scale", &gpuMat.normalXyScale, 0, 1);
+        ImGui::TreePop();
+      }
+      ImGui::PopID();
+    }
+  }
+  ImGui::End();
+}
+
 void FrogRenderer::OnGui(double dt)
 {
   GuiDrawDockspace();
 
   //ImGui::ShowDemoWindow();
 
-  ImGui::Begin("Reflective Shadow Maps");
-  ImGui::Text("Performance: %f ms", rsmPerformance);
-  ImGui::End();
-
   GuiDrawFsrWindow();
 
   ImGui::Begin("glTF Viewer");
   ImGui::Text("Framerate: %.0f Hertz", 1 / dt);
+
+  ImGui::Text("Meshlets: %llu", scene.meshlets.size());
+  ImGui::Text("Indices: %llu", scene.indices.size());
+  ImGui::Text("Vertices: %llu", scene.vertices.size());
+  ImGui::Text("Primitives: %llu", scene.primitives.size());
+  ImGui::Text("Lights: %llu", scene.lights.size());
+  ImGui::Text("Materials: %llu", scene.materials.size());
 
   if (ImGui::Checkbox("Use GUI viewport size", &useGuiViewportSizeForRendering))
   {
@@ -769,4 +812,5 @@ void FrogRenderer::OnGui(double dt)
   GuiDrawCameraWindow();
   GuiDrawShadowWindow();
   GuiDrawViewer();
+  GuiDrawMaterialsArray();
 }

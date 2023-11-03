@@ -194,6 +194,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain.glb", glm::scale(glm::vec3{0.125f}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::translate(glm::vec3(0, 100, 0)), glm::vec3{1000.0f}), true);
+    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::vec3{1.0f}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/powerplant.glb", glm::scale(glm::vec3{1.0f}), true);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}), false);
@@ -232,7 +233,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   {
     return m.gpuMaterial;
   });
-  materialStorageBuffer = Fwog::TypedBuffer<Utility::GpuMaterial>(materials);
+  materialStorageBuffer = Fwog::TypedBuffer<Utility::GpuMaterial>(materials, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   std::vector<ObjectUniforms> meshUniforms;
   for (size_t i = 0; i < scene.transforms.size(); i++)
@@ -324,11 +325,11 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
   // Create gbuffer textures and render info
   frame.gAlbedo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "gAlbedo");
   frame.gMetallicRoughnessAo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8_UNORM, "gMetallicRoughnessAo");
-  frame.gNormal = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16B16_SNORM, "gNormal");
+  frame.gNormalAndFaceNormal = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16B16A16_SNORM, "gNormalAndFaceNormal");
   frame.gEmission = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R11G11B10_FLOAT, "gEmission");
   frame.gDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "gDepth");
   frame.gMotion = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16_FLOAT, "gMotion");
-  frame.gNormalPrev = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16B16_SNORM);
+  frame.gNormalPrev = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16B16A16_SNORM);
   frame.gDepthPrev = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT);
   frame.colorHdrRenderRes = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R11G11B10_FLOAT, "colorHdrRenderRes");
   frame.colorHdrWindowRes = Fwog::CreateTexture2D({newWidth, newHeight}, Fwog::Format::R11G11B10_FLOAT, "colorHdrWindowRes");
@@ -339,7 +340,7 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
   frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gRoughnessMetallicAoSwizzled = frame.gMetallicRoughnessAo->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gEmissionSwizzled = frame.gEmission->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
-  frame.gNormalSwizzled = frame.gNormal->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
+  frame.gNormalSwizzled = frame.gNormalAndFaceNormal->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
 }
 
@@ -403,6 +404,9 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
 
   tonemapUniformBuffer.UpdateData(tonemapUniforms);
   vsmContext.UpdateUniforms(vsmUniforms);
+  auto gpuMaterials = std::vector<Utility::GpuMaterial>(scene.materials.size());
+  std::ranges::transform(scene.materials, gpuMaterials.begin(), [](const auto& mat) { return mat.gpuMaterial; });
+  materialStorageBuffer->UpdateData(gpuMaterials);
 }
 
 static glm::vec2 GetJitterOffset(
@@ -482,7 +486,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 {
   ZoneScoped;
   std::swap(frame.gDepth, frame.gDepthPrev);
-  std::swap(frame.gNormal, frame.gNormalPrev);
+  std::swap(frame.gNormalAndFaceNormal, frame.gNormalPrev);
 
   shadingUniforms.sunDir = glm::vec4(PolarToCartesian(sunElevation, sunAzimuth), 0);
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
@@ -730,7 +734,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
     },
     {
-      .texture = frame.gNormal.value(),
+      .texture = frame.gNormalAndFaceNormal.value(),
       .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
     },
     {
@@ -833,7 +837,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
       Fwog::Cmd::BindGraphicsPipeline(shadingPipeline);
       Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
-      Fwog::Cmd::BindSampledImage("s_gNormal", *frame.gNormal, nearestSampler);
+      Fwog::Cmd::BindSampledImage("s_gNormal", *frame.gNormalAndFaceNormal, nearestSampler);
       Fwog::Cmd::BindSampledImage("s_gDepth", *frame.gDepth, nearestSampler);
       // Fwog::Cmd::BindSampledImage("s_rsmIndirect", frame.rsm->GetIndirectLighting(), nearestSampler);
       // Fwog::Cmd::BindSampledImage("s_rsmDepth", rsmDepth, nearestSampler);
@@ -1011,7 +1015,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS)
           tex = &frame.gAlbedo.value();
         if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_PRESS)
-          tex = &frame.gNormal.value();
+          tex = &frame.gNormalAndFaceNormal.value();
         if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS)
           tex = &frame.gDepth.value();
         if (tex)

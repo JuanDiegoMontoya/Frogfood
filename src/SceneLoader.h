@@ -55,7 +55,8 @@ namespace Utility
     glm::vec3 emissiveFactor = {0, 0, 0};
     float emissiveStrength = 1.0f;
     uint64_t baseColorTextureHandle{};
-    uint32_t _padding[2];
+    float normalXyScale = 1.0f;
+    uint32_t _padding[1];
   };
 
   enum class LightType : uint32_t

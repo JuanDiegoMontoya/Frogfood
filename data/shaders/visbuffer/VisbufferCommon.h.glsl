@@ -84,6 +84,7 @@ struct GpuMaterial
   vec3 emissiveFactor;
   float emissiveStrength;
   uvec2 baseColorTextureHandle;
+  float normalXyScale;
 };
 
 layout (std430, binding = 0) restrict readonly buffer MeshletDataBuffer

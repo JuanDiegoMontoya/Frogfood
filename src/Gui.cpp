@@ -738,7 +738,7 @@ void FrogRenderer::OnGui(double dt)
   if (shadowMode == 0)
   {
     SliderUint("PCF Samples", &shadowUniforms.pcfSamples, 1, 16);
-    ImGui::SliderFloat("PCF Radius", &shadowUniforms.pcfRadius, 0, 0.01f, "%.4f");
+    ImGui::SliderFloat("PCF Radius", &shadowUniforms.pcfRadius, 0, 0.1f, "%.4f");
   }
   else if (shadowMode == 1)
   {

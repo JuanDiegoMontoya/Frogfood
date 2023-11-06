@@ -62,8 +62,9 @@ layout(binding = 6, std430) readonly buffer LightBuffer
 // For example, if texelWidth is 0.125 units in world space, the bias will be in world space too.
 float GetShadowBias(vec3 N, vec3 L, float texelWidth)
 {
+  const float sqrt2 = 1.41421356;
   const float quantize = 2.0 / (1 << 23);
-  const float b = texelWidth / 2.0;
+  const float b = sqrt2 * texelWidth / 2.0;
   const float NoL = clamp(dot(N, L), 0.0, 1.0);
   return quantize + b * length(cross(N, L)) / NoL;
 }
@@ -71,7 +72,7 @@ float GetShadowBias(vec3 N, vec3 L, float texelWidth)
 float CalcVsmShadowBias(uint clipmapLevel, vec3 faceNormal)
 {
   const float magicClipmapLevelBias = 0.1;
-  const float magicConstantBias = 2.0 / (1 << 23);
+  const float magicConstantBias = 2.0 / (1 << 24);
   const float halfOrthoFrustumLength = clipmapUniforms.projectionZLength / 2;
   const float shadowTexelSize = exp2(clipmapLevel + (clipmapLevel * magicClipmapLevelBias)) * clipmapUniforms.firstClipmapTexelLength;
   const float bias = magicConstantBias + GetShadowBias(faceNormal, -shadingUniforms.sunDir.xyz, shadowTexelSize) / halfOrthoFrustumLength;
@@ -128,51 +129,91 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   return ret;
 }
 
+bool TrySampleVsmClipmap(int level, vec2 uv, vec2 worldOffset, out float depth)
+{
+  if (level < 0 || level >= clipmapUniforms.numClipmaps)
+  {
+    return false;
+  }
+  const uint clipmapIndex = clipmapUniforms.clipmapTableIndices[level];
+
+  // World-to-UV translation for this level
+  const ivec2 numClipmapTexels = imageSize(i_pageTables).xy * PAGE_SIZE;
+  const vec2 clipmapSizeWorldSpace = exp2(level) * clipmapUniforms.firstClipmapTexelLength * numClipmapTexels;
+  const vec2 vsmOffsetUv = fract(uv + worldOffset / clipmapSizeWorldSpace);
+
+  const ivec2 vsmTexel = ivec2(vsmOffsetUv * numClipmapTexels);
+  const ivec2 vsmPage = vsmTexel / PAGE_SIZE;
+  const ivec2 pageTexel = vsmTexel % PAGE_SIZE;
+  const uint pageData = imageLoad(i_pageTables, ivec3(vsmPage, clipmapIndex)).x;
+  if (!GetIsPageBacked(pageData))
+  {
+    return false;
+  }
+
+  const uint physicalAddress = GetPagePhysicalAddress(pageData);
+  depth = LoadPageTexel(pageTexel, physicalAddress);
+
+  return true;
+}
+
 float ShadowVsmPcf(vec3 fragWorldPos, vec3 flatNormal)
 {
   const ivec2 gid = ivec2(gl_FragCoord.xy);
   const float depthSample = texelFetch(s_gDepth, gid, 0).x;
-  PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
+  const PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
 
-  
+  const float baseBias = min(0.03, CalcVsmShadowBias(addr.clipmapLevel, flatNormal));
 
-  const float bias = min(0.03, CalcVsmShadowBias(addr.clipmapLevel, flatNormal));
-
-  float lightOcclusion = 0.0;
+  float lightVisibility = 0.0;
 
   for (uint i = 0; i < shadowUniforms.pcfSamples; i++)
   {
-    vec2 xi = fract(Hammersley(i, shadowUniforms.pcfSamples) + hash(gl_FragCoord.xy) + shadingUniforms.random);
-    float r = sqrt(xi.x);
-    float theta = xi.y * 2.0 * 3.14159;
-    vec2 offset = shadowUniforms.pcfRadius * vec2(r * cos(theta), r * sin(theta));
+    const vec2 xi = fract(Hammersley(i, shadowUniforms.pcfSamples) + hash(gl_FragCoord.xy) + shadingUniforms.random);
+    const float r = sqrt(xi.x) * shadowUniforms.pcfRadius;
+    const float theta = xi.y * 2.0 * 3.14159;
+    const vec2 offset = r * vec2(cos(theta), sin(theta));
+    // PCF puts some samples under the surface when L is not parallel to N
+    const float pcfBias = 2.0 * r / clipmapUniforms.projectionZLength;
+    const float realBias = baseBias + mix(pcfBias, 0.0, max(0.0, dot(flatNormal, -shadingUniforms.sunDir.xyz)));
 
-    const vec2 vsmOffsetUv = fract(addr.vsmUv + offset);
-    const ivec2 vsmTexel = ivec2(vsmOffsetUv * imageSize(i_pageTables).xy * PAGE_SIZE);
-    const ivec2 vsmPage = vsmTexel / PAGE_SIZE;
-    const ivec2 pageTexel = vsmTexel % PAGE_SIZE;
-    const uint pageData = imageLoad(i_pageTables, ivec3(vsmPage, addr.pageAddress.z)).x;
-    if (!GetIsPageBacked(pageData))
+    float depth;
+    if (TrySampleVsmClipmap(int(addr.clipmapLevel), addr.posLightNdc.xy * 0.5 + 0.5, offset, depth))
     {
-      lightOcclusion += 1.0;
+      depth += realBias;
+      if (depth >= addr.projectedDepth)
+      {
+        lightVisibility += 1.0;
+      }
       continue;
-      //return 1.0;
     }
-
-    //const ivec2 pageTexel = ivec2((addr.pageUv + offset) * PAGE_SIZE);
-    const uint physicalAddress = GetPagePhysicalAddress(pageData);
-    float lightDepth = LoadPageTexel(pageTexel, physicalAddress);
-
-
-    //float lightDepth = textureLod(s_rsmDepth, uv + offset, 0).x;
-    lightDepth += bias;
-    if (lightDepth >= addr.projectedDepth)
+    
+    // Sample lower level (more detailed) (double device coordinate first)
+    if (TrySampleVsmClipmap(int(addr.clipmapLevel) - 1, (addr.posLightNdc.xy * 2.0) * 0.5 + 0.5, offset, depth))
     {
-      lightOcclusion += 1.0;
+      depth += realBias / 1.0;
+      if (depth >= addr.projectedDepth)
+      {
+        lightVisibility += 1.0;
+      }
+      continue;
     }
+    
+    // Sample higher level (less detailed) (halve device coordinate first)
+    if (TrySampleVsmClipmap(int(addr.clipmapLevel) + 1, (addr.posLightNdc.xy / 2.0) * 0.5 + 0.5, offset, depth))
+    {
+      depth += realBias * 1.0;
+      if (depth >= addr.projectedDepth)
+      {
+        lightVisibility += 1.0;
+      }
+      continue;
+    }
+    
+    lightVisibility += 1.0;
   }
 
-  return (lightOcclusion / shadowUniforms.pcfSamples);
+  return lightVisibility / shadowUniforms.pcfSamples;
 }
 
 float ShadowPCF(vec2 uv, float viewDepth, float bias)

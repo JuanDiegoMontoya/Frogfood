@@ -21,10 +21,10 @@
  * [ ] Clustered light culling
  * [-] Raster occlusion culling
  * [X] Multi-view
- * [ ] Triangle culling: https://www.slideshare.net/gwihlidal/optimizing-the-graphics-pipeline-with-compute-gdc-2016
+ * [X] Triangle culling: https://www.slideshare.net/gwihlidal/optimizing-the-graphics-pipeline-with-compute-gdc-2016
  *   [X] Back-facing
  *   [X] Zero-area
- *   [ ] Small primitive (doesn't overlap pixel)
+ *   [X] Small primitive (doesn't overlap pixel)
  *   [X] Frustum
  *
  * Atmosphere

@@ -157,6 +157,7 @@ struct PageAddressInfo
   float projectedDepth;
   uint clipmapLevel;
   vec2 vsmUv; // UV within the whole VSM
+  vec3 posLightNdc;
 };
 
 // Analyzes the provided depth buffer and returns and address and data of a page.
@@ -181,7 +182,8 @@ PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBuffe
 
   const vec3 posW = UnprojectUV_ZO(depth, uvCenter, perFrameUniforms.invViewProj);
   const vec4 posLightC = clipmapUniforms.clipmapViewProjections[clipmapLevel] * vec4(posW, 1.0);
-  const vec2 posLightUv = fract((posLightC.xy / posLightC.w) * 0.5 + 0.5);
+  const vec3 posLightNdc = posLightC.xyz / posLightC.w;
+  const vec2 posLightUv = fract(posLightNdc.xy * 0.5 + 0.5);
 
   const ivec2 posLightTexel = ivec2(posLightUv * imageSize(i_pageTables).xy);
   const ivec3 pageAddress = ivec3(posLightTexel, clipmapIndex);
@@ -194,6 +196,7 @@ PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBuffe
   addr.projectedDepth = posLightC.z / posLightC.w;
   addr.clipmapLevel = clipmapLevel;
   addr.vsmUv = posLightUv;
+  addr.posLightNdc = posLightNdc;
 
   return addr;
 }

@@ -126,7 +126,6 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     shadowMainPipeline(Pipelines::ShadowMain()),
     materialDepthPipeline(Pipelines::MaterialDepth()),
     visbufferResolvePipeline(Pipelines::VisbufferResolve()),
-    // rsmScenePipeline(CreateShadowPipeline()),
     shadingPipeline(Pipelines::Shading()),
     tonemapPipeline(Pipelines::Tonemap()),
     debugTexturePipeline(Pipelines::DebugTexture()),

@@ -133,11 +133,14 @@ private:
 
   struct ShadowUniforms
   {
-    uint32_t shadowMode = 0; // 0 = PCF, 1 = SMRT
+    uint32_t shadowMode = 0; // 0 = PCSS, 1 = SMRT
 
-    // PCF stuff
-    uint32_t pcfSamples = 8;
-    float pcfRadius = 0.002f;
+    // PCSS stuff
+    uint32_t pcfSamples = 16;
+    float lightWidth = 0.002f;
+    float maxPcfRadius = 0.032f;
+    uint32_t blockerSearchSamples = 16;
+    float blockerSearchRadius = 0.032f;
 
     // SMRT stuff
     uint32_t shadowRays = 7;

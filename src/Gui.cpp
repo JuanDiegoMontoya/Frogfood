@@ -737,8 +737,11 @@ void FrogRenderer::OnGui(double dt)
 
   if (shadowMode == 0)
   {
-    SliderUint("PCF Samples", &shadowUniforms.pcfSamples, 1, 16);
-    ImGui::SliderFloat("PCF Radius", &shadowUniforms.pcfRadius, 0, 0.1f, "%.4f");
+    SliderUint("PCF Samples", &shadowUniforms.pcfSamples, 1, 64);
+    ImGui::SliderFloat("Light Width", &shadowUniforms.lightWidth, 0, 0.1f, "%.4f");
+    ImGui::SliderFloat("Max PCF Radius", &shadowUniforms.maxPcfRadius, 0, 0.1f, "%.4f");
+    SliderUint("Blocker Search Samples", &shadowUniforms.blockerSearchSamples, 1, 64);
+    ImGui::SliderFloat("Blocker Search Radius", &shadowUniforms.blockerSearchRadius, 0, 0.1f, "%.4f");
   }
   else if (shadowMode == 1)
   {

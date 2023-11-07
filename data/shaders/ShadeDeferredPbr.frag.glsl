@@ -39,11 +39,14 @@ layout(binding = 1, std140) uniform ShadingUniforms
 
 layout(binding = 2, std140) uniform ShadowUniforms
 {
-  uint shadowMode; // 0 = PCF, 1 = SMRT
+  uint shadowMode; // 0 = PCSS, 1 = SMRT
 
-  // PCF
+  // PCSS
   uint pcfSamples;
-  float pcfRadius;
+  float lightWidth;
+  float maxPcfRadius;
+  uint blockerSearchSamples;
+  float blockerSearchRadius;
 
   // SMRT
   uint shadowRays;
@@ -157,20 +160,86 @@ bool TrySampleVsmClipmap(int level, vec2 uv, vec2 worldOffset, out float depth)
   return true;
 }
 
-float ShadowVsmPcf(vec3 fragWorldPos, vec3 flatNormal)
+float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
 {
   const ivec2 gid = ivec2(gl_FragCoord.xy);
   const float depthSample = texelFetch(s_gDepth, gid, 0).x;
   const PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
 
   const float baseBias = min(0.03, CalcVsmShadowBias(addr.clipmapLevel, flatNormal));
+  
+  // Blocker search
+  float accumDepth = 0;
+  uint blockers = 0;
+  for (uint i = 0; i < shadowUniforms.blockerSearchSamples; i++)
+  {
+    const vec2 xi = fract(Hammersley(i, shadowUniforms.blockerSearchSamples) + hash(gl_FragCoord.xy) + shadingUniforms.random.yx);
+    const float r = sqrt(xi.x) * shadowUniforms.blockerSearchRadius;
+    const float theta = xi.y * 2.0 * 3.14159;
+    const vec2 offset = r * vec2(cos(theta), sin(theta));
+    // PCF puts some samples under the surface when L is not parallel to N
+    const float pcfBias = 2.0 * r / clipmapUniforms.projectionZLength;
+    const float realBias = baseBias + mix(pcfBias, 0.0, max(0.0, dot(flatNormal, -shadingUniforms.sunDir.xyz)));
+
+    float depth;
+    if (TrySampleVsmClipmap(int(addr.clipmapLevel), addr.posLightNdc.xy * 0.5 + 0.5, offset, depth))
+    {
+      if (depth + realBias < addr.projectedDepth)
+      {
+        accumDepth += depth * clipmapUniforms.projectionZLength;
+        blockers++;
+      }
+      continue;
+    }
+    
+    // Sample lower level (more detailed) (double device coordinate first)
+    if (TrySampleVsmClipmap(int(addr.clipmapLevel) - 1, (addr.posLightNdc.xy * 2.0) * 0.5 + 0.5, offset, depth))
+    {
+      if (depth + realBias / 1.0 < addr.projectedDepth)
+      {
+        accumDepth += depth * clipmapUniforms.projectionZLength;
+        blockers++;
+      }
+      continue;
+    }
+    
+    // Sample higher level (less detailed) (halve device coordinate first)
+    if (TrySampleVsmClipmap(int(addr.clipmapLevel) + 1, (addr.posLightNdc.xy / 2.0) * 0.5 + 0.5, offset, depth))
+    {
+      if (depth + realBias * 1.0 < addr.projectedDepth)
+      {
+        accumDepth += depth * clipmapUniforms.projectionZLength;
+        blockers++;
+      }
+      continue;
+    }
+  }
+  
+  // No blockers: fully visible
+  if (blockers == 0)
+  {
+    return 1.0;
+  }
+
+  // All blockers: not visible
+  if (blockers == shadowUniforms.blockerSearchSamples)
+  {
+    return 0.0;
+  }
+
+  // Light width
+  //const float w_light = tan(radians(0.5));// * clipmapUniforms.projectionZLength;
+  const float w_light = shadowUniforms.lightWidth;
+  const float d_blocker = accumDepth / blockers;
+  const float d_receiver = addr.projectedDepth * clipmapUniforms.projectionZLength;
+
+  const float pcfRadius = min(shadowUniforms.maxPcfRadius, (d_receiver - d_blocker) * w_light);
 
   float lightVisibility = 0.0;
-
   for (uint i = 0; i < shadowUniforms.pcfSamples; i++)
   {
     const vec2 xi = fract(Hammersley(i, shadowUniforms.pcfSamples) + hash(gl_FragCoord.xy) + shadingUniforms.random);
-    const float r = sqrt(xi.x) * shadowUniforms.pcfRadius;
+    const float r = sqrt(xi.x) * pcfRadius;
     const float theta = xi.y * 2.0 * 3.14159;
     const vec2 offset = r * vec2(cos(theta), sin(theta));
     // PCF puts some samples under the surface when L is not parallel to N
@@ -225,7 +294,7 @@ float ShadowPCF(vec2 uv, float viewDepth, float bias)
     vec2 xi = fract(Hammersley(i, shadowUniforms.pcfSamples) + hash(gl_FragCoord.xy) + shadingUniforms.random);
     float r = sqrt(xi.x);
     float theta = xi.y * 2.0 * 3.14159;
-    vec2 offset = shadowUniforms.pcfRadius * vec2(r * cos(theta), r * sin(theta));
+    vec2 offset = shadowUniforms.maxPcfRadius * vec2(r * cos(theta), r * sin(theta));
     // float lightDepth = textureLod(s_rsmDepth, uv + offset, 0).x;
     // lightDepth += bias;
     // if (lightDepth >= viewDepth)
@@ -354,7 +423,7 @@ void main()
   ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
   float shadowSun = shadowVsm.shadow;
   //shadowSun = 0;
-  shadowSun = ShadowVsmPcf(fragWorldPos, flatNormal);
+  shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal);
   
   vec3 viewDir = normalize(perFrameUniforms.cameraPos.xyz - fragWorldPos);
   

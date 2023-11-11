@@ -32,13 +32,19 @@ FetchContent_Declare(
 FetchContent_Declare(
     fwog
     GIT_REPOSITORY https://github.com/JuanDiegoMontoya/Fwog.git
-    GIT_TAG        3aaf7ea8afbee789b44bd871237cd076bc3f3afa
+    GIT_TAG        f922b45c96180eb6007eb6af349b28d5c8a697a5
 )
 
 FetchContent_Declare(
     meshoptimizer
     GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
     GIT_TAG        v0.19
+)
+
+FetchContent_Declare(
+    implot
+    GIT_REPOSITORY https://github.com/epezent/implot.git
+    GIT_TAG        v0.16
 )
 
 option(KTX_FEATURE_TESTS "" OFF)
@@ -112,6 +118,24 @@ if(NOT imgui_POPULATED)
 
     target_link_libraries(lib_imgui PRIVATE glfw)
 endif()
+
+FetchContent_GetProperties(implot)
+if(NOT implot_POPULATED)
+    FetchContent_Populate(implot)
+
+    add_library(lib_implot
+        ${implot_SOURCE_DIR}/implot.cpp
+        ${implot_SOURCE_DIR}/implot_items.cpp
+        ${implot_SOURCE_DIR}/implot_demo.cpp
+    )
+
+    target_include_directories(lib_implot PUBLIC 
+        ${implot_SOURCE_DIR}
+        ${imgui_SOURCE_DIR} # ImPlot must see ImGui headers
+    )
+endif()
+
+set(IMPLOT_SOURCE ${implot_SOURCE_DIR} PARENT_SCOPE)
 
 FetchContent_MakeAvailable(glfw)
 

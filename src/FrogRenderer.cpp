@@ -262,6 +262,12 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   //                                   Fwog::UploadType::UINT,
   //                                   &zero);
 
+  stats.resize(std::size(statGroups));
+  for (size_t i = 0; i < std::size(statGroups); i++)
+  {
+    stats[i].resize(statGroups[i].statNames.size());
+  }
+
   OnWindowResize(windowWidth, windowHeight);
 }
 
@@ -484,6 +490,9 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
 void FrogRenderer::OnRender([[maybe_unused]] double dt)
 {
   ZoneScoped;
+  accumTimes.Push(accumTime += dt);
+  stats[(int)StatGroup::eMainGpu][eFrame].timings.Push(dt * 1000);
+
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormalAndFaceNormal, frame.gNormalPrev);
 
@@ -567,6 +576,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   if (executeMeshletGeneration)
   {
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eCullMeshletsMain);
     CullMeshletsForView(mainView, "Cull Meshlets Main");
   }
 
@@ -589,6 +599,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      TIME_SCOPE_GPU(StatGroup::eMainGpu, eRenderVisbufferMain);
       Fwog::Cmd::BindGraphicsPipeline(visbufferPipeline);
       Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
       Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
@@ -604,12 +615,34 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   // VSMs
   {
     const auto debugMarker = Fwog::ScopedDebugMarker("Virtual Shadow Maps");
-    vsmContext.ResetPageVisibility();
-    vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
-    vsmContext.FreeNonVisiblePages();
-    vsmContext.AllocateRequestedPages();
-    vsmSun.GenerateBitmaskHzb();
-    vsmContext.ClearDirtyPages();
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eVsm);
+
+    {
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmResetPageVisibility);
+      vsmContext.ResetPageVisibility();
+    }
+    {
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmMarkVisiblePages);
+      vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
+    }
+    {
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmFreeNonVisiblePages);
+      vsmContext.FreeNonVisiblePages();
+    }
+    {
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmAllocatePages);
+      vsmContext.AllocateRequestedPages();
+    }
+    {
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmGenerateHpb);
+      vsmSun.GenerateBitmaskHzb();
+    }
+    {
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmClearDirtyPages);
+      vsmContext.ClearDirtyPages();
+    }
+
+    TIME_SCOPE_GPU(StatGroup::eVsm, eVsmRenderDirtyPages);
 
     // Sun VSMs
     for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
@@ -660,10 +693,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     }
   }
 
-  //vsmSun.GenerateHZB();
-
   if (generateHizBuffer)
   {
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eHzb);
     Fwog::Compute(
       "HZB Build Pass",
       [&]
@@ -717,6 +749,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      TIME_SCOPE_GPU(StatGroup::eMainGpu, eMakeMaterialDepthBuffer);
       Fwog::Cmd::BindGraphicsPipeline(materialDepthPipeline);
       Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
       Fwog::Cmd::BindImage("visbuffer", frame.visbuffer.value(), 0);
@@ -766,6 +799,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveVisbuffer);
       Fwog::Cmd::BindGraphicsPipeline(visbufferResolvePipeline);
       Fwog::Cmd::BindImage("visbuffer", frame.visbuffer.value(), 0);
       Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
@@ -833,6 +867,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      TIME_SCOPE_GPU(StatGroup::eMainGpu, eShadeOpaque);
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
       Fwog::Cmd::BindGraphicsPipeline(shadingPipeline);
       Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
@@ -872,6 +907,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
     },
     [&]
     {
+      TIME_SCOPE_GPU(StatGroup::eMainGpu, eDebugGeometry);
       Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
       // Lines
       if (!debugLines.empty())
@@ -902,19 +938,23 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       }
     });
 
-  autoExposure.Apply({
-    .image = frame.colorHdrRenderRes.value(),
-    .exposureBuffer = exposureBuffer,
-    .deltaTime = static_cast<float>(dt),
-    .adjustmentSpeed = autoExposureAdjustmentSpeed,
-    .targetLuminance = autoExposureTargetLuminance,
-    .logMinLuminance = autoExposureLogMinLuminance,
-    .logMaxLuminance = autoExposureLogMaxLuminance,
-  });
+  {
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eAutoExposure);
+    autoExposure.Apply({
+      .image = frame.colorHdrRenderRes.value(),
+      .exposureBuffer = exposureBuffer,
+      .deltaTime = static_cast<float>(dt),
+      .adjustmentSpeed = autoExposureAdjustmentSpeed,
+      .targetLuminance = autoExposureTargetLuminance,
+      .logMinLuminance = autoExposureLogMinLuminance,
+      .logMaxLuminance = autoExposureLogMaxLuminance,
+    });
+  }
 
 #ifdef FROGRENDER_FSR2_ENABLE
   if (fsr2Enable)
   {
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eFsr2);
     Fwog::Compute(
       "FSR 2",
       [&]
@@ -969,6 +1009,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
   if (bloomEnable)
   {
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eBloom);
     bloom.Apply({
       .target = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
       .scratchTexture = frame.colorHdrBloomScratchBuffer.value(),
@@ -982,6 +1023,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   Fwog::Compute("Postprocessing",
     [&]
     {
+      TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage);
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::UNIFORM_BUFFER_BIT);
       Fwog::Cmd::BindComputePipeline(tonemapPipeline);
       Fwog::Cmd::BindSampledImage(0, fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(), nearestSampler);

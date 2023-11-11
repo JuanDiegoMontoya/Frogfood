@@ -4,6 +4,7 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <implot.h>
 
 #include FWOG_OPENGL_HEADER
 #include <GLFW/glfw3.h>
@@ -324,6 +325,10 @@ void FrogRenderer::GuiDrawDebugWindow()
 {
   if (ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window"))
   {
+    if (ImGui::Checkbox("Enable Vsync", &vsyncEnabled))
+    {
+      glfwSwapInterval(vsyncEnabled ? 1 : 0);
+    }
     ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
     ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
     ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
@@ -677,11 +682,40 @@ void FrogRenderer::GuiDrawMaterialsArray()
   ImGui::End();
 }
 
+void FrogRenderer::GuiDrawPerfWindow()
+{
+  if (ImGui::Begin("Perf##perf_window", nullptr, 0))
+  {
+    for (size_t groupIdx = 0; const auto& statGroup : statGroups)
+    {
+      if (ImPlot::BeginPlot(statGroup.groupName, ImVec2(-1, 250)))
+      {
+        ImPlot::SetupAxes(nullptr, nullptr, 0, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_RangeFit);
+        ImPlot::SetupAxisFormat(ImAxis_X1, "%g s");
+        ImPlot::SetupAxisFormat(ImAxis_Y1, "%g ms");
+        ImPlot::SetupAxisLimits(ImAxis_X1, accumTime - 5.0, accumTime, ImGuiCond_Always);
+        ImPlot::SetupLegend(ImPlotLocation_NorthWest, ImPlotLegendFlags_Outside);
+
+        for (size_t statIdx = 0; const auto& stat : stats[groupIdx])
+        {
+          ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 1.0f);
+          ImPlot::PlotLine(statGroup.statNames[statIdx], accumTimes.data.get(), stat.timings.data.get(), (int)stat.timings.size, 0, (int)stat.timings.offset, sizeof(double));
+          statIdx++;
+        }
+        ImPlot::EndPlot();
+      }
+      groupIdx++;
+    }
+  }
+  ImGui::End();
+}
+
 void FrogRenderer::OnGui(double dt)
 {
   GuiDrawDockspace();
 
   //ImGui::ShowDemoWindow();
+  //ImPlot::ShowDemoWindow();
 
   GuiDrawFsrWindow();
 
@@ -730,7 +764,7 @@ void FrogRenderer::OnGui(double dt)
   { return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u"); };
 
   int shadowMode = shadowUniforms.shadowMode;
-  ImGui::RadioButton("PCF", &shadowMode, 0);
+  ImGui::RadioButton("PCSS", &shadowMode, 0);
   ImGui::SameLine();
   ImGui::RadioButton("SMRT", &shadowMode, 1);
   shadowUniforms.shadowMode = shadowMode;
@@ -816,4 +850,5 @@ void FrogRenderer::OnGui(double dt)
   GuiDrawShadowWindow();
   GuiDrawViewer();
   GuiDrawMaterialsArray();
+  GuiDrawPerfWindow();
 }

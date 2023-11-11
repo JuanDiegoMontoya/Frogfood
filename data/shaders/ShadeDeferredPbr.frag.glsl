@@ -235,6 +235,7 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
 
   const float pcfRadius = min(shadowUniforms.maxPcfRadius, (d_receiver - d_blocker) * w_light);
 
+  // PCF
   float lightVisibility = 0.0;
   for (uint i = 0; i < shadowUniforms.pcfSamples; i++)
   {

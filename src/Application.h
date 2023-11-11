@@ -74,6 +74,7 @@ protected:
 
   // Resizing from UI is deferred until next frame so texture handles remain valid when ImGui is rendered
   bool shouldResizeNextFrame = false;
+  bool vsyncEnabled;
 
 private:
   friend class ApplicationAccess;

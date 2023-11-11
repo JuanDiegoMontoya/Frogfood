@@ -83,7 +83,7 @@ bool CullSmallPrimitive(vec2 vertices[3], vec2 viewportExtent)
 bool CullTriangle(Meshlet meshlet, uint localId)
 {
   // Skip if no culling flags are enabled
-  if ((perFrameUniforms.flags & (CULL_PRIMITIVE_BACKFACE | CULL_PRIMITIVE_FRUSTUM | CULL_PRIMITIVE_SMALL)) == 0)
+  if ((perFrameUniforms.flags & (CULL_PRIMITIVE_BACKFACE | CULL_PRIMITIVE_FRUSTUM | CULL_PRIMITIVE_SMALL | CULL_PRIMITIVE_VSM)) == 0)
   {
     return true;
   }

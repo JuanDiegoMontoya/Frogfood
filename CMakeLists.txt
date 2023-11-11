@@ -76,6 +76,7 @@ target_compile_definitions(fwog PUBLIC FWOG_DEFAULT_CLIP_DEPTH_RANGE_ZERO_TO_ONE
 target_include_directories(frogRender
 	PUBLIC
 	${FSR2_SOURCE}
+	${IMPLOT_SOURCE}
 	vendor
 	data
 )
@@ -91,6 +92,7 @@ target_link_libraries(frogRender
 	fastgltf
 	meshoptimizer
 	Tracy::TracyClient
+	lib_implot
 )
 add_dependencies(frogRender copy_shaders copy_models copy_textures copy_config)
 

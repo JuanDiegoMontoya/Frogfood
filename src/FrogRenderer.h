@@ -7,13 +7,21 @@
 #include "techniques/VirtualShadowMaps.h"
 
 #include <Fwog/Texture.h>
+#include <Fwog/Timer.h>
 
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
   #include "src/ffx-fsr2-api/gl/ffx_fsr2_gl.h"
 #endif
 
+#include "imgui.h"
+
 #include <cmath>
+
+#include <algorithm>
+#include <string>
+#include <type_traits>
+#include <vector>
 
 inline glm::vec3 PolarToCartesian(float elevation, float azimuth)
 {
@@ -176,6 +184,7 @@ private:
   void GuiDrawShadowWindow();
   void GuiDrawViewer();
   void GuiDrawMaterialsArray();
+  void GuiDrawPerfWindow();
 
   void CullMeshletsForView(const View& view, std::string_view name = "Cull Meshlet Pass");
 
@@ -373,4 +382,145 @@ private:
   Fwog::GraphicsPipeline viewerVsmPhysicalPagesPipeline;
   Fwog::GraphicsPipeline viewerVsmBitmaskHzbPipeline;
   std::optional<Fwog::Texture> viewerOutputTexture;
+
+  template<typename T>
+  struct ScrollingBuffer
+  {
+    ScrollingBuffer(size_t capacity = 2000) : capacity(capacity)
+    {
+      data = std::make_unique<T[]>(capacity);
+    }
+
+    void Push(const T& v)
+    {
+      data[offset] = v;
+      offset = (offset + 1) % capacity;
+      if (size < capacity)
+        size++;
+    }
+
+    void Clear()
+    {
+      std::fill_n(data.get(), capacity, T{});
+    }
+
+    size_t capacity;
+    size_t offset = 0;
+    size_t size = 0;
+    std::unique_ptr<T[]> data;
+  };
+
+  enum class StatGroup
+  {
+    eMainGpu,
+    eVsm,
+
+    eCount
+  };
+
+  struct StatGroupInfo
+  {
+    const char* groupName;
+    std::vector<const char*> statNames;
+  };
+
+  const static inline StatGroupInfo statGroups[] =
+  {
+    {
+      "Main GPU",
+      {
+        "Frame",
+        "Cull Meshlets Main",
+        "Render Visbuffer Main",
+        "Virtual Shadow Maps",
+        "Build Hi-Z Buffer",
+        "Make Material Depth Buffer",
+        "Resolve Visibility Buffer",
+        "Shade Opaque",
+        "Debug Geometry",
+        "Auto Exposure",
+        "FSR 2",
+        "Bloom",
+        "Resolve Image",
+      }
+    },
+    {
+      "Virtual Shadow Maps",
+      {
+        "VSM Reset Page Visibility",
+        "VSM Mark Visible Pages",
+        "VSM Free Non-Visible Pages",
+        "VSM Allocate Pages",
+        "VSM Generate HPB",
+        "VSM Clear Pages",
+        "VSM Render Pages",
+      }
+    },
+  };
+
+  //static_assert((int)StatGroup::eCount == std::extent_v<decltype(statGroupNames)>);
+
+  enum MainGpuStat
+  {
+    eFrame = 0,
+    eCullMeshletsMain,
+    eRenderVisbufferMain,
+    eVsm,
+    eHzb,
+    eMakeMaterialDepthBuffer,
+    eResolveVisbuffer,
+    eShadeOpaque,
+    eDebugGeometry,
+    eAutoExposure,
+    eFsr2,
+    eBloom,
+    eResolveImage,
+  };
+
+  enum VsmStat
+  {
+    eVsmResetPageVisibility,
+    eVsmMarkVisiblePages,
+    eVsmFreeNonVisiblePages,
+    eVsmAllocatePages,
+    eVsmGenerateHpb,
+    eVsmClearDirtyPages,
+    eVsmRenderDirtyPages,
+  };
+
+  //static_assert(eStatCount == std::extent_v<decltype(statNames)>);
+
+  struct StatInfo
+  {
+    // std::string name;
+    ScrollingBuffer<double> timings;
+    Fwog::TimerQueryAsync timer{5};
+
+    void Measure()
+    {
+      if (auto t = timer.PopTimestamp())
+      {
+        timings.Push(*t / 10e5); // ns to ms
+      }
+      else
+      {
+        timings.Push(0);
+      }
+    }
+
+    [[nodiscard]] auto MakeScopedTimer()
+    {
+      return Fwog::TimerScoped(timer);
+    }
+  };
+
+  std::vector<std::vector<StatInfo>> stats;
+  ScrollingBuffer<double> accumTimes;
+  double accumTime = 0;
 };
+
+#define CONCAT_HELPER(x, y) x##y
+#define CONCAT(x, y) CONCAT_HELPER(x, y)
+#define TIME_SCOPE_GPU(statGroup, statEnum) \
+  stats[(int)statGroup][statEnum].Measure();     \
+  const auto CONCAT(gpu_timer_, __LINE__) = stats[(int)statGroup][statEnum].MakeScopedTimer()

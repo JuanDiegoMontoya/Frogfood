@@ -9,6 +9,7 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
+#include <implot.h>
 
 #include <glm/gtc/constants.hpp>
 
@@ -210,6 +211,7 @@ std::pair<std::unique_ptr<std::byte[]>, std::size_t> Application::LoadBinaryFile
 }
 
 Application::Application(const CreateInfo& createInfo)
+  : vsyncEnabled(createInfo.vsync)
 {
   ZoneScoped;
   // Initialiize GLFW
@@ -256,7 +258,7 @@ Application::Application(const CreateInfo& createInfo)
 
   glfwSetWindowUserPointer(window, this);
   glfwMakeContextCurrent(window);
-  glfwSwapInterval(createInfo.vsync ? 1 : 0);
+  glfwSwapInterval(vsyncEnabled ? 1 : 0);
 
   glfwSetCursorPosCallback(window, ApplicationAccess::CursorPosCallback);
   glfwSetCursorEnterCallback(window, ApplicationAccess::CursorEnterCallback);
@@ -330,6 +332,7 @@ Application::Application(const CreateInfo& createInfo)
   // Initialize ImGui and a backend for it.
   // Because we allow the GLFW backend to install callbacks, it will automatically call our own that we provided.
   ImGui::CreateContext();
+  ImPlot::CreateContext();
   ImGui_ImplGlfw_InitForOpenGL(window, true);
   ImGui_ImplOpenGL3_Init();
   ImGui::StyleColorsDark();
@@ -341,6 +344,7 @@ Application::~Application()
   ZoneScoped;
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
+  ImPlot::DestroyContext();
   ImGui::DestroyContext();
 
   Fwog::Terminate();

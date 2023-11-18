@@ -7,7 +7,10 @@
 #include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
 
+#include <list>
+#include <variant>
 #include <vector>
+#include <string>
 #include <string_view>
 #include <optional>
 #include <filesystem>
@@ -96,22 +99,38 @@ namespace Utility
     uint32_t primitiveOffset = 0;
     uint32_t indexCount = 0;
     uint32_t primitiveCount = 0;
-    // TODO: One material per meshlet or one material per meshlet instance?
     uint32_t materialId = 0;
     uint32_t instanceId = 0;
     float aabbMin[3] = {};
     float aabbMax[3] = {};
   };
 
-  struct SceneMeshlet
+  struct Node
+  {
+    std::string name;
+    glm::mat4 localTransform;
+    std::vector<Node*> children;
+    std::vector<Meshlet> meshlets;
+    std::optional<GpuLight> light; // TODO: hold a light without position/direction type safety
+  };
+
+  struct SceneFlattened
   {
     std::vector<Meshlet> meshlets;
+    std::vector<glm::mat4> transforms;
+    std::vector<GpuLight> lights;
+  };
+
+  struct SceneMeshlet
+  {
+    SceneFlattened Flatten() const;
+
+    std::vector<Node*> rootNodes;
+    std::list<Node> nodes;
     std::vector<Vertex> vertices;
     std::vector<index_t> indices;
     std::vector<uint8_t> primitives;
     std::vector<Material> materials;
-    std::vector<glm::mat4> transforms;
-    std::vector<GpuLight> lights;
   };
   
   // TODO: maybe customizeable (not recommended though)

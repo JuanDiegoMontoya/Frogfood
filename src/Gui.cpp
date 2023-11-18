@@ -12,6 +12,11 @@
 #include <algorithm>
 #include <filesystem>
 #include <string>
+#include <stack>
+
+#include <fastgltf/util.hpp>
+
+#include <glm/gtc/type_ptr.hpp>
 
 #include "IconsMaterialDesign.h"
 
@@ -374,115 +379,115 @@ void FrogRenderer::GuiDrawDebugWindow()
 
 void FrogRenderer::GuiDrawLightsArray()
 {
-  if (ImGui::Begin(ICON_MD_SUNNY "  Lights###lights_window"))
-  {
-    // Display properties for all lights
-    for (size_t i = 0; i < scene.lights.size(); i++)
-    {
-      auto& light = scene.lights[i];
+  //if (ImGui::Begin(ICON_MD_SUNNY "  Lights###lights_window"))
+  //{
+  //  // Display properties for all lights
+  //  for (size_t i = 0; i < scene.lights.size(); i++)
+  //  {
+  //    auto& light = scene.lights[i];
 
-      const char* typePreview = "";
-      const char* typeIcon = "";
-      if (light.type == Utility::LightType::DIRECTIONAL)
-      {
-        typePreview = "Directional";
-        typeIcon = ICON_MD_SUNNY "  ";
-      }
-      else if (light.type == Utility::LightType::POINT)
-      {
-        typePreview = "Point";
-        typeIcon = ICON_FA_LIGHTBULB "  ";
-      }
-      else if (light.type == Utility::LightType::SPOT)
-      {
-        typePreview = "Spot";
-        typeIcon = ICON_FA_FILTER "  ";
-      }
+  //    const char* typePreview = "";
+  //    const char* typeIcon = "";
+  //    if (light.type == Utility::LightType::DIRECTIONAL)
+  //    {
+  //      typePreview = "Directional";
+  //      typeIcon = ICON_MD_SUNNY "  ";
+  //    }
+  //    else if (light.type == Utility::LightType::POINT)
+  //    {
+  //      typePreview = "Point";
+  //      typeIcon = ICON_FA_LIGHTBULB "  ";
+  //    }
+  //    else if (light.type == Utility::LightType::SPOT)
+  //    {
+  //      typePreview = "Spot";
+  //      typeIcon = ICON_FA_FILTER "  ";
+  //    }
 
-      const auto id = std::string("##") + typePreview + " Light " + std::to_string(i);
+  //    const auto id = std::string("##") + typePreview + " Light " + std::to_string(i);
 
-      if (ImGui::Button((ICON_FA_TRASH_CAN + id).c_str()))
-      {
-        // Erasing from the middle is inefficient, but leads to more intuitive UX compared to swap & pop
-        scene.lights.erase(scene.lights.begin() + i);
-        i--;
-        continue;
-      }
+  //    if (ImGui::Button((ICON_FA_TRASH_CAN + id).c_str()))
+  //    {
+  //      // Erasing from the middle is inefficient, but leads to more intuitive UX compared to swap & pop
+  //      scene.lights.erase(scene.lights.begin() + i);
+  //      i--;
+  //      continue;
+  //    }
 
-      ImGui::SameLine();
+  //    ImGui::SameLine();
 
-      const bool isOpen = ImGui::TreeNode(id.c_str() + 2);
+  //    const bool isOpen = ImGui::TreeNode(id.c_str() + 2);
 
-      // Hack to right-align the light icon
-      ImGui::SameLine(ImGui::GetWindowWidth() - 40);
+  //    // Hack to right-align the light icon
+  //    ImGui::SameLine(ImGui::GetWindowWidth() - 40);
 
-      ImGui::PushStyleColor(ImGuiCol_Text, glm::packUnorm4x8(glm::vec4(light.color, 1.0f)));
-      ImGui::TextUnformatted(typeIcon);
-      ImGui::PopStyleColor();
+  //    ImGui::PushStyleColor(ImGuiCol_Text, glm::packUnorm4x8(glm::vec4(light.color, 1.0f)));
+  //    ImGui::TextUnformatted(typeIcon);
+  //    ImGui::PopStyleColor();
 
-      if (isOpen)
-      {
-        if (ImGui::BeginCombo(("Type" + id).c_str(), typePreview))
-        {
-          // if (ImGui::Selectable("Directional", light.type == Utility::LightType::DIRECTIONAL))
-          //{
-          //   light.type = Utility::LightType::DIRECTIONAL;
-          // }
-          if (ImGui::Selectable("Point", light.type == Utility::LightType::POINT))
-          {
-            light.type = Utility::LightType::POINT;
-          }
-          else if (ImGui::Selectable("Spot", light.type == Utility::LightType::SPOT))
-          {
-            light.type = Utility::LightType::SPOT;
-          }
-          ImGui::EndCombo();
-        }
+  //    if (isOpen)
+  //    {
+  //      if (ImGui::BeginCombo(("Type" + id).c_str(), typePreview))
+  //      {
+  //        // if (ImGui::Selectable("Directional", light.type == Utility::LightType::DIRECTIONAL))
+  //        //{
+  //        //   light.type = Utility::LightType::DIRECTIONAL;
+  //        // }
+  //        if (ImGui::Selectable("Point", light.type == Utility::LightType::POINT))
+  //        {
+  //          light.type = Utility::LightType::POINT;
+  //        }
+  //        else if (ImGui::Selectable("Spot", light.type == Utility::LightType::SPOT))
+  //        {
+  //          light.type = Utility::LightType::SPOT;
+  //        }
+  //        ImGui::EndCombo();
+  //      }
 
-        ImGui::ColorEdit3(("Color" + id).c_str(), &light.color[0], ImGuiColorEditFlags_Float);
-        ImGui::DragFloat(("Intensity" + id).c_str(), &light.intensity, 1, 0, 1e6f, light.type == Utility::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
+  //      ImGui::ColorEdit3(("Color" + id).c_str(), &light.color[0], ImGuiColorEditFlags_Float);
+  //      ImGui::DragFloat(("Intensity" + id).c_str(), &light.intensity, 1, 0, 1e6f, light.type == Utility::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
 
-        ImGui::DragFloat3(("Position" + id).c_str(), &light.position[0], .1f, 0, 0, "%.2f");
+  //      ImGui::DragFloat3(("Position" + id).c_str(), &light.position[0], .1f, 0, 0, "%.2f");
 
-        if (light.type != Utility::LightType::POINT)
-        {
-          if (ImGui::SliderFloat3(("Direction" + id).c_str(), &light.direction[0], -1, 1))
-          {
-            light.direction = glm::normalize(light.direction);
-          }
-        }
+  //      if (light.type != Utility::LightType::POINT)
+  //      {
+  //        if (ImGui::SliderFloat3(("Direction" + id).c_str(), &light.direction[0], -1, 1))
+  //        {
+  //          light.direction = glm::normalize(light.direction);
+  //        }
+  //      }
 
-        if (light.type != Utility::LightType::DIRECTIONAL)
-        {
-          ImGui::DragFloat(("Range" + id).c_str(), &light.range, 0.2f, 0.0f, 100.0f, "%.2f");
-        }
+  //      if (light.type != Utility::LightType::DIRECTIONAL)
+  //      {
+  //        ImGui::DragFloat(("Range" + id).c_str(), &light.range, 0.2f, 0.0f, 100.0f, "%.2f");
+  //      }
 
-        if (light.type == Utility::LightType::SPOT)
-        {
-          ImGui::SliderFloat(("Inner cone angle" + id).c_str(), &light.innerConeAngle, 0, 3.14f, "%.2f rad");
-          ImGui::SliderFloat(("Outer cone angle" + id).c_str(), &light.outerConeAngle, 0, 3.14f, "%.2f rad");
-        }
+  //      if (light.type == Utility::LightType::SPOT)
+  //      {
+  //        ImGui::SliderFloat(("Inner cone angle" + id).c_str(), &light.innerConeAngle, 0, 3.14f, "%.2f rad");
+  //        ImGui::SliderFloat(("Outer cone angle" + id).c_str(), &light.outerConeAngle, 0, 3.14f, "%.2f rad");
+  //      }
 
-        ImGui::TreePop();
-      }
-    }
+  //      ImGui::TreePop();
+  //    }
+  //  }
 
-    // Adding new lights
-    if (ImGui::Button("Add Light"))
-    {
-      scene.lights.emplace_back(Utility::GpuLight{
-        .color = {1, 1, 1},
-        .type = Utility::LightType::POINT,
-        .direction = glm::normalize(glm::vec3{0.1f, -1, 0.1f}),
-        .intensity = 100,
-        .position = {0, 0, 0},
-        .range = 100,
-        .innerConeAngle = 0.01f,
-        .outerConeAngle = 0.4f,
-      });
-    }
-  }
-  ImGui::End();
+  //  // Adding new lights
+  //  if (ImGui::Button("Add Light"))
+  //  {
+  //    scene.lights.emplace_back(Utility::GpuLight{
+  //      .color = {1, 1, 1},
+  //      .type = Utility::LightType::POINT,
+  //      .direction = glm::normalize(glm::vec3{0.1f, -1, 0.1f}),
+  //      .intensity = 100,
+  //      .position = {0, 0, 0},
+  //      .range = 100,
+  //      .innerConeAngle = 0.01f,
+  //      .outerConeAngle = 0.4f,
+  //    });
+  //  }
+  //}
+  //ImGui::End();
 }
 
 void FrogRenderer::GuiDrawBloomWindow()
@@ -710,6 +715,60 @@ void FrogRenderer::GuiDrawPerfWindow()
   ImGui::End();
 }
 
+void FrogRenderer::GuiDrawSceneGraphHelper(Utility::Node* node)
+{
+  ImGui::PushID(static_cast<int>(std::hash<const void*>{}(node)));
+  const bool isTreeNodeOpen = ImGui::TreeNode("", "%s", node->name.c_str());
+  ImGui::SameLine();
+  ImGui::TextColored({0, 1, 0, 1}, "hello");
+  if (isTreeNodeOpen)
+  {
+    // TODO: store TRS separately instead of using a hacky matrix decomposition
+    std::array<float, 16> globalTransformArray{};
+    std::copy_n(&node->localTransform[0][0], 16, globalTransformArray.data());
+    std::array<float, 3> scaleArray{};
+    std::array<float, 4> rotationArray{};
+    std::array<float, 3> translationArray{};
+    fastgltf::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
+
+    glm::quat rotation = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
+    glm::vec3 translation = glm::make_vec3(translationArray.data());
+    glm::vec3 scale = glm::make_vec3(scaleArray.data());
+    
+    ImGui::DragFloat3("translation", glm::value_ptr(translation), 0.0625f);
+    float angle = glm::angle(rotation);
+    glm::vec3 axis = glm::axis(rotation);
+    ImGui::DragFloat("rotation angle", &angle, 1.0f / 32);
+    if (ImGui::DragFloat3("rotation axis", glm::value_ptr(axis), 1.0f / 64))
+    {
+      axis = glm::normalize(axis);
+    }
+    rotation = glm::angleAxis(angle, axis);
+    ImGui::DragFloat3("scale", glm::value_ptr(scale), 1.0f / 64, 1.0f / 32, 10000, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
+    
+    node->localTransform = glm::scale(glm::translate(translation) * glm::mat4_cast(rotation), scale);
+
+    for (auto* childNode : node->children)
+    {
+      GuiDrawSceneGraphHelper(childNode);
+    }
+    ImGui::TreePop();
+  }
+  ImGui::PopID();
+}
+
+void FrogRenderer::GuiDrawSceneGraph()
+{
+  if (ImGui::Begin("Scene Graph##scene_graph_window"))
+  {
+    for (auto* node : scene.rootNodes)
+    {
+      GuiDrawSceneGraphHelper(node);
+    }
+  }
+  ImGui::End();
+}
+
 void FrogRenderer::OnGui(double dt)
 {
   GuiDrawDockspace();
@@ -722,11 +781,11 @@ void FrogRenderer::OnGui(double dt)
   ImGui::Begin("glTF Viewer");
   ImGui::Text("Framerate: %.0f Hertz", 1 / dt);
 
-  ImGui::Text("Meshlets: %llu", scene.meshlets.size());
+  ImGui::Text("Meshlets: %llu", sceneFlattened.meshlets.size());
   ImGui::Text("Indices: %llu", scene.indices.size());
   ImGui::Text("Vertices: %llu", scene.vertices.size());
   ImGui::Text("Primitives: %llu", scene.primitives.size());
-  ImGui::Text("Lights: %llu", scene.lights.size());
+  ImGui::Text("Lights: %llu", sceneFlattened.lights.size());
   ImGui::Text("Materials: %llu", scene.materials.size());
 
   if (ImGui::Checkbox("Use GUI viewport size", &useGuiViewportSizeForRendering))
@@ -851,4 +910,5 @@ void FrogRenderer::OnGui(double dt)
   GuiDrawViewer();
   GuiDrawMaterialsArray();
   GuiDrawPerfWindow();
+  GuiDrawSceneGraph();
 }

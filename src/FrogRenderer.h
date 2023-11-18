@@ -185,6 +185,8 @@ private:
   void GuiDrawViewer();
   void GuiDrawMaterialsArray();
   void GuiDrawPerfWindow();
+  void GuiDrawSceneGraph();
+  void GuiDrawSceneGraphHelper(Utility::Node* node);
 
   void CullMeshletsForView(const View& view, std::string_view name = "Cull Meshlet Pass");
 
@@ -277,7 +279,6 @@ private:
   Fwog::TypedBuffer<ShadowUniforms> shadowUniformsBuffer;
 
   // Meshlet stuff
-  std::optional<Fwog::TypedBuffer<Utility::Meshlet>> meshletBuffer;
   std::optional<Fwog::TypedBuffer<Utility::Vertex>> vertexBuffer;
   std::optional<Fwog::TypedBuffer<uint32_t>> indexBuffer;
   std::optional<Fwog::TypedBuffer<uint8_t>> primitiveBuffer;
@@ -310,7 +311,10 @@ private:
 
   // Punctual lights
   std::optional<Fwog::TypedBuffer<Utility::GpuLight>> lightBuffer;
+  std::optional<Fwog::TypedBuffer<Utility::Meshlet>> meshletBuffer; 
   std::optional<Fwog::TypedBuffer<ObjectUniforms>> meshUniformBuffer;
+
+  Utility::SceneFlattened sceneFlattened;
 
   // Post processing
   std::optional<Fwog::Texture> noiseTexture;

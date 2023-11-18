@@ -140,9 +140,38 @@ namespace Utility
       }
     }
 
-    std::vector<Fwog::Texture> LoadImages(const fastgltf::Asset& asset, std::span<const ImageUsage> imageUsages)
+    std::vector<Fwog::Texture> LoadImages(const fastgltf::Asset& asset)
     {
       ZoneScoped;
+
+      auto imageUsages = std::vector<ImageUsage>(asset.images.size(), ImageUsage::BASE_COLOR);
+
+      // Determine how each image is used so we can transcode to the proper format.
+      // Assumption: each image has exactly one usage, or is used for both metallic-roughness AND occlusion (which is handled in LoadImages()).
+      for (const auto& material : asset.materials)
+      {
+        if (material.pbrData.baseColorTexture && asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex)
+        {
+          imageUsages[*asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex] = ImageUsage::BASE_COLOR;
+        }
+        if (material.normalTexture && asset.textures[material.normalTexture->textureIndex].imageIndex)
+        {
+          imageUsages[*asset.textures[material.normalTexture->textureIndex].imageIndex] = ImageUsage::NORMAL;
+        }
+        if (material.pbrData.metallicRoughnessTexture && asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex)
+        {
+          imageUsages[*asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex] = ImageUsage::METALLIC_ROUGHNESS;
+        }
+        if (material.occlusionTexture && asset.textures[material.occlusionTexture->textureIndex].imageIndex)
+        {
+          imageUsages[*asset.textures[material.occlusionTexture->textureIndex].imageIndex] = ImageUsage::OCCLUSION;
+        }
+        if (material.emissiveTexture && asset.textures[material.emissiveTexture->textureIndex].imageIndex)
+        {
+          imageUsages[*asset.textures[material.emissiveTexture->textureIndex].imageIndex] = ImageUsage::EMISSION;
+        }
+      }
+
       struct RawImageData
       {
         // Used for ktx and non-ktx images alike
@@ -573,20 +602,23 @@ namespace Utility
     Box3D boundingBox;
   };
 
-  struct MeshInstance
+  struct NodeTempData
   {
-    size_t rawMeshIndex;
-    uint32_t materialIdx;
-    glm::mat4 transform;
+    struct Indices
+    {
+      size_t rawMeshIndex;
+      size_t materialIndex;
+    };
+    std::vector<Indices> indices;
   };
 
   struct LoadModelResult
   {
+    std::list<Node> nodes;
+    // This is a semi-hacky way to extend `nodes` without changing the node type, so we can still splice our nodes onto the main scene's
+    std::vector<NodeTempData> tempData;
     std::vector<RawMesh> rawMeshes;
-    std::vector<MeshInstance> meshInstances;
-
     std::vector<Material> materials;
-    std::vector<GpuLight> lights;
   };
 
   std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool binary, uint32_t baseMaterialIndex)
@@ -619,41 +651,13 @@ namespace Utility
       return std::nullopt;
     }
 
-    auto& asset = maybeAsset.get();
+    const auto& asset = maybeAsset.get();
 
     // Let's not deal with glTFs containing multiple scenes right now
     FWOG_ASSERT(asset.scenes.size() == 1);
 
-    auto imageFormats = std::vector<ImageUsage>(asset.images.size(), ImageUsage::BASE_COLOR);
-
-    // Determine how each image is used so we can transcode to the proper format.
-    // Assumption: each image has exactly one usage, or is used for both metallic-roughness AND occlusion (which is handled in LoadImages()).
-    for (const auto& material : asset.materials)
-    {
-      if (material.pbrData.baseColorTexture && asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex)
-      {
-        imageFormats[*asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex] = ImageUsage::BASE_COLOR;
-      }
-      if (material.normalTexture && asset.textures[material.normalTexture->textureIndex].imageIndex)
-      {
-        imageFormats[*asset.textures[material.normalTexture->textureIndex].imageIndex] = ImageUsage::NORMAL;
-      }
-      if (material.pbrData.metallicRoughnessTexture && asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex)
-      {
-        imageFormats[*asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex] = ImageUsage::METALLIC_ROUGHNESS;
-      }
-      if (material.occlusionTexture && asset.textures[material.occlusionTexture->textureIndex].imageIndex)
-      {
-        imageFormats[*asset.textures[material.occlusionTexture->textureIndex].imageIndex] = ImageUsage::OCCLUSION;
-      }
-      if (material.emissiveTexture && asset.textures[material.emissiveTexture->textureIndex].imageIndex)
-      {
-        imageFormats[*asset.textures[material.emissiveTexture->textureIndex].imageIndex] = ImageUsage::EMISSION;
-      }
-    }
-
     // Load images and boofers
-    auto images = LoadImages(asset, imageFormats);
+    auto images = LoadImages(asset);
 
     LoadModelResult scene;
 
@@ -673,33 +677,54 @@ namespace Utility
     auto uniqueAccessorCombinations = std::vector<std::pair<AccessorIndices, std::size_t>>();
 
     // <node*, global transform>
-    std::stack<std::pair<const fastgltf::Node*, glm::mat4>> nodeStack;
+    struct StackElement
+    {
+      Node* sceneNode{};
+      const fastgltf::Node* gltfNode{};
+      size_t tempDataIndex;
+    };
+    std::stack<StackElement> nodeStack;
 
+    // Create the root node for this scene
+    Node* rootNode = &scene.nodes.emplace_back(path.stem().string(), rootTransform);
+    scene.tempData.emplace_back();
+
+    // All nodes referenced in the scene MUST be root nodes
     for (auto nodeIndex : asset.scenes[0].nodeIndices)
     {
-      nodeStack.emplace(&asset.nodes[nodeIndex], rootTransform);
+      const auto& assetNode = asset.nodes[nodeIndex];
+      const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
+      Node* sceneNode = &scene.nodes.emplace_back(name, rootTransform);
+      rootNode->children.emplace_back(sceneNode);
+      nodeStack.emplace(sceneNode, &assetNode, scene.tempData.size());
+      scene.tempData.emplace_back();
     }
 
     while (!nodeStack.empty())
     {
       decltype(nodeStack)::value_type top = nodeStack.top();
-      const auto& [node, parentGlobalTransform] = top;
+      const auto& [node, gltfNode, tempDataIndex] = top;
       nodeStack.pop();
 
-      // std::cout << "Node: " << node->name << '\n';
+      const glm::mat4 localTransform = NodeToMat4(*gltfNode);
 
-      const glm::mat4 localTransform = NodeToMat4(*node);
-      const glm::mat4 globalTransform = parentGlobalTransform * localTransform;
+      node->localTransform = localTransform;
 
-      for (auto childNodeIndex : node->children)
+      for (auto childNodeIndex : gltfNode->children)
       {
-        nodeStack.emplace(&asset.nodes[childNodeIndex], globalTransform);
+        const auto& assetNode = asset.nodes[childNodeIndex];
+        const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
+        Node* childSceneNode = &scene.nodes.emplace_back(name, rootTransform);
+        node->children.emplace_back(childSceneNode);
+        nodeStack.emplace(childSceneNode, &assetNode, scene.tempData.size());
+        scene.tempData.emplace_back();
       }
 
-      if (node->meshIndex.has_value())
+
+      if (gltfNode->meshIndex.has_value())
       {
-        // TODO: get a reference to the mesh instead of loading it from scratch
-        for (const fastgltf::Mesh& mesh = asset.meshes[node->meshIndex.value()]; const auto& primitive : mesh.primitives)
+        // Load each primitive in the mesh
+        for (const fastgltf::Mesh& mesh = asset.meshes[gltfNode->meshIndex.value()]; const auto& primitive : mesh.primitives)
         {
           AccessorIndices accessorIndices;
           if (auto it = primitive.findAttribute("POSITION"); it != primitive.attributes.end())
@@ -746,18 +771,16 @@ namespace Utility
             rawMeshIndex = it->second;
           }
 
-          scene.meshInstances.emplace_back(MeshInstance{
-            .rawMeshIndex = rawMeshIndex,
-            .materialIdx = primitive.materialIndex.has_value() ? baseMaterialIndex + uint32_t(primitive.materialIndex.value()) : 0,
-            .transform = globalTransform,
-          });
+          const auto materialId = primitive.materialIndex.has_value() ? baseMaterialIndex + uint32_t(primitive.materialIndex.value()) : 0;
+
+          scene.tempData[tempDataIndex].indices.emplace_back(rawMeshIndex, materialId);
         }
       }
 
       // Deduplicating lights is not a concern (they are small and quick to decode), so we load them here for convenience.
-      if (node->lightIndex.has_value())
+      if (gltfNode->lightIndex.has_value())
       {
-        const auto& light = asset.lights[*node->lightIndex];
+        const auto& light = asset.lights[*gltfNode->lightIndex];
 
         GpuLight gpuLight{};
 
@@ -773,33 +796,20 @@ namespace Utility
         {
           gpuLight.type = LightType::POINT;
         }
-        
-        std::array<float, 16> globalTransformArray{};
-        std::copy_n(&globalTransform[0][0], 16, globalTransformArray.data());
-        std::array<float, 3> scaleArray{};
-        std::array<float, 4> rotationArray{};
-        std::array<float, 3> translationArray{};
-        fastgltf::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
-
-        glm::quat rotation = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
-        glm::vec3 translation = glm::make_vec3(translationArray.data());
 
         gpuLight.color = glm::make_vec3(light.color.data());
-        // We rotate (0, 0, -1) because that is the default, un-rotated direction of spot and directional lights according to the glTF spec
-        gpuLight.direction = glm::normalize(rotation) * glm::vec3(0, 0, -1);
         gpuLight.intensity = light.intensity;
-        gpuLight.position = translation;
         // If not present, range is infinite
         gpuLight.range = light.range.value_or(std::numeric_limits<float>::infinity());
         gpuLight.innerConeAngle = light.innerConeAngle.value_or(0);
         gpuLight.outerConeAngle = light.outerConeAngle.value_or(0);
 
-        scene.lights.push_back(gpuLight);
+        node->light = gpuLight;
       }
     }
 
     scene.rawMeshes.resize(uniqueAccessorCombinations.size());
-
+    
     std::transform(
       std::execution::par,
       uniqueAccessorCombinations.begin(),
@@ -807,6 +817,7 @@ namespace Utility
       scene.rawMeshes.begin(),
       [&](const auto& keyValue) -> RawMesh
       {
+        ZoneScopedN("Convert vertices and indices");
         const auto& [accessorIndices, _] = keyValue;
         auto vertices = ConvertVertexBufferFormat(asset, accessorIndices.positionsIndex.value(), accessorIndices.normalsIndex.value(), accessorIndices.texcoordsIndex);
         auto indices = ConvertIndexBufferFormat(asset, accessorIndices.indicesIndex.value());
@@ -861,7 +872,6 @@ namespace Utility
     const auto baseVertexOffset = scene.vertices.size();
     const auto baseIndexOffset = scene.indices.size();
     const auto basePrimitiveOffset = scene.primitives.size();
-    const auto baseInstanceId = static_cast<uint32_t>(scene.transforms.size());
 
     auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, binary, baseMaterialIndex);
     if (!loadedScene)
@@ -870,8 +880,6 @@ namespace Utility
     uint32_t vertexOffset = (uint32_t)baseVertexOffset;
     uint32_t indexOffset = (uint32_t)baseIndexOffset;
     uint32_t primitiveOffset = (uint32_t)basePrimitiveOffset;
-    std::vector<glm::mat4> transforms;
-    transforms.reserve(loadedScene->meshInstances.size());
 
     struct MeshletInfo
     {
@@ -958,8 +966,7 @@ namespace Utility
           .aabbMax = {max.x, max.y, max.z},
         });
       }
-
-      //transforms.emplace_back(transform);
+      
       vertexOffset += (uint32_t)vertices.size();
       indexOffset += (uint32_t)meshletIndices.size();
       primitiveOffset += (uint32_t)meshletPrimitives.size();
@@ -969,25 +976,86 @@ namespace Utility
       std::ranges::copy(meshletPrimitives, std::back_inserter(scene.primitives));
     }
 
-    // For each mesh instance, copy all of its associated meshlets (with per-instance data) and transform to the mega meshlet buffer
-    for (const auto& meshInstance : loadedScene->meshInstances)
+    for (size_t i = 0; auto& node : loadedScene->nodes)
     {
-      for (auto meshlet : perMeshMeshlets[meshInstance.rawMeshIndex])
+      for (const auto& [rawMeshIndex, materialId] : loadedScene->tempData[i++].indices)
       {
-        meshlet.materialId = meshInstance.materialIdx;
-        meshlet.instanceId = baseInstanceId + static_cast<uint32_t>(transforms.size());
-
-        scene.meshlets.emplace_back(meshlet);
+        for (auto meshlet : perMeshMeshlets[rawMeshIndex])
+        {
+          meshlet.materialId = (uint32_t)materialId;
+          node.meshlets.emplace_back(meshlet);
+        }
       }
-
-      transforms.emplace_back(meshInstance.transform);
     }
 
-    scene.transforms.insert(scene.transforms.end(), transforms.begin(), transforms.end());
-
     std::ranges::move(loadedScene->materials, std::back_inserter(scene.materials));
-    std::ranges::move(loadedScene->lights, std::back_inserter(scene.lights));
+    scene.rootNodes.emplace_back(&loadedScene->nodes.front());
+    scene.nodes.splice(scene.nodes.end(), loadedScene->nodes);
 
     return true;
+  }
+
+  SceneFlattened SceneMeshlet::Flatten() const
+  {
+    SceneFlattened sceneFlattened;
+
+    struct StackElement
+    {
+      const Node* node;
+      glm::mat4 parentGlobalTransform;
+    };
+    std::stack<StackElement> nodeStack;
+
+    for (auto* rootNode : rootNodes)
+    {
+      nodeStack.emplace(rootNode, rootNode->localTransform);
+    }
+
+    // Traverse the scene
+    while (!nodeStack.empty())
+    {
+      auto [node, parentGlobalTransform] = nodeStack.top();
+      nodeStack.pop();
+      
+      const auto globalTransform = parentGlobalTransform * node->localTransform;
+
+      for (const auto* childNode : node->children)
+      {
+        nodeStack.emplace(childNode, globalTransform);
+      }
+
+      if (!node->meshlets.empty())
+      {
+        const auto instanceId = sceneFlattened.transforms.size();
+        sceneFlattened.transforms.emplace_back(globalTransform);
+        for (auto meshlet : node->meshlets)
+        {
+          meshlet.instanceId = static_cast<uint32_t>(instanceId);
+          sceneFlattened.meshlets.push_back(meshlet);
+        }
+      }
+
+      if (node->light.has_value())
+      {
+        auto gpuLight = node->light.value();
+
+        std::array<float, 16> globalTransformArray{};
+        std::copy_n(&globalTransform[0][0], 16, globalTransformArray.data());
+        std::array<float, 3> scaleArray{};
+        std::array<float, 4> rotationArray{};
+        std::array<float, 3> translationArray{};
+        fastgltf::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
+
+        glm::quat rotation = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
+        glm::vec3 translation = glm::make_vec3(translationArray.data());
+        // We rotate (0, 0, -1) because that is the default, un-rotated direction of spot and directional lights according to the glTF spec
+        gpuLight.direction = glm::normalize(rotation) * glm::vec3(0, 0, -1);
+        gpuLight.position = translation;
+
+        sceneFlattened.lights.emplace_back(gpuLight);
+      }
+    }
+
+    return sceneFlattened;
   }
 } // namespace Utility

@@ -212,20 +212,12 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
     Utility::LoadModelFromFileMeshlet(scene, *filename, glm::scale(glm::vec3{scale}), binary);
   }
   
-  lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-
-  meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(scene.meshlets);
   vertexBuffer = Fwog::TypedBuffer<Utility::Vertex>(scene.vertices);
   indexBuffer = Fwog::TypedBuffer<uint32_t>(scene.indices);
   primitiveBuffer = Fwog::TypedBuffer<uint8_t>(scene.primitives);
-  transformBuffer = Fwog::TypedBuffer<glm::mat4>(scene.transforms);
   meshletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
-  const auto maxIndices = scene.meshlets.size() * Utility::maxMeshletPrimitives * 3;
-  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxIndices);
-
   cullTrianglesDispatchParams = Fwog::TypedBuffer(Fwog::DispatchIndirectCommand{0, 1, 1});
-  visibleMeshletIds = Fwog::TypedBuffer<uint32_t>(scene.meshlets.size());
 
   std::vector<Utility::GpuMaterial> materials(scene.materials.size());
   std::transform(scene.materials.begin(), scene.materials.end(), materials.begin(), [](const auto& m)
@@ -234,33 +226,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   });
   materialStorageBuffer = Fwog::TypedBuffer<Utility::GpuMaterial>(materials, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
-  std::vector<ObjectUniforms> meshUniforms;
-  for (size_t i = 0; i < scene.transforms.size(); i++)
-  {
-    meshUniforms.push_back({scene.transforms[i]});
-  }
-
-  meshUniformBuffer.emplace(meshUniforms, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-
   viewBuffer = Fwog::TypedBuffer<View>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-
-  // clusterTexture({.imageType = Fwog::ImageType::TEX_3D,
-  //                                      .format = Fwog::Format::R16G16_UINT,
-  //                                      .extent = {16, 9, 24},
-  //                                      .pageTableMipLevels = 1,
-  //                                      .arrayLayers = 1,
-  //                                      .sampleCount = Fwog::SampleCount::SAMPLES_1},
-  //                                     "Cluster Texture");
-
-  //// atomic counter + uint array
-  // clusterIndicesBuffer = Fwog::Buffer(sizeof(uint32_t) + sizeof(uint32_t) * 10000);
-  // const uint32_t zero = 0; // what it says on the tin
-  // clusterIndicesBuffer.ClearSubData(0,
-  //                                   clusterIndicesBuffer.Size(),
-  //                                   Fwog::Format::R32_UINT,
-  //                                   Fwog::UploadFormat::R,
-  //                                   Fwog::UploadType::UINT,
-  //                                   &zero);
 
   stats.resize(std::size(statGroups));
   for (size_t i = 0; i < std::size(statGroups); i++)
@@ -383,14 +349,24 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
     debugGpuRectsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   }
 
-  shadingUniforms.numberOfLights = (uint32_t)scene.lights.size();
+  sceneFlattened = scene.Flatten();
 
-  if (scene.lights.size() * sizeof(Utility::GpuLight) > lightBuffer->Size())
-  {
-    lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights.size() * 2, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-  }
+  shadingUniforms.numberOfLights = (uint32_t)sceneFlattened.lights.size();
 
-  lightBuffer->UpdateData(scene.lights);
+  //if (scene.lights.size() * sizeof(Utility::GpuLight) > lightBuffer->Size())
+  //{
+  //  lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(scene.lights.size() * 2, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+  //}
+  //lightBuffer->UpdateData(scene.lights);
+
+  const auto maxIndices = sceneFlattened.meshlets.size() * Utility::maxMeshletPrimitives * 3;
+  instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxIndices);
+  visibleMeshletIds = Fwog::TypedBuffer<uint32_t>(sceneFlattened.meshlets.size());
+
+  lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(sceneFlattened.lights, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+  transformBuffer = Fwog::TypedBuffer<glm::mat4>(sceneFlattened.transforms);
+  meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(sceneFlattened.meshlets);
+
 
   if (fsr2Enable)
   {
@@ -472,7 +448,7 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
       Fwog::Cmd::BindSampledImage("s_hzb", *frame.hzb, hzbSampler);
       vsmContext.BindResourcesForCulling();
-      Fwog::Cmd::DispatchInvocations((uint32_t)scene.meshlets.size(), 1, 1);
+      Fwog::Cmd::DispatchInvocations((uint32_t)sceneFlattened.meshlets.size(), 1, 1);
 
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
 
@@ -522,7 +498,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const auto projJittered = jitterMatrix * projUnjittered;
   
   // Set global uniforms
-  const uint32_t meshletCount = (uint32_t)scene.meshlets.size();
+  const uint32_t meshletCount = (uint32_t)sceneFlattened.meshlets.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 

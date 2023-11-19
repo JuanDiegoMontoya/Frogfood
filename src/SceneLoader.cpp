@@ -686,7 +686,17 @@ namespace Utility
     std::stack<StackElement> nodeStack;
 
     // Create the root node for this scene
-    Node* rootNode = &scene.nodes.emplace_back(path.stem().string(), rootTransform);
+    std::array<float, 16> rootTransformArray{};
+    std::copy_n(&rootTransform[0][0], 16, rootTransformArray.data());
+    std::array<float, 3> rootScaleArray{};
+    std::array<float, 4> rootRotationArray{};
+    std::array<float, 3> rootTranslationArray{};
+    fastgltf::decomposeTransformMatrix(rootTransformArray, rootScaleArray, rootRotationArray, rootTranslationArray);
+    const auto rootTranslation = glm::make_vec3(rootTranslationArray.data());
+    const auto rootRotation = glm::quat{rootRotationArray[3], rootRotationArray[0], rootRotationArray[1], rootRotationArray[2]};
+    const auto rootScale = glm::make_vec3(rootScaleArray.data());
+
+    Node* rootNode = &scene.nodes.emplace_back(path.stem().string(), rootTranslation, rootRotation, rootScale);
     scene.tempData.emplace_back();
 
     // All nodes referenced in the scene MUST be root nodes
@@ -694,7 +704,7 @@ namespace Utility
     {
       const auto& assetNode = asset.nodes[nodeIndex];
       const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
-      Node* sceneNode = &scene.nodes.emplace_back(name, rootTransform);
+      Node* sceneNode = &scene.nodes.emplace_back(name, rootTranslation, rootRotation, rootScale);
       rootNode->children.emplace_back(sceneNode);
       nodeStack.emplace(sceneNode, &assetNode, scene.tempData.size());
       scene.tempData.emplace_back();
@@ -708,13 +718,22 @@ namespace Utility
 
       const glm::mat4 localTransform = NodeToMat4(*gltfNode);
 
-      node->localTransform = localTransform;
+      std::array<float, 16> localTransformArray{};
+      std::copy_n(&localTransform[0][0], 16, localTransformArray.data());
+      std::array<float, 3> scaleArray{};
+      std::array<float, 4> rotationArray{};
+      std::array<float, 3> translationArray{};
+      fastgltf::decomposeTransformMatrix(localTransformArray, scaleArray, rotationArray, translationArray);
+
+      node->translation = glm::make_vec3(translationArray.data());
+      node->rotation = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
+      node->scale = glm::make_vec3(scaleArray.data());
 
       for (auto childNodeIndex : gltfNode->children)
       {
         const auto& assetNode = asset.nodes[childNodeIndex];
         const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
-        Node* childSceneNode = &scene.nodes.emplace_back(name, rootTransform);
+        Node* childSceneNode = &scene.nodes.emplace_back(name);
         node->children.emplace_back(childSceneNode);
         nodeStack.emplace(childSceneNode, &assetNode, scene.tempData.size());
         scene.tempData.emplace_back();
@@ -1008,7 +1027,7 @@ namespace Utility
 
     for (auto* rootNode : rootNodes)
     {
-      nodeStack.emplace(rootNode, rootNode->localTransform);
+      nodeStack.emplace(rootNode, rootNode->CalcLocalTransform());
     }
 
     // Traverse the scene
@@ -1017,7 +1036,7 @@ namespace Utility
       auto [node, parentGlobalTransform] = nodeStack.top();
       nodeStack.pop();
       
-      const auto globalTransform = parentGlobalTransform * node->localTransform;
+      const auto globalTransform = parentGlobalTransform * node->CalcLocalTransform();
 
       for (const auto* childNode : node->children)
       {
@@ -1057,5 +1076,10 @@ namespace Utility
     }
 
     return sceneFlattened;
+  }
+
+  glm::mat4 Node::CalcLocalTransform() const noexcept
+  {
+    return glm::scale(glm::translate(translation) * glm::mat4_cast(rotation), scale);
   }
 } // namespace Utility

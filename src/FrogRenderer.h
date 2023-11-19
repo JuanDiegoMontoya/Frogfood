@@ -177,7 +177,6 @@ private:
   void GuiDrawDockspace();
   void GuiDrawFsrWindow();
   void GuiDrawDebugWindow();
-  void GuiDrawLightsArray();
   void GuiDrawBloomWindow();
   void GuiDrawAutoExposureWindow();
   void GuiDrawCameraWindow();

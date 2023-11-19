@@ -6,6 +6,7 @@
 #include <glm/vec4.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <list>
 #include <variant>
@@ -108,7 +109,13 @@ namespace Utility
   struct Node
   {
     std::string name;
-    glm::mat4 localTransform;
+
+    glm::vec3 translation;
+    glm::quat rotation;
+    glm::vec3 scale;
+
+    glm::mat4 CalcLocalTransform() const noexcept;
+
     std::vector<Node*> children;
     std::vector<Meshlet> meshlets;
     std::optional<GpuLight> light; // TODO: hold a light without position/direction type safety

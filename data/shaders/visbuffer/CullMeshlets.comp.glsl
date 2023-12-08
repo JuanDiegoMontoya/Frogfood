@@ -14,7 +14,7 @@
 void DebugDrawMeshletAabb(in uint meshletId)
 {
   const uint instanceId = meshlets[meshletId].instanceId;
-  const mat4 transform = transforms[instanceId];
+  const mat4 transform = transforms[instanceId].modelCurrent;
   const vec3 aabbMin = PackedToVec3(meshlets[meshletId].aabbMin);
   const vec3 aabbMax = PackedToVec3(meshlets[meshletId].aabbMax);
   const vec3 aabbSize = aabbMax - aabbMin;
@@ -83,7 +83,7 @@ struct GetMeshletUvBoundsParams
 void GetMeshletUvBounds(GetMeshletUvBoundsParams params, out vec2 minXY, out vec2 maxXY, out float nearestZ, out bool intersectsNearPlane)
 {
   const uint instanceId = meshlets[params.meshletId].instanceId;
-  const mat4 transform = transforms[instanceId];
+  const mat4 transform = transforms[instanceId].modelCurrent;
   const vec3 aabbMin = PackedToVec3(meshlets[params.meshletId].aabbMin);
   const vec3 aabbMax = PackedToVec3(meshlets[params.meshletId].aabbMax);
   const vec3 aabbSize = aabbMax - aabbMin;
@@ -174,7 +174,7 @@ bool CullQuadHiz(vec2 minXY, vec2 maxXY, float nearestZ)
 bool CullMeshletFrustum(in uint meshletId, View view)
 {
   const uint instanceId = meshlets[meshletId].instanceId;
-  const mat4 transform = transforms[instanceId];
+  const mat4 transform = transforms[instanceId].modelCurrent;
   const vec3 aabbMin = PackedToVec3(meshlets[meshletId].aabbMin);
   const vec3 aabbMax = PackedToVec3(meshlets[meshletId].aabbMax);
   const vec3 aabbCenter = (aabbMin + aabbMax) / 2.0;

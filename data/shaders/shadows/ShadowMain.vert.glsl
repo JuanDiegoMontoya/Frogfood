@@ -19,7 +19,7 @@ void main()
   const uint index = indices[indexOffset + primitive];
   const Vertex vertex = vertices[vertexOffset + index];
   const vec3 position = PackedToVec3(vertex.position);
-  const mat4 transform = transforms[instanceId];
+  const mat4 transform = transforms[instanceId].modelCurrent;
 
   v_meshletId = meshletId;
   v_uv = PackedToVec2(vertex.uv);

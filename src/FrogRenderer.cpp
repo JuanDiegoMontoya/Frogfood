@@ -35,61 +35,23 @@
 #include <string>
 #include <thread>
 
-static glm::mat4 InfReverseZPerspectiveRH(float fovY_radians, float aspectWbyH, float zNear)
-{
-  float f = 1.0f / tan(fovY_radians / 2.0f);
-  return glm::mat4(f / aspectWbyH, 0.0f, 0.0f, 0.0f, 0.0f, f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, zNear, 0.0f);
-}
-
-static constexpr uint32_t previousPower2(uint32_t x)
-{
-  uint32_t v = 1;
-  while ((v << 1) < x)
-  {
-    v <<= 1;
-  }
-  return v;
-}
-
-static void MakeFrustumPlanes(const glm::mat4& viewProj, glm::vec4(&planes)[6])
-{
-  for (auto i = 0; i < 4; ++i) { planes[0][i] = viewProj[i][3] + viewProj[i][0]; }
-  for (auto i = 0; i < 4; ++i) { planes[1][i] = viewProj[i][3] - viewProj[i][0]; }
-  for (auto i = 0; i < 4; ++i) { planes[2][i] = viewProj[i][3] + viewProj[i][1]; }
-  for (auto i = 0; i < 4; ++i) { planes[3][i] = viewProj[i][3] - viewProj[i][1]; }
-  for (auto i = 0; i < 4; ++i) { planes[4][i] = viewProj[i][3] + viewProj[i][2]; }
-  for (auto i = 0; i < 4; ++i) { planes[5][i] = viewProj[i][3] - viewProj[i][2]; }
-
-  for (auto& plane : planes)
-  {
-    plane /= glm::length(glm::vec3(plane));
-    plane.w = -plane.w;
-  }
-}
-
-// Zero-origin unprojection. E.g., pass sampled depth, screen UV, and invViewProj to get a world-space pos
-static glm::vec3 UnprojectUV_ZO(float depth, glm::vec2 uv, const glm::mat4& invXProj)
-{
-  glm::vec4 ndc = glm::vec4(uv * 2.0f - 1.0f, depth, 1.0f);
-  glm::vec4 world = invXProj * ndc;
-  return glm::vec3(world) / world.w;
-}
+#include "MathUtilities.h"
 
 static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near, float far)
 {
   auto lines = std::vector<Debug::Line>{};
 
   // Get frustum corners in world space
-  auto tln = UnprojectUV_ZO(near, {0, 1}, invViewProj);
-  auto trn = UnprojectUV_ZO(near, {1, 1}, invViewProj);
-  auto bln = UnprojectUV_ZO(near, {0, 0}, invViewProj);
-  auto brn = UnprojectUV_ZO(near, {1, 0}, invViewProj);
+  auto tln = Math::UnprojectUV_ZO(near, {0, 1}, invViewProj);
+  auto trn = Math::UnprojectUV_ZO(near, {1, 1}, invViewProj);
+  auto bln = Math::UnprojectUV_ZO(near, {0, 0}, invViewProj);
+  auto brn = Math::UnprojectUV_ZO(near, {1, 0}, invViewProj);
 
   // Far corners are lerped slightly to near in case it is an infinite projection
-  auto tlf = UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 1}, invViewProj);
-  auto trf = UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 1}, invViewProj);
-  auto blf = UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 0}, invViewProj);
-  auto brf = UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 0}, invViewProj);
+  auto tlf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 1}, invViewProj);
+  auto trf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 1}, invViewProj);
+  auto blf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 0}, invViewProj);
+  auto brf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 0}, invViewProj);
 
   // Connect-the-dots
   // Near and far "squares"
@@ -287,8 +249,8 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
   frame.visbuffer = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R32_UINT, "visbuffer");
   frame.materialDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "materialDepth");
   {
-    const uint32_t hzbWidth = previousPower2(renderWidth);
-    const uint32_t hzbHeight = previousPower2(renderHeight);
+    const uint32_t hzbWidth = Math::PreviousPower2(renderWidth);
+    const uint32_t hzbHeight = Math::PreviousPower2(renderHeight);
     const uint32_t hzbMips = 1 + static_cast<uint32_t>(glm::floor(glm::log2(static_cast<float>(glm::max(hzbWidth, hzbHeight)))));
     frame.hzb = Fwog::CreateTexture2DMip({hzbWidth, hzbHeight}, Fwog::Format::R32_FLOAT, hzbMips, "HZB");
   }
@@ -297,6 +259,7 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
   frame.gAlbedo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8A8_SRGB, "gAlbedo");
   frame.gMetallicRoughnessAo = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8G8B8_UNORM, "gMetallicRoughnessAo");
   frame.gNormalAndFaceNormal = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16B16A16_SNORM, "gNormalAndFaceNormal");
+  frame.gSmoothVertexNormal = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16_SNORM, "gSmoothVertexNormal");
   frame.gEmission = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R11G11B10_FLOAT, "gEmission");
   frame.gDepth = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::D32_FLOAT, "gDepth");
   frame.gMotion = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R16G16_FLOAT, "gMotion");
@@ -307,7 +270,7 @@ void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
   frame.colorHdrBloomScratchBuffer = Fwog::CreateTexture2DMip({newWidth / 2, newHeight / 2}, Fwog::Format::R11G11B10_FLOAT, 8);
   frame.colorLdrWindowRes = Fwog::CreateTexture2D({newWidth, newHeight}, Fwog::Format::R8G8B8A8_UNORM, "colorLdrWindowRes");
 
-  // create debug views
+  // Create debug views with alpha swizzle set to one so they can be seen in ImGui
   frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gRoughnessMetallicAoSwizzled = frame.gMetallicRoughnessAo->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
   frame.gEmissionSwizzled = frame.gEmission->CreateSwizzleView({.a = Fwog::ComponentSwizzle::ONE});
@@ -359,12 +322,13 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
   //}
   //lightBuffer->UpdateData(scene.lights);
 
+  // TODO: don't create a bunch of buffers here (instead, just upload and conditionally resize the buffers)
   const auto maxIndices = sceneFlattened.meshlets.size() * Utility::maxMeshletPrimitives * 3;
   instancedMeshletBuffer = Fwog::TypedBuffer<uint32_t>(maxIndices);
   visibleMeshletIds = Fwog::TypedBuffer<uint32_t>(sceneFlattened.meshlets.size());
 
   lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(sceneFlattened.lights, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
-  transformBuffer = Fwog::TypedBuffer<glm::mat4>(sceneFlattened.transforms);
+  transformBuffer = Fwog::TypedBuffer<Utility::ObjectUniforms>(sceneFlattened.transforms);
   meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(sceneFlattened.meshlets);
 
 
@@ -494,7 +458,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   const auto jitterOffset = fsr2Enable ? GetJitterOffset(frameIndex, renderWidth, renderHeight, windowWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
   //const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
-  const auto projUnjittered = InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
+  const auto projUnjittered = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
   const auto projJittered = jitterMatrix * projUnjittered;
   
   // Set global uniforms
@@ -522,7 +486,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
   {
     // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
     // We should probably emit the far plane regardless, but alas, one thing at a time.
-    MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
+    Math::MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
     debugMainViewProj = viewProjUnjittered;
   }
   globalUniforms.viewProjUnjittered = viewProjUnjittered;
@@ -634,7 +598,7 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         .type = ViewType::VIRTUAL,
         .virtualTableIndex = vsmSun.GetClipmapTableIndices()[i],
       };
-      MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
+      Math::MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
 
       CullMeshletsForView(sunCurrentClipmapView, "Cull Sun VSM Meshlets, View " + std::to_string(i));
 
@@ -746,6 +710,10 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
     },
     {
+      .texture = frame.gSmoothVertexNormal.value(),
+      .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+    },
+    {
       .texture = frame.gEmission.value(),
       .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
     },
@@ -847,11 +815,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
       Fwog::Cmd::BindGraphicsPipeline(shadingPipeline);
       Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
-      Fwog::Cmd::BindSampledImage("s_gNormal", *frame.gNormalAndFaceNormal, nearestSampler);
+      Fwog::Cmd::BindSampledImage(1, *frame.gNormalAndFaceNormal, nearestSampler);
       Fwog::Cmd::BindSampledImage("s_gDepth", *frame.gDepth, nearestSampler);
-      // Fwog::Cmd::BindSampledImage("s_rsmIndirect", frame.rsm->GetIndirectLighting(), nearestSampler);
-      // Fwog::Cmd::BindSampledImage("s_rsmDepth", rsmDepth, nearestSampler);
-      // Fwog::Cmd::BindSampledImage("s_rsmDepthShadow", rsmDepth, shadowSampler);
+      Fwog::Cmd::BindSampledImage(3, *frame.gSmoothVertexNormal, nearestSampler);
       Fwog::Cmd::BindSampledImage("s_emission", *frame.gEmission, nearestSampler);
       Fwog::Cmd::BindSampledImage("s_metallicRoughnessAo", *frame.gMetallicRoughnessAo, nearestSampler);
       Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
@@ -1011,7 +977,8 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
       Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT); // So future samples can see changes
     });
 
-  if (debugRenderToSwapchain)
+  // GUI is not rendered, draw directly to screen instead
+  if (!showGui)
   {
     Fwog::RenderToSwapchain(
       {
@@ -1025,22 +992,13 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
         .colorLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
         .depthLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
         .stencilLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+        .enableSrgb = false,
       },
       [&]
       {
-        const Fwog::Texture* tex = &frame.colorLdrWindowRes.value();
-        if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS)
-          tex = &frame.gAlbedo.value();
-        if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_PRESS)
-          tex = &frame.gNormalAndFaceNormal.value();
-        if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS)
-          tex = &frame.gDepth.value();
-        if (tex)
-        {
           Fwog::Cmd::BindGraphicsPipeline(debugTexturePipeline);
-          Fwog::Cmd::BindSampledImage(0, *tex, nearestSampler);
+        Fwog::Cmd::BindSampledImage(0, frame.colorLdrWindowRes.value(), nearestSampler);
           Fwog::Cmd::Draw(3, 1, 0, 0);
-        }
       });
   }
 }

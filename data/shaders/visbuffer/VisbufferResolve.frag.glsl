@@ -14,8 +14,9 @@ layout(location = 1) in flat uint i_materialId;
 layout(location = 0) out vec4 o_albedo;
 layout(location = 1) out vec3 o_metallicRoughnessAo;
 layout(location = 2) out vec4 o_normalAndFaceNormal;
-layout(location = 3) out vec3 o_emission;
-layout(location = 4) out vec2 o_motion;
+layout(location = 3) out vec2 o_smoothVertexNormal;
+layout(location = 4) out vec3 o_emission;
+layout(location = 5) out vec2 o_motion;
 
 layout(binding = 0) uniform sampler2D s_baseColor;
 layout(binding = 1) uniform sampler2D s_metallicRoughness;
@@ -165,7 +166,7 @@ vec4 InterpolateVec4(in PartialDerivatives derivatives, in vec4[3] vec4Data)
   );
 }
 
-vec2 MakeSmoothMotion(in PartialDerivatives derivatives, vec4[3] worldPosition)
+vec2 MakeSmoothMotion(in PartialDerivatives derivatives, vec4[3] worldPosition, vec4[3] worldPositionOld)
 {
   // Probably not the most efficient way to do this, but this is a port of a shader that is known to work
   vec4[3] v_curPos = vec4[](
@@ -175,9 +176,9 @@ vec2 MakeSmoothMotion(in PartialDerivatives derivatives, vec4[3] worldPosition)
   );
   
   vec4[3] v_oldPos = vec4[](
-    perFrameUniforms.oldViewProjUnjittered * worldPosition[0],
-    perFrameUniforms.oldViewProjUnjittered * worldPosition[1],
-    perFrameUniforms.oldViewProjUnjittered * worldPosition[2]
+    perFrameUniforms.oldViewProjUnjittered * worldPositionOld[0],
+    perFrameUniforms.oldViewProjUnjittered * worldPositionOld[1],
+    perFrameUniforms.oldViewProjUnjittered * worldPositionOld[2]
   );
 
   vec4 smoothCurPos = InterpolateVec4(derivatives, v_curPos);
@@ -251,9 +252,9 @@ void main()
   const uint primitiveId = payload & MESHLET_PRIMITIVE_MASK;
   const Meshlet meshlet = meshlets[meshletId];
   const GpuMaterial material = materials[meshlet.materialId];
-  const mat4 transform = transforms[meshlet.instanceId];
+  const mat4 transform = transforms[meshlet.instanceId].modelCurrent;
+  const mat4 transformPrevious = transforms[meshlet.instanceId].modelPrevious;
 
-  const vec2 resolution = vec2(imageSize(visbuffer));
   const uint[] indexIDs = VisbufferLoadIndexIds(meshlet, primitiveId);
   const vec3[] rawPosition = VisbufferLoadPosition(indexIDs, meshlet.vertexOffset);
   const vec2[] rawUv = VisbufferLoadUv(indexIDs, meshlet.vertexOffset);
@@ -268,13 +269,22 @@ void main()
     perFrameUniforms.viewProj * worldPosition[1],
     perFrameUniforms.viewProj * worldPosition[2]
   );
+  
+  const vec4[] worldPositionPrevious = vec4[](
+    transformPrevious * vec4(rawPosition[0], 1.0),
+    transformPrevious * vec4(rawPosition[1], 1.0),
+    transformPrevious * vec4(rawPosition[2], 1.0)
+  );
+
+  const vec2 resolution = vec2(imageSize(visbuffer));
   const PartialDerivatives partialDerivatives = ComputeDerivatives(clipPosition, i_uv * 2.0 - 1.0, resolution);
   const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);
   const vec3 flatNormal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));
 
-  vec3 smoothNormal = normalize(InterpolateVec3(partialDerivatives, rawNormal));
-  mat3 normalMatrix = inverse(transpose(mat3(transform)));
-  vec3 normal = normalize(normalMatrix * smoothNormal);
+  const vec3 smoothObjectNormal = normalize(InterpolateVec3(partialDerivatives, rawNormal));
+  const mat3 normalMatrix = inverse(transpose(mat3(transform)));
+  const vec3 smoothWorldNormal = normalize(normalMatrix * smoothObjectNormal);
+  vec3 normal = smoothWorldNormal;
 
   // TODO: use view-space positions to maintain precision
   vec3 iwp[] = vec3[](
@@ -307,6 +317,7 @@ void main()
     SampleOcclusion(material, uvGrad));
   o_normalAndFaceNormal.xy = Vec3ToOct(normal);
   o_normalAndFaceNormal.zw = Vec3ToOct(flatNormal);
+  o_smoothVertexNormal = Vec3ToOct(smoothWorldNormal);
   o_emission = SampleEmission(material, uvGrad);
-  o_motion = MakeSmoothMotion(partialDerivatives, worldPosition);
+  o_motion = MakeSmoothMotion(partialDerivatives, worldPosition, worldPositionPrevious);
 }

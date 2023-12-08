@@ -10,11 +10,9 @@
 #include "Utility.h.glsl"
 
 layout(binding = 0) uniform sampler2D s_gAlbedo;
-layout(binding = 1) uniform sampler2D s_gNormal;
+layout(binding = 1) uniform sampler2D s_gNormalAndFaceNormal;
 layout(binding = 2) uniform sampler2D s_gDepth;
-layout(binding = 3) uniform sampler2D s_rsmIndirect;
-layout(binding = 4) uniform sampler2D s_rsmDepth;
-layout(binding = 5) uniform sampler2DShadow s_rsmDepthShadow;
+layout(binding = 3) uniform sampler2D s_gSmoothVertexNormal;
 layout(binding = 6) uniform sampler2D s_emission;
 layout(binding = 7) uniform sampler2D s_metallicRoughnessAo;
 
@@ -27,6 +25,7 @@ layout(location = 0) out vec3 o_color;
 #define VSM_SHOW_PAGE_OUTLINES (1 << 2)
 #define VSM_SHOW_SHADOW_DEPTH  (1 << 3)
 #define VSM_SHOW_DIRTY_PAGES   (1 << 4)
+#define BLEND_NORMALS          (1 << 5)
 
 layout(binding = 1, std140) uniform ShadingUniforms
 {
@@ -61,25 +60,21 @@ layout(binding = 6, std430) readonly buffer LightBuffer
   GpuLight lights[];
 }lightBuffer;
 
-// Returns a shadow bias in the space of whatever texelWidth is in.
-// For example, if texelWidth is 0.125 units in world space, the bias will be in world space too.
+// Returns an exact shadow bias in the space of whatever texelWidth is in.
+// N and L are expected to be normalized
 float GetShadowBias(vec3 N, vec3 L, float texelWidth)
 {
-  const float sqrt2 = 1.41421356;
-  const float quantize = 2.0 / (1 << 23);
+  const float sqrt2 = 1.41421356; // Mul by sqrt2 to get diagonal length
+  const float quantize = 2.0 / (1 << 23); // Arbitrary constant that should help prevent most numerical issues
   const float b = sqrt2 * texelWidth / 2.0;
-  const float NoL = clamp(dot(N, L), 0.0, 1.0);
+  const float NoL = clamp(abs(dot(N, L)), 0.0001, 1.0);
   return quantize + b * length(cross(N, L)) / NoL;
 }
 
 float CalcVsmShadowBias(uint clipmapLevel, vec3 faceNormal)
 {
-  const float magicClipmapLevelBias = 0.1;
-  const float magicConstantBias = 2.0 / (1 << 24);
-  const float halfOrthoFrustumLength = clipmapUniforms.projectionZLength / 2;
-  const float shadowTexelSize = exp2(clipmapLevel + (clipmapLevel * magicClipmapLevelBias)) * clipmapUniforms.firstClipmapTexelLength;
-  const float bias = magicConstantBias + GetShadowBias(faceNormal, -shadingUniforms.sunDir.xyz, shadowTexelSize) / halfOrthoFrustumLength;
-
+  const float shadowTexelSize = exp2(clipmapLevel) * clipmapUniforms.firstClipmapTexelLength;
+  const float bias = GetShadowBias(faceNormal, -shadingUniforms.sunDir.xyz, shadowTexelSize);
   return bias;
 }
 
@@ -120,7 +115,8 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   const uint physicalAddress = GetPagePhysicalAddress(ret.pageData);
   ret.shadowDepth = LoadPageTexel(pageTexel, physicalAddress);
 
-  const float bias = min(0.03, CalcVsmShadowBias(addr.clipmapLevel, normal));
+  const float maxBias = exp2(ret.clipmapLevel) * 0.1;
+  const float bias = min(maxBias, 0.01 + CalcVsmShadowBias(addr.clipmapLevel, normal)) / clipmapUniforms.projectionZLength;
 
   if (ret.shadowDepth + bias < ret.projectedDepth)
   {
@@ -166,7 +162,9 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
   const float depthSample = texelFetch(s_gDepth, gid, 0).x;
   const PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
 
-  const float baseBias = min(0.03, CalcVsmShadowBias(addr.clipmapLevel, flatNormal));
+  const float maxBias = exp2(addr.clipmapLevel) * 0.02;
+  const float baseBias = min(maxBias, CalcVsmShadowBias(addr.clipmapLevel, flatNormal));
+  const float invProjZLength = 1.0 / clipmapUniforms.projectionZLength;
   
   // Blocker search
   float accumDepth = 0;
@@ -178,8 +176,8 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
     const float theta = xi.y * 2.0 * 3.14159;
     const vec2 offset = r * vec2(cos(theta), sin(theta));
     // PCF puts some samples under the surface when L is not parallel to N
-    const float pcfBias = 2.0 * r / clipmapUniforms.projectionZLength;
-    const float realBias = baseBias + mix(pcfBias, 0.0, max(0.0, dot(flatNormal, -shadingUniforms.sunDir.xyz)));
+    const float pcfBias = 2.0 * r;
+    const float realBias = invProjZLength * (baseBias + mix(pcfBias, 0.0, max(0.0, dot(flatNormal, -shadingUniforms.sunDir.xyz))));
 
     float depth;
     if (TrySampleVsmClipmap(int(addr.clipmapLevel), addr.posLightNdc.xy * 0.5 + 0.5, offset, depth))
@@ -286,105 +284,6 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
   return lightVisibility / shadowUniforms.pcfSamples;
 }
 
-float ShadowPCF(vec2 uv, float viewDepth, float bias)
-{
-  float lightOcclusion = 0.0;
-
-  for (uint i = 0; i < shadowUniforms.pcfSamples; i++)
-  {
-    vec2 xi = fract(Hammersley(i, shadowUniforms.pcfSamples) + hash(gl_FragCoord.xy) + shadingUniforms.random);
-    float r = sqrt(xi.x);
-    float theta = xi.y * 2.0 * 3.14159;
-    vec2 offset = shadowUniforms.maxPcfRadius * vec2(r * cos(theta), r * sin(theta));
-    // float lightDepth = textureLod(s_rsmDepth, uv + offset, 0).x;
-    // lightDepth += bias;
-    // if (lightDepth >= viewDepth)
-    // {
-    //   lightOcclusion += 1.0;
-    // }
-    lightOcclusion += textureLod(s_rsmDepthShadow, vec3(uv + offset, viewDepth - bias), 0);
-  }
-
-  return lightOcclusion / shadowUniforms.pcfSamples;
-}
-
-// Marches a ray in view space until it collides with the height field defined by the shadow map.
-// We assume the height field has a certain thickness so rays can pass behind it
-float MarchShadowRay(vec3 rayLightViewPos, vec3 rayLightViewDir, float bias, mat4 lightProj, mat4 lightInvProj)
-{
-  for (int stepIdx = 0; stepIdx < shadowUniforms.stepsPerRay; stepIdx++)
-  {
-    rayLightViewPos += rayLightViewDir * shadowUniforms.rayStepSize;
-
-    vec4 rayLightClipPos = lightProj * vec4(rayLightViewPos, 1.0);
-    rayLightClipPos.xy /= rayLightClipPos.w; // to NDC
-    rayLightClipPos.xy = rayLightClipPos.xy * 0.5 + 0.5; // to UV
-    float shadowMapWindowZ = /*bias*/ + textureLod(s_rsmDepth, rayLightClipPos.xy, 0.0).x;
-    // Note: view Z gets *smaller* as we go deeper into the frusum (farther from the camera)
-    float shadowMapViewZ = UnprojectUV_ZO(shadowMapWindowZ, rayLightClipPos.xy, lightInvProj).z;
-
-    // Positive dDepth: tested position is below the shadow map
-    // Negative dDepth: tested position is above
-    float dDepth = shadowMapViewZ - rayLightViewPos.z;
-
-    // Ray is under the shadow map height field
-    if (dDepth > 0)
-    {
-      // Ray intersected some geometry
-      // OR
-      // The ray hasn't collided with anything on the last step (we're already under the height field, assume infinite thickness so there is at least some shadow)
-      if (dDepth < shadowUniforms.heightmapThickness || stepIdx == shadowUniforms.stepsPerRay - 1)
-      {
-        return 0.0;
-      }
-    }
-  }
-
-  return 1.0;
-}
-
-float ShadowRayTraced(vec3 fragWorldPos, vec3 lightDir, float bias, mat4 lightView, mat4 lightProj, mat4 lightInvProj)
-{
-  float lightOcclusion = 0.0;
-
-  for (int rayIdx = 0; rayIdx < shadowUniforms.shadowRays; rayIdx++)
-  {
-    vec2 xi = Hammersley(rayIdx, shadowUniforms.shadowRays);
-    xi = fract(xi + hash(gl_FragCoord.xy) + shadingUniforms.random);
-    vec3 newLightDir = RandVecInCone(xi, lightDir, shadowUniforms.sourceAngleRad);
-
-    vec3 rayLightViewDir = (lightView * vec4(newLightDir, 0.0)).xyz;
-    vec3 rayLightViewPos = (lightView * vec4(fragWorldPos, 1.0)).xyz;
-
-    lightOcclusion += MarchShadowRay(rayLightViewPos, rayLightViewDir, bias, lightProj, lightInvProj);
-  }
-
-  return lightOcclusion / shadowUniforms.shadowRays;
-}
-
-float Shadow(vec3 fragWorldPos, vec3 normal, vec3 lightDir, mat4 lightViewProj)
-{
-  vec4 clip = lightViewProj * vec4(fragWorldPos, 1.0);
-  vec2 uv = clip.xy * .5 + .5;
-  if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1)
-  {
-    return 0;
-  }
-
-  // Analytically compute slope-scaled bias
-  const float maxBias = 0.0008;
-  float bias = maxBias;
-  //float bias = GetShadowBias(normal, -shadingUniforms.sunDir.xyz, textureSize(s_rsmDepthShadow, 0));
-  //bias = min(bias, maxBias);
-
-  switch (shadowUniforms.shadowMode)
-  {
-    //case 0: return ShadowPCF(uv, clip.z * .5 + .5, bias);
-    //case 1: return ShadowRayTraced(fragWorldPos, lightDir, bias);
-    default: return 1.0;
-  }
-}
-
 vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 {
   vec3 color = { 0, 0, 0 };
@@ -402,9 +301,10 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 void main()
 {
   const vec3 albedo = textureLod(s_gAlbedo, v_uv, 0.0).rgb;
-  const vec4 normalOctAndFlatNormalOct = textureLod(s_gNormal, v_uv, 0.0).xyzw;
-  const vec3 normal = OctToVec3(normalOctAndFlatNormalOct.xy);
+  const vec4 normalOctAndFlatNormalOct = textureLod(s_gNormalAndFaceNormal, v_uv, 0.0).xyzw;
+  const vec3 mappedNormal = OctToVec3(normalOctAndFlatNormalOct.xy);
   const vec3 flatNormal = OctToVec3(normalOctAndFlatNormalOct.zw);
+  const vec3 smoothNormal = OctToVec3(textureLod(s_gSmoothVertexNormal, v_uv, 0.0).xy);
   const float depth = textureLod(s_gDepth, v_uv, 0.0).x;
   const vec3 emission = textureLod(s_emission, v_uv, 0.0).rgb;
   const vec3 metallicRoughnessAo = textureLod(s_metallicRoughnessAo, v_uv, 0.0).rgb;
@@ -416,16 +316,21 @@ void main()
 
   const vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, perFrameUniforms.invViewProj);
   
-  const vec3 incidentDir = -shadingUniforms.sunDir.xyz;
-  const float cosTheta = max(0.0, dot(incidentDir, normal));
-  const vec3 diffuse = albedo * cosTheta * shadingUniforms.sunStrength.rgb;
-
-  //float shadow = Shadow(fragWorldPos, normal, -shadingUniforms.sunDir.xyz);
   ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
   float shadowSun = shadowVsm.shadow;
-  //shadowSun = 0;
   shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal);
-  
+
+  vec3 normal = mappedNormal;
+
+  if ((shadingUniforms.debugFlags & BLEND_NORMALS) != 0)
+  {
+    // https://marmosetco.tumblr.com/post/81245981087
+    const float NoL_sun_flat = dot(smoothNormal, -shadingUniforms.sunDir.xyz);
+    float horiz = 1.0 - NoL_sun_flat;
+    horiz *= horiz;
+    normal = normalize(mix(mappedNormal, smoothNormal, clamp(horiz, 0.0, 1.0)));
+  }
+
   vec3 viewDir = normalize(perFrameUniforms.cameraPos.xyz - fragWorldPos);
   
   Surface surface;

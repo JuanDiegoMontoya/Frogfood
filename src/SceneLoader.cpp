@@ -1046,7 +1046,8 @@ namespace Utility
       if (!node->meshlets.empty())
       {
         const auto instanceId = sceneFlattened.transforms.size();
-        sceneFlattened.transforms.emplace_back(globalTransform);
+        // TOOD: get previous transform from node
+        sceneFlattened.transforms.emplace_back(globalTransform, globalTransform);
         for (auto meshlet : node->meshlets)
         {
           meshlet.instanceId = static_cast<uint32_t>(instanceId);

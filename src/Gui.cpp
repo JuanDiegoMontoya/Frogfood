@@ -355,7 +355,6 @@ void FrogRenderer::GuiDrawDebugWindow()
     ImGui::Checkbox("Draw##draw_debug_rects", &drawDebugRects);
 
     ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
-    ImGui::Checkbox("Render to Screen", &debugRenderToSwapchain);
 
     ImGui::Separator();
     ImGui::TextUnformatted("Culling");
@@ -373,6 +372,7 @@ void FrogRenderer::GuiDrawDebugWindow()
     ImGui_FlagCheckbox("Show Page Outlines", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES);
     ImGui_FlagCheckbox("Show Shadow Depth", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH);
     ImGui_FlagCheckbox("Show Dirty Pages", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES);
+    ImGui_FlagCheckbox("Blend Normals", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::BLEND_NORMALS);
   }
   ImGui::End();
 }
@@ -725,6 +725,16 @@ void FrogRenderer::GuiDrawSceneGraph()
 
 void FrogRenderer::OnGui(double dt)
 {
+  if (ImGui::GetKeyPressedAmount(ImGuiKey_F1, 10000, 1))
+  {
+    showGui = !showGui;
+  }
+
+  if (!showGui)
+  {
+    return;
+  }
+
   GuiDrawDockspace();
 
   //ImGui::ShowDemoWindow();

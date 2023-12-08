@@ -107,9 +107,15 @@ layout (std430, binding = 3) restrict readonly buffer MeshletIndexBuffer
   uint indices[];
 };
 
+struct ObjectUniforms
+{
+  mat4 modelPrevious;
+  mat4 modelCurrent;
+};
+
 layout (std430, binding = 4) restrict readonly buffer TransformBuffer
 {
-  mat4 transforms[];
+  ObjectUniforms transforms[];
 };
 
 layout (std430, binding = 6) restrict buffer IndirectDrawCommand

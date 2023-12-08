@@ -106,6 +106,12 @@ namespace Utility
     float aabbMax[3] = {};
   };
 
+  struct ObjectUniforms
+  {
+    glm::mat4 modelPrevious;
+    glm::mat4 modelCurrent;
+  };
+
   struct Node
   {
     std::string name;
@@ -116,6 +122,10 @@ namespace Utility
 
     glm::mat4 CalcLocalTransform() const noexcept;
 
+    glm::mat4 globalTransform;
+    glm::vec3 globalAabbMin;
+    glm::vec3 globalAabbMax;
+
     std::vector<Node*> children;
     std::vector<Meshlet> meshlets;
     std::optional<GpuLight> light; // TODO: hold a light without position/direction type safety
@@ -124,7 +134,7 @@ namespace Utility
   struct SceneFlattened
   {
     std::vector<Meshlet> meshlets;
-    std::vector<glm::mat4> transforms;
+    std::vector<ObjectUniforms> transforms;
     std::vector<GpuLight> lights;
   };
 

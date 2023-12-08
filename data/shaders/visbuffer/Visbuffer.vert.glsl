@@ -14,13 +14,13 @@ void main()
   const uint indexOffset = meshlets[meshletId].indexOffset;
   const uint primitiveOffset = meshlets[meshletId].primitiveOffset;
   const uint instanceId = meshlets[meshletId].instanceId;
-
+  
   const uint primitive = uint(primitives[primitiveOffset + primitiveId]);
   const uint index = indices[indexOffset + primitive];
   const Vertex vertex = vertices[vertexOffset + index];
   const vec3 position = PackedToVec3(vertex.position);
   const vec2 uv = PackedToVec2(vertex.uv);
-  const mat4 transform = transforms[instanceId];
+  const mat4 transform = transforms[instanceId].modelCurrent;
 
   o_meshletId = meshletId;
   o_primitiveId = primitiveId / 3;

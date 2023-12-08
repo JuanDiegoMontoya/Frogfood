@@ -174,7 +174,7 @@ bool CullTriangle(Meshlet meshlet, uint localId)
       return false;
     }
   }
-
+  
   if ((perFrameUniforms.flags & CULL_PRIMITIVE_VSM) != 0)
   {
     if (currentView.type == VIEW_TYPE_VIRTUAL)
@@ -200,7 +200,7 @@ void main()
   if (localId == 0)
   {
     sh_primitivesPassed = 0;
-    sh_mvp = currentView.viewProj * transforms[meshlet.instanceId];
+    sh_mvp = currentView.viewProj * transforms[meshlet.instanceId].modelCurrent;
   }
 
   barrier();

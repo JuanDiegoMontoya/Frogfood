@@ -73,7 +73,7 @@ static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invVie
   return lines;
 }
 
-FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optional<std::string_view> filename, float scale, bool binary)
+FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
   : Application(createInfo),
     // Create constant-size buffers
     globalUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
@@ -144,49 +144,40 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   debugGpuRectsBuffer->FillData({.size = sizeof(Fwog::DrawIndirectCommand), .data = 0});
   debugGpuRectsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, vertexCount), .size = sizeof(uint32_t), .data = 4});
 
-  if (!filename)
-  {
-    Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}), true);
+  Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}));
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
 
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}));
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain.glb", glm::scale(glm::vec3{0.125f}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::translate(glm::vec3(0, 100, 0)), glm::vec3{1000.0f}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::translate(glm::vec3(0, 5, 0)), glm::vec3{50.0f}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::vec3{1.0f}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/powerplant.glb", glm::scale(glm::vec3{1.0f}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/silent_ash.glb", glm::scale(glm::vec3{1.0f}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/character_ancient2.glb", glm::scale(glm::vec3{1.0f}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube_1x1.glb", glm::scale(glm::vec3{1.0f}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/open_world_compressed.glb", glm::scale(glm::vec3{1.0f}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/EuropeanHornbeam_compressed.glb", glm::scale(glm::vec3{1.0f}));
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}), false);
 
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}), false);
 
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1}));
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::scale(glm::vec3{1}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::scale(glm::vec3{1}), true);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/deccer_balls.gltf", glm::scale(glm::vec3{1}), false);
     //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/MetalRoughSpheres/glTF-Binary/MetalRoughSpheres.glb", glm::scale(glm::vec3{1}), true);
-  }
-  else
-  {
-    Utility::LoadModelFromFileMeshlet(scene, *filename, glm::scale(glm::vec3{scale}), binary);
-  }
   
-  vertexBuffer = Fwog::TypedBuffer<Utility::Vertex>(scene.vertices);
-  indexBuffer = Fwog::TypedBuffer<uint32_t>(scene.indices);
-  primitiveBuffer = Fwog::TypedBuffer<uint8_t>(scene.primitives);
+  MakeStaticSceneBuffers();
+
   meshletIndirectCommand = Fwog::TypedBuffer<Fwog::DrawIndexedIndirectCommand>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   cullTrianglesDispatchParams = Fwog::TypedBuffer(Fwog::DispatchIndirectCommand{0, 1, 1});
 
-  std::vector<Utility::GpuMaterial> materials(scene.materials.size());
-  std::transform(scene.materials.begin(), scene.materials.end(), materials.begin(), [](const auto& m)
-  {
-    return m.gpuMaterial;
-  });
-  materialStorageBuffer = Fwog::TypedBuffer<Utility::GpuMaterial>(materials, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
   viewBuffer = Fwog::TypedBuffer<View>(Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
 
@@ -197,6 +188,26 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo, std::optio
   }
 
   OnWindowResize(windowWidth, windowHeight);
+}
+
+void FrogRenderer::MakeStaticSceneBuffers()
+{
+  vertexBuffer = Fwog::TypedBuffer<Utility::Vertex>(scene.vertices);
+  indexBuffer = Fwog::TypedBuffer<uint32_t>(scene.indices);
+  primitiveBuffer = Fwog::TypedBuffer<uint8_t>(scene.primitives);
+  std::vector<Utility::GpuMaterial> materials(scene.materials.size());
+  std::transform(scene.materials.begin(), scene.materials.end(), materials.begin(), [](const auto& m) { return m.gpuMaterial; });
+  materialStorageBuffer = Fwog::TypedBuffer<Utility::GpuMaterial>(materials, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
+}
+
+void FrogRenderer::OnPathDrop(std::span<const char*> paths)
+{
+  for (const auto& path : paths)
+  {
+    Utility::LoadModelFromFileMeshlet(scene, path, glm::identity<glm::mat4>());
+  }
+
+  MakeStaticSceneBuffers();
 }
 
 void FrogRenderer::OnWindowResize(uint32_t newWidth, uint32_t newHeight)
@@ -329,8 +340,7 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
 
   lightBuffer = Fwog::TypedBuffer<Utility::GpuLight>(sceneFlattened.lights, Fwog::BufferStorageFlag::DYNAMIC_STORAGE);
   transformBuffer = Fwog::TypedBuffer<Utility::ObjectUniforms>(sceneFlattened.transforms);
-  meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(sceneFlattened.meshlets);
-
+  meshletBuffer = Fwog::TypedBuffer<Utility::Meshlet>(sceneFlattened.meshlets); // TODO: optimize
 
   if (fsr2Enable)
   {

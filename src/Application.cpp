@@ -193,6 +193,12 @@ public:
       app->Draw(0.016);
     }
   }
+
+  static void PathDropCallback(GLFWwindow* window, int count, const char** paths)
+  {
+    Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    app->OnPathDrop({paths, static_cast<size_t>(count)});
+  }
 };
 
 std::string Application::LoadFile(const std::filesystem::path& path)
@@ -263,6 +269,7 @@ Application::Application(const CreateInfo& createInfo)
   glfwSetCursorPosCallback(window, ApplicationAccess::CursorPosCallback);
   glfwSetCursorEnterCallback(window, ApplicationAccess::CursorEnterCallback);
   glfwSetFramebufferSizeCallback(window, ApplicationAccess::FramebufferResizeCallback);
+  glfwSetDropCallback(window, ApplicationAccess::PathDropCallback);
 
   // Initialize OpenGL.
   int version = gladLoadGL(glfwGetProcAddress);

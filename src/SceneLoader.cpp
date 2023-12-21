@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <execution>
+#include <filesystem>
 #include <iostream>
 #include <numeric>
 #include <optional>
@@ -621,9 +622,19 @@ namespace Utility
     std::vector<Material> materials;
   };
 
-  std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool binary, uint32_t baseMaterialIndex)
+  std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, uint32_t baseMaterialIndex)
   {
     ZoneScoped;
+
+    const auto extension = path.extension();
+    const auto isText = extension == ".gltf";
+    const auto isBinary = extension == ".glb";
+    FWOG_ASSERT(!(isText && isBinary)); // Sanity check
+
+    if (!isText && !isBinary)
+    {
+      return std::nullopt;
+    }
 
     auto maybeAsset = [&]() -> fastgltf::Expected<fastgltf::Asset>
     {
@@ -637,7 +648,7 @@ namespace Utility
       data.loadFromFile(path);
 
       constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages | fastgltf::Options::LoadGLBBuffers;
-      if (binary)
+      if (isBinary)
       {
         return parser.loadBinaryGLTF(&data, path.parent_path(), options);
       }
@@ -738,7 +749,6 @@ namespace Utility
         nodeStack.emplace(childSceneNode, &assetNode, scene.tempData.size());
         scene.tempData.emplace_back();
       }
-
 
       if (gltfNode->meshIndex.has_value())
       {
@@ -875,7 +885,7 @@ namespace Utility
     return scene;
   }
 
-  bool LoadModelFromFileMeshlet(SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool binary)
+  bool LoadModelFromFileMeshlet(SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform)
   {
     ZoneScoped;
     ZoneText(fileName.string().c_str(), fileName.string().size());
@@ -892,7 +902,7 @@ namespace Utility
     const auto baseIndexOffset = scene.indices.size();
     const auto basePrimitiveOffset = scene.primitives.size();
 
-    auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, binary, baseMaterialIndex);
+    auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, baseMaterialIndex);
     if (!loadedScene)
       return false;
 

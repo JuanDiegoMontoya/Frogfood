@@ -172,6 +172,7 @@ private:
   void OnUpdate(double dt) override;
   void OnRender(double dt) override;
   void OnGui(double dt) override;
+  void OnPathDrop(std::span<const char*> paths) override;
 
   void InitGui();
   void GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered);
@@ -189,6 +190,7 @@ private:
   void GuiDrawSceneGraphHelper(Utility::Node* node);
 
   void CullMeshletsForView(const View& view, std::string_view name = "Cull Meshlet Pass");
+  void MakeStaticSceneBuffers();
 
   double rsmPerformance = 0;
   double fsr2Performance = 0;

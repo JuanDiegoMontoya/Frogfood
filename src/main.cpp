@@ -1,10 +1,4 @@
 /* 
- * Options
- * Filename (string) : name of the glTF file you wish to view.
- * Scale (real)      : uniform scale factor in case the model is tiny or huge. Default: 1.0
- * Binary (int)      : whether the input file is binary glTF. Default: false
- *
- * If no options are specified, the default scene will be loaded.
  *
  * TODO rendering:
  * Core:
@@ -77,43 +71,13 @@
 #include <charconv>
 #include <stdexcept>
 
-int main(int argc, const char* const* argv)
+int main([[maybe_unused]] int argc, [[maybe_unused]] const char* const* argv)
 {
   ZoneScoped;
-  std::optional<std::string_view> filename;
-  float scale = 1.0f;
-  bool binary = false;
-
-  try
-  {
-    if (argc > 1)
-    {
-      filename = argv[1];
-    }
-    if (argc > 2)
-    {
-      scale = std::stof(argv[2]);
-    }
-    if (argc > 3)
-    {
-      int val = 0;
-      auto [ptr, ec] = std::from_chars(argv[3], argv[3] + std::strlen(argv[3]), val);
-      binary = static_cast<bool>(val);
-      if (ec != std::errc{})
-      {
-        throw std::runtime_error("Binary should be 0 or 1");
-      }
-    }
-  }
-  catch (std::exception& e)
-  {
-    printf("Argument parsing error: %s\n", e.what());
-    return -1;
-  }
-
   auto appInfo = Application::CreateInfo{.name = "FrogRender", .vsync = true};
-  auto app = FrogRenderer(appInfo, filename, scale, binary);
+  auto app = FrogRenderer(appInfo);
   app.Run();
+
 
   return 0;
 }

@@ -5,6 +5,7 @@
 #include <string_view>
 #include <string>
 #include <utility>
+#include <span>
 
 #include <glm/gtx/transform.hpp>
 #include <glm/vec3.hpp>
@@ -60,6 +61,7 @@ protected:
   virtual void OnUpdate([[maybe_unused]] double dt){}
   virtual void OnRender([[maybe_unused]] double dt){}
   virtual void OnGui([[maybe_unused]] double dt){}
+  virtual void OnPathDrop([[maybe_unused]] std::span<const char*> paths){}
 
   GLFWwindow* window;
   View mainCamera{};

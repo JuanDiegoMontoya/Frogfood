@@ -373,6 +373,10 @@ void FrogRenderer::GuiDrawDebugWindow()
     ImGui_FlagCheckbox("Show Shadow Depth", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH);
     ImGui_FlagCheckbox("Show Dirty Pages", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES);
     ImGui_FlagCheckbox("Blend Normals", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::BLEND_NORMALS);
+
+    ImGui::Separator();
+    ImGui::SliderFloat("Alpha Hash Scale", &globalUniforms.alphaHashScale, 1, 3);
+    ImGui_FlagCheckbox("Use Hashed Transparency", &globalUniforms.flags, (uint32_t)GlobalFlags::USE_HASHED_TRANSPARENCY);
   }
   ImGui::End();
 }

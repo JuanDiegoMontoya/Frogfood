@@ -5,6 +5,7 @@
 layout (location = 0) out flat uint o_meshletId;
 layout (location = 1) out flat uint o_primitiveId;
 layout (location = 2) out vec2 o_uv;
+layout (location = 3) out vec3 o_objectSpacePos;
 
 void main()
 {
@@ -25,6 +26,7 @@ void main()
   o_meshletId = meshletId;
   o_primitiveId = primitiveId / 3;
   o_uv = uv;
+  o_objectSpacePos = position;
 
   gl_Position = perFrameUniforms.viewProj * transform * vec4(position, 1.0);
 }

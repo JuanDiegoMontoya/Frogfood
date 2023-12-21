@@ -69,6 +69,7 @@ private:
     CULL_PRIMITIVE_FRUSTUM  = 1 << 3,
     CULL_PRIMITIVE_SMALL    = 1 << 4,
     CULL_PRIMITIVE_VSM      = 1 << 5,
+    USE_HASHED_TRANSPARENCY = 1 << 6,
   };
 
   struct GlobalUniforms
@@ -90,7 +91,10 @@ private:
       (uint32_t)GlobalFlags::CULL_PRIMITIVE_FRUSTUM |
       (uint32_t)GlobalFlags::CULL_PRIMITIVE_SMALL |
       (uint32_t)GlobalFlags::CULL_PRIMITIVE_VSM*/
+    | (uint32_t)GlobalFlags::USE_HASHED_TRANSPARENCY
       ;
+    float alphaHashScale = 1.0;
+    uint32_t _padding[3];
   };
 
   enum class ViewType : uint32_t

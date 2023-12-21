@@ -7,6 +7,7 @@
 #define CULL_PRIMITIVE_FRUSTUM  (1 << 3)
 #define CULL_PRIMITIVE_SMALL    (1 << 4)
 #define CULL_PRIMITIVE_VSM      (1 << 5)
+#define USE_HASHED_TRANSPARENCY (1 << 6)
 
 layout (binding = 0, std140) uniform PerFrameUniformsBuffer
 {
@@ -21,6 +22,7 @@ layout (binding = 0, std140) uniform PerFrameUniformsBuffer
   uint maxIndices;
   float bindlessSamplerLodBias;
   uint flags;
+  float alphaHashScale;
 } perFrameUniforms;
 
 #endif // GLOBAL_UNIFORMS_H

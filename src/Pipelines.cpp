@@ -58,7 +58,8 @@ namespace Pipelines
     return Fwog::GraphicsPipeline({
       .vertexShader = &vs,
       .fragmentShader = &fs,
-      .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
+      // TODO: "temp" until more material types are supported (transparent, opaque, masked, and two-sided versions of each)
+      .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
       .depthState =
         {
           .depthTestEnable = true,

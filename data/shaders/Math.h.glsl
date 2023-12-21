@@ -1,6 +1,8 @@
 #ifndef MATH_H
 #define MATH_H
 
+#include "Hash.h.glsl"
+
 // Constants
 const float M_PI = 3.141592654;
 
@@ -50,6 +52,7 @@ float Remap(float val, float start1, float end1, float start2, float end2)
   return (val - start1) / (end1 - start1) * (end2 - start2) + start2;
 }
 
+// TODO: this should probably just multiply dxuv and dyuv by exp2(bias)
 void ApplyLodBiasToGradient(inout vec2 dxuv, inout vec2 dyuv, float bias)
 {
   float ddx2 = dot(dxuv, dxuv);
@@ -63,6 +66,23 @@ void ApplyLodBiasToGradient(inout vec2 dxuv, inout vec2 dyuv, float bias)
 bool RectIntersectRect(vec2 bottomLeft0, vec2 topRight0, vec2 bottomLeft1, vec2 topRight1)
 {
   return !(any(lessThan(topRight0, bottomLeft1)) || any(greaterThan(bottomLeft0, topRight1)));
+}
+
+// Hashed Alpha Testing
+// https://casual-effects.com/research/Wyman2017Hashed/Wyman2017Hashed.pdf
+// maxObjSpaceDerivLen = max(length(dFdx(i_objectSpacePos)), length(dFdy(i_objectSpacePos)));
+float ComputeHashedAlphaThreshold(vec3 objectSpacePos, float maxObjSpaceDerivLen, float hashScale)
+{
+  float pixScale = 1.0 / (hashScale + maxObjSpaceDerivLen);
+  float pixScaleMin = exp2(floor(log2(pixScale)));
+  float pixScaleMax = exp2(ceil(log2(pixScale)));
+  vec2 alpha = vec2(MM_Hash3(floor(pixScaleMin * objectSpacePos)), MM_Hash3(floor(pixScaleMax * objectSpacePos)));
+  float lerpFactor = fract(log2(pixScale));
+  float x = (1.0 - lerpFactor) * alpha.x + lerpFactor * alpha.y;
+  float a = min(lerpFactor, 1.0 - lerpFactor);
+  vec3 cases = vec3(x * x / (2.0 * a * (1.0 - a)), (x - 0.5 * a) / (1.0 - a), 1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a))));
+  float threshold = (x < (1.0 - a)) ? ((x < a) ? cases.x : cases.y) : cases.z;
+  return clamp(threshold, 1e-6, 1.0);
 }
 
 #endif // MATH_H

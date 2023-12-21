@@ -1018,6 +1018,11 @@ namespace Utility
   {
     SceneFlattened sceneFlattened;
 
+    // Use vector sizes from previous scene flattening to reduce copies
+    sceneFlattened.meshlets.reserve(previousMeshletsSize);
+    sceneFlattened.transforms.reserve(previousTransformsSize);
+    sceneFlattened.lights.reserve(previousLightsSize);
+
     struct StackElement
     {
       const Node* node;
@@ -1051,7 +1056,7 @@ namespace Utility
         for (auto meshlet : node->meshlets)
         {
           meshlet.instanceId = static_cast<uint32_t>(instanceId);
-          sceneFlattened.meshlets.push_back(meshlet);
+          sceneFlattened.meshlets.emplace_back(meshlet);
         }
       }
 
@@ -1075,6 +1080,11 @@ namespace Utility
         sceneFlattened.lights.emplace_back(gpuLight);
       }
     }
+
+    // Update cached values
+    previousMeshletsSize = sceneFlattened.meshlets.size();
+    previousTransformsSize = sceneFlattened.transforms.size();
+    previousLightsSize = sceneFlattened.lights.size();
 
     return sceneFlattened;
   }

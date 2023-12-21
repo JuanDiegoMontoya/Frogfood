@@ -148,6 +148,11 @@ namespace Utility
     std::vector<index_t> indices;
     std::vector<uint8_t> primitives;
     std::vector<Material> materials;
+
+  private:
+    mutable size_t previousMeshletsSize{};
+    mutable size_t previousTransformsSize{};
+    mutable size_t previousLightsSize{};
   };
   
   // TODO: maybe customizeable (not recommended though)

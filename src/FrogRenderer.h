@@ -57,7 +57,7 @@ namespace Debug
 class FrogRenderer final : public Application
 {
 public:
-  FrogRenderer(const Application::CreateInfo& createInfo, std::optional<std::string_view> filename, float scale, bool binary);
+  FrogRenderer(const Application::CreateInfo& createInfo);
 
 private:
 

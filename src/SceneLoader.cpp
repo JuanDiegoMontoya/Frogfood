@@ -36,6 +36,8 @@
 
 #include <meshoptimizer.h>
 
+#include <coro/coro.hpp>
+
 namespace Utility
 {
   namespace // helpers
@@ -209,135 +211,144 @@ namespace Utility
         };
       };
 
-      const auto indices = std::ranges::iota_view((size_t)0, asset.images.size());
+      //const auto indices = std::ranges::iota_view((size_t)0, asset.images.size());
 
       // Load and decode image data locally, in parallel
       auto rawImageData = std::vector<RawImageData>(asset.images.size());
 
-      std::transform(
-        std::execution::par,
-        indices.begin(),
-        indices.end(),
-        rawImageData.begin(),
-        [&](size_t index)
-        {
-          ZoneScopedN("Load Image");
-          const fastgltf::Image& image = asset.images[index];
-          ZoneName(image.name.c_str(), image.name.size());
+      coro::thread_pool tp;
 
-          auto rawImage = [&]
+      auto makeLoadImageTask = [&](uint64_t index) -> coro::task<void>
+      {
+        co_await tp.schedule();
+        ZoneScopedN("Load Image");
+        const fastgltf::Image& image = asset.images[index];
+        ZoneName(image.name.c_str(), image.name.size());
+
+        auto rawImage = [&]
+        {
+          if (const auto* filePath = std::get_if<fastgltf::sources::URI>(&image.data))
           {
-            if (const auto* filePath = std::get_if<fastgltf::sources::URI>(&image.data))
-            {
-              FWOG_ASSERT(filePath->fileByteOffset == 0); // We don't support file offsets
-              FWOG_ASSERT(filePath->uri.isLocalPath());   // We're only capable of loading local files
-        
-              auto fileData = Application::LoadBinaryFile(filePath->uri.path());
-        
-              return MakeRawImageData(fileData.first.get(), fileData.second, filePath->mimeType, image.name);
-            }
-        
-            if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
-            {
-              return MakeRawImageData(vector->bytes.data(), vector->bytes.size(), vector->mimeType, image.name);
-            }
-        
-            if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
-            {
-              auto& bufferView = asset.bufferViews[view->bufferViewIndex];
-              auto& buffer = asset.buffers[bufferView.bufferIndex];
-              if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&buffer.data))
-              {
-                return MakeRawImageData(vector->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
-              }
-            }
-            
-            return RawImageData{};
-          }();
-        
-          if (rawImage.isKtx)
+            FWOG_ASSERT(filePath->fileByteOffset == 0); // We don't support file offsets
+            FWOG_ASSERT(filePath->uri.isLocalPath());   // We're only capable of loading local files
+
+            auto fileData = Application::LoadBinaryFile(filePath->uri.path());
+
+            return MakeRawImageData(fileData.first.get(), fileData.second, filePath->mimeType, image.name);
+          }
+
+          if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
           {
-            ZoneScopedN("Decode KTX 2");
-            ktxTexture2* ktx{};
-            if (auto result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t*>(rawImage.encodedPixelData.get()),
-                                                           rawImage.encodedPixelSize,
-                                                           KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-                                                           &ktx);
-                result != KTX_SUCCESS)
+            return MakeRawImageData(vector->bytes.data(), vector->bytes.size(), vector->mimeType, image.name);
+          }
+
+          if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
+          {
+            auto& bufferView = asset.bufferViews[view->bufferViewIndex];
+            auto& buffer = asset.buffers[bufferView.bufferIndex];
+            if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&buffer.data))
+            {
+              return MakeRawImageData(vector->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
+            }
+          }
+
+          return RawImageData{};
+        }();
+
+        if (rawImage.isKtx)
+        {
+          ZoneScopedN("Decode KTX 2");
+          ktxTexture2* ktx{};
+          if (auto result = ktxTexture2_CreateFromMemory(reinterpret_cast<const ktx_uint8_t*>(rawImage.encodedPixelData.get()),
+                                                         rawImage.encodedPixelSize,
+                                                         KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+                                                         &ktx);
+              result != KTX_SUCCESS)
+          {
+            FWOG_UNREACHABLE;
+          }
+
+          ktx_transcode_fmt_e ktxTranscodeFormat{};
+
+          switch (imageUsages[index])
+          {
+          case ImageUsage::BASE_COLOR:
+            rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
+            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+            break;
+          // Occlusion and metallicRoughness _may_ be encoded within the same image, so we have to use at least an RGB format here.
+          // In the event where these textures are guaranteed to be separate, we can use BC4 and BC5 for better quality.
+          case ImageUsage::OCCLUSION: [[fallthrough]];
+          case ImageUsage::METALLIC_ROUGHNESS:
+            rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
+            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+            break;
+          // The glTF spec states that normal textures must be encoded with three channels, even though the third could be trivially reconstructed.
+          // libktx is incapable of decoding XYZ normal maps to BC5 as their alpha channel is mapped to BC5's G channel, so we are stuck with this.
+          case ImageUsage::NORMAL:
+            rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
+            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+            break;
+          // TODO: evaluate whether BC7 is necessary here.
+          case ImageUsage::EMISSION:
+            rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
+            ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
+            break;
+          }
+
+          // If the image needs is in a supercompressed encoding, transcode it to a desired format
+          if (ktxTexture2_NeedsTranscoding(ktx))
+          {
+            ZoneScopedN("Transcode KTX 2 Texture");
+            if (auto result = ktxTexture2_TranscodeBasis(ktx, ktxTranscodeFormat, KTX_TF_HIGH_QUALITY); result != KTX_SUCCESS)
             {
               FWOG_UNREACHABLE;
             }
-            
-            ktx_transcode_fmt_e ktxTranscodeFormat{};
-            
-            switch (imageUsages[index])
-            {
-            case ImageUsage::BASE_COLOR:
-              rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
-              ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
-              break;
-            // Occlusion and metallicRoughness _may_ be encoded within the same image, so we have to use at least an RGB format here.
-            // In the event where these textures are guaranteed to be separate, we can use BC4 and BC5 for better quality.
-            case ImageUsage::OCCLUSION: [[fallthrough]];
-            case ImageUsage::METALLIC_ROUGHNESS:
-              rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
-              ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
-              break;
-            // The glTF spec states that normal textures must be encoded with three channels, even though the third could be trivially reconstructed.
-            // libktx is incapable of decoding XYZ normal maps to BC5 as their alpha channel is mapped to BC5's G channel, so we are stuck with this.
-            case ImageUsage::NORMAL:
-              rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
-              ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
-              break;
-            // TODO: evaluate whether BC7 is necessary here.
-            case ImageUsage::EMISSION:
-              rawImage.formatIfKtx = Fwog::Format::BC7_RGBA_UNORM;
-              ktxTranscodeFormat = KTX_TTF_BC7_RGBA;
-              break;
-            }
-
-            // If the image needs is in a supercompressed encoding, transcode it to a desired format
-            if (ktxTexture2_NeedsTranscoding(ktx))
-            {
-              ZoneScopedN("Transcode KTX 2 Texture");
-              if (auto result = ktxTexture2_TranscodeBasis(ktx, ktxTranscodeFormat, KTX_TF_HIGH_QUALITY); result != KTX_SUCCESS)
-              {
-                FWOG_UNREACHABLE;
-              }
-            }
-            else
-            {
-              // Use the format that the image is already in
-              rawImage.formatIfKtx = VkBcFormatToFwog(ktx->vkFormat);
-            }
-        
-            rawImage.width = ktx->baseWidth;
-            rawImage.height = ktx->baseHeight;
-            rawImage.components = ktxTexture2_GetNumComponents(ktx);
-            rawImage.ktx.reset(ktx);
           }
           else
           {
-            ZoneScopedN("Decode JPEG/PNG");
-            int x, y, comp;
-            auto* pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(rawImage.encodedPixelData.get()),
-                                                 static_cast<int>(rawImage.encodedPixelSize),
-                                                 &x,
-                                                 &y,
-                                                 &comp,
-                                                 4);
-        
-            FWOG_ASSERT(pixels != nullptr);
-        
-            rawImage.width = x;
-            rawImage.height = y;
-            // rawImage.components = comp;
-            rawImage.components = 4; // If forced 4 components
-            rawImage.data.reset(pixels);
+            // Use the format that the image is already in
+            rawImage.formatIfKtx = VkBcFormatToFwog(ktx->vkFormat);
           }
 
-          return rawImage;
-        });
+          rawImage.width = ktx->baseWidth;
+          rawImage.height = ktx->baseHeight;
+          rawImage.components = ktxTexture2_GetNumComponents(ktx);
+          rawImage.ktx.reset(ktx);
+        }
+        else
+        {
+          ZoneScopedN("Decode JPEG/PNG");
+          int x, y, comp;
+          auto* pixels = stbi_load_from_memory(reinterpret_cast<const unsigned char*>(rawImage.encodedPixelData.get()),
+                                               static_cast<int>(rawImage.encodedPixelSize),
+                                               &x,
+                                               &y,
+                                               &comp,
+                                               4);
+
+          FWOG_ASSERT(pixels != nullptr);
+
+          rawImage.width = x;
+          rawImage.height = y;
+          // rawImage.components = comp;
+          rawImage.components = 4; // If forced 4 components
+          rawImage.data.reset(pixels);
+        }
+
+        rawImageData[index] = std::move(rawImage);
+        //return rawImage;
+        co_return;
+      };
+
+      std::vector<coro::task<void>> tasks;
+      for (size_t i = 0; i < rawImageData.size(); i++)
+      {
+        tasks.push_back(makeLoadImageTask(i));
+      }
+
+      coro::sync_wait(coro::when_all(std::move(tasks)));
+
 
       // Upload image data to GPU
       auto loadedImages = std::vector<Fwog::Texture>();

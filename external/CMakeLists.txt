@@ -60,6 +60,18 @@ FetchContent_Declare(
     GIT_TAG        v4.1.0
 )
 
+option(LIBCORO_BUILD_TESTS "" OFF)
+option(LIBCORO_BUILD_EXAMPLES "" OFF)
+option(LIBCORO_FEATURE_PLATFORM "" OFF)
+option(LIBCORO_FEATURE_NETWORKING "" OFF)
+option(LIBCORO_FEATURE_SSL "" OFF)
+FetchContent_Declare(
+    libcoro
+    GIT_REPOSITORY https://github.com/jbaldwin/libcoro.git
+    GIT_TAG        v0.10
+)
+FetchContent_MakeAvailable(libcoro)
+
 if(FROGRENDER_FSR2_ENABLE)
     option(GFX_API_DX12 "" OFF)
     option(GFX_API_VK "" OFF)

@@ -29,7 +29,7 @@ add_executable(frogRender
 	src/techniques/VirtualShadowMaps.cpp
 	src/Pipelines.h
 	src/Pipelines.cpp
-)
+ )
 
 target_compile_options(frogRender
 	PRIVATE
@@ -93,6 +93,7 @@ target_link_libraries(frogRender
 	meshoptimizer
 	Tracy::TracyClient
 	lib_implot
+	libcoro
 )
 add_dependencies(frogRender copy_shaders copy_models copy_textures copy_config)
 

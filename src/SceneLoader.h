@@ -2,6 +2,9 @@
 #include <Fwog/detail/Flags.h>
 #include <Fwog/Texture.h>
 
+#include <coro/coro.hpp>
+#include <concurrentqueue.h>
+
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
 #include <glm/vec3.hpp>
@@ -153,6 +156,9 @@ namespace Utility
     mutable size_t previousMeshletsSize{};
     mutable size_t previousTransformsSize{};
     mutable size_t previousLightsSize{};
+
+    coro::thread_pool threadPool;
+    //moodycamel::ConcurrentQueue<>
   };
   
   // TODO: maybe customizeable (not recommended though)

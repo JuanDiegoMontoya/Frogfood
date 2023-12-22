@@ -27,6 +27,11 @@ namespace Techniques::VirtualShadowMaps
     VSM_FORCE_DIRTY_VISIBLE_PAGES = 1 << 1,
   };
 
+  struct Bitmap
+  {
+    uint8_t data[pageTableSize][pageTableSize];
+  };
+
   class Context
   {
   public:

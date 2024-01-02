@@ -58,6 +58,38 @@ FetchContent_Declare(
     ktx
     GIT_REPOSITORY https://github.com/KhronosGroup/KTX-Software.git
     GIT_TAG        v4.1.0
+    SYSTEM
+)
+
+if (WIN32)
+    # Make Volk include compatibility header instead of Windows.h, which is slow to compile
+    set(VOLK_STATIC_DEFINES VK_USE_PLATFORM_WIN32_KHR)
+endif()
+FetchContent_Declare(
+    volk
+    GIT_REPOSITORY https://github.com/zeux/volk.git
+    GIT_TAG        1.3.270
+)
+
+FetchContent_Declare(
+    vkbootstrap
+    GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap
+    GIT_TAG        3ad0388f1b68dbf99746a2fab8c3115c8fa887bb
+)
+
+FetchContent_Declare(
+    vma
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
+    GIT_TAG        v3.0.1
+    SYSTEM
+)
+
+option(ENABLE_OPT "" OFF)
+FetchContent_Declare(
+    glslang
+    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
+    GIT_TAG        14.0.0
+    #SYSTEM
 )
 
 if(FROGRENDER_FSR2_ENABLE)
@@ -85,16 +117,7 @@ FetchContent_Declare(
 option(TRACY_ENABLE "Enable profiling" ON)
 option(TRACY_ONLY_IPV4 "IPv4 only" ON)
 
-FetchContent_MakeAvailable(glm fwog fastgltf ktx meshoptimizer tracy)
-
-# Disable warnings for libktx
-target_compile_options(ktx
-    PRIVATE
-    $<$<OR:$<CXX_COMPILER_ID:AppleClang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:
-    -Wno-everything>
-    $<$<CXX_COMPILER_ID:MSVC>:
-    -w>
-)
+FetchContent_MakeAvailable(glm fwog fastgltf ktx meshoptimizer tracy volk vkbootstrap vma glslang)
 
 set(FSR2_SOURCE ${fsr2_SOURCE_DIR} PARENT_SCOPE)
 

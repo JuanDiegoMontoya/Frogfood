@@ -29,6 +29,14 @@ add_executable(frogRender
     src/techniques/VirtualShadowMaps.cpp
     src/Pipelines.h
     src/Pipelines.cpp
+    src/Fvog/Shader2.h
+    src/Fvog/Shader2.cpp
+    src/Fvog/detail/Common.h
+    src/Fvog/detail/Common.cpp
+    src/Fvog/Pipeline2.h
+    src/Fvog/Pipeline2.cpp
+    src/Fvog/BasicTypes2.h
+    src/Fvog/detail/Flags.h
 )
 
 target_compile_options(frogRender

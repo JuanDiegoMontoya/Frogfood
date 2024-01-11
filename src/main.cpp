@@ -83,7 +83,9 @@
 #include <vk_mem_alloc.h>
 
 #include <glslang/Public/ShaderLang.h>
-#include <glslang/SPIRV/GlslangToSpv.h>
+
+#include "Fvog/Shader2.h"
+#include "Fvog/Pipeline2.h"
 
 //#include "RendererUtilities.h"
 
@@ -138,295 +140,6 @@ void CheckVkResult(VkResult result)
   }
 }
 
-TBuiltInResource GetGlslangResourceLimits()
-{
-  return
-  {
-    .maxLights = 32,
-    .maxClipPlanes = 6,
-    .maxTextureUnits = 32,
-    .maxTextureCoords = 32,
-    .maxVertexAttribs = 64,
-    .maxVertexUniformComponents = 4096,
-    .maxVaryingFloats = 64,
-    .maxVertexTextureImageUnits = 32,
-    .maxCombinedTextureImageUnits = 80,
-    .maxTextureImageUnits = 32,
-    .maxFragmentUniformComponents = 4096,
-    .maxDrawBuffers = 32,
-    .maxVertexUniformVectors = 128,
-    .maxVaryingVectors = 8,
-    .maxFragmentUniformVectors = 16,
-    .maxVertexOutputVectors = 16,
-    .maxFragmentInputVectors = 15,
-    .minProgramTexelOffset = -8,
-    .maxProgramTexelOffset = 7,
-    .maxClipDistances = 8,
-    .maxComputeWorkGroupCountX = 65535,
-    .maxComputeWorkGroupCountY = 65535,
-    .maxComputeWorkGroupCountZ = 65535,
-    .maxComputeWorkGroupSizeX = 1024,
-    .maxComputeWorkGroupSizeY = 1024,
-    .maxComputeWorkGroupSizeZ = 64,
-    .maxComputeUniformComponents = 1024,
-    .maxComputeTextureImageUnits = 16,
-    .maxComputeImageUniforms = 8,
-    .maxComputeAtomicCounters = 8,
-    .maxComputeAtomicCounterBuffers = 1,
-    .maxVaryingComponents = 60,
-    .maxVertexOutputComponents = 64,
-    .maxGeometryInputComponents = 64,
-    .maxGeometryOutputComponents = 128,
-    .maxFragmentInputComponents = 128,
-    .maxImageUnits = 8,
-    .maxCombinedImageUnitsAndFragmentOutputs = 8,
-    .maxCombinedShaderOutputResources = 8,
-    .maxImageSamples = 0,
-    .maxVertexImageUniforms = 0,
-    .maxTessControlImageUniforms = 0,
-    .maxTessEvaluationImageUniforms = 0,
-    .maxGeometryImageUniforms = 0,
-    .maxFragmentImageUniforms = 8,
-    .maxCombinedImageUniforms = 8,
-    .maxGeometryTextureImageUnits = 16,
-    .maxGeometryOutputVertices = 256,
-    .maxGeometryTotalOutputComponents = 1024,
-    .maxGeometryUniformComponents = 1024,
-    .maxGeometryVaryingComponents = 64,
-    .maxTessControlInputComponents = 128,
-    .maxTessControlOutputComponents = 128,
-    .maxTessControlTextureImageUnits = 16,
-    .maxTessControlUniformComponents = 1024,
-    .maxTessControlTotalOutputComponents = 4096,
-    .maxTessEvaluationInputComponents = 128,
-    .maxTessEvaluationOutputComponents = 128,
-    .maxTessEvaluationTextureImageUnits = 16,
-    .maxTessEvaluationUniformComponents = 1024,
-    .maxTessPatchComponents = 120,
-    .maxPatchVertices = 32,
-    .maxTessGenLevel = 64,
-    .maxViewports = 16,
-    .maxVertexAtomicCounters = 0,
-    .maxTessControlAtomicCounters = 0,
-    .maxTessEvaluationAtomicCounters = 0,
-    .maxGeometryAtomicCounters = 0,
-    .maxFragmentAtomicCounters = 8,
-    .maxCombinedAtomicCounters = 8,
-    .maxAtomicCounterBindings = 1,
-    .maxVertexAtomicCounterBuffers = 0,
-    .maxTessControlAtomicCounterBuffers = 0,
-    .maxTessEvaluationAtomicCounterBuffers = 0,
-    .maxGeometryAtomicCounterBuffers = 0,
-    .maxFragmentAtomicCounterBuffers = 1,
-    .maxCombinedAtomicCounterBuffers = 1,
-    .maxAtomicCounterBufferSize = 16384,
-    .maxTransformFeedbackBuffers = 4,
-    .maxTransformFeedbackInterleavedComponents = 64,
-    .maxCullDistances = 8,
-    .maxCombinedClipAndCullDistances = 8,
-    .maxSamples = 4,
-    .maxMeshOutputVerticesNV = 256,
-    .maxMeshOutputPrimitivesNV = 512,
-    .maxMeshWorkGroupSizeX_NV = 32,
-    .maxMeshWorkGroupSizeY_NV = 1,
-    .maxMeshWorkGroupSizeZ_NV = 1,
-    .maxTaskWorkGroupSizeX_NV = 32,
-    .maxTaskWorkGroupSizeY_NV = 1,
-    .maxTaskWorkGroupSizeZ_NV = 1,
-    .maxMeshViewCountNV = 4,
-    .limits =
-    {
-      .nonInductiveForLoops = true,
-      .whileLoops = true,
-      .doWhileLoops = true,
-      .generalUniformIndexing = true,
-      .generalAttributeMatrixVectorIndexing = true,
-      .generalVaryingIndexing = true,
-      .generalSamplerIndexing = true,
-      .generalVariableIndexing = true,
-      .generalConstantMatrixVectorIndexing = true,
-    },
-  };
-}
-
-constexpr EShLanguage VkShaderStageToGlslang(VkShaderStageFlagBits stage)
-{
-  switch (stage)
-  {
-  case VkShaderStageFlagBits::VK_SHADER_STAGE_VERTEX_BIT: return EShLanguage::EShLangVertex;
-  case VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT: return EShLanguage::EShLangFragment;
-  case VkShaderStageFlagBits::VK_SHADER_STAGE_COMPUTE_BIT: return EShLanguage::EShLangCompute;
-  }
-  return static_cast<EShLanguage>(-1);
-}
-
-std::vector<uint32_t> CompileShaderToSpirv(VkShaderStageFlagBits stage, const char* source)
-{
-  constexpr auto compilerMessages = EShMessages(EShMessages::EShMsgSpvRules | EShMessages::EShMsgVulkanRules);
-  const auto resourceLimits = GetGlslangResourceLimits();
-  const auto glslangStage = VkShaderStageToGlslang(stage);
-
-  auto shader = glslang::TShader(glslangStage);
-  shader.setStrings(&source, 1);
-  shader.setEnvInput(glslang::EShSource::EShSourceGlsl, glslangStage, glslang::EShClient::EShClientVulkan, 460);
-  shader.setEnvClient(glslang::EShClient::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_3);
-  shader.setEnvTarget(glslang::EShTargetLanguage::EShTargetSpv, glslang::EShTargetLanguageVersion::EShTargetSpv_1_6);
-  if (!shader.parse(&resourceLimits, 450, EProfile::ECoreProfile, false, false, compilerMessages))
-  {
-    printf("Info log: %s\nDebug log: %s\n", shader.getInfoLog(), shader.getInfoDebugLog());
-    throw std::runtime_error("rip");
-  }
-
-  auto program = glslang::TProgram();
-  program.addShader(&shader);
-
-  if (!program.link(EShMessages::EShMsgDefault))
-  {
-    printf("Info log: %s\nDebug log: %s\n", shader.getInfoLog(), shader.getInfoDebugLog());
-    throw std::runtime_error("rip");
-  }
-
-  auto options = glslang::SpvOptions{};
-  auto spirvVec = std::vector<unsigned>{};
-  glslang::GlslangToSpv(*program.getIntermediate(glslangStage), spirvVec, &options);
-
-  return spirvVec;
-}
-
-VkPipeline MakeVertexFragmentPipeline(VkDevice device, const char* vertexSource, const char* fragmentSource)
-{
-  const auto vertexShader = CompileShaderToSpirv(VK_SHADER_STAGE_VERTEX_BIT, vertexSource);
-  const auto fragmentShader = CompileShaderToSpirv(VK_SHADER_STAGE_FRAGMENT_BIT, fragmentSource);
-
-  auto vertexModule = VkShaderModule{};
-  CheckVkResult(
-    vkCreateShaderModule(
-      device,
-      Address(VkShaderModuleCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = vertexShader.size() * sizeof(uint32_t),
-        .pCode = vertexShader.data(),
-      }),
-      nullptr,
-      &vertexModule));
-
-  auto fragmentModule = VkShaderModule{};
-  CheckVkResult(
-    vkCreateShaderModule(
-      device,
-      Address(VkShaderModuleCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        .codeSize = fragmentShader.size() * sizeof(uint32_t),
-        .pCode = fragmentShader.data(),
-      }),
-      nullptr,
-      &fragmentModule));
-
-  const auto vertexStage = VkPipelineShaderStageCreateInfo{
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-    .stage = VK_SHADER_STAGE_VERTEX_BIT,
-    .module = vertexModule,
-    .pName = "main",
-  };
-
-  const auto fragmentStage = VkPipelineShaderStageCreateInfo{
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-    .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-    .module = fragmentModule,
-    .pName = "main",
-  };
-
-  const std::array stages = {vertexStage, fragmentStage};
-  const std::array dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-
-  auto pipelineLayout = VkPipelineLayout{};
-  CheckVkResult(
-    vkCreatePipelineLayout(
-      device,
-      Address(VkPipelineLayoutCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0,
-      }),
-      nullptr,
-      &pipelineLayout));
-
-  auto swapchainFormat = VK_FORMAT_B8G8R8A8_SRGB;
-
-  auto pipeline = VkPipeline{};
-  CheckVkResult(
-    vkCreateGraphicsPipelines(
-      device,
-      nullptr,
-      1,
-      Address(VkGraphicsPipelineCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-        .pNext = Address(VkPipelineRenderingCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-          .viewMask = 1,
-          .colorAttachmentCount = 1,
-          .pColorAttachmentFormats = &swapchainFormat,
-          .depthAttachmentFormat = VK_FORMAT_UNDEFINED,
-          .stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
-        }),
-        .stageCount = (uint32_t)stages.size(),
-        .pStages = stages.data(),
-        .pVertexInputState = Address(VkPipelineVertexInputStateCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        }),
-        .pInputAssemblyState = Address(VkPipelineInputAssemblyStateCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-          .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-        }),
-        .pViewportState = Address(VkPipelineViewportStateCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-          .viewportCount = 1,
-          .pViewports = nullptr, // VK_DYNAMIC_STATE_VIEWPORT
-          .scissorCount = 1,
-          .pScissors = nullptr, //VK_DYNAMIC_STATE_SCISSOR
-        }),
-        .pRasterizationState = Address(VkPipelineRasterizationStateCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-          .polygonMode = VK_POLYGON_MODE_FILL,
-          .cullMode = VK_CULL_MODE_NONE,
-          .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-          .lineWidth = 1.0f,
-        }),
-        .pMultisampleState = Address(VkPipelineMultisampleStateCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-          .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-        }),
-        .pDepthStencilState = Address(VkPipelineDepthStencilStateCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        }),
-        .pColorBlendState = Address(VkPipelineColorBlendStateCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-          .attachmentCount = 1,
-          .pAttachments = Address(VkPipelineColorBlendAttachmentState{
-            //.blendEnable = true,
-            //.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO,
-            //.dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
-            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-          }),
-        }),
-        .pDynamicState = Address(VkPipelineDynamicStateCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-          .dynamicStateCount = (uint32_t)dynamicStates.size(),
-          .pDynamicStates = dynamicStates.data(),
-        }),
-        .layout = pipelineLayout,
-        .renderPass = VK_NULL_HANDLE,
-      }), 
-      nullptr, 
-      &pipeline
-      ));
-
-  vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-  vkDestroyShaderModule(device, fragmentModule, nullptr);
-  vkDestroyShaderModule(device, vertexModule, nullptr);
-
-  return pipeline;
-}
-
 struct VulkanStuff
 {
   VulkanStuff();
@@ -460,7 +173,7 @@ struct VulkanStuff
   vkb::Swapchain vkbSwapchain;
   std::vector<VkImage> swapchainImages;
   std::vector<VkImageView> swapchainImageViews;
-  VkPipeline pipeline;
+  std::optional<Fvog::GraphicsPipeline> pipeline;
 
   uint64_t frameNumber{};
   VkQueue graphicsQueue{};
@@ -643,15 +356,33 @@ VulkanStuff::VulkanStuff()
   {
     throw std::runtime_error("rip");
   }
+  
+  auto pipelineLayout = VkPipelineLayout{};
+  CheckVkResult(
+    vkCreatePipelineLayout(
+      vkbDevice.device,
+      Address(VkPipelineLayoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0,
+      }),
+      nullptr,
+      &pipelineLayout));
 
-  pipeline = MakeVertexFragmentPipeline(vkbDevice.device, gVertexSource, gFragmentSource);
+  const auto vertexShader = Fvog::Shader(vkbDevice.device, Fvog::PipelineStage::VERTEX_SHADER, gVertexSource);
+  const auto fragmentShader = Fvog::Shader(vkbDevice.device, Fvog::PipelineStage::FRAGMENT_SHADER, gFragmentSource);
+  const auto renderTargetFormats = {VK_FORMAT_B8G8R8A8_SRGB};
+  pipeline = Fvog::GraphicsPipeline(vkbDevice.device, pipelineLayout, {
+    .vertexShader = &vertexShader,
+    .fragmentShader = &fragmentShader,
+    .renderTargetFormats = {.colorAttachmentFormats = renderTargetFormats},
+  });
 }
 
 VulkanStuff::~VulkanStuff()
 {
   vkDeviceWaitIdle(vkbDevice.device);
 
-  vkDestroyPipeline(vkbDevice.device, pipeline, nullptr);
+  //vkDestroyPipeline(vkbDevice.device, pipeline, nullptr);
 
   glslang::FinalizeProcess();
 
@@ -690,7 +421,7 @@ void VulkanStuff::Run()
       glfwSetWindowShouldClose(window, true);
     }
 
-    CheckVkResult(vkWaitForFences(vkbDevice.device, 1, &GetCurrentFrameData().renderFence, VK_TRUE, static_cast<uint64_t>(-1)));
+    CheckVkResult(vkWaitForFences(vkbDevice.device, 1, &GetCurrentFrameData().renderFence, VK_TRUE, UINT64_MAX));
     CheckVkResult(vkResetFences(vkbDevice.device, 1, &GetCurrentFrameData().renderFence));
 
     // TODO:
@@ -765,7 +496,7 @@ void VulkanStuff::Run()
       }),
     }));
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->Handle());
     vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, 1920, 1080, 0, 1}));
     vkCmdSetScissor(commandBuffer, 0, 1, Address(VkRect2D{0, 0, 1920, 1080}));
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);

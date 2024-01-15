@@ -1,4 +1,5 @@
 #include "FrogRenderer.h"
+#undef MemoryBarrier // TODO: windows.h defines MemoryBarrier, but Fwog uses that identifier. Remove this when windows.h no longer leaks
 
 #include "Pipelines.h"
 
@@ -37,21 +38,21 @@
 
 #include "MathUtilities.h"
 
-static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near, float far)
+static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near_, float far_)
 {
   auto lines = std::vector<Debug::Line>{};
 
   // Get frustum corners in world space
-  auto tln = Math::UnprojectUV_ZO(near, {0, 1}, invViewProj);
-  auto trn = Math::UnprojectUV_ZO(near, {1, 1}, invViewProj);
-  auto bln = Math::UnprojectUV_ZO(near, {0, 0}, invViewProj);
-  auto brn = Math::UnprojectUV_ZO(near, {1, 0}, invViewProj);
+  auto tln = Math::UnprojectUV_ZO(near_, {0, 1}, invViewProj);
+  auto trn = Math::UnprojectUV_ZO(near_, {1, 1}, invViewProj);
+  auto bln = Math::UnprojectUV_ZO(near_, {0, 0}, invViewProj);
+  auto brn = Math::UnprojectUV_ZO(near_, {1, 0}, invViewProj);
 
   // Far corners are lerped slightly to near in case it is an infinite projection
-  auto tlf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 1}, invViewProj);
-  auto trf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 1}, invViewProj);
-  auto blf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 0}, invViewProj);
-  auto brf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 0}, invViewProj);
+  auto tlf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {0, 1}, invViewProj);
+  auto trf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {1, 1}, invViewProj);
+  auto blf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {0, 0}, invViewProj);
+  auto brf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {1, 0}, invViewProj);
 
   // Connect-the-dots
   // Near and far "squares"

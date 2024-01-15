@@ -65,7 +65,6 @@ namespace Fvog
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .pNext = Address(VkPipelineRenderingCreateInfo{
           .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-          .viewMask = 1,
           .colorAttachmentCount = static_cast<uint32_t>(info.renderTargetFormats.colorAttachmentFormats.size()),
           .pColorAttachmentFormats = info.renderTargetFormats.colorAttachmentFormats.data(),
           .depthAttachmentFormat = info.renderTargetFormats.depthAttachmentFormat,

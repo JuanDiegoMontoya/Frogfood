@@ -37,6 +37,10 @@ add_executable(frogRender
     src/Fvog/Pipeline2.cpp
     src/Fvog/BasicTypes2.h
     src/Fvog/detail/Flags.h
+    src/Fvog/Texture2.h
+    src/Fvog/Texture2.cpp
+    src/Fvog/Device.h
+    src/Fvog/Device.cpp
 )
 
 target_compile_options(frogRender
@@ -80,6 +84,10 @@ else()
 endif()
 
 target_compile_definitions(fwog PUBLIC FWOG_DEFAULT_CLIP_DEPTH_RANGE_ZERO_TO_ONE)
+
+target_compile_definitions(frogRender PUBLIC
+    VMA_VULKAN_VERSION=1002000 # Allow VMA to use Vulkan 1.2 functions (BDA)
+)
 
 target_include_directories(frogRender
     PUBLIC

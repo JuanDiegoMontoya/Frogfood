@@ -1,20 +1,24 @@
 #include "Application.h"
 
-#include <Fwog/Context.h>
-#include <Fwog/DebugMarker.h>
-
-#include FWOG_OPENGL_HEADER
+#define VK_NO_PROTOTYPES
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <volk.h>
+#include <VkBootstrap.h>
+#include <glslang/Public/ShaderLang.h>
+
+#include "Fvog/Shader2.h"
+#include "Fvog/Pipeline2.h"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
-#include <imgui_impl_opengl3.h>
+//#include <imgui_impl_vulkan.h>
 #include <implot.h>
 
 #include <glm/gtc/constants.hpp>
 
 #include <tracy/Tracy.hpp>
-#include <tracy/TracyOpenGL.hpp>
+//#include <tracy/TracyVulkan.hpp>
 
 #include <exception>
 #include <iostream>
@@ -76,82 +80,6 @@ void operator delete[](void* ptr, const std::nothrow_t&) noexcept
   std::free(ptr);
 }
 #endif
-
-// Use the high-performance GPU (if available) on Windows laptops
-// https://docs.nvidia.com/gameworks/content/technologies/desktop/optimus.htm
-// https://gpuopen.com/learn/amdpowerxpressrequesthighperformance/
-#ifdef _WIN32
-extern "C"
-{
-  __declspec(dllexport) unsigned long NvOptimusEnablement = 1;
-  __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
-}
-#endif
-
-namespace
-{
-  void GLAPIENTRY OpenglErrorCallback(GLenum source,
-                                      GLenum type,
-                                      GLuint id,
-                                      GLenum severity,
-                                      [[maybe_unused]] GLsizei length,
-                                      const GLchar* message,
-                                      [[maybe_unused]] const void* userParam)
-  {
-    // Ignore certain verbose info messages (particularly ones on Nvidia).
-    if (id == 131169 || 
-        id == 131185 || // NV: Buffer will use video memory
-        id == 131218 || 
-        id == 131204 || // Texture cannot be used for texture mapping
-        id == 131222 ||
-        id == 131154 || // NV: pixel transfer is synchronized with 3D rendering
-        id == 131220 || // NV: A fragment shader is required to render to an integer framebuffer
-        id == 131140 || // NV: Blending is enabled while an integer render texture is in the bound framebuffer
-        id == 0         // gl{Push, Pop}DebugGroup
-      )
-      return;
-
-    std::stringstream errStream;
-    errStream << "OpenGL Debug message (" << id << "): " << message << '\n';
-
-    switch (source)
-    {
-    case GL_DEBUG_SOURCE_API: errStream << "Source: API"; break;
-    case GL_DEBUG_SOURCE_WINDOW_SYSTEM: errStream << "Source: Window Manager"; break;
-    case GL_DEBUG_SOURCE_SHADER_COMPILER: errStream << "Source: Shader Compiler"; break;
-    case GL_DEBUG_SOURCE_THIRD_PARTY: errStream << "Source: Third Party"; break;
-    case GL_DEBUG_SOURCE_APPLICATION: errStream << "Source: Application"; break;
-    case GL_DEBUG_SOURCE_OTHER: errStream << "Source: Other"; break;
-    }
-
-    errStream << '\n';
-
-    switch (type)
-    {
-    case GL_DEBUG_TYPE_ERROR: errStream << "Type: Error"; break;
-    case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: errStream << "Type: Deprecated Behaviour"; break;
-    case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR: errStream << "Type: Undefined Behaviour"; break;
-    case GL_DEBUG_TYPE_PORTABILITY: errStream << "Type: Portability"; break;
-    case GL_DEBUG_TYPE_PERFORMANCE: errStream << "Type: Performance"; break;
-    case GL_DEBUG_TYPE_MARKER: errStream << "Type: Marker"; break;
-    case GL_DEBUG_TYPE_PUSH_GROUP: errStream << "Type: Push Group"; break;
-    case GL_DEBUG_TYPE_POP_GROUP: errStream << "Type: Pop Group"; break;
-    case GL_DEBUG_TYPE_OTHER: errStream << "Type: Other"; break;
-    }
-
-    errStream << '\n';
-
-    switch (severity)
-    {
-    case GL_DEBUG_SEVERITY_HIGH: errStream << "Severity: high"; break;
-    case GL_DEBUG_SEVERITY_MEDIUM: errStream << "Severity: medium"; break;
-    case GL_DEBUG_SEVERITY_LOW: errStream << "Severity: low"; break;
-    case GL_DEBUG_SEVERITY_NOTIFICATION: errStream << "Severity: notification"; break;
-    }
-
-    std::cout << errStream.str() << '\n';
-  }
-} // namespace
 
 // This class provides static callbacks for GLFW.
 // It has access to the private members of Application and assumes a pointer to it is present in the window's user pointer.
@@ -216,6 +144,21 @@ std::pair<std::unique_ptr<std::byte[]>, std::size_t> Application::LoadBinaryFile
   return {std::move(memory), fsize};
 }
 
+template<class T>
+[[nodiscard]] T* Address(T&& v)
+{
+  return std::addressof(v);
+}
+
+void CheckVkResult(VkResult result)
+{
+  // TODO: don't throw for certain non-success codes (since they aren't always errors)
+  if (result != VK_SUCCESS)
+  {
+    throw std::runtime_error("result was not VK_SUCCESS");
+  }
+}
+
 Application::Application(const CreateInfo& createInfo)
   : vsyncEnabled(createInfo.vsync)
 {
@@ -226,16 +169,13 @@ Application::Application(const CreateInfo& createInfo)
     throw std::runtime_error("Failed to initialize GLFW");
   }
 
+  destroyList_.Push([] { glfwTerminate(); });
+
   glfwSetErrorCallback([](int, const char* desc) { std::cout << "GLFW error: " << desc << '\n'; });
 
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   glfwWindowHint(GLFW_MAXIMIZED, createInfo.maximize);
   glfwWindowHint(GLFW_DECORATED, createInfo.decorate);
-  glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
-  glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
-  glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
   GLFWmonitor* monitor = glfwGetPrimaryMonitor();
   if (monitor == nullptr)
@@ -246,7 +186,6 @@ Application::Application(const CreateInfo& createInfo)
   window = glfwCreateWindow(static_cast<int>(videoMode->width * .75), static_cast<int>(videoMode->height * .75), createInfo.name.data(), nullptr, nullptr);
   if (!window)
   {
-    glfwTerminate();
     throw std::runtime_error("Failed to create window");
   }
 
@@ -263,85 +202,85 @@ Application::Application(const CreateInfo& createInfo)
   glfwSetWindowPos(window, videoMode->width / 2 - windowWidth / 2 + monitorLeft, videoMode->height / 2 - windowHeight / 2 + monitorTop);
 
   glfwSetWindowUserPointer(window, this);
-  glfwMakeContextCurrent(window);
-  glfwSwapInterval(vsyncEnabled ? 1 : 0);
+  //glfwMakeContextCurrent(window);
+  //glfwSwapInterval(vsyncEnabled ? 1 : 0);
+  // TODO: configure vsync
 
   glfwSetCursorPosCallback(window, ApplicationAccess::CursorPosCallback);
   glfwSetCursorEnterCallback(window, ApplicationAccess::CursorEnterCallback);
   glfwSetFramebufferSizeCallback(window, ApplicationAccess::FramebufferResizeCallback);
   glfwSetDropCallback(window, ApplicationAccess::PathDropCallback);
 
-  // Initialize OpenGL.
-  int version = gladLoadGL(glfwGetProcAddress);
-  if (version == 0)
+  // Initialize Vulkan
+  // instance
+  instance_ = vkb::InstanceBuilder()
+    .set_app_name("Frogrenderer")
+    .require_api_version(1, 3, 0)
+    .request_validation_layers() // TODO: make optional
+    .use_default_debug_messenger() // TODO: make optional
+    .build()
+    .value();
+
+  if (volkInitialize() != VK_SUCCESS)
   {
-    glfwTerminate();
-    throw std::runtime_error("Failed to initialize OpenGL");
+    throw std::runtime_error("rip");
   }
 
-  // Set up the GL debug message callback.
-  glEnable(GL_DEBUG_OUTPUT);
-  glDebugMessageCallback(OpenglErrorCallback, nullptr);
-  glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-  glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+  destroyList_.Push([] { volkFinalize(); });
+
+  volkLoadInstance(instance_);
+
+  // surface
+  VkSurfaceKHR surface;
+  if (auto err = glfwCreateWindowSurface(instance_, window, nullptr, &surface); err != VK_SUCCESS)
+  {
+    const char* error_msg;
+    if (int ret = glfwGetError(&error_msg))
+    {
+      std::cout << ret << " ";
+      if (error_msg != nullptr)
+        std::cout << error_msg;
+      std::cout << "\n";
+    }
+    throw std::runtime_error("rip");
+  }
+  destroyList_.Push([this] { vkDestroySurfaceKHR(instance_, surface_, nullptr); });
+
+  device_.emplace(instance_, surface);
+
+  const auto commandPoolInfo = VkCommandPoolCreateInfo{
+    .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+    .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, // Required for Tracy
+  };
+  if (vkCreateCommandPool(device_->device_, &commandPoolInfo, nullptr, &tracyCommandPool_) != VK_SUCCESS)
+  {
+    throw std::runtime_error("rip");
+  }
+
+  const auto commandBufferInfo = VkCommandBufferAllocateInfo{
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+    .commandPool = tracyCommandPool_,
+    .commandBufferCount = 1,
+  };
+  if (vkAllocateCommandBuffers(device_->device_, &commandBufferInfo, &tracyCommandBuffer_) != VK_SUCCESS)
+  {
+    throw std::runtime_error("rip");
+  }
+
+  glslang::InitializeProcess();
+  destroyList_.Push([] { glslang::FinalizeProcess(); });
 
   // Initialize Tracy
-  TracyGpuContext
-    
-  //auto fwogCallback = [](std::string_view msg) { printf("Fwog: %.*s\n", static_cast<int>(msg.size()), msg.data()); };
-  auto fwogCallback = nullptr;
-  auto fwogRenderToSwapchainHook = [](const Fwog::SwapchainRenderInfo& renderInfo, const std::function<void()>& func)
-  {
-    ZoneTransientN(scope, renderInfo.name.data(), true);
-    ZoneColorV(scope, 0xFF1000);
-    TracyGpuZoneTransient(scopeGpu, renderInfo.name.data(), true)
-    func();
-  };
-  auto fwogRenderHook = [](const Fwog::RenderInfo& renderInfo, const std::function<void()>& func)
-  {
-    ZoneTransientN(scope, renderInfo.name.data(), true);
-    ZoneColorV(scope, 0xFF7000);
-    TracyGpuZoneTransient(scopeGpu, renderInfo.name.data(), true)
-    func();
-  };
-  auto fwogRenderNoAttachmentsHook = [](const Fwog::RenderNoAttachmentsInfo& renderInfo, const std::function<void()>& func)
-  {
-    ZoneTransientN(scope, renderInfo.name.data(), true);
-    ZoneColorV(scope, 0xFF3000);
-    TracyGpuZoneTransient(scopeGpu, renderInfo.name.data(), true)
-    func();
-  };
-  auto fwogComputeHook = [](std::string_view name, const std::function<void()>& func)
-  {
-    ZoneTransientN(scope, name.data(), true);
-    ZoneColorV(scope, 0x2070FF);
-    TracyGpuZoneTransient(scopeGpu, name.data(), true)
-    func();
-  };
-  Fwog::Initialize({
-    .verboseMessageCallback = fwogCallback,
-    .renderToSwapchainHook = fwogRenderToSwapchainHook,
-    .renderHook = fwogRenderHook,
-    .renderNoAttachmentsHook = fwogRenderNoAttachmentsHook,
-    .computeHook = fwogComputeHook,
-  });
-
-  if (!Fwog::GetDeviceProperties().features.bindlessTextures)
-  {
-    printf("Bindless textures unsupported!\n");
-  }
-
-  if (!Fwog::GetDeviceProperties().features.shaderSubgroup)
-  {
-    printf("Shader subgroup unsupported!\n");
-  }
+  //tracyVkContext_ = TracyVkContext(device_.physicalDevice_, device_.device_, device_.graphicsQueue_, tracyCommandBuffer_)
 
   // Initialize ImGui and a backend for it.
   // Because we allow the GLFW backend to install callbacks, it will automatically call our own that we provided.
   ImGui::CreateContext();
+  destroyList_.Push([] { ImGui::DestroyContext(); });
   ImPlot::CreateContext();
-  ImGui_ImplGlfw_InitForOpenGL(window, true);
-  ImGui_ImplOpenGL3_Init();
+  destroyList_.Push([] { ImPlot::DestroyContext(); });
+  //ImGui_ImplGlfw_InitForOpenGL(window, true); // TODO
+  //ImGui_ImplOpenGL3_Init(); // TODO
   ImGui::StyleColorsDark();
   ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 }
@@ -349,24 +288,25 @@ Application::Application(const CreateInfo& createInfo)
 Application::~Application()
 {
   ZoneScoped;
-  ImGui_ImplOpenGL3_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
-  ImPlot::DestroyContext();
-  ImGui::DestroyContext();
 
-  Fwog::Terminate();
-  glfwTerminate();
+  // Destroying a command pool implicitly frees command buffers allocated from it
+  vkDestroyCommandPool(device_->device_, tracyCommandPool_, nullptr);
+
+
+  //ImGui_ImplOpenGL3_Shutdown(); // TODO
+  //ImGui_ImplGlfw_Shutdown(); // TODO
+  //ImPlot::DestroyContext();
+  //ImGui::DestroyContext();
 }
 
 void Application::Draw(double dt)
 {
   ZoneScoped;
-  glEnable(GL_FRAMEBUFFER_SRGB);
 
   // Start a new ImGui frame
-  ImGui_ImplOpenGL3_NewFrame();
-  ImGui_ImplGlfw_NewFrame();
-  ImGui::NewFrame();
+  //ImGui_ImplOpenGL3_NewFrame(); // TODO
+  //ImGui_ImplGlfw_NewFrame();
+  //ImGui::NewFrame();
 
   if (windowWidth > 0 && windowHeight > 0)
   {
@@ -378,22 +318,23 @@ void Application::Draw(double dt)
   // A frame marker is inserted to distinguish ImGui rendering from the application's in a debugger.
   {
     ZoneScopedN("Draw UI");
-    ImGui::Render();
-    auto* drawData = ImGui::GetDrawData();
-    if (drawData->CmdListsCount > 0)
+    //ImGui::Render();
+    //auto* drawData = ImGui::GetDrawData();
+    //if (drawData->CmdListsCount > 0)
     {
-      auto marker = Fwog::ScopedDebugMarker("Draw GUI");
-      glDisable(GL_FRAMEBUFFER_SRGB);
-      glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      ImGui_ImplOpenGL3_RenderDrawData(drawData);
+      // TODO
+      //auto marker = Fwog::ScopedDebugMarker("Draw GUI");
+      //glDisable(GL_FRAMEBUFFER_SRGB);
+      //glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      //ImGui_ImplOpenGL3_RenderDrawData(drawData);
     }
   }
 
   {
     ZoneScopedN("SwapBuffers");
-    glfwSwapBuffers(window);
+    //glfwSwapBuffers(window);
   }
-  TracyGpuCollect
+  //TracyVkCollect(tracyVkContext_, tracyCommandBuffer_) // TODO: figure out how this is supposed to work
   FrameMark;
 }
 
@@ -401,6 +342,60 @@ void Application::Run()
 {
   ZoneScoped;
   glfwSetInputMode(window, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+
+  static const char* gVertexSource = R"(
+#version 460 core
+
+//layout(location = 0) in vec2 a_pos;
+//layout(location = 1) in vec3 a_color;
+
+layout(location = 0) out vec3 v_color;
+
+const vec2 positions[3] = {{-0, -0}, {1, -1}, {1, 1}};
+const vec3 colors[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+
+void main()
+{
+  v_color = colors[gl_VertexIndex];
+  gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+}
+)";
+
+  static const char* gFragmentSource = R"(
+#version 460 core
+
+layout(location = 0) out vec4 o_color;
+
+layout(location = 0) in vec3 v_color;
+
+void main()
+{
+  o_color = vec4(v_color, 1.0);
+  //o_color = vec4(0.0, 1.0, 1.0, 1.0);
+}
+)";
+
+  auto pipelineLayout = VkPipelineLayout{};
+  CheckVkResult(
+    vkCreatePipelineLayout(
+      device_->device_,
+      Address(VkPipelineLayoutCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 0,
+      }),
+      nullptr,
+      &pipelineLayout));
+
+  const auto vertexShader = Fvog::Shader(device_->device_, Fvog::PipelineStage::VERTEX_SHADER, gVertexSource);
+  const auto fragmentShader = Fvog::Shader(device_->device_, Fvog::PipelineStage::FRAGMENT_SHADER, gFragmentSource);
+  const auto renderTargetFormats = {VK_FORMAT_B8G8R8A8_SRGB};
+  auto pipeline = Fvog::GraphicsPipeline(device_->device_, pipelineLayout, {
+    .vertexShader = &vertexShader,
+    .fragmentShader = &fragmentShader,
+    .renderTargetFormats = {.colorAttachmentFormats = renderTargetFormats},
+  });
+
+  vkDestroyPipelineLayout(device_->device_, pipelineLayout, nullptr);
 
   // The main loop.
   double prevFrame = glfwGetTime();
@@ -477,5 +472,181 @@ void Application::Run()
     OnUpdate(dt);
 
     Draw(dt);
+
+    device_->frameNumber++;
+    auto& currentFrameData = device_->GetCurrentFrameData();
+
+    vkWaitSemaphores(device_->device_, Address(VkSemaphoreWaitInfo{
+      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+      .semaphoreCount = 1,
+      .pSemaphores = &currentFrameData.renderTimelneSemaphore,
+      .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
+    }), UINT64_MAX);
+    //CheckVkResult(vkWaitForFences(vkbDevice.device, 1, &GetCurrentFrameData().renderFence, VK_TRUE, UINT64_MAX));
+    //CheckVkResult(vkResetFences(vkbDevice.device, 1, &GetCurrentFrameData().renderFence));
+
+    // TODO:
+    // On success, this command returns
+    //    VK_SUCCESS
+    //    VK_TIMEOUT
+    //    VK_NOT_READY
+    //    VK_SUBOPTIMAL_KHR
+    uint32_t swapchainImageIndex{};
+    CheckVkResult(vkAcquireNextImage2KHR(device_->device_, Address(VkAcquireNextImageInfoKHR{
+      .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
+      .swapchain = device_->swapchain_,
+      .timeout = static_cast<uint64_t>(-1),
+      .semaphore = currentFrameData.presentSemaphore,
+      .deviceMask = 1,
+    }), &swapchainImageIndex));
+
+    auto commandBuffer = currentFrameData.commandBuffer;
+
+    CheckVkResult(vkResetCommandPool(device_->device_, currentFrameData.commandPool, 0));
+
+    CheckVkResult(vkBeginCommandBuffer(commandBuffer, Address(VkCommandBufferBeginInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    })));
+
+    // undefined -> general
+    vkCmdPipelineBarrier2(commandBuffer, Address(VkDependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .imageMemoryBarrierCount = 1,
+      .pImageMemoryBarriers = Address(VkImageMemoryBarrier2{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL, // TODO: pick a more specific layout
+        .image = device_->swapchainImages_[swapchainImageIndex],
+        .subresourceRange = {
+          .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+          .levelCount = VK_REMAINING_MIP_LEVELS,
+          .layerCount = VK_REMAINING_ARRAY_LAYERS,
+        },
+      }),
+    }));
+
+    vkCmdClearColorImage(
+      commandBuffer,
+      device_->swapchainImages_[swapchainImageIndex],
+      VK_IMAGE_LAYOUT_GENERAL,
+      Address(VkClearColorValue{.float32 = {1, 1, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1}}),
+      1,
+      Address(VkImageSubresourceRange{
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .levelCount = VK_REMAINING_MIP_LEVELS,
+        .layerCount = VK_REMAINING_ARRAY_LAYERS,
+      }));
+
+    vkCmdBeginRendering(commandBuffer, Address(VkRenderingInfo{
+      .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+      .renderArea = {0, 0, 1920, 1080},
+      .layerCount = 1,
+      .colorAttachmentCount = 1,
+      .pColorAttachments = Address(VkRenderingAttachmentInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = device_->swapchainImageViews_[swapchainImageIndex],
+        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+      }),
+    }));
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle());
+    vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, 1920, 1080, 0, 1}));
+    vkCmdSetScissor(commandBuffer, 0, 1, Address(VkRect2D{0, 0, 1920, 1080}));
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+    vkCmdEndRendering(commandBuffer);
+
+    // general -> presentable
+    vkCmdPipelineBarrier2(commandBuffer, Address(VkDependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .imageMemoryBarrierCount = 1,
+      .pImageMemoryBarriers = Address(VkImageMemoryBarrier2{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL, // TODO: pick a more specific layout
+        .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .image = device_->swapchainImages_[swapchainImageIndex],
+        .subresourceRange = {
+          .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+          .levelCount = VK_REMAINING_MIP_LEVELS,
+          .layerCount = VK_REMAINING_ARRAY_LAYERS,
+        },
+      }),
+    }));
+
+    // End recording
+    CheckVkResult(vkEndCommandBuffer(commandBuffer));
+
+    // Submit
+    const auto queueSubmitSignalSemaphores = std::array{
+      VkSemaphoreSubmitInfo{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        .semaphore = currentFrameData.renderTimelneSemaphore,
+        .value = device_->frameNumber,
+        .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+      },
+      VkSemaphoreSubmitInfo{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        .semaphore = currentFrameData.renderSemaphore,
+        .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+      }};
+    currentFrameData.renderTimelineSemaphoreWaitValue = device_->frameNumber;
+
+    CheckVkResult(vkQueueSubmit2(
+      device_->graphicsQueue_,
+      1,
+      Address(VkSubmitInfo2{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        .waitSemaphoreInfoCount = 1,
+        .pWaitSemaphoreInfos = Address(VkSemaphoreSubmitInfo{
+          .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+          .semaphore = currentFrameData.presentSemaphore,
+          .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        }),
+        .commandBufferInfoCount = 1,
+        .pCommandBufferInfos = Address(VkCommandBufferSubmitInfo{
+          .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+          .commandBuffer = commandBuffer,
+        }),
+        .signalSemaphoreInfoCount = static_cast<uint32_t>(queueSubmitSignalSemaphores.size()),
+        .pSignalSemaphoreInfos = queueSubmitSignalSemaphores.data(),
+      }),
+      VK_NULL_HANDLE)
+    );
+    
+    // Present
+    CheckVkResult(vkQueuePresentKHR(device_->graphicsQueue_, Address(VkPresentInfoKHR{
+      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+      .waitSemaphoreCount = 1,
+      .pWaitSemaphores = &currentFrameData.renderSemaphore,
+      .swapchainCount = 1,
+      .pSwapchains = &device_->swapchain_.swapchain,
+      .pImageIndices = &swapchainImageIndex,
+    })));
+  }
+
+  vkDeviceWaitIdle(device_->device_);
+}
+
+void DestroyList::Push(std::function<void()> fn)
+{
+  destructorList.emplace_back(std::move(fn));
+}
+
+DestroyList::~DestroyList()
+{
+  for (auto it = destructorList.rbegin(); it != destructorList.rend(); it++)
+  {
+    (*it)();
   }
 }

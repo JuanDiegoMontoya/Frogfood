@@ -77,6 +77,9 @@ FetchContent_Declare(
     GIT_TAG        3ad0388f1b68dbf99746a2fab8c3115c8fa887bb
 )
 
+# Since we are loading Vulkan with Volk, do not load it from a static library or DLL
+set(VMA_STATIC_VULKAN_FUNCTIONS OFF CACHE BOOL "" FORCE)
+set(VMA_DYNAMIC_VULKAN_FUNCTIONS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     vma
     GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator

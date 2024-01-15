@@ -1,4 +1,11 @@
 #pragma once
+#include "Fvog/Device.h"
+#include <VkBootstrap.h>
+
+//#include <volk.h>
+//#include <tracy/Tracy.hpp>
+//#include <tracy/TracyVulkan.hpp>
+
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -6,6 +13,7 @@
 #include <string>
 #include <utility>
 #include <span>
+#include <functional>
 
 #include <glm/gtx/transform.hpp>
 #include <glm/vec3.hpp>
@@ -29,6 +37,21 @@ struct View
   {
     return glm::lookAt(position, position + GetForwardDir(), glm::vec3(0, 1, 0));
   }
+};
+
+// List of functions to execute in reverse order in its destructor
+class DestroyList
+{
+public:
+  DestroyList() = default;
+  void Push(std::function<void()> fn);
+  ~DestroyList();
+
+  DestroyList(const DestroyList&) = delete;
+  DestroyList&& operator=(const DestroyList&) = delete;
+
+private:
+  std::vector<std::function<void()>> destructorList;
 };
 
 class Application
@@ -63,6 +86,14 @@ protected:
   virtual void OnGui([[maybe_unused]] double dt){}
   virtual void OnPathDrop([[maybe_unused]] std::span<const char*> paths){}
 
+  // TODO: determine the order in which stuff needs to be destroyed
+  DestroyList destroyList_;
+  vkb::Instance instance_{};
+  std::optional<Fvog::Device> device_;
+  VkSurfaceKHR surface_{};
+  VkCommandPool tracyCommandPool_{};
+  VkCommandBuffer tracyCommandBuffer_{};
+  //tracy::VkCtx* tracyVkContext_{};
   GLFWwindow* window;
   View mainCamera{};
   float cursorSensitivity = 0.0025f;

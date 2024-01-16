@@ -78,6 +78,16 @@ float CalcVsmShadowBias(uint clipmapLevel, vec3 faceNormal)
   return bias;
 }
 
+// For normal-offset acne solution
+vec3 CalcVsmOffsetBias(uint clipmapLevel, vec3 faceNormal)
+{
+  const float shadowTexelSize = exp2(clipmapLevel) * clipmapUniforms.firstClipmapTexelLength;
+  const float NoL = clamp(abs(dot(faceNormal, -shadingUniforms.sunDir.xyz)), 1e-4, 1.0);
+  // If NoL is 1, then we want no bias. We want maximum bias when NoL is 0
+  const vec3 bias = faceNormal * mix(shadowTexelSize, 0, NoL);
+  return bias;
+}
+
 struct ShadowVsmOut
 {
   float shadow;
@@ -160,12 +170,17 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
 {
   const ivec2 gid = ivec2(gl_FragCoord.xy);
   const float depthSample = texelFetch(s_gDepth, gid, 0).x;
-  const PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
+  
+  const uint BAD = 3; // TODO: need to be able to determine clipmap from distance alone
+  const vec3 offsetBias = CalcVsmOffsetBias(BAD, flatNormal);
 
-  const float maxBias = exp2(addr.clipmapLevel) * 0.02;
+  const PageAddressInfo addr = GetClipmapPageFromDepth2(depthSample, offsetBias, gid, textureSize(s_gDepth, 0));
+
+  //const float maxBias = exp2(addr.clipmapLevel) * 0.02;
+  const float maxBias = 0.01;
   const float baseBias = min(maxBias, CalcVsmShadowBias(addr.clipmapLevel, flatNormal));
   const float invProjZLength = 1.0 / clipmapUniforms.projectionZLength;
-  
+
   // Blocker search
   float accumDepth = 0;
   uint blockers = 0;

@@ -201,4 +201,44 @@ PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBuffe
   return addr;
 }
 
+// Applies a world-space offset to the position before projecting into light space
+PageAddressInfo GetClipmapPageFromDepth2(float depth, vec3 offsetW, ivec2 gid, ivec2 depthBufferSize)
+{
+  const vec2 texel = 1.0 / depthBufferSize;
+  const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
+  // Unproject arbitrary, but opposing sides of the pixel (assume square) to compute side length
+  const vec2 uvLeft = uvCenter + vec2(-texel.x, 0) * 0.5;
+  const vec2 uvRight = uvCenter + vec2(texel.x, 0) * 0.5;
+
+  const mat4 invProj = perFrameUniforms.invProj;
+  const vec3 leftV = UnprojectUV_ZO(depth, uvLeft, invProj);
+  const vec3 rightV = UnprojectUV_ZO(depth, uvRight, invProj);
+
+  const float projLength = distance(leftV, rightV);
+
+  // Assume each clipmap is 2x the side length of the previous
+  precise const uint clipmapLevel = clamp(uint(ceil(vsmUniforms.lodBias + log2(projLength / clipmapUniforms.firstClipmapTexelLength))), 0, clipmapUniforms.numClipmaps - 1);
+  const uint clipmapIndex = clipmapUniforms.clipmapTableIndices[clipmapLevel];
+
+  const vec3 posW = UnprojectUV_ZO(depth, uvCenter, perFrameUniforms.invViewProj) + offsetW;
+  const vec4 posLightC = clipmapUniforms.clipmapViewProjections[clipmapLevel] * vec4(posW, 1.0);
+  const vec3 posLightNdc = posLightC.xyz / posLightC.w;
+  const vec2 posLightUv = fract(posLightNdc.xy * 0.5 + 0.5);
+
+  const ivec2 posLightTexel = ivec2(posLightUv * imageSize(i_pageTables).xy);
+  const ivec3 pageAddress = ivec3(posLightTexel, clipmapIndex);
+
+  PageAddressInfo addr;
+  addr.pageAddress = pageAddress;
+  // Tile UV across VSM
+  const ivec2 tableSize = imageSize(i_pageTables).xy;
+  addr.pageUv = tableSize * mod(posLightUv, 1.0 / tableSize);
+  addr.projectedDepth = posLightC.z / posLightC.w;
+  addr.clipmapLevel = clipmapLevel;
+  addr.vsmUv = posLightUv;
+  addr.posLightNdc = posLightNdc;
+
+  return addr;
+}
+
 #endif // VSM_COMMON_H

@@ -1,6 +1,12 @@
 #include "Device.h"
 #include "detail/Common.h"
 
+#include <vk_mem_alloc.h>
+
+#include <volk.h>
+
+#include <array>
+
 namespace Fvog
 {
   Device::Device(vkb::Instance& instance, VkSurfaceKHR surface)
@@ -106,36 +112,36 @@ namespace Fvog
     swapchainImageViews_ = swapchain_.get_image_views().value();
 
     // command pools and command buffers
-    for (uint32_t i = 0; i < frameOverlap; i++)
+    for (auto& frame : frameData)
     {
       CheckVkResult(vkCreateCommandPool(device_, Address(VkCommandPoolCreateInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .queueFamilyIndex = graphicsQueueFamilyIndex_,
-      }), nullptr, &frameData[i].commandPool));
+      }), nullptr, &frame.commandPool));
 
       CheckVkResult(vkAllocateCommandBuffers(device_, Address(VkCommandBufferAllocateInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = frameData[i].commandPool,
+        .commandPool = frame.commandPool,
         .commandBufferCount = 1,
-      }), &frameData[i].commandBuffer));
-      
-      CheckVkResult(vkCreateSemaphore(device_, Address(VkSemaphoreCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .pNext = Address(VkSemaphoreTypeCreateInfo{
-          .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-          .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
-          .initialValue = 0,
-        }),
-      }), nullptr, &frameData[i].renderTimelneSemaphore));
+      }), &frame.commandBuffer));
 
       CheckVkResult(vkCreateSemaphore(device_, Address(VkSemaphoreCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-      }), nullptr, &frameData[i].presentSemaphore));
+      }), nullptr, &frame.presentSemaphore));
 
       CheckVkResult(vkCreateSemaphore(device_, Address(VkSemaphoreCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-      }), nullptr, &frameData[i].renderSemaphore));
+      }), nullptr, &frame.renderSemaphore));
     }
+    
+    CheckVkResult(vkCreateSemaphore(device_, Address(VkSemaphoreCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+      .pNext = Address(VkSemaphoreTypeCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+        .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+        .initialValue = 0,
+      }),
+    }), nullptr, &graphicsQueueTimelineSemaphore_));
     
     vmaCreateAllocator(Address(VmaAllocatorCreateInfo{
       .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
@@ -170,17 +176,63 @@ namespace Fvog
       .instance = instance_,
       .vulkanApiVersion = VK_API_VERSION_1_2,
     }), &allocator_);
-  }
 
+    // Create mega descriptor set
+    constexpr auto poolSizes = std::to_array<VkDescriptorPoolSize>({
+      {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = maxResourceDescriptors},
+      {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = maxResourceDescriptors}, // TODO: remove this in favor of separate images + samplers
+      {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = maxResourceDescriptors},
+      {.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = maxResourceDescriptors},
+      {.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = maxSamplerDescriptors},
+    });
+
+    CheckVkResult(vkCreateDescriptorPool(device_, Address(VkDescriptorPoolCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+      .flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
+      .maxSets = 1,
+      .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+      .pPoolSizes = poolSizes.data(),
+    }), nullptr, &descriptorPool_));
+
+
+    constexpr auto bindings = std::to_array<VkDescriptorSetLayoutBinding>({
+      {.binding = storageBufferBinding, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = maxResourceDescriptors, .stageFlags = VK_SHADER_STAGE_ALL},
+      {combinedImageSamplerBinding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
+      {storageImageBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
+      {sampledImageBinding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
+      {samplerBinding, VK_DESCRIPTOR_TYPE_SAMPLER, maxSamplerDescriptors, VK_SHADER_STAGE_ALL},
+    });
+
+    CheckVkResult(vkCreateDescriptorSetLayout(device_, Address(VkDescriptorSetLayoutCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+      .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+      .bindingCount = static_cast<uint32_t>(bindings.size()),
+      .pBindings = bindings.data(),
+    }), nullptr, &descriptorSetLayout_));
+
+    CheckVkResult(vkAllocateDescriptorSets(device_, Address(VkDescriptorSetAllocateInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+      .descriptorPool = descriptorPool_,
+      .descriptorSetCount = 1,
+      .pSetLayouts = &descriptorSetLayout_,
+    }), &descriptorSet_));
+  }
+  
   Device::~Device()
   {
-    for (auto& frame : frameData)
+    vkDeviceWaitIdle(device_);
+
+    vkDestroyDescriptorSetLayout(device_, descriptorSetLayout_, nullptr);
+    vkDestroyDescriptorPool(device_, descriptorPool_, nullptr);
+
+    for (const auto& frame : frameData)
     {
       vkDestroyCommandPool(device_, frame.commandPool, nullptr);
-      vkDestroySemaphore(device_, frame.renderTimelneSemaphore, nullptr);
       vkDestroySemaphore(device_, frame.renderSemaphore, nullptr);
       vkDestroySemaphore(device_, frame.presentSemaphore, nullptr);
     }
+
+    vkDestroySemaphore(device_, graphicsQueueTimelineSemaphore_, nullptr);
 
     vkb::destroy_swapchain(swapchain_);
 
@@ -189,7 +241,109 @@ namespace Fvog
       vkDestroyImageView(device_, view, nullptr);
     }
 
+    for (const auto& imageAlloc : imageDeletionQueue_)
+    {
+      vkDestroyImageView(device_, imageAlloc.imageView, nullptr);
+      vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
+    }
+
     vmaDestroyAllocator(allocator_);
     vkb::destroy_device(device_);
+  }
+
+  uint32_t Device::AllocateStorageBufferDescriptor(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range)
+  {
+    assert(currentStorageBufferDescriptorIndex < maxResourceDescriptors);
+    const auto myIdx = currentStorageBufferDescriptorIndex++;
+    vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = descriptorSet_,
+      .dstBinding = storageBufferBinding,
+      .dstArrayElement = myIdx,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      .pBufferInfo = detail::Address(VkDescriptorBufferInfo{
+        .buffer = buffer,
+        .offset = offset,
+        .range = range,
+      }),
+    }), 0, nullptr);
+    return myIdx;
+  }
+
+  uint32_t Device::AllocateCombinedImageSamplerDescriptor(VkSampler sampler, VkImageView imageView, VkImageLayout imageLayout)
+  {
+    assert(currentCombinedImageSamplerDescriptorIndex < maxResourceDescriptors);
+    const auto myIdx = currentCombinedImageSamplerDescriptorIndex++;
+    vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = descriptorSet_,
+      .dstBinding = combinedImageSamplerBinding,
+      .dstArrayElement = myIdx,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      .pImageInfo = detail::Address(VkDescriptorImageInfo{
+        .sampler = sampler,
+        .imageView = imageView,
+        .imageLayout = imageLayout,
+      })
+    }), 0, nullptr);
+    return myIdx;
+  }
+
+  uint32_t Device::AllocateStorageImageDescriptor(VkImageView imageView, VkImageLayout imageLayout)
+  {
+    assert(currentStorageImageDescriptorIndex < maxResourceDescriptors);
+    const auto myIdx = currentStorageImageDescriptorIndex++;
+    vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = descriptorSet_,
+      .dstBinding = storageImageBinding,
+      .dstArrayElement = myIdx,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+      .pImageInfo = detail::Address(VkDescriptorImageInfo{
+        .imageView = imageView,
+        .imageLayout = imageLayout,
+      })
+    }), 0, nullptr);
+    return myIdx;
+  }
+
+  uint32_t Device::AllocateSampledImageDescriptor(VkImageView imageView, VkImageLayout imageLayout)
+  {
+    assert(currentSampledImageDescriptorIndex < maxResourceDescriptors);
+    const auto myIdx = currentSampledImageDescriptorIndex++;
+    vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = descriptorSet_,
+      .dstBinding = sampledImageBinding,
+      .dstArrayElement = myIdx,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+      .pImageInfo = detail::Address(VkDescriptorImageInfo{
+        .imageView = imageView,
+        .imageLayout = imageLayout,
+      })
+    }), 0, nullptr);
+    return myIdx;
+  }
+
+  uint32_t Device::AllocateSamplerDescriptor(VkSampler sampler)
+  {
+    assert(currentSamplerDescriptorIndex < maxResourceDescriptors);
+    const auto myIdx = currentSamplerDescriptorIndex++;
+    vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = descriptorSet_,
+      .dstBinding = samplerBinding,
+      .dstArrayElement = myIdx,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+      .pImageInfo = detail::Address(VkDescriptorImageInfo{
+        .sampler = sampler,
+      })
+    }), 0, nullptr);
+    return myIdx;
   }
 } // namespace Fvog

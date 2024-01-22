@@ -41,6 +41,10 @@ add_executable(frogRender
     src/Fvog/Texture2.cpp
     src/Fvog/Device.h
     src/Fvog/Device.cpp
+    src/Fvog/Rendering2.cpp
+    src/Fvog/Rendering2.h
+    src/Fvog/detail/ApiToEnum2.h
+    src/Fvog/detail/ApiToEnum2.cpp
 )
 
 target_compile_options(frogRender

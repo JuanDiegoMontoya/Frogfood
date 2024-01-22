@@ -9,6 +9,8 @@
 
 #include "Fvog/Shader2.h"
 #include "Fvog/Pipeline2.h"
+#include "Fvog/Texture2.h"
+#include "Fvog/Rendering2.h"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -396,6 +398,13 @@ void main()
   });
 
   vkDestroyPipelineLayout(device_->device_, pipelineLayout, nullptr);
+  
+  auto testTexture = Fvog::Texture(device_.value(), {
+    .imageViewType = VK_IMAGE_VIEW_TYPE_2D,
+    .format = VK_FORMAT_B8G8R8A8_SRGB,
+    .extent = {192, 108, 1},
+    .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+  });
 
   // The main loop.
   double prevFrame = glfwGetTime();
@@ -479,7 +488,7 @@ void main()
     vkWaitSemaphores(device_->device_, Address(VkSemaphoreWaitInfo{
       .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
       .semaphoreCount = 1,
-      .pSemaphores = &currentFrameData.renderTimelneSemaphore,
+      .pSemaphores = &device_->graphicsQueueTimelineSemaphore_,
       .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
     }), UINT64_MAX);
     //CheckVkResult(vkWaitForFences(vkbDevice.device, 1, &GetCurrentFrameData().renderFence, VK_TRUE, UINT64_MAX));
@@ -501,6 +510,7 @@ void main()
     }), &swapchainImageIndex));
 
     auto commandBuffer = currentFrameData.commandBuffer;
+    auto ctx = Fvog::Context(commandBuffer);
 
     CheckVkResult(vkResetCommandPool(device_->device_, currentFrameData.commandPool, 0));
 
@@ -509,80 +519,60 @@ void main()
       .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     })));
 
-    // undefined -> general
-    vkCmdPipelineBarrier2(commandBuffer, Address(VkDependencyInfo{
-      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-      .imageMemoryBarrierCount = 1,
-      .pImageMemoryBarriers = Address(VkImageMemoryBarrier2{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .newLayout = VK_IMAGE_LAYOUT_GENERAL, // TODO: pick a more specific layout
-        .image = device_->swapchainImages_[swapchainImageIndex],
-        .subresourceRange = {
-          .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-          .levelCount = VK_REMAINING_MIP_LEVELS,
-          .layerCount = VK_REMAINING_ARRAY_LAYERS,
-        },
-      }),
-    }));
+    ctx.ImageBarrier(testTexture, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-    vkCmdClearColorImage(
-      commandBuffer,
-      device_->swapchainImages_[swapchainImageIndex],
-      VK_IMAGE_LAYOUT_GENERAL,
-      Address(VkClearColorValue{.float32 = {1, 1, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1}}),
-      1,
-      Address(VkImageSubresourceRange{
-        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-        .levelCount = VK_REMAINING_MIP_LEVELS,
-        .layerCount = VK_REMAINING_ARRAY_LAYERS,
-      }));
-
-    vkCmdBeginRendering(commandBuffer, Address(VkRenderingInfo{
-      .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-      .renderArea = {0, 0, 1920, 1080},
-      .layerCount = 1,
-      .colorAttachmentCount = 1,
-      .pColorAttachments = Address(VkRenderingAttachmentInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = device_->swapchainImageViews_[swapchainImageIndex],
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-      }),
-    }));
+    auto colorAttachment = Fvog::RenderColorAttachment{
+      .texture = testTexture,
+      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+      .clearValue = {1.0f, 1.0f, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1.0f},
+    };
+    ctx.BeginRendering({
+      .colorAttachments = {&colorAttachment, 1},
+    });
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle());
-    vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, 1920, 1080, 0, 1}));
-    vkCmdSetScissor(commandBuffer, 0, 1, Address(VkRect2D{0, 0, 1920, 1080}));
+    vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, 192, 108, 0, 1}));
+    vkCmdSetScissor(commandBuffer, 0, 1, Address(VkRect2D{0, 0, 192, 108}));
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
-    vkCmdEndRendering(commandBuffer);
+    ctx.EndRendering();
 
-    // general -> presentable
-    vkCmdPipelineBarrier2(commandBuffer, Address(VkDependencyInfo{
-      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-      .imageMemoryBarrierCount = 1,
-      .pImageMemoryBarriers = Address(VkImageMemoryBarrier2{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_GENERAL, // TODO: pick a more specific layout
-        .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        .image = device_->swapchainImages_[swapchainImageIndex],
-        .subresourceRange = {
+    // swapchain undefined -> transfer dst
+    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    // test texture general -> transfer src
+    ctx.ImageBarrier(testTexture, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    vkCmdBlitImage2(commandBuffer, Address(VkBlitImageInfo2{
+      .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
+      .srcImage = testTexture.Image(),
+      .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+      .dstImage = device_->swapchainImages_[swapchainImageIndex],
+      .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      .regionCount = 1,
+      .pRegions = Address(VkImageBlit2{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
+        .srcSubresource = VkImageSubresourceLayers{
           .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-          .levelCount = VK_REMAINING_MIP_LEVELS,
-          .layerCount = VK_REMAINING_ARRAY_LAYERS,
+          .mipLevel = 0,
+          .baseArrayLayer = 0,
+          .layerCount = 1,
         },
+        .srcOffsets = {{}, {192, 108, 1}},
+        .dstSubresource = VkImageSubresourceLayers{
+          .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+          .mipLevel = 0,
+          .baseArrayLayer = 0,
+          .layerCount = 1,
+        },
+        .dstOffsets = {{}, {1920, 1080, 1}},
       }),
+      .filter = VK_FILTER_NEAREST,
     }));
+
+    // swapchain transfer dst -> presentable
+    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
 
     // End recording
     CheckVkResult(vkEndCommandBuffer(commandBuffer));
@@ -591,7 +581,7 @@ void main()
     const auto queueSubmitSignalSemaphores = std::array{
       VkSemaphoreSubmitInfo{
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        .semaphore = currentFrameData.renderTimelneSemaphore,
+        .semaphore = device_->graphicsQueueTimelineSemaphore_,
         .value = device_->frameNumber,
         .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
       },
@@ -611,7 +601,7 @@ void main()
         .pWaitSemaphoreInfos = Address(VkSemaphoreSubmitInfo{
           .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
           .semaphore = currentFrameData.presentSemaphore,
-          .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+          .stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         }),
         .commandBufferInfoCount = 1,
         .pCommandBufferInfos = Address(VkCommandBufferSubmitInfo{
@@ -623,7 +613,7 @@ void main()
       }),
       VK_NULL_HANDLE)
     );
-    
+
     // Present
     CheckVkResult(vkQueuePresentKHR(device_->graphicsQueue_, Address(VkPresentInfoKHR{
       .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,

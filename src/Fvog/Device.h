@@ -9,6 +9,7 @@
 #include <VkBootstrap.h>
 
 #include <deque>
+#include <functional>
 
 typedef struct VmaAllocator_T* VmaAllocator;
 typedef struct VmaAllocation_T* VmaAllocation;
@@ -61,6 +62,14 @@ namespace Fvog
     std::vector<VkImageView> swapchainImageViews_;
     VmaAllocator allocator_{};
 
+    // Immediate submit stuff
+    VkCommandPool immediateSubmitCommandPool_{};
+    VkCommandBuffer immediateSubmitCommandBuffer_{};
+    // TODO: maybe this should return a u64 representing a timeline semaphore value that can be waited on
+    void ImmediateSubmit(const std::function<void(VkCommandBuffer)>& function) const;
+
+    void FreeUnusedResources();
+
     // Descriptor stuff
     constexpr static uint32_t maxResourceDescriptors = 10'000;
     constexpr static uint32_t maxSamplerDescriptors = 100;
@@ -78,7 +87,7 @@ namespace Fvog
     VkDescriptorSetLayout descriptorSetLayout_{};
     VkDescriptorSet descriptorSet_{};
 
-    uint32_t AllocateStorageBufferDescriptor(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range);
+    uint32_t AllocateStorageBufferDescriptor(VkBuffer buffer);
     uint32_t AllocateCombinedImageSamplerDescriptor(VkSampler sampler, VkImageView imageView, VkImageLayout imageLayout);
     uint32_t AllocateStorageImageDescriptor(VkImageView imageView, VkImageLayout imageLayout);
     uint32_t AllocateSampledImageDescriptor(VkImageView imageView, VkImageLayout imageLayout);

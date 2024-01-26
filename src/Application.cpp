@@ -7,6 +7,7 @@
 #include <VkBootstrap.h>
 #include <glslang/Public/ShaderLang.h>
 
+#include "Fvog/Buffer2.h"
 #include "Fvog/Shader2.h"
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Texture2.h"
@@ -22,6 +23,7 @@
 #include <tracy/Tracy.hpp>
 //#include <tracy/TracyVulkan.hpp>
 
+#include <bit>
 #include <exception>
 #include <iostream>
 #include <sstream>
@@ -348,32 +350,33 @@ void Application::Run()
   static const char* gVertexSource = R"(
 #version 460 core
 
-//layout(location = 0) in vec2 a_pos;
-//layout(location = 1) in vec3 a_color;
-
-layout(location = 0) out vec3 v_color;
-
 const vec2 positions[3] = {{-0, -0}, {1, -1}, {1, 1}};
-const vec3 colors[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 
 void main()
 {
-  v_color = colors[gl_VertexIndex];
   gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
 }
 )";
 
   static const char* gFragmentSource = R"(
 #version 460 core
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(set = 0, binding = 0) buffer TestBuffers
+{
+  vec4 color;
+}buffers[];
+
+layout(push_constant) uniform PushConstants
+{
+  uint index;
+}pushConstants;
 
 layout(location = 0) out vec4 o_color;
 
-layout(location = 0) in vec3 v_color;
-
 void main()
 {
-  o_color = vec4(v_color, 1.0);
-  //o_color = vec4(0.0, 1.0, 1.0, 1.0);
+  o_color = buffers[pushConstants.index].color;
 }
 )";
 
@@ -383,7 +386,14 @@ void main()
       device_->device_,
       Address(VkPipelineLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0,
+        .setLayoutCount = 1,
+        .pSetLayouts = &device_->descriptorSetLayout_,
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = Address(VkPushConstantRange{
+          .stageFlags = VK_SHADER_STAGE_ALL,
+          .offset = 0,
+          .size = 128,
+        }),
       }),
       nullptr,
       &pipelineLayout));
@@ -396,8 +406,6 @@ void main()
     .fragmentShader = &fragmentShader,
     .renderTargetFormats = {.colorAttachmentFormats = renderTargetFormats},
   });
-
-  vkDestroyPipelineLayout(device_->device_, pipelineLayout, nullptr);
   
   auto testTexture = Fvog::Texture(device_.value(), {
     .imageViewType = VK_IMAGE_VIEW_TYPE_2D,
@@ -482,6 +490,8 @@ void main()
 
     Draw(dt);
 
+    device_->FreeUnusedResources();
+
     device_->frameNumber++;
     auto& currentFrameData = device_->GetCurrentFrameData();
 
@@ -491,8 +501,6 @@ void main()
       .pSemaphores = &device_->graphicsQueueTimelineSemaphore_,
       .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
     }), UINT64_MAX);
-    //CheckVkResult(vkWaitForFences(vkbDevice.device, 1, &GetCurrentFrameData().renderFence, VK_TRUE, UINT64_MAX));
-    //CheckVkResult(vkResetFences(vkbDevice.device, 1, &GetCurrentFrameData().renderFence));
 
     // TODO:
     // On success, this command returns
@@ -519,21 +527,30 @@ void main()
       .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     })));
 
+    auto testBuffer = Fvog::Buffer(*device_, {.size = sizeof(glm::vec4)});
+    const auto testColor = glm::vec4{1.0f, 1.0f, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1.0f};
+    vkCmdUpdateBuffer(commandBuffer, testBuffer.Handle(), 0, sizeof(testColor), &testColor);
+
+    ctx.BufferBarrier(testBuffer);
+
     ctx.ImageBarrier(testTexture, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
     auto colorAttachment = Fvog::RenderColorAttachment{
       .texture = testTexture,
       .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
       .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-      .clearValue = {1.0f, 1.0f, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1.0f},
+      //.clearValue = {1.0f, 1.0f, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1.0f},
+      .clearValue = {0.1f, 0.1f, 0.1f, 1.0f},
     };
     ctx.BeginRendering({
       .colorAttachments = {&colorAttachment, 1},
     });
 
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &device_->descriptorSet_, 0, nullptr);
+    //vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(testColor), &testColor);
+    const auto bufferIndex = device_->AllocateStorageBufferDescriptor(testBuffer.Handle());
+    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(uint32_t), &bufferIndex);
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle());
-    vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, 192, 108, 0, 1}));
-    vkCmdSetScissor(commandBuffer, 0, 1, Address(VkRect2D{0, 0, 192, 108}));
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
     ctx.EndRendering();
@@ -626,6 +643,8 @@ void main()
   }
 
   vkDeviceWaitIdle(device_->device_);
+
+  vkDestroyPipelineLayout(device_->device_, pipelineLayout, nullptr);
 }
 
 void DestroyList::Push(std::function<void()> fn)

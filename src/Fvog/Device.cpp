@@ -111,7 +111,7 @@ namespace Fvog
     swapchainImages_ = swapchain_.get_images().value();
     swapchainImageViews_ = swapchain_.get_image_views().value();
 
-    // command pools and command buffers
+    // Per-frame swapchain sync, command pools, and command buffers
     for (auto& frame : frameData)
     {
       CheckVkResult(vkCreateCommandPool(device_, Address(VkCommandPoolCreateInfo{
@@ -133,7 +133,21 @@ namespace Fvog
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
       }), nullptr, &frame.renderSemaphore));
     }
-    
+
+    // Immediate submit stuff (subject to change)
+    CheckVkResult(vkCreateCommandPool(device_, Address(VkCommandPoolCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+      .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+      .queueFamilyIndex = graphicsQueueFamilyIndex_,
+    }), nullptr, &immediateSubmitCommandPool_));
+
+    CheckVkResult(vkAllocateCommandBuffers(device_, Address(VkCommandBufferAllocateInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .commandPool = immediateSubmitCommandPool_,
+      .commandBufferCount = 1,
+    }), &immediateSubmitCommandBuffer_));
+
+    // Queue timeline semaphores
     CheckVkResult(vkCreateSemaphore(device_, Address(VkSemaphoreCreateInfo{
       .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
       .pNext = Address(VkSemaphoreTypeCreateInfo{
@@ -203,8 +217,24 @@ namespace Fvog
       {samplerBinding, VK_DESCRIPTOR_TYPE_SAMPLER, maxSamplerDescriptors, VK_SHADER_STAGE_ALL},
     });
 
+    constexpr auto bindingsFlags = std::to_array<VkDescriptorBindingFlags>({
+      {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
+      {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
+      {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
+      {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
+      {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
+    });
+
+    static_assert(bindings.size() == bindingsFlags.size());
+
     CheckVkResult(vkCreateDescriptorSetLayout(device_, Address(VkDescriptorSetLayoutCreateInfo{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+      .pNext = Address(VkDescriptorSetLayoutBindingFlagsCreateInfo
+      {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+        .bindingCount = static_cast<uint32_t>(bindingsFlags.size()),
+        .pBindingFlags = bindingsFlags.data(),
+      }),
       .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
       .bindingCount = static_cast<uint32_t>(bindings.size()),
       .pBindings = bindings.data(),
@@ -220,10 +250,12 @@ namespace Fvog
   
   Device::~Device()
   {
-    vkDeviceWaitIdle(device_);
+    detail::CheckVkResult(vkDeviceWaitIdle(device_));
 
     vkDestroyDescriptorSetLayout(device_, descriptorSetLayout_, nullptr);
     vkDestroyDescriptorPool(device_, descriptorPool_, nullptr);
+
+    vkDestroyCommandPool(device_, immediateSubmitCommandPool_, nullptr);
 
     for (const auto& frame : frameData)
     {
@@ -247,11 +279,62 @@ namespace Fvog
       vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
     }
 
+    for (const auto& bufferAlloc : bufferDeletionQueue_)
+    {
+      vmaDestroyBuffer(allocator_, bufferAlloc.buffer, bufferAlloc.allocation);
+    }
+
     vmaDestroyAllocator(allocator_);
     vkb::destroy_device(device_);
   }
 
-  uint32_t Device::AllocateStorageBufferDescriptor(VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range)
+  void Device::ImmediateSubmit(const std::function<void(VkCommandBuffer)>& function) const
+  {
+    using namespace detail;
+    CheckVkResult(vkResetCommandBuffer(immediateSubmitCommandBuffer_, 0));
+    CheckVkResult(vkBeginCommandBuffer(immediateSubmitCommandBuffer_, Address(VkCommandBufferBeginInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    })));
+
+    function(immediateSubmitCommandBuffer_);
+
+    CheckVkResult(vkEndCommandBuffer(immediateSubmitCommandBuffer_));
+
+    // TODO: Horrible sin
+    CheckVkResult(vkDeviceWaitIdle(device_));
+  }
+
+  void Device::FreeUnusedResources()
+  {
+    auto value = uint64_t{};
+    detail::CheckVkResult(vkGetSemaphoreCounterValue(device_, graphicsQueueTimelineSemaphore_, &value));
+
+    std::erase_if(bufferDeletionQueue_,
+                  [this, value](const BufferDeleteInfo& bufferAlloc)
+                  {
+                    if (value >= bufferAlloc.frameOfLastUse)
+                    {
+                      vmaDestroyBuffer(allocator_, bufferAlloc.buffer, bufferAlloc.allocation);
+                      return true;
+                    }
+                    return false;
+                  });
+
+    std::erase_if(imageDeletionQueue_,
+                  [this, value](const ImageDeleteInfo& imageAlloc)
+                  {
+                    if (value >= imageAlloc.frameOfLastUse)
+                    {
+                      vkDestroyImageView(device_, imageAlloc.imageView, nullptr);
+                      vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
+                      return true;
+                    }
+                    return false;
+                  });
+  }
+
+  uint32_t Device::AllocateStorageBufferDescriptor(VkBuffer buffer)
   {
     assert(currentStorageBufferDescriptorIndex < maxResourceDescriptors);
     const auto myIdx = currentStorageBufferDescriptorIndex++;
@@ -264,8 +347,8 @@ namespace Fvog
       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
       .pBufferInfo = detail::Address(VkDescriptorBufferInfo{
         .buffer = buffer,
-        .offset = offset,
-        .range = range,
+        .offset = 0,
+        .range = VK_WHOLE_SIZE,
       }),
     }), 0, nullptr);
     return myIdx;

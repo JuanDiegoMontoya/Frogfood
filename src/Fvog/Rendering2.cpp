@@ -1,5 +1,6 @@
 #include "Rendering2.h"
 
+#include "Buffer2.h"
 #include "Texture2.h"
 #include "detail/Common.h"
 #include "detail/ApiToEnum2.h"
@@ -167,6 +168,29 @@ namespace Fvog
           .levelCount = VK_REMAINING_MIP_LEVELS,
           .layerCount = VK_REMAINING_ARRAY_LAYERS,
         },
+      }),
+    }));
+  }
+
+  void Context::BufferBarrier(const Buffer& buffer) const
+  {
+    BufferBarrier(buffer.Handle());
+  }
+
+  void Context::BufferBarrier(VkBuffer buffer) const
+  {
+    vkCmdPipelineBarrier2(commandBuffer_, Address(VkDependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .bufferMemoryBarrierCount = 1,
+      .pBufferMemoryBarriers = Address(VkBufferMemoryBarrier2{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+        .buffer = buffer,
+        .offset = 0,
+        .size = VK_WHOLE_SIZE,
       }),
     }));
   }

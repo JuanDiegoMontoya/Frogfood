@@ -15,6 +15,7 @@
 namespace Fvog
 {
   class Texture;
+  class Buffer;
 
   // Minimal reference wrapper type. Didn't want to pull in <functional> just for this
   template<class T>
@@ -103,6 +104,8 @@ namespace Fvog
     void EndRendering() const;
     void ImageBarrier(const Texture& texture, VkImageLayout oldLayout, VkImageLayout newLayout) const;
     void ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask) const;
+    void BufferBarrier(const Buffer& buffer) const;
+    void BufferBarrier(VkBuffer buffer) const;
 
   private:
     VkCommandBuffer commandBuffer_;

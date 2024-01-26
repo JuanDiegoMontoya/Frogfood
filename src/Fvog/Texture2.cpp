@@ -4,6 +4,8 @@
 
 #include <volk.h>
 
+#include <vk_mem_alloc.h>
+
 namespace Fvog
 {
   Texture::Texture(Device& device, const TextureCreateInfo& createInfo, std::string_view /*name*/)

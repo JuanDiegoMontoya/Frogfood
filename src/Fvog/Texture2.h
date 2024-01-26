@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Device.h"
-#include <vk_mem_alloc.h>
 
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan_core.h>
@@ -29,8 +28,8 @@ namespace Fvog
 
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
-    Texture(Texture&&) = delete; // TODO
-    Texture& operator=(Texture&&) = delete; // TODO
+    Texture(Texture&&) noexcept; // TODO
+    Texture& operator=(Texture&&) noexcept; // TODO
 
     [[nodiscard]] VkImage Image() const
     {

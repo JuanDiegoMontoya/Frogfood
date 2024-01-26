@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 option(FROGRENDER_FSR2_ENABLE "Enable FSR2 for examples that support it (currently 03_gltf_viewer). Windows only!" FALSE)
 
 find_package(OpenGL REQUIRED)
+find_package(Vulkan REQUIRED)
 
 add_executable(frogRender
     src/main.cpp
@@ -45,6 +46,8 @@ add_executable(frogRender
     src/Fvog/Rendering2.h
     src/Fvog/detail/ApiToEnum2.h
     src/Fvog/detail/ApiToEnum2.cpp
+    src/Fvog/Buffer2.h
+    src/Fvog/Buffer2.cpp
 )
 
 target_compile_options(frogRender
@@ -97,9 +100,11 @@ target_include_directories(frogRender
     PUBLIC
     ${FSR2_SOURCE}
     ${IMPLOT_SOURCE}
+    ${Vulkan_INCLUDE_DIRS}
     vendor
     data
 )
+
 target_link_libraries(frogRender
     PRIVATE
     glfw

@@ -103,7 +103,7 @@ namespace Fvog
     void BeginRendering(const RenderInfo& renderInfo) const;
     void EndRendering() const;
     void ImageBarrier(const Texture& texture, VkImageLayout oldLayout, VkImageLayout newLayout) const;
-    void ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask) const;
+    void ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT) const;
     void BufferBarrier(const Buffer& buffer) const;
     void BufferBarrier(VkBuffer buffer) const;
 

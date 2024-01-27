@@ -490,8 +490,6 @@ void main()
 
     Draw(dt);
 
-    device_->FreeUnusedResources();
-
     device_->frameNumber++;
     auto& currentFrameData = device_->GetCurrentFrameData();
 
@@ -501,6 +499,8 @@ void main()
       .pSemaphores = &device_->graphicsQueueTimelineSemaphore_,
       .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
     }), UINT64_MAX);
+
+    device_->FreeUnusedResources();
 
     // TODO:
     // On success, this command returns
@@ -513,7 +513,7 @@ void main()
       .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
       .swapchain = device_->swapchain_,
       .timeout = static_cast<uint64_t>(-1),
-      .semaphore = currentFrameData.presentSemaphore,
+      .semaphore = currentFrameData.swapchainSemaphore,
       .deviceMask = 1,
     }), &swapchainImageIndex));
 
@@ -547,18 +547,15 @@ void main()
     });
 
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &device_->descriptorSet_, 0, nullptr);
-    //vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(testColor), &testColor);
-    const auto bufferIndex = device_->AllocateStorageBufferDescriptor(testBuffer.Handle());
-    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(uint32_t), &bufferIndex);
+    const auto descriptorInfo = device_->AllocateStorageBufferDescriptor(testBuffer.Handle());
+    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(uint32_t), &descriptorInfo.GpuResource().index);
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle());
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
     ctx.EndRendering();
+    
+    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    // swapchain undefined -> transfer dst
-    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
-
-    // test texture general -> transfer src
     ctx.ImageBarrier(testTexture, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     vkCmdBlitImage2(commandBuffer, Address(VkBlitImageInfo2{
@@ -576,20 +573,19 @@ void main()
           .baseArrayLayer = 0,
           .layerCount = 1,
         },
-        .srcOffsets = {{}, {192, 108, 1}},
+        .srcOffsets = {{}, {(int)windowWidth / 10, (int)windowHeight / 10, 1}},
         .dstSubresource = VkImageSubresourceLayers{
           .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
           .mipLevel = 0,
           .baseArrayLayer = 0,
           .layerCount = 1,
         },
-        .dstOffsets = {{}, {1920, 1080, 1}},
+        .dstOffsets = {{}, {(int)windowWidth, (int)windowHeight, 1}},
       }),
       .filter = VK_FILTER_NEAREST,
     }));
-
-    // swapchain transfer dst -> presentable
-    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT);
+    
+    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     // End recording
     CheckVkResult(vkEndCommandBuffer(commandBuffer));
@@ -617,7 +613,7 @@ void main()
         .waitSemaphoreInfoCount = 1,
         .pWaitSemaphoreInfos = Address(VkSemaphoreSubmitInfo{
           .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-          .semaphore = currentFrameData.presentSemaphore,
+          .semaphore = currentFrameData.swapchainSemaphore,
           .stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         }),
         .commandBufferInfoCount = 1,

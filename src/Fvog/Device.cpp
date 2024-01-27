@@ -6,6 +6,7 @@
 #include <volk.h>
 
 #include <array>
+#include <ranges>
 
 namespace Fvog
 {
@@ -127,7 +128,7 @@ namespace Fvog
 
       CheckVkResult(vkCreateSemaphore(device_, Address(VkSemaphoreCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-      }), nullptr, &frame.presentSemaphore));
+      }), nullptr, &frame.swapchainSemaphore));
 
       CheckVkResult(vkCreateSemaphore(device_, Address(VkSemaphoreCreateInfo{
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -252,6 +253,8 @@ namespace Fvog
   {
     detail::CheckVkResult(vkDeviceWaitIdle(device_));
 
+    FreeUnusedResources();
+
     vkDestroyDescriptorSetLayout(device_, descriptorSetLayout_, nullptr);
     vkDestroyDescriptorPool(device_, descriptorPool_, nullptr);
 
@@ -261,7 +264,7 @@ namespace Fvog
     {
       vkDestroyCommandPool(device_, frame.commandPool, nullptr);
       vkDestroySemaphore(device_, frame.renderSemaphore, nullptr);
-      vkDestroySemaphore(device_, frame.presentSemaphore, nullptr);
+      vkDestroySemaphore(device_, frame.swapchainSemaphore, nullptr);
     }
 
     vkDestroySemaphore(device_, graphicsQueueTimelineSemaphore_, nullptr);
@@ -271,17 +274,6 @@ namespace Fvog
     for (auto view : swapchainImageViews_)
     {
       vkDestroyImageView(device_, view, nullptr);
-    }
-
-    for (const auto& imageAlloc : imageDeletionQueue_)
-    {
-      vkDestroyImageView(device_, imageAlloc.imageView, nullptr);
-      vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
-    }
-
-    for (const auto& bufferAlloc : bufferDeletionQueue_)
-    {
-      vmaDestroyBuffer(allocator_, bufferAlloc.buffer, bufferAlloc.allocation);
     }
 
     vmaDestroyAllocator(allocator_);
@@ -332,12 +324,49 @@ namespace Fvog
                     }
                     return false;
                   });
+
+    std::erase_if(descriptorDeletionQueue_,
+                  [this, value](const DescriptorDeleteInfo& descriptorAlloc)
+                  {
+                    if (value >= descriptorAlloc.frameOfLastUse)
+                    {
+                      switch (descriptorAlloc.handle.type)
+                      {
+                      case ResourceType::STORAGE_BUFFER:
+                        storageBufferDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                        return true;
+                      case ResourceType::COMBINED_IMAGE_SAMPLER:
+                        combinedImageSamplerDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                        return true;
+                      case ResourceType::STORAGE_IMAGE:
+                        storageImageDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                        return true;
+                      case ResourceType::SAMPLED_IMAGE:
+                        sampledImageDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                        return true;
+                      case ResourceType::SAMPLER:
+                        samplerDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                        return true;
+                      case ResourceType::INVALID:
+                      default: assert(0); return true;
+                      }
+                    }
+                    return false;
+                  });
   }
 
-  uint32_t Device::AllocateStorageBufferDescriptor(VkBuffer buffer)
+  Device::DescriptorInfo::~DescriptorInfo()
   {
-    assert(currentStorageBufferDescriptorIndex < maxResourceDescriptors);
-    const auto myIdx = currentStorageBufferDescriptorIndex++;
+    if (handle_.type != ResourceType::INVALID)
+    {
+      device_.descriptorDeletionQueue_.emplace_back(device_.frameNumber, handle_);
+    }
+  }
+
+  Device::DescriptorInfo Device::AllocateStorageBufferDescriptor(VkBuffer buffer)
+  {
+    const auto myIdx = storageBufferDescriptorAllocator.Allocate();
+
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
       .dstSet = descriptorSet_,
@@ -351,13 +380,19 @@ namespace Fvog
         .range = VK_WHOLE_SIZE,
       }),
     }), 0, nullptr);
-    return myIdx;
+
+    return DescriptorInfo{
+      *this,
+      DescriptorInfo::ResourceHandle{
+        ResourceType::STORAGE_BUFFER,
+        myIdx,
+      }};
   }
 
-  uint32_t Device::AllocateCombinedImageSamplerDescriptor(VkSampler sampler, VkImageView imageView, VkImageLayout imageLayout)
+  Device::DescriptorInfo Device::AllocateCombinedImageSamplerDescriptor(VkSampler sampler, VkImageView imageView, VkImageLayout imageLayout)
   {
-    assert(currentCombinedImageSamplerDescriptorIndex < maxResourceDescriptors);
-    const auto myIdx = currentCombinedImageSamplerDescriptorIndex++;
+    const auto myIdx = combinedImageSamplerDescriptorAllocator.Allocate();
+
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
       .dstSet = descriptorSet_,
@@ -371,13 +406,19 @@ namespace Fvog
         .imageLayout = imageLayout,
       })
     }), 0, nullptr);
-    return myIdx;
+
+    return DescriptorInfo{
+      *this,
+      DescriptorInfo::ResourceHandle{
+        ResourceType::COMBINED_IMAGE_SAMPLER,
+        myIdx,
+      }};
   }
 
-  uint32_t Device::AllocateStorageImageDescriptor(VkImageView imageView, VkImageLayout imageLayout)
+  Device::DescriptorInfo Device::AllocateStorageImageDescriptor(VkImageView imageView, VkImageLayout imageLayout)
   {
-    assert(currentStorageImageDescriptorIndex < maxResourceDescriptors);
-    const auto myIdx = currentStorageImageDescriptorIndex++;
+    const auto myIdx = storageImageDescriptorAllocator.Allocate();
+
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
       .dstSet = descriptorSet_,
@@ -390,13 +431,19 @@ namespace Fvog
         .imageLayout = imageLayout,
       })
     }), 0, nullptr);
-    return myIdx;
+
+    return DescriptorInfo{
+      *this,
+      DescriptorInfo::ResourceHandle{
+        ResourceType::STORAGE_IMAGE,
+        myIdx,
+      }};
   }
 
-  uint32_t Device::AllocateSampledImageDescriptor(VkImageView imageView, VkImageLayout imageLayout)
+  Device::DescriptorInfo Device::AllocateSampledImageDescriptor(VkImageView imageView, VkImageLayout imageLayout)
   {
-    assert(currentSampledImageDescriptorIndex < maxResourceDescriptors);
-    const auto myIdx = currentSampledImageDescriptorIndex++;
+    const auto myIdx = sampledImageDescriptorAllocator.Allocate();
+
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
       .dstSet = descriptorSet_,
@@ -409,13 +456,19 @@ namespace Fvog
         .imageLayout = imageLayout,
       })
     }), 0, nullptr);
-    return myIdx;
+
+    return DescriptorInfo{
+      *this,
+      DescriptorInfo::ResourceHandle{
+        ResourceType::SAMPLED_IMAGE,
+        myIdx,
+      }};
   }
 
-  uint32_t Device::AllocateSamplerDescriptor(VkSampler sampler)
+  Device::DescriptorInfo Device::AllocateSamplerDescriptor(VkSampler sampler)
   {
-    assert(currentSamplerDescriptorIndex < maxResourceDescriptors);
-    const auto myIdx = currentSamplerDescriptorIndex++;
+    const auto myIdx = samplerDescriptorAllocator.Allocate();
+
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
       .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
       .dstSet = descriptorSet_,
@@ -427,6 +480,32 @@ namespace Fvog
         .sampler = sampler,
       })
     }), 0, nullptr);
-    return myIdx;
+
+    return DescriptorInfo{
+      *this,
+      DescriptorInfo::ResourceHandle{
+        ResourceType::SAMPLER,
+        myIdx,
+      }};
+  }
+
+  Device::IndexAllocator::IndexAllocator(uint32_t numIndices)
+  {
+    for (auto i : std::ranges::reverse_view(std::views::iota(uint32_t(0), numIndices)))
+    {
+      freeSlots_.push(i);
+    }
+  }
+
+  uint32_t Device::IndexAllocator::Allocate()
+  {
+    const auto index = freeSlots_.top();
+    freeSlots_.pop();
+    return index;
+  }
+
+  void Device::IndexAllocator::Free(uint32_t index)
+  {
+    freeSlots_.push(index);
   }
 } // namespace Fvog

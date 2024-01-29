@@ -49,6 +49,14 @@ namespace Fvog
     ));
 
     mappedMemory_ = allocationInfo.pMappedData;
+
+    if (createInfo.flag == BufferFlagThingy::NONE)
+    {
+      deviceAddress_ = vkGetBufferDeviceAddress(device_.device_, Address(VkBufferDeviceAddressInfo{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .buffer = buffer_,
+      }));
+    }
   }
 
   Buffer::~Buffer()

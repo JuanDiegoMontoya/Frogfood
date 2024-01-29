@@ -30,6 +30,9 @@
 #include <fstream>
 #include <filesystem>
 
+// This is definitely temporary
+#include <stb_image.h>
+
 #ifdef TRACY_ENABLE
 #include <cstdlib>
 void* operator new(std::size_t count)
@@ -350,33 +353,53 @@ void Application::Run()
   static const char* gVertexSource = R"(
 #version 460 core
 
-const vec2 positions[3] = {{-0, -0}, {1, -1}, {1, 1}};
+const vec2 positions[4] = {{-0.5, -0.5}, {0.5, -0.5}, {0.5, 0.5}, {-0.5, 0.5}};
+const vec2 texcoords[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+const uint indices[6] = {0, 2, 1, 0, 3, 2};
+
+layout(location = 0) out vec2 v_texcoord;
 
 void main()
 {
-  gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+  uint index = indices[gl_VertexIndex];
+  v_texcoord = texcoords[index];
+  gl_Position = vec4(positions[index], 0.0, 1.0);
 }
 )";
 
   static const char* gFragmentSource = R"(
 #version 460 core
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_buffer_reference : require
+
+layout(buffer_reference, scalar) buffer ColorBuffer
+{
+  vec4 color;
+};
 
 layout(set = 0, binding = 0) buffer TestBuffers
 {
-  vec4 color;
+  ColorBuffer colorBuffer;
 }buffers[];
 
 layout(push_constant) uniform PushConstants
 {
-  uint index;
+  uint bufferIndex;
+  uint samplerIndex;
 }pushConstants;
 
+layout(set = 0, binding = 1) uniform sampler2D samplers[];
+
+layout(location = 0) in vec2 v_texcoord;
 layout(location = 0) out vec4 o_color;
 
 void main()
 {
-  o_color = buffers[pushConstants.index].color;
+  vec4 bufferColor = buffers[pushConstants.bufferIndex].colorBuffer.color;
+  vec4 samplerColor = texture(samplers[pushConstants.samplerIndex], v_texcoord);
+  samplerColor.a = 1;
+  o_color = bufferColor * samplerColor;
 }
 )";
 
@@ -392,7 +415,7 @@ void main()
         .pPushConstantRanges = Address(VkPushConstantRange{
           .stageFlags = VK_SHADER_STAGE_ALL,
           .offset = 0,
-          .size = 128,
+          .size = 64,
         }),
       }),
       nullptr,
@@ -410,9 +433,63 @@ void main()
   auto testTexture = Fvog::Texture(device_.value(), {
     .imageViewType = VK_IMAGE_VIEW_TYPE_2D,
     .format = VK_FORMAT_B8G8R8A8_SRGB,
-    .extent = {192, 108, 1},
+    .extent = {windowWidth / 10, windowHeight / 10, 1},
     .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
   });
+
+  int x{};
+  int y{};
+  auto* imageData = stbi_load("textures/bluenoise32.png", &x, &y, nullptr, 4);
+  assert(imageData);
+
+  auto testSampledTexture = Fvog::Texture(device_.value(), {
+    .imageViewType = VK_IMAGE_VIEW_TYPE_2D,
+    .format = VK_FORMAT_R8G8B8A8_SRGB,
+    .extent = {(uint32_t)x, (uint32_t)y, 1},
+    .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+  });
+
+  auto testUploadBuffer = Fvog::Buffer(*device_, {.size = uint32_t(x * y * 4), .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE});
+  memcpy(testUploadBuffer.GetMappedMemory(), imageData, x * y * 4);
+
+  stbi_image_free(imageData);
+
+  device_->ImmediateSubmit(
+    [&testSampledTexture, &testUploadBuffer](VkCommandBuffer commandBuffer)
+    {
+      auto ctx = Fvog::Context(commandBuffer);
+      ctx.ImageBarrier(testSampledTexture, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      vkCmdCopyBufferToImage2(commandBuffer, Address(VkCopyBufferToImageInfo2{
+        .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
+        .srcBuffer = testUploadBuffer.Handle(),
+        .dstImage = testSampledTexture.Image(),
+        .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .regionCount = 1,
+        .pRegions = Address(VkBufferImageCopy2{
+          .sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+          .bufferOffset = 0,
+          //.bufferRowLength = testSampledTexture.GetCreateInfo().extent.width * 4,
+          .imageSubresource = VkImageSubresourceLayers{
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .layerCount = 1,
+          },
+          .imageOffset = {},
+          .imageExtent = testSampledTexture.GetCreateInfo().extent,
+        }),
+      }));
+      ctx.ImageBarrier(testSampledTexture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+    });
+
+  auto sampler = VkSampler{};
+  CheckVkResult(vkCreateSampler(device_->device_, Address(VkSamplerCreateInfo{
+    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+    .magFilter = VK_FILTER_NEAREST,
+    .minFilter = VK_FILTER_NEAREST,
+    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+    .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+    .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+    .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+  }), nullptr, &sampler));
 
   // The main loop.
   double prevFrame = glfwGetTime();
@@ -527,9 +604,14 @@ void main()
       .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     })));
 
+    // Holds actual data
     auto testBuffer = Fvog::Buffer(*device_, {.size = sizeof(glm::vec4)});
     const auto testColor = glm::vec4{1.0f, 1.0f, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1.0f};
+
+    // Holds pointer to testBuffer
+    auto testBuffer2 = Fvog::Buffer(*device_, {.size = sizeof(VkDeviceAddress)});
     vkCmdUpdateBuffer(commandBuffer, testBuffer.Handle(), 0, sizeof(testColor), &testColor);
+    vkCmdUpdateBuffer(commandBuffer, testBuffer2.Handle(), 0, sizeof(VkDeviceAddress), &testBuffer.GetDeviceAddress());
 
     ctx.BufferBarrier(testBuffer);
 
@@ -547,10 +629,18 @@ void main()
     });
 
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &device_->descriptorSet_, 0, nullptr);
-    const auto descriptorInfo = device_->AllocateStorageBufferDescriptor(testBuffer.Handle());
-    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(uint32_t), &descriptorInfo.GpuResource().index);
+    struct
+    {
+      uint32_t bufferIndex;
+      uint32_t samplerIndex;
+    }indices{};
+    const auto descriptorInfo = device_->AllocateStorageBufferDescriptor(testBuffer2.Handle());
+    const auto descriptorInfo2 = device_->AllocateCombinedImageSamplerDescriptor(sampler, testSampledTexture.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+    indices.bufferIndex = descriptorInfo.GpuResource().index;
+    indices.samplerIndex = descriptorInfo2.GpuResource().index;
+    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(indices), &indices);
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle());
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdDraw(commandBuffer, 6, 1, 0, 0);
 
     ctx.EndRendering();
     
@@ -573,7 +663,7 @@ void main()
           .baseArrayLayer = 0,
           .layerCount = 1,
         },
-        .srcOffsets = {{}, {(int)windowWidth / 10, (int)windowHeight / 10, 1}},
+        .srcOffsets = {{}, {(int)testTexture.GetCreateInfo().extent.width, (int)testTexture.GetCreateInfo().extent.height, 1}},
         .dstSubresource = VkImageSubresourceLayers{
           .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
           .mipLevel = 0,

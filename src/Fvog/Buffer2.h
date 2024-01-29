@@ -66,10 +66,21 @@ namespace Fvog
       return buffer_;
     }
 
+    [[nodiscard]] void* GetMappedMemory() const noexcept
+    {
+      return mappedMemory_;
+    }
+
+    [[nodiscard]] const VkDeviceAddress& GetDeviceAddress() const noexcept
+    {
+      return deviceAddress_;
+    }
+
   private:
     Device& device_;
     VkBuffer buffer_{};
     VmaAllocation allocation_{};
     void* mappedMemory_{};
+    VkDeviceAddress deviceAddress_{};
   };
 }

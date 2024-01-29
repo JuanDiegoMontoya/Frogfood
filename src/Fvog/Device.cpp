@@ -293,8 +293,17 @@ namespace Fvog
 
     CheckVkResult(vkEndCommandBuffer(immediateSubmitCommandBuffer_));
 
+    vkQueueSubmit2(graphicsQueue_, 1, Address(VkSubmitInfo2{
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+      .commandBufferInfoCount = 1,
+      .pCommandBufferInfos = Address(VkCommandBufferSubmitInfo{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+        .commandBuffer = immediateSubmitCommandBuffer_,
+      }),
+    }), VK_NULL_HANDLE);
+
     // TODO: Horrible sin
-    CheckVkResult(vkDeviceWaitIdle(device_));
+    CheckVkResult(vkQueueWaitIdle(graphicsQueue_));
   }
 
   void Device::FreeUnusedResources()

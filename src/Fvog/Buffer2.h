@@ -2,7 +2,6 @@
 
 #include "Device.h"
 
-#define VK_NO_PROTOTYPES
 #include <vulkan/vulkan_core.h>
 
 #include <Fwog/Buffer.h>
@@ -76,11 +75,38 @@ namespace Fvog
       return deviceAddress_;
     }
 
+    [[nodiscard]] BufferCreateInfo GetCreateInfo() const noexcept
+    {
+      return createInfo_;
+    }
+
   private:
     Device& device_;
+    BufferCreateInfo createInfo_{};
     VkBuffer buffer_{};
     VmaAllocation allocation_{};
     void* mappedMemory_{};
     VkDeviceAddress deviceAddress_{};
+  };
+
+  // Consists of N staging buffers for upload and one device buffer
+  // Use for buffers that need to be uploaded every frame
+  class NDeviceBuffer
+  {
+  public:
+    NDeviceBuffer(Device& device, VkDeviceSize size);
+
+    // Only call within a command buffer, once per frame
+    void UpdateData(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes = 0);
+
+    Buffer& GetDeviceBuffer()
+    {
+      return deviceBuffer_;
+    }
+
+  private:
+    Device& device_;
+    Buffer hostStagingBuffers_[Device::frameOverlap];
+    Buffer deviceBuffer_;
   };
 }

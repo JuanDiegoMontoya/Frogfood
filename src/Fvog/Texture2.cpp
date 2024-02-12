@@ -1,4 +1,5 @@
 #include "Texture2.h"
+#include "Device.h"
 #include "detail/Common.h"
 #include "detail/ApiToEnum2.h"
 
@@ -8,6 +9,11 @@
 
 namespace Fvog
 {
+  Sampler::Sampler(Device& device, const SamplerCreateInfo& samplerState)
+    : Sampler(device.samplerCache_.CreateOrGetCachedTextureSampler(samplerState))
+  {
+  }
+
   Texture::Texture(Device& device, const TextureCreateInfo& createInfo, std::string_view /*name*/)
     : device_(device),
       createInfo_(createInfo)

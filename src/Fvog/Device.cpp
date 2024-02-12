@@ -12,7 +12,8 @@ namespace Fvog
 {
   Device::Device(vkb::Instance& instance, VkSurfaceKHR surface)
     : instance_(instance),
-      surface_(surface)
+      surface_(surface),
+      samplerCache_(this)
   {
     using namespace detail;
     auto selector = vkb::PhysicalDeviceSelector{instance_};
@@ -92,6 +93,7 @@ namespace Fvog
         .shaderIntegerDotProduct = true,
         .maintenance4 = true,
       })
+      .add_required_extension("VK_KHR_dynamic_rendering") // Needed for Dear ImGui's default Vulkan backend
       .select()
       .value();
     

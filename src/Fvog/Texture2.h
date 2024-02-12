@@ -1,14 +1,59 @@
 #pragma once
 
-#include "Device.h"
-
-#define VK_NO_PROTOTYPES
 #include <vulkan/vulkan_core.h>
 
 #include <string_view>
 
+typedef struct VmaAllocation_T* VmaAllocation;
+
 namespace Fvog
 {
+  class Device;
+
+  namespace detail
+  {
+    class SamplerCache;
+  }
+
+  struct SamplerCreateInfo
+  {
+    VkFilter magFilter = VK_FILTER_NEAREST;
+    VkFilter minFilter = VK_FILTER_NEAREST;
+    VkSamplerMipmapMode mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    VkSamplerAddressMode addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    VkSamplerAddressMode addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    VkSamplerAddressMode addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    float mipLodBias = 0;
+    float maxAnisotropy = 0;
+    VkBool32 compareEnable = VK_FALSE;
+    VkCompareOp compareOp = VK_COMPARE_OP_NEVER;
+    float minLod = -1000;
+    float maxLod = 1000;
+    VkBorderColor borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+
+    bool operator==(const SamplerCreateInfo&) const noexcept = default;
+  };
+
+  class Sampler
+  {
+  public:
+    explicit Sampler(Device& device, const SamplerCreateInfo& samplerState);
+
+    /// @brief Gets the handle of the underlying OpenGL sampler object
+    /// @return The sampler
+    [[nodiscard]] VkSampler Handle() const
+    {
+      return sampler_;
+    }
+
+  private:
+    friend class detail::SamplerCache;
+    //Sampler() = default; // you cannot create samplers out of thin air
+    explicit Sampler(VkSampler sampler) : sampler_(sampler) {}
+    
+    VkSampler sampler_{};
+  };
+
   struct TextureCreateInfo
   {
     VkImageViewType imageViewType = {};

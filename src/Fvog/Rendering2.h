@@ -2,7 +2,6 @@
 
 #include "BasicTypes2.h"
 
-#define VK_NO_PROTOTYPES
 #include <vulkan/vulkan_core.h>
 
 #include <array>

@@ -93,6 +93,7 @@ protected:
   VkSurfaceKHR surface_{};
   VkCommandPool tracyCommandPool_{};
   VkCommandBuffer tracyCommandBuffer_{};
+  VkDescriptorPool imguiDescriptorPool_{};
   //tracy::VkCtx* tracyVkContext_{};
   GLFWwindow* window;
   View mainCamera{};

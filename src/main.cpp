@@ -71,17 +71,16 @@
 #include <iostream>
 #include <stdexcept>
 
-#define VK_NO_PROTOTYPES
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
-#include "Application.h"
+#include "FrogRenderer2.h"
 
 int main()
 {
   ZoneScoped;
   
-  auto app = Application({
+  auto app = FrogRenderer2({
     .name = "FrogRender",
     .vsync = true,
   });

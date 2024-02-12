@@ -48,6 +48,11 @@ add_executable(frogRender
     src/Fvog/detail/ApiToEnum2.cpp
     src/Fvog/Buffer2.h
     src/Fvog/Buffer2.cpp
+    src/FrogRenderer2.h
+    src/FrogRenderer2.cpp
+    src/Fvog/detail/SamplerCache2.h
+    src/Fvog/detail/SamplerCache2.cpp
+    src/Fvog/detail/Hash2.h
 )
 
 target_compile_options(frogRender
@@ -126,7 +131,7 @@ target_link_libraries(frogRender
 )
 add_dependencies(frogRender copy_shaders copy_models copy_textures copy_config)
 
-target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES)
 
 if (MSVC)
     target_compile_definitions(frogRender PUBLIC STBI_MSC_SECURE_CRT)

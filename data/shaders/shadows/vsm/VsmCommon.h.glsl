@@ -1,4 +1,4 @@
-// #version 450 core
+//? #version 450 core
 // #extension GL_GOOGLE_include_directive : enable
 #ifndef VSM_COMMON_H
 #define VSM_COMMON_H

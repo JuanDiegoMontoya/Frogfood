@@ -1,6 +1,5 @@
 #include "Application.h"
 
-#define VK_NO_PROTOTYPES
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <volk.h>
@@ -15,7 +14,7 @@
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
-//#include <imgui_impl_vulkan.h>
+#include <imgui_impl_vulkan.h>
 #include <implot.h>
 
 #include <glm/gtc/constants.hpp>
@@ -152,12 +151,12 @@ std::pair<std::unique_ptr<std::byte[]>, std::size_t> Application::LoadBinaryFile
 }
 
 template<class T>
-[[nodiscard]] T* Address(T&& v)
+static [[nodiscard]] T* Address(T&& v)
 {
   return std::addressof(v);
 }
 
-void CheckVkResult(VkResult result)
+static void CheckVkResult(VkResult result)
 {
   // TODO: don't throw for certain non-success codes (since they aren't always errors)
   if (result != VK_SUCCESS)
@@ -286,10 +285,40 @@ Application::Application(const CreateInfo& createInfo)
   destroyList_.Push([] { ImGui::DestroyContext(); });
   ImPlot::CreateContext();
   destroyList_.Push([] { ImPlot::DestroyContext(); });
-  //ImGui_ImplGlfw_InitForOpenGL(window, true); // TODO
-  //ImGui_ImplOpenGL3_Init(); // TODO
+  ImGui_ImplGlfw_InitForVulkan(window, true);
+  destroyList_.Push([] { ImGui_ImplGlfw_Shutdown(); });
+
+  // ImGui may create many sets, but each will only have one combined image sampler
+  vkCreateDescriptorPool(device_->device_, Address(VkDescriptorPoolCreateInfo{
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+    .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+    .maxSets = 1234, // TODO: make this constant a variable
+    .poolSizeCount = 1,
+    .pPoolSizes = Address(VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1}),
+  }), nullptr, &imguiDescriptorPool_);
+
+  auto imguiVulkanInitInfo = ImGui_ImplVulkan_InitInfo{
+    .Instance = instance_,
+    .PhysicalDevice = device_->physicalDevice_,
+    .Device = device_->device_,
+    .QueueFamily = device_->graphicsQueueFamilyIndex_,
+    .Queue = device_->graphicsQueue_,
+    .DescriptorPool = imguiDescriptorPool_,
+    .MinImageCount = device_->swapchain_.image_count,
+    .ImageCount = device_->swapchain_.image_count,
+    .UseDynamicRendering = true,
+    .ColorAttachmentFormat = device_->swapchain_.image_format,
+    .CheckVkResultFn = CheckVkResult,
+  };
+
+  ImGui_ImplVulkan_LoadFunctions([](const char *functionName, void *vulkanInstance) {
+    return vkGetInstanceProcAddr(*static_cast<VkInstance*>(vulkanInstance), functionName);
+  }, &instance_.instance);
+  ImGui_ImplVulkan_Init(&imguiVulkanInitInfo, VK_NULL_HANDLE);
   ImGui::StyleColorsDark();
   ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+  device_->ImmediateSubmit([](VkCommandBuffer commandBuffer) { ImGui_ImplVulkan_CreateFontsTexture(commandBuffer); });
 }
 
 Application::~Application()
@@ -299,11 +328,8 @@ Application::~Application()
   // Destroying a command pool implicitly frees command buffers allocated from it
   vkDestroyCommandPool(device_->device_, tracyCommandPool_, nullptr);
 
-
-  //ImGui_ImplOpenGL3_Shutdown(); // TODO
-  //ImGui_ImplGlfw_Shutdown(); // TODO
-  //ImPlot::DestroyContext();
-  //ImGui::DestroyContext();
+  // Must happen before device is destroyed, thus cannot go in the destroy list
+  ImGui_ImplVulkan_Shutdown();
 }
 
 void Application::Draw(double dt)
@@ -311,9 +337,9 @@ void Application::Draw(double dt)
   ZoneScoped;
 
   // Start a new ImGui frame
-  //ImGui_ImplOpenGL3_NewFrame(); // TODO
-  //ImGui_ImplGlfw_NewFrame();
-  //ImGui::NewFrame();
+  ImGui_ImplVulkan_NewFrame();
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
 
   if (windowWidth > 0 && windowHeight > 0)
   {
@@ -325,15 +351,15 @@ void Application::Draw(double dt)
   // A frame marker is inserted to distinguish ImGui rendering from the application's in a debugger.
   {
     ZoneScopedN("Draw UI");
-    //ImGui::Render();
-    //auto* drawData = ImGui::GetDrawData();
-    //if (drawData->CmdListsCount > 0)
+    ImGui::Render();
+    auto* drawData = ImGui::GetDrawData();
+    if (drawData->CmdListsCount > 0)
     {
-      // TODO
       //auto marker = Fwog::ScopedDebugMarker("Draw GUI");
       //glDisable(GL_FRAMEBUFFER_SRGB);
       //glBindFramebuffer(GL_FRAMEBUFFER, 0);
       //ImGui_ImplOpenGL3_RenderDrawData(drawData);
+      //device_->ImmediateSubmit([drawData](VkCommandBuffer commandBuffer) { ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer); });
     }
   }
 
@@ -491,6 +517,8 @@ void main()
     .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
   }), nullptr, &sampler));
 
+  auto updatedBuffer = Fvog::NDeviceBuffer(*device_, sizeof(glm::vec4));
+
   // The main loop.
   double prevFrame = glfwGetTime();
   while (!glfwWindowShouldClose(window))
@@ -565,8 +593,6 @@ void main()
     // Call the application's overriden functions each frame.
     OnUpdate(dt);
 
-    Draw(dt);
-
     device_->frameNumber++;
     auto& currentFrameData = device_->GetCurrentFrameData();
 
@@ -605,15 +631,16 @@ void main()
     })));
 
     // Holds actual data
-    auto testBuffer = Fvog::Buffer(*device_, {.size = sizeof(glm::vec4)});
+    //auto testBuffer = Fvog::Buffer(*device_, {.size = sizeof(glm::vec4)});
     const auto testColor = glm::vec4{1.0f, 1.0f, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1.0f};
 
     // Holds pointer to testBuffer
     auto testBuffer2 = Fvog::Buffer(*device_, {.size = sizeof(VkDeviceAddress)});
-    vkCmdUpdateBuffer(commandBuffer, testBuffer.Handle(), 0, sizeof(testColor), &testColor);
-    vkCmdUpdateBuffer(commandBuffer, testBuffer2.Handle(), 0, sizeof(VkDeviceAddress), &testBuffer.GetDeviceAddress());
+    updatedBuffer.UpdateData(commandBuffer, testColor);
+    //vkCmdUpdateBuffer(commandBuffer, testBuffer.Handle(), 0, sizeof(testColor), &testColor);
+    vkCmdUpdateBuffer(commandBuffer, testBuffer2.Handle(), 0, sizeof(VkDeviceAddress), &updatedBuffer.GetDeviceBuffer().GetDeviceAddress());
 
-    ctx.BufferBarrier(testBuffer);
+    ctx.BufferBarrier(updatedBuffer.GetDeviceBuffer());
 
     ctx.ImageBarrier(testTexture, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
@@ -643,7 +670,7 @@ void main()
     vkCmdDraw(commandBuffer, 6, 1, 0, 0);
 
     ctx.EndRendering();
-    
+
     ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
     ctx.ImageBarrier(testTexture, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -675,7 +702,33 @@ void main()
       .filter = VK_FILTER_NEAREST,
     }));
     
-    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    vkCmdBeginRendering(commandBuffer, Address(VkRenderingInfo{
+      .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+      .renderArea = {{}, {windowWidth, windowHeight}},
+      .layerCount = 1,
+      .colorAttachmentCount = 1,
+      .pColorAttachments = Address(VkRenderingAttachmentInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView = device_->swapchainImageViews_[swapchainImageIndex],
+        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+      })
+    }));
+    // TDOO: temp crap since Draw() doesn't have the cmdbuf
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    OnGui(dt);
+    ImGui::Render();
+    auto* drawData = ImGui::GetDrawData();
+    ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
+    // Draw(dt);
+    vkCmdEndRendering(commandBuffer);
+
+    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     // End recording
     CheckVkResult(vkEndCommandBuffer(commandBuffer));
@@ -730,6 +783,8 @@ void main()
 
   vkDeviceWaitIdle(device_->device_);
 
+  vkDestroyDescriptorPool(device_->device_, imguiDescriptorPool_, nullptr);
+  vkDestroySampler(device_->device_, sampler, nullptr);
   vkDestroyPipelineLayout(device_->device_, pipelineLayout, nullptr);
 }
 

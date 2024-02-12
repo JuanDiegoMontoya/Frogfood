@@ -27,6 +27,7 @@ namespace Fvog
 
     TBuiltInResource GetGlslangResourceLimits()
     {
+      // TODO: populate this structure with actual device limits
       return {
         .maxLights = 32,
         .maxClipPlanes = 6,

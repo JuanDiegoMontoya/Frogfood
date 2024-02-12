@@ -134,15 +134,18 @@ if(NOT imgui_POPULATED)
         ${imgui_SOURCE_DIR}/imgui_draw.cpp
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_SOURCE_DIR}/imgui_tables.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+        #${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp)
 
     target_include_directories(lib_imgui PUBLIC 
         ${imgui_SOURCE_DIR} 
         ${imgui_SOURCE_DIR}/backends
+        ${Vulkan_INCLUDE_DIRS}
         ${glfw_SOURCE_DIR}/include)
 
-    target_link_libraries(lib_imgui PRIVATE glfw)
+    target_compile_definitions(lib_imgui PRIVATE VK_NO_PROTOTYPES)
+    target_link_libraries(lib_imgui PRIVATE glfw volk::volk)
 endif()
 
 FetchContent_GetProperties(implot)

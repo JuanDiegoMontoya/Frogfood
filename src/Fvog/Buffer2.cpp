@@ -8,7 +8,8 @@
 namespace Fvog
 {
   Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo)
-    : device_(device)
+    : device_(device),
+      createInfo_(createInfo)
   {
     using namespace detail;
     constexpr auto usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
@@ -66,4 +67,38 @@ namespace Fvog
       device_.bufferDeletionQueue_.emplace_back(device_.frameNumber, allocation_, buffer_);
     }
   }
-}
+
+  NDeviceBuffer::NDeviceBuffer(Device& device, VkDeviceSize size)
+    : device_(device),
+      hostStagingBuffers_{
+        // TODO: create a helper for initializing this array so it doesn't fail to compile when Device::frameOverlap changes
+        {Buffer(device, BufferCreateInfo{.size = size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE})},
+        {Buffer(device, BufferCreateInfo{.size = size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE})},
+      },
+      deviceBuffer_(device, BufferCreateInfo{.size = size})
+  {
+  }
+
+
+  void NDeviceBuffer::UpdateData(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes)
+  {
+    // Overwrite some memory in a host-visible buffer, then copy it to the device buffer when the command buffer executes
+    auto& stagingBuffer = hostStagingBuffers_[device_.frameNumber % Device::frameOverlap];
+    assert(data.size_bytes() + destOffsetBytes <= stagingBuffer.GetCreateInfo().size);
+    void* ptr = stagingBuffer.GetMappedMemory();
+    memcpy((char*)ptr + destOffsetBytes, data.data(), data.size_bytes());
+
+    vkCmdCopyBuffer2(commandBuffer, detail::Address(VkCopyBufferInfo2{
+      .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+      .srcBuffer = stagingBuffer.Handle(),
+      .dstBuffer = deviceBuffer_.Handle(),
+      .regionCount = 1,
+      .pRegions = detail::Address(VkBufferCopy2{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+        .srcOffset = destOffsetBytes, // The 'dest' offset applies to both buffers
+        .dstOffset = destOffsetBytes,
+        .size = data.size_bytes(),
+      }),
+    }));
+  }
+} // namespace Fvog

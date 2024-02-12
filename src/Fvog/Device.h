@@ -1,7 +1,8 @@
 #pragma once
 
-#define VK_NO_PROTOTYPES
 #include <vulkan/vulkan_core.h>
+
+#include "detail/SamplerCache2.h"
 
 // TODO: temp until vkb stops including vulkan.h
 #define WIN32_LEAN_AND_MEAN
@@ -174,5 +175,7 @@ namespace Fvog
     };
 
     std::deque<DescriptorDeleteInfo> descriptorDeletionQueue_;
+
+    detail::SamplerCache samplerCache_;
   };
 }

@@ -14,6 +14,7 @@
 #include <utility>
 #include <span>
 #include <functional>
+#include <optional>
 
 #include <glm/gtx/transform.hpp>
 #include <glm/vec3.hpp>

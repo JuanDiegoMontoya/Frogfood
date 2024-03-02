@@ -9,24 +9,24 @@ layout (location = 3) out vec3 o_objectSpacePos;
 
 void main()
 {
-  const uint meshletId = (uint(gl_VertexID) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
-  const uint primitiveId = uint(gl_VertexID) & MESHLET_PRIMITIVE_MASK;
-  const uint vertexOffset = meshlets[meshletId].vertexOffset;
-  const uint indexOffset = meshlets[meshletId].indexOffset;
-  const uint primitiveOffset = meshlets[meshletId].primitiveOffset;
-  const uint instanceId = meshlets[meshletId].instanceId;
+  const uint meshletId = (uint(gl_VertexIndex) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
+  const uint primitiveId = uint(gl_VertexIndex) & MESHLET_PRIMITIVE_MASK;
+  const uint vertexOffset = d_meshlets[meshletId].vertexOffset;
+  const uint indexOffset = d_meshlets[meshletId].indexOffset;
+  const uint primitiveOffset = d_meshlets[meshletId].primitiveOffset;
+  const uint instanceId = d_meshlets[meshletId].instanceId;
   
-  const uint primitive = uint(primitives[primitiveOffset + primitiveId]);
-  const uint index = indices[indexOffset + primitive];
-  const Vertex vertex = vertices[vertexOffset + index];
+  const uint primitive = uint(d_primitives[primitiveOffset + primitiveId]);
+  const uint index = d_indices[indexOffset + primitive];
+  const Vertex vertex = d_vertices[vertexOffset + index];
   const vec3 position = PackedToVec3(vertex.position);
   const vec2 uv = PackedToVec2(vertex.uv);
-  const mat4 transform = transforms[instanceId].modelCurrent;
+  const mat4 transform = d_transforms[instanceId].modelCurrent;
 
   o_meshletId = meshletId;
   o_primitiveId = primitiveId / 3;
   o_uv = uv;
   o_objectSpacePos = position;
 
-  gl_Position = perFrameUniforms.viewProj * transform * vec4(position, 1.0);
+  gl_Position = d_perFrameUniforms.viewProj * transform * vec4(position, 1.0);
 }

@@ -61,10 +61,6 @@ FetchContent_Declare(
     SYSTEM
 )
 
-if (WIN32)
-    # Make Volk include compatibility header instead of Windows.h, which is slow to compile
-    set(VOLK_STATIC_DEFINES VK_USE_PLATFORM_WIN32_KHR)
-endif()
 FetchContent_Declare(
     volk
     GIT_REPOSITORY https://github.com/zeux/volk.git
@@ -114,7 +110,7 @@ endif()
 FetchContent_Declare(
     tracy
     GIT_REPOSITORY  https://github.com/wolfpld/tracy.git
-    GIT_TAG         v0.9.1
+    GIT_TAG         v0.10
 )
 
 option(TRACY_ENABLE "Enable profiling" ON)

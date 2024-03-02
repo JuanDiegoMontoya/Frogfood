@@ -183,6 +183,8 @@ namespace Fvog
         throw std::runtime_error("rip");
       }
 
+      program.buildReflection();
+
       ShaderInfo info;
 
       // TODO: task/mesh stages

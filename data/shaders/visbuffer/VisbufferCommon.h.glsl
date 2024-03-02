@@ -1,20 +1,11 @@
+//? #version 450
 #ifndef VISBUFFER_COMMON_H
 #define VISBUFFER_COMMON_H
 
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_shader_explicit_arithmetic_types : enable
-#extension GL_NV_gpu_shader5 : enable
-#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_shader_8bit_storage : require
 
-// On modern AMD platforms, this extension is implicitly supported.
-// On all NV platforms, GL_NV_gpu_shader5 is sufficient to non-uniformly index sampler arrays.
-// On older AMD or Intel platforms, another solution (such as a manual waterfall loop) should be used.
-#ifdef GL_EXT_nonuniform_qualifier
-#define NonUniformIndex(x) nonuniformEXT(x)
-#else
-#define NonUniformIndex(x) (x)
-#endif
-
+#include "../Resources.h.glsl"
 #include "../BasicTypes.h.glsl"
 #include "../Utility.h.glsl"
 #include "../GlobalUniforms.h.glsl"
@@ -83,29 +74,85 @@ struct GpuMaterial
   vec4 baseColorFactor;
   vec3 emissiveFactor;
   float emissiveStrength;
-  uvec2 baseColorTextureHandle;
+  uint baseColorTextureIndex;
   float normalXyScale;
 };
 
-layout (std430, binding = 0) restrict readonly buffer MeshletDataBuffer
+FVOG_DECLARE_ARGUMENTS(PushConstants)
+{
+  // Common
+  FVOG_UINT32 globalUniformsIndex;
+  FVOG_UINT32 meshletDataIndex;
+  FVOG_UINT32 meshletPrimitivesIndex;
+  FVOG_UINT32 meshletVerticesIndex;
+  FVOG_UINT32 meshletIndicesIndex;
+  FVOG_UINT32 transformsIndex;
+  FVOG_UINT32 indirectDrawIndex;
+  FVOG_UINT32 materialsIndex;
+  FVOG_UINT32 viewIndex;
+
+  // CullMeshlets.comp
+  FVOG_UINT32 hzbIndex;
+  FVOG_UINT32 hzbSamplerIndex;
+  FVOG_UINT32 cullTrianglesDispatchIndex;
+
+  // CullMeshlets.comp and CullTriangles.comp
+  FVOG_UINT32 visibleMeshletsIndex;
+
+  // CullTriangles.comp
+  FVOG_UINT32 indexBufferIndex;
+
+  // Visbuffer.frag
+  FVOG_UINT32 materialSamplerIndex;
+  
+  // VisbufferMaterialDepth.frag
+  FVOG_UINT32 visbufferIndex;
+
+  // VisbufferResolve.frag
+  FVOG_UINT32 baseColorIndex;
+  FVOG_UINT32 metallicRoughnessIndex;
+  FVOG_UINT32 normalIndex;
+  FVOG_UINT32 occlusionIndex;
+  FVOG_UINT32 emissionIndex;
+
+  // Debug
+  FVOG_UINT32 debugAabbBufferIndex;
+  FVOG_UINT32 debugRectBufferIndex;
+};
+
+#define d_perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
+
+//layout (std430, binding = 0) restrict readonly buffer MeshletDataBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletDataBuffer)
 {
   Meshlet meshlets[];
-};
+}MeshletDataBuffers[];
 
-layout (std430, binding = 1) restrict readonly buffer MeshletPrimitiveBuffer
+#define d_meshlets MeshletDataBuffers[meshletDataIndex].meshlets
+
+//layout (std430, binding = 1) restrict readonly buffer MeshletPrimitiveBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletPrimitiveBuffer)
 {
   uint8_t primitives[];
-};
+}MeshletPrimitiveBuffers[];
 
-layout (std430, binding = 2) restrict readonly buffer MeshletVertexBuffer
+#define d_primitives MeshletPrimitiveBuffers[meshletPrimitivesIndex].primitives
+
+//layout (std430, binding = 2) restrict readonly buffer MeshletVertexBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletVertexBuffer)
 {
   Vertex vertices[];
-};
+}MeshletVertexBuffers[];
 
-layout (std430, binding = 3) restrict readonly buffer MeshletIndexBuffer
+#define d_vertices MeshletVertexBuffers[meshletVerticesIndex].vertices
+
+//layout (std430, binding = 3) restrict readonly buffer MeshletIndexBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletIndexBuffer)
 {
   uint indices[];
-};
+}MeshletIndexBuffers[];
+
+#define d_indices MeshletIndexBuffers[meshletIndicesIndex].indices
 
 struct ObjectUniforms
 {
@@ -113,24 +160,36 @@ struct ObjectUniforms
   mat4 modelCurrent;
 };
 
-layout (std430, binding = 4) restrict readonly buffer TransformBuffer
+//layout (std430, binding = 4) restrict readonly buffer TransformBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly TransformBuffer)
 {
   ObjectUniforms transforms[];
-};
+}TransformBuffers[];
 
-layout (std430, binding = 6) restrict buffer IndirectDrawCommand
+#define d_transforms TransformBuffers[transformsIndex].transforms
+
+//layout (std430, binding = 6) restrict buffer IndirectDrawCommand
+FVOG_DECLARE_STORAGE_BUFFERS(restrict IndirectDrawCommand)
 {
   DrawElementsIndirectCommand indirectCommand;
-};
+}IndirectDrawCommands[];
 
-layout (std140, binding = 7) restrict readonly buffer MaterialBuffer
+#define d_indirectCommand IndirectDrawCommands[indirectDrawIndex].indirectCommand
+
+//layout (std140, binding = 7) restrict readonly buffer MaterialBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MaterialBuffer)
 {
   GpuMaterial materials[];
-};
+}MaterialBuffers[];
 
-layout (std140, binding = 8) restrict readonly buffer ViewBuffer
+#define d_materials MaterialBuffers[materialsIndex].materials
+
+//layout (std140, binding = 8) restrict readonly buffer ViewBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ViewBuffer)
 {
   View currentView;
-};
+}ViewBuffers[];
+
+#define d_currentView ViewBuffers[viewIndex].currentView
 
 #endif // VISBUFFER_COMMON_H

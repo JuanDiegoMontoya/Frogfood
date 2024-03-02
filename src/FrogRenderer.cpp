@@ -438,7 +438,7 @@ void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
     });
 }
 
-void FrogRenderer::OnRender([[maybe_unused]] double dt)
+void FrogRenderer::OnRender([[maybe_unused]] double dt, VkCommandBuffer, uint32_t)
 {
   ZoneScoped;
   accumTimes.Push(accumTime += dt);

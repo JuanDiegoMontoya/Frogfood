@@ -5,10 +5,13 @@
 #include <volk.h>
 #include <vk_mem_alloc.h>
 
+#include <cstddef>
+#include <utility>
+
 namespace Fvog
 {
   Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo)
-    : device_(device),
+    : device_(&device),
       createInfo_(createInfo)
   {
     using namespace detail;
@@ -33,7 +36,7 @@ namespace Fvog
 
     auto allocationInfo = VmaAllocationInfo{};
     CheckVkResult(vmaCreateBuffer(
-      device_.allocator_,
+      device_->allocator_,
       Address(VkBufferCreateInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = createInfo.size,
@@ -53,7 +56,7 @@ namespace Fvog
 
     if (createInfo.flag == BufferFlagThingy::NONE)
     {
-      deviceAddress_ = vkGetBufferDeviceAddress(device_.device_, Address(VkBufferDeviceAddressInfo{
+      deviceAddress_ = vkGetBufferDeviceAddress(device_->device_, Address(VkBufferDeviceAddressInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
         .buffer = buffer_,
       }));
@@ -64,34 +67,39 @@ namespace Fvog
   {
     if (buffer_ != VK_NULL_HANDLE)
     {
-      device_.bufferDeletionQueue_.emplace_back(device_.frameNumber, allocation_, buffer_);
+      device_->bufferDeletionQueue_.emplace_back(device_->frameNumber, allocation_, buffer_);
     }
   }
 
-  NDeviceBuffer::NDeviceBuffer(Device& device, VkDeviceSize size)
-    : device_(device),
-      hostStagingBuffers_{
-        // TODO: create a helper for initializing this array so it doesn't fail to compile when Device::frameOverlap changes
-        {Buffer(device, BufferCreateInfo{.size = size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE})},
-        {Buffer(device, BufferCreateInfo{.size = size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE})},
-      },
-      deviceBuffer_(device, BufferCreateInfo{.size = size})
+  Buffer::Buffer(Buffer&& old) noexcept
+    : device_(std::exchange(old.device_, nullptr)),
+      createInfo_(std::exchange(old.createInfo_, {})),
+      buffer_(std::exchange(old.buffer_, VK_NULL_HANDLE)),
+      allocation_(std::exchange(old.allocation_, nullptr)),
+      mappedMemory_(std::exchange(old.mappedMemory_, nullptr)),
+      deviceAddress_(std::exchange(old.deviceAddress_, 0))
   {
   }
 
+  Buffer& Buffer::operator=(Buffer&& old) noexcept
+  {
+    if (&old == this)
+      return *this;
+    this->~Buffer();
+    return *new (this) Buffer(std::move(old));
+  }
 
-  void NDeviceBuffer::UpdateData(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes)
+  void Buffer::UpdateDataGeneric(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes, Buffer& stagingBuffer, Buffer& deviceBuffer)
   {
     // Overwrite some memory in a host-visible buffer, then copy it to the device buffer when the command buffer executes
-    auto& stagingBuffer = hostStagingBuffers_[device_.frameNumber % Device::frameOverlap];
     assert(data.size_bytes() + destOffsetBytes <= stagingBuffer.GetCreateInfo().size);
     void* ptr = stagingBuffer.GetMappedMemory();
-    memcpy((char*)ptr + destOffsetBytes, data.data(), data.size_bytes());
+    memcpy(static_cast<std::byte*>(ptr) + destOffsetBytes, data.data(), data.size_bytes());
 
     vkCmdCopyBuffer2(commandBuffer, detail::Address(VkCopyBufferInfo2{
       .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
       .srcBuffer = stagingBuffer.Handle(),
-      .dstBuffer = deviceBuffer_.Handle(),
+      .dstBuffer = deviceBuffer.Handle(),
       .regionCount = 1,
       .pRegions = detail::Address(VkBufferCopy2{
         .sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2,

@@ -38,10 +38,8 @@ namespace Fvog
   {
   public:
     explicit Sampler(Device& device, const SamplerCreateInfo& samplerState);
-
-    /// @brief Gets the handle of the underlying OpenGL sampler object
-    /// @return The sampler
-    [[nodiscard]] VkSampler Handle() const
+    
+    [[nodiscard]] VkSampler Handle() const noexcept
     {
       return sampler_;
     }
@@ -68,34 +66,39 @@ namespace Fvog
   class Texture
   {
   public:
-    Texture(Device& device, const TextureCreateInfo& createInfo, std::string_view name = {});
+    // Verbose constructor
+    explicit Texture(Device& device, const TextureCreateInfo& createInfo, std::string_view name = {});
     ~Texture();
 
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
-    Texture(Texture&&) noexcept; // TODO
-    Texture& operator=(Texture&&) noexcept; // TODO
+    Texture(Texture&&) noexcept;
+    Texture& operator=(Texture&&) noexcept;
 
-    [[nodiscard]] VkImage Image() const
+    [[nodiscard]] VkImage Image() const noexcept
     {
       return image_;
     }
 
-    [[nodiscard]] VkImageView ImageView() const
+    [[nodiscard]] VkImageView ImageView() const noexcept
     {
       return imageView_;
     }
 
-    [[nodiscard]] TextureCreateInfo GetCreateInfo() const
+    [[nodiscard]] TextureCreateInfo GetCreateInfo() const noexcept
     {
       return createInfo_;
     }
 
   private:
-    Device& device_;
-    TextureCreateInfo createInfo_;
-    VkImage image_;
-    VkImageView imageView_;
-    VmaAllocation allocation_;
+    Device* device_{};
+    TextureCreateInfo createInfo_{};
+    VkImage image_{};
+    VkImageView imageView_{};
+    VmaAllocation allocation_{};
   };
+
+  // convenience functions
+  Texture CreateTexture2D(Device& device, VkExtent2D size, VkFormat format, VkImageUsageFlags usage, std::string_view name = "");
+  Texture CreateTexture2DMip(Device& device, VkExtent2D size, VkFormat format, uint32_t mipLevels, VkImageUsageFlags usage, std::string_view name = "");
 }

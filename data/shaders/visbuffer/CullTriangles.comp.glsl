@@ -4,17 +4,23 @@
 #include "VisbufferCommon.h.glsl"
 #include "../Math.h.glsl"
 #include "../debug/DebugCommon.h.glsl"
-#include "../shadows/vsm/VsmCommon.h.glsl"
+//#include "../shadows/vsm/VsmCommon.h.glsl"
 
-layout(std430, binding = 9) restrict buffer MeshletVisbilityBuffer
+//layout(std430, binding = 9) restrict buffer MeshletVisbilityBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletVisbilityBuffer)
 {
   uint indices[];
-} visibleMeshlets;
+} visibleMeshletsBuffers[];
 
-layout (std430, binding = 7) writeonly buffer MeshletPackedBuffer
+#define d_visibleMeshlets visibleMeshletsBuffers[visibleMeshletsIndex]
+
+//layout (std430, binding = 7) writeonly buffer MeshletPackedBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(writeonly MeshletPackedBuffer)
 {
   uint data[];
-} indexBuffer;
+} indexBuffers[];
+
+#define d_indexBuffer indexBuffers[indexBufferIndex]
 
 shared uint sh_baseIndex;
 shared uint sh_primitivesPassed;
@@ -83,7 +89,7 @@ bool CullSmallPrimitive(vec2 vertices[3], vec2 viewportExtent)
 bool CullTriangle(Meshlet meshlet, uint localId)
 {
   // Skip if no culling flags are enabled
-  if ((perFrameUniforms.flags & (CULL_PRIMITIVE_BACKFACE | CULL_PRIMITIVE_FRUSTUM | CULL_PRIMITIVE_SMALL | CULL_PRIMITIVE_VSM)) == 0)
+  if ((perFrameUniformsBuffers[globalUniformsIndex].flags & (CULL_PRIMITIVE_BACKFACE | CULL_PRIMITIVE_FRUSTUM | CULL_PRIMITIVE_SMALL | CULL_PRIMITIVE_VSM)) == 0)
   {
     return true;
   }
@@ -94,15 +100,15 @@ bool CullTriangle(Meshlet meshlet, uint localId)
   const uint vertexOffset = meshlet.vertexOffset;
   const uint indexOffset = meshlet.indexOffset;
   const uint primitiveOffset = meshlet.primitiveOffset;
-  const uint primitive0 = uint(primitives[primitiveOffset + primitiveId + 0]);
-  const uint primitive1 = uint(primitives[primitiveOffset + primitiveId + 1]);
-  const uint primitive2 = uint(primitives[primitiveOffset + primitiveId + 2]);
-  const uint index0 = indices[indexOffset + primitive0];
-  const uint index1 = indices[indexOffset + primitive1];
-  const uint index2 = indices[indexOffset + primitive2];
-  const Vertex vertex0 = vertices[vertexOffset + index0];
-  const Vertex vertex1 = vertices[vertexOffset + index1];
-  const Vertex vertex2 = vertices[vertexOffset + index2];
+  const uint primitive0 = uint(d_primitives[primitiveOffset + primitiveId + 0]);
+  const uint primitive1 = uint(d_primitives[primitiveOffset + primitiveId + 1]);
+  const uint primitive2 = uint(d_primitives[primitiveOffset + primitiveId + 2]);
+  const uint index0 = d_indices[indexOffset + primitive0];
+  const uint index1 = d_indices[indexOffset + primitive1];
+  const uint index2 = d_indices[indexOffset + primitive2];
+  const Vertex vertex0 = d_vertices[vertexOffset + index0];
+  const Vertex vertex1 = d_vertices[vertexOffset + index1];
+  const Vertex vertex2 = d_vertices[vertexOffset + index2];
   const vec3 position0 = PackedToVec3(vertex0.position);
   const vec3 position1 = PackedToVec3(vertex1.position);
   const vec3 position2 = PackedToVec3(vertex2.position);
@@ -114,7 +120,7 @@ bool CullTriangle(Meshlet meshlet, uint localId)
   // https://redirect.cs.umbc.edu/~olano/papers/2dh-tri/
   // This is equivalent to the HLSL code that was ported, except the mat3 is transposed.
   // However, the determinant of a matrix and its transpose are the same, so this is fine.
-  if ((perFrameUniforms.flags & CULL_PRIMITIVE_BACKFACE) != 0)
+  if ((perFrameUniformsBuffers[globalUniformsIndex].flags & CULL_PRIMITIVE_BACKFACE) != 0)
   {
     const float det = determinant(mat3(posClip0.xyw, posClip1.xyw, posClip2.xyw));
     if (det <= 0)
@@ -143,7 +149,7 @@ bool CullTriangle(Meshlet meshlet, uint localId)
   }
 
   // Frustum culling
-  if ((perFrameUniforms.flags & CULL_PRIMITIVE_FRUSTUM) != 0)
+  if ((d_perFrameUniforms.flags & CULL_PRIMITIVE_FRUSTUM) != 0)
   {
     if (!RectIntersectRect(bboxNdcMin, bboxNdcMax, vec2(-1.0), vec2(1.0)))
     {
@@ -164,26 +170,26 @@ bool CullTriangle(Meshlet meshlet, uint localId)
   // }
 
   // Small primitive culling
-  if ((perFrameUniforms.flags & CULL_PRIMITIVE_SMALL) != 0)
+  if ((d_perFrameUniforms.flags & CULL_PRIMITIVE_SMALL) != 0)
   {
     const vec2 posUv0 = posNdc0.xy * 0.5 + 0.5;
     const vec2 posUv1 = posNdc1.xy * 0.5 + 0.5;
     const vec2 posUv2 = posNdc2.xy * 0.5 + 0.5;
-    if (!CullSmallPrimitive(vec2[3](posUv0, posUv1, posUv2), currentView.viewport.zw))
+    if (!CullSmallPrimitive(vec2[3](posUv0, posUv1, posUv2), d_currentView.viewport.zw))
     {
       return false;
     }
   }
   
-  if ((perFrameUniforms.flags & CULL_PRIMITIVE_VSM) != 0)
+  if ((d_perFrameUniforms.flags & CULL_PRIMITIVE_VSM) != 0)
   {
-    if (currentView.type == VIEW_TYPE_VIRTUAL)
-    {
-      if (!CullQuadVsm(bboxNdcMin * 0.5 + 0.5, bboxNdcMax * 0.5 + 0.5, currentView.virtualTableIndex))
-      {
-        return false;
-      }
-    }
+    // if (d_currentView.type == VIEW_TYPE_VIRTUAL)
+    // {
+    //   if (!CullQuadVsm(bboxNdcMin * 0.5 + 0.5, bboxNdcMax * 0.5 + 0.5, d_currentView.virtualTableIndex))
+    //   {
+    //     return false;
+    //   }
+    // }
   }
 
   return true;
@@ -192,15 +198,15 @@ bool CullTriangle(Meshlet meshlet, uint localId)
 layout(local_size_x = MAX_PRIMITIVES) in;
 void main()
 {
-  const uint meshletId = visibleMeshlets.indices[gl_WorkGroupID.x];
-  const Meshlet meshlet = meshlets[meshletId];
+  const uint meshletId = d_visibleMeshlets.indices[gl_WorkGroupID.x];
+  const Meshlet meshlet = d_meshlets[meshletId];
   const uint localId = gl_LocalInvocationID.x;
   const uint primitiveId = localId * 3;
 
   if (localId == 0)
   {
     sh_primitivesPassed = 0;
-    sh_mvp = currentView.viewProj * transforms[meshlet.instanceId].modelCurrent;
+    sh_mvp = d_currentView.viewProj * d_transforms[meshlet.instanceId].modelCurrent;
   }
 
   barrier();
@@ -220,7 +226,7 @@ void main()
 
   if (localId == 0)
   {
-    sh_baseIndex = atomicAdd(indirectCommand.indexCount, sh_primitivesPassed * 3);
+    sh_baseIndex = atomicAdd(d_indirectCommand.indexCount, sh_primitivesPassed * 3);
   }
 
   barrier();
@@ -228,8 +234,8 @@ void main()
   if (primitivePassed)
   {
     const uint indexOffset = sh_baseIndex + activePrimitiveId * 3;
-    indexBuffer.data[indexOffset + 0] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 0) & MESHLET_PRIMITIVE_MASK);
-    indexBuffer.data[indexOffset + 1] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 1) & MESHLET_PRIMITIVE_MASK);
-    indexBuffer.data[indexOffset + 2] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 2) & MESHLET_PRIMITIVE_MASK);
+    d_indexBuffer.data[indexOffset + 0] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 0) & MESHLET_PRIMITIVE_MASK);
+    d_indexBuffer.data[indexOffset + 1] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 1) & MESHLET_PRIMITIVE_MASK);
+    d_indexBuffer.data[indexOffset + 2] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 2) & MESHLET_PRIMITIVE_MASK);
   }
 }

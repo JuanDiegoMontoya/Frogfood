@@ -1,6 +1,10 @@
 #ifndef GLOBAL_UNIFORMS_H
 #define GLOBAL_UNIFORMS_H
 
+#extension GL_GOOGLE_include_directive : enable
+
+#include "Resources.h.glsl"
+
 #define CULL_MESHLET_FRUSTUM    (1 << 0)
 #define CULL_MESHLET_HIZ        (1 << 1)
 #define CULL_PRIMITIVE_BACKFACE (1 << 2)
@@ -9,7 +13,8 @@
 #define CULL_PRIMITIVE_VSM      (1 << 5)
 #define USE_HASHED_TRANSPARENCY (1 << 6)
 
-layout (binding = 0, std140) uniform PerFrameUniformsBuffer
+//layout (binding = 0, std140) uniform PerFrameUniformsBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly PerFrameUniformsBuffer)
 {
   mat4 viewProj;
   mat4 oldViewProjUnjittered;
@@ -23,6 +28,6 @@ layout (binding = 0, std140) uniform PerFrameUniformsBuffer
   float bindlessSamplerLodBias;
   uint flags;
   float alphaHashScale;
-} perFrameUniforms;
+} perFrameUniformsBuffers[];
 
 #endif // GLOBAL_UNIFORMS_H

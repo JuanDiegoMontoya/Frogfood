@@ -18,14 +18,17 @@ layout(location = 3) out vec2 o_smoothVertexNormal;
 layout(location = 4) out vec3 o_emission;
 layout(location = 5) out vec2 o_motion;
 
-layout(binding = 0) uniform sampler2D s_baseColor;
-layout(binding = 1) uniform sampler2D s_metallicRoughness;
-layout(binding = 2) uniform sampler2D s_normal;
-layout(binding = 3) uniform sampler2D s_occlusion;
-layout(binding = 4) uniform sampler2D s_emission;
-layout(binding = 5) uniform sampler2D hzb;
+// layout(binding = 0) uniform sampler2D s_baseColor;
+// layout(binding = 1) uniform sampler2D s_metallicRoughness;
+// layout(binding = 2) uniform sampler2D s_normal;
+// layout(binding = 3) uniform sampler2D s_occlusion;
+// layout(binding = 4) uniform sampler2D s_emission;
 
-layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
+FVOG_DECLARE_SAMPLERS;
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
+FVOG_DECLARE_STORAGE_IMAGES(uimage2D);
+
+//layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
 
 struct PartialDerivatives
 {
@@ -95,41 +98,41 @@ uint[3] VisbufferLoadIndexIds(in Meshlet meshlet, in uint primitiveId)
   const uint indexOffset = meshlet.indexOffset;
   const uint primitiveOffset = meshlet.primitiveOffset;
   const uint[] primitiveIds = uint[](
-    primitives[primitiveOffset + primitiveId * 3 + 0],
-    primitives[primitiveOffset + primitiveId * 3 + 1],
-    primitives[primitiveOffset + primitiveId * 3 + 2]
+    uint(d_primitives[primitiveOffset + primitiveId * 3 + 0]),
+    uint(d_primitives[primitiveOffset + primitiveId * 3 + 1]),
+    uint(d_primitives[primitiveOffset + primitiveId * 3 + 2])
   );
   return uint[3](
-    indices[indexOffset + primitiveIds[0]],
-    indices[indexOffset + primitiveIds[1]],
-    indices[indexOffset + primitiveIds[2]]
+    d_indices[indexOffset + primitiveIds[0]],
+    d_indices[indexOffset + primitiveIds[1]],
+    d_indices[indexOffset + primitiveIds[2]]
   );
 }
 
 vec3[3] VisbufferLoadPosition(in uint[3] indexIds, in uint vertexOffset)
 {
   return vec3[3](
-    PackedToVec3(vertices[vertexOffset + indexIds[0]].position),
-    PackedToVec3(vertices[vertexOffset + indexIds[1]].position),
-    PackedToVec3(vertices[vertexOffset + indexIds[2]].position)
+    PackedToVec3(d_vertices[vertexOffset + indexIds[0]].position),
+    PackedToVec3(d_vertices[vertexOffset + indexIds[1]].position),
+    PackedToVec3(d_vertices[vertexOffset + indexIds[2]].position)
   );
 }
 
 vec2[3] VisbufferLoadUv(in uint[3] indexIds, in uint vertexOffset)
 {
   return vec2[3](
-    PackedToVec2(vertices[vertexOffset + indexIds[0]].uv),
-    PackedToVec2(vertices[vertexOffset + indexIds[1]].uv),
-    PackedToVec2(vertices[vertexOffset + indexIds[2]].uv)
+    PackedToVec2(d_vertices[vertexOffset + indexIds[0]].uv),
+    PackedToVec2(d_vertices[vertexOffset + indexIds[1]].uv),
+    PackedToVec2(d_vertices[vertexOffset + indexIds[2]].uv)
   );
 }
 
 vec3[3] VisbufferLoadNormal(in uint[3] indexIds, in uint vertexOffset)
 {
   return vec3[3](
-    OctToVec3(unpackSnorm2x16(vertices[vertexOffset + indexIds[0]].normal)),
-    OctToVec3(unpackSnorm2x16(vertices[vertexOffset + indexIds[1]].normal)),
-    OctToVec3(unpackSnorm2x16(vertices[vertexOffset + indexIds[2]].normal))
+    OctToVec3(unpackSnorm2x16(d_vertices[vertexOffset + indexIds[0]].normal)),
+    OctToVec3(unpackSnorm2x16(d_vertices[vertexOffset + indexIds[1]].normal)),
+    OctToVec3(unpackSnorm2x16(d_vertices[vertexOffset + indexIds[2]].normal))
   );
 }
 
@@ -170,15 +173,15 @@ vec2 MakeSmoothMotion(in PartialDerivatives derivatives, vec4[3] worldPosition, 
 {
   // Probably not the most efficient way to do this, but this is a port of a shader that is known to work
   vec4[3] v_curPos = vec4[](
-    perFrameUniforms.viewProjUnjittered * worldPosition[0],
-    perFrameUniforms.viewProjUnjittered * worldPosition[1],
-    perFrameUniforms.viewProjUnjittered * worldPosition[2]
+    d_perFrameUniforms.viewProjUnjittered * worldPosition[0],
+    d_perFrameUniforms.viewProjUnjittered * worldPosition[1],
+    d_perFrameUniforms.viewProjUnjittered * worldPosition[2]
   );
   
   vec4[3] v_oldPos = vec4[](
-    perFrameUniforms.oldViewProjUnjittered * worldPositionOld[0],
-    perFrameUniforms.oldViewProjUnjittered * worldPositionOld[1],
-    perFrameUniforms.oldViewProjUnjittered * worldPositionOld[2]
+    d_perFrameUniforms.oldViewProjUnjittered * worldPositionOld[0],
+    d_perFrameUniforms.oldViewProjUnjittered * worldPositionOld[1],
+    d_perFrameUniforms.oldViewProjUnjittered * worldPositionOld[2]
   );
 
   vec4 smoothCurPos = InterpolateVec4(derivatives, v_curPos);
@@ -194,7 +197,7 @@ vec4 SampleBaseColor(in GpuMaterial material, in UvGradient uvGrad)
   }
   return
     material.baseColorFactor.rgba *
-    textureGrad(s_baseColor, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgba;
+    textureGrad(Fvog_sampler2D(baseColorIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgba;
 }
 
 vec2 SampleMetallicRoughness(in GpuMaterial material, in UvGradient uvGrad)
@@ -208,7 +211,7 @@ vec2 SampleMetallicRoughness(in GpuMaterial material, in UvGradient uvGrad)
   // Roughness is stored in the G channel
   return
     metallicRoughnessFactor *
-    textureGrad(s_metallicRoughness, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).bg;
+    textureGrad(Fvog_sampler2D(metallicRoughnessIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).bg;
 }
 
 float SampleOcclusion(in GpuMaterial material, in UvGradient uvGrad)
@@ -217,7 +220,7 @@ float SampleOcclusion(in GpuMaterial material, in UvGradient uvGrad)
   {
     return 1.0;
   }
-  return textureGrad(s_occlusion, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).r;
+  return textureGrad(Fvog_sampler2D(occlusionIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).r;
 }
 
 vec3 SampleEmission(in GpuMaterial material, in UvGradient uvGrad)
@@ -228,7 +231,7 @@ vec3 SampleEmission(in GpuMaterial material, in UvGradient uvGrad)
   }
   return
     material.emissiveFactor * material.emissiveStrength *
-    textureGrad(s_emission, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
+    textureGrad(Fvog_sampler2D(emissionIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
 }
 
 vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
@@ -239,7 +242,7 @@ vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
   }
   // We assume the normal is encoded with just X and Y components, since we can trivially reconstruct the third.
   // This allows compatibility with both RG and RGB tangent space normal maps.
-  vec2 xy = textureGrad(s_normal, uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rg * 2.0 - 1.0;
+  vec2 xy = textureGrad(Fvog_sampler2D(normalIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rg * 2.0 - 1.0;
   float z = sqrt(max(1.0 - xy.x * xy.x - xy.y * xy.y, 0.0));
   return vec3(xy * material.normalXyScale, z);
 }
@@ -247,13 +250,13 @@ vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
 void main()
 {
   const ivec2 position = ivec2(gl_FragCoord.xy);
-  const uint payload = imageLoad(visbuffer, position).x;
+  const uint payload = imageLoad(Fvog_uimage2D(visbufferIndex), position).x;
   const uint meshletId = (payload >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
   const uint primitiveId = payload & MESHLET_PRIMITIVE_MASK;
-  const Meshlet meshlet = meshlets[meshletId];
-  const GpuMaterial material = materials[meshlet.materialId];
-  const mat4 transform = transforms[meshlet.instanceId].modelCurrent;
-  const mat4 transformPrevious = transforms[meshlet.instanceId].modelPrevious;
+  const Meshlet meshlet = d_meshlets[meshletId];
+  const GpuMaterial material = d_materials[meshlet.materialId];
+  const mat4 transform = d_transforms[meshlet.instanceId].modelCurrent;
+  const mat4 transformPrevious = d_transforms[meshlet.instanceId].modelPrevious;
 
   const uint[] indexIDs = VisbufferLoadIndexIds(meshlet, primitiveId);
   const vec3[] rawPosition = VisbufferLoadPosition(indexIDs, meshlet.vertexOffset);
@@ -265,9 +268,9 @@ void main()
     transform * vec4(rawPosition[2], 1.0)
   );
   const vec4[] clipPosition = vec4[](
-    perFrameUniforms.viewProj * worldPosition[0],
-    perFrameUniforms.viewProj * worldPosition[1],
-    perFrameUniforms.viewProj * worldPosition[2]
+    d_perFrameUniforms.viewProj * worldPosition[0],
+    d_perFrameUniforms.viewProj * worldPosition[1],
+    d_perFrameUniforms.viewProj * worldPosition[2]
   );
   
   const vec4[] worldPositionPrevious = vec4[](
@@ -276,7 +279,7 @@ void main()
     transformPrevious * vec4(rawPosition[2], 1.0)
   );
 
-  const vec2 resolution = vec2(imageSize(visbuffer));
+  const vec2 resolution = vec2(imageSize(Fvog_uimage2D(visbufferIndex)));
   const PartialDerivatives partialDerivatives = ComputeDerivatives(clipPosition, i_uv * 2.0 - 1.0, resolution);
   const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);
   const vec3 flatNormal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));

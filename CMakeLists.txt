@@ -53,7 +53,9 @@ add_executable(frogRender
     src/Fvog/detail/SamplerCache2.h
     src/Fvog/detail/SamplerCache2.cpp
     src/Fvog/detail/Hash2.h
-)
+    src/Pipelines2.h
+    src/Pipelines2.cpp
+ )
 
 target_compile_options(frogRender
     PRIVATE
@@ -131,7 +133,7 @@ target_link_libraries(frogRender
 )
 add_dependencies(frogRender copy_shaders copy_models copy_textures copy_config)
 
-target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES)
+target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE)
 
 if (MSVC)
     target_compile_definitions(frogRender PUBLIC STBI_MSC_SECURE_CRT)

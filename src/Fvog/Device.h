@@ -4,9 +4,6 @@
 
 #include "detail/SamplerCache2.h"
 
-// TODO: temp until vkb stops including vulkan.h
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <VkBootstrap.h>
 
 #include <deque>
@@ -59,9 +56,6 @@ namespace Fvog
     // Everything hereafter probably actually belongs in this class
     vkb::PhysicalDevice physicalDevice_{};
     vkb::Device device_{};
-    vkb::Swapchain swapchain_{};
-    std::vector<VkImage> swapchainImages_;
-    std::vector<VkImageView> swapchainImageViews_;
     VmaAllocator allocator_{};
 
     // Immediate submit stuff

@@ -170,7 +170,7 @@ private:
 
   void OnWindowResize(uint32_t newWidth, uint32_t newHeight) override;
   void OnUpdate(double dt) override;
-  void OnRender(double dt) override;
+  void OnRender(double dt, VkCommandBuffer, uint32_t) override;
   void OnGui(double dt) override;
   void OnPathDrop(std::span<const char*> paths) override;
 

@@ -1,9 +1,10 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
 
+#include "../Resources.h.glsl"
 #include "VisbufferCommon.h.glsl"
 #include "../hzb/HZBCommon.h.glsl"
-#include "../shadows/vsm/VsmCommon.h.glsl"
+//#include "../shadows/vsm/VsmCommon.h.glsl"
 
 #define ENABLE_DEBUG_DRAWING
 
@@ -13,10 +14,11 @@
 
 void DebugDrawMeshletAabb(in uint meshletId)
 {
-  const uint instanceId = meshlets[meshletId].instanceId;
-  const mat4 transform = transforms[instanceId].modelCurrent;
-  const vec3 aabbMin = PackedToVec3(meshlets[meshletId].aabbMin);
-  const vec3 aabbMax = PackedToVec3(meshlets[meshletId].aabbMax);
+  const Meshlet meshlet = MeshletDataBuffers[meshletDataIndex].meshlets[meshletId];
+  const uint instanceId = meshlet.instanceId;
+  const mat4 transform = TransformBuffers[transformsIndex].transforms[instanceId].modelCurrent;
+  const vec3 aabbMin = PackedToVec3(meshlet.aabbMin);
+  const vec3 aabbMax = PackedToVec3(meshlet.aabbMax);
   const vec3 aabbSize = aabbMax - aabbMin;
   const vec3[] aabbCorners = vec3[](
     aabbMin,
@@ -42,28 +44,31 @@ void DebugDrawMeshletAabb(in uint meshletId)
   
   const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
   vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(meshletId) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
-  TryPushDebugAabb(DebugAabb(Vec3ToPacked(aabbCenter), Vec3ToPacked(extent), Vec4ToPacked(color)));
+  TryPushDebugAabb(debugAabbBufferIndex, DebugAabb(Vec3ToPacked(aabbCenter), Vec3ToPacked(extent), Vec4ToPacked(color)));
 }
 #endif // ENABLE_DEBUG_DRAWING
 
-layout (binding = 0) uniform sampler2D s_hzb;
+//layout (binding = 0) uniform sampler2D s_hzb;
+FVOG_DECLARE_SAMPLERS;
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
-layout (std430, binding = 3) writeonly buffer MeshletPackedBuffer
-{
-  uint data[];
-} indexBuffer;
-
-layout(std430, binding = 9) restrict buffer MeshletVisibilityBuffer
+//layout(std430, binding = 9) restrict buffer MeshletVisibilityBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict MeshletVisibilityBuffer)
 {
   uint indices[];
-} visibleMeshlets;
+} visibleMeshletsBuffers[];
 
-layout(std430, binding = 10) restrict buffer CullTrianglesDispatchParams
+#define d_visibleMeshlets visibleMeshletsBuffers[visibleMeshletsIndex]
+
+//layout(std430, binding = 10) restrict buffer CullTrianglesDispatchParams
+FVOG_DECLARE_STORAGE_BUFFERS(restrict CullTrianglesDispatchParams)
 {
   uint groupCountX;
   uint groupCountY;
   uint groupCountZ;
-} cullTrianglesDispatch;
+} cullTrianglesDispatchBuffers[];
+
+#define d_cullTrianglesDispatch cullTrianglesDispatchBuffers[cullTrianglesDispatchIndex]
 
 bool IsAABBInsidePlane(in vec3 center, in vec3 extent, in vec4 plane)
 {
@@ -82,10 +87,11 @@ struct GetMeshletUvBoundsParams
 
 void GetMeshletUvBounds(GetMeshletUvBoundsParams params, out vec2 minXY, out vec2 maxXY, out float nearestZ, out bool intersectsNearPlane)
 {
-  const uint instanceId = meshlets[params.meshletId].instanceId;
-  const mat4 transform = transforms[instanceId].modelCurrent;
-  const vec3 aabbMin = PackedToVec3(meshlets[params.meshletId].aabbMin);
-  const vec3 aabbMax = PackedToVec3(meshlets[params.meshletId].aabbMax);
+  const Meshlet meshlet = d_meshlets[params.meshletId];
+  const uint instanceId = meshlet.instanceId;
+  const mat4 transform = d_transforms[instanceId].modelCurrent;
+  const vec3 aabbMin = PackedToVec3(meshlet.aabbMin);
+  const vec3 aabbMax = PackedToVec3(meshlet.aabbMax);
   const vec3 aabbSize = aabbMax - aabbMin;
   const vec3[] aabbCorners = vec3[](
     aabbMin,
@@ -147,7 +153,7 @@ void GetMeshletUvBounds(GetMeshletUvBoundsParams params, out vec2 minXY, out vec
 bool CullQuadHiz(vec2 minXY, vec2 maxXY, float nearestZ)
 {
   const vec4 boxUvs = vec4(minXY, maxXY);
-  const vec2 hzbSize = vec2(textureSize(s_hzb, 0));
+  const vec2 hzbSize = vec2(textureSize(FvogGetSampledImage(texture2D, hzbIndex), 0));
   const float width = (boxUvs.z - boxUvs.x) * hzbSize.x;
   const float height = (boxUvs.w - boxUvs.y) * hzbSize.y;
   
@@ -156,10 +162,10 @@ bool CullQuadHiz(vec2 minXY, vec2 maxXY, float nearestZ)
   // texels rather than four! So we need to round up to the next level.
   const float level = ceil(log2(max(width, height)));
   const float[4] depth = float[](
-    textureLod(s_hzb, boxUvs.xy, level).x,
-    textureLod(s_hzb, boxUvs.zy, level).x,
-    textureLod(s_hzb, boxUvs.xw, level).x,
-    textureLod(s_hzb, boxUvs.zw, level).x);
+    textureLod(Fvog_sampler2D(hzbIndex, hzbSamplerIndex), boxUvs.xy, level).x,
+    textureLod(Fvog_sampler2D(hzbIndex, hzbSamplerIndex), boxUvs.zy, level).x,
+    textureLod(Fvog_sampler2D(hzbIndex, hzbSamplerIndex), boxUvs.xw, level).x,
+    textureLod(Fvog_sampler2D(hzbIndex, hzbSamplerIndex), boxUvs.zw, level).x);
   const float farHZB = REDUCE_FAR(REDUCE_FAR(REDUCE_FAR(depth[0], depth[1]), depth[2]), depth[3]);
 
   // Object is occluded if its nearest depth is farther away from the camera than the farthest sampled depth
@@ -173,10 +179,12 @@ bool CullQuadHiz(vec2 minXY, vec2 maxXY, float nearestZ)
 
 bool CullMeshletFrustum(in uint meshletId, View view)
 {
-  const uint instanceId = meshlets[meshletId].instanceId;
-  const mat4 transform = transforms[instanceId].modelCurrent;
-  const vec3 aabbMin = PackedToVec3(meshlets[meshletId].aabbMin);
-  const vec3 aabbMax = PackedToVec3(meshlets[meshletId].aabbMax);
+  //const Meshlet meshlet = MeshletDataBuffers[meshletDataIndex].meshlets[meshletId];
+  const Meshlet meshlet = d_meshlets[meshletId];
+  const uint instanceId = meshlet.instanceId;
+  const mat4 transform = d_transforms[instanceId].modelCurrent;
+  const vec3 aabbMin = PackedToVec3(meshlet.aabbMin);
+  const vec3 aabbMax = PackedToVec3(meshlet.aabbMax);
   const vec3 aabbCenter = (aabbMin + aabbMax) / 2.0;
   const vec3 aabbExtent = aabbMax - aabbCenter;
   const vec3 worldAabbCenter = vec3(transform * vec4(aabbCenter, 1.0));
@@ -212,27 +220,27 @@ void main()
 {
   const uint meshletId = gl_GlobalInvocationID.x;
 
-  if (meshletId >= perFrameUniforms.meshletCount)
+  if (meshletId >= d_perFrameUniforms.meshletCount)
   {
     return;
   }
 
-  if ((perFrameUniforms.flags & CULL_MESHLET_FRUSTUM) == 0 || CullMeshletFrustum(meshletId, currentView))
+  if ((d_perFrameUniforms.flags & CULL_MESHLET_FRUSTUM) == 0 || CullMeshletFrustum(meshletId, d_currentView))
   {
     bool isVisible = false;
     
     GetMeshletUvBoundsParams params;
     params.meshletId = meshletId;
 
-    if (currentView.type == VIEW_TYPE_MAIN)
+    if (d_currentView.type == VIEW_TYPE_MAIN)
     {
-      params.viewProj = perFrameUniforms.oldViewProjUnjittered;
+      params.viewProj = d_perFrameUniforms.oldViewProjUnjittered;
       params.clampNdc = true;
       params.reverseZ = bool(REVERSE_Z);
     }
-    else if (currentView.type == VIEW_TYPE_VIRTUAL)
+    else if (d_currentView.type == VIEW_TYPE_VIRTUAL)
     {
-      params.viewProj = currentView.viewProjStableForVsmOnly;
+      params.viewProj = d_currentView.viewProjStableForVsmOnly;
       params.clampNdc = false;
       params.reverseZ = false;
     }
@@ -246,9 +254,9 @@ void main()
 
     if (!isVisible)
     {
-      if (currentView.type == VIEW_TYPE_MAIN)
+      if (d_currentView.type == VIEW_TYPE_MAIN)
       {
-        if ((perFrameUniforms.flags & CULL_MESHLET_HIZ) == 0)
+        if ((d_perFrameUniforms.flags & CULL_MESHLET_HIZ) == 0)
         {
           isVisible = true;
         }
@@ -258,19 +266,19 @@ void main()
           isVisible = CullQuadHiz(minXY, maxXY, nearestZ + 0.0001);
         }
       }
-      else if (currentView.type == VIEW_TYPE_VIRTUAL)
+      else if (d_currentView.type == VIEW_TYPE_VIRTUAL)
       {
-        isVisible = CullQuadVsm(minXY, maxXY, currentView.virtualTableIndex);
+        //isVisible = CullQuadVsm(minXY, maxXY, d_currentView.virtualTableIndex);
       }
     }
 
     if (isVisible)
     {
-      const uint idx = atomicAdd(cullTrianglesDispatch.groupCountX, 1);
-      visibleMeshlets.indices[idx] = meshletId;
+      const uint idx = atomicAdd(d_cullTrianglesDispatch.groupCountX, 1);
+      d_visibleMeshlets.indices[idx] = meshletId;
 
  #ifdef ENABLE_DEBUG_DRAWING
-      if (currentView.type == VIEW_TYPE_MAIN)
+      if (d_currentView.type == VIEW_TYPE_MAIN)
       {
         DebugDrawMeshletAabb(meshletId);
         // Uncommenting this causes a segfault in NV drivers (a crash, not a compilation error!)

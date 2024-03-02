@@ -6,15 +6,34 @@
 #include "GlobalUniforms.h.glsl"
 #include "Math.h.glsl"
 #include "Pbr.h.glsl"
-#include "shadows/vsm/VsmCommon.h.glsl"
+//#include "shadows/vsm/VsmCommon.h.glsl"
 #include "Utility.h.glsl"
 
-layout(binding = 0) uniform sampler2D s_gAlbedo;
-layout(binding = 1) uniform sampler2D s_gNormalAndFaceNormal;
-layout(binding = 2) uniform sampler2D s_gDepth;
-layout(binding = 3) uniform sampler2D s_gSmoothVertexNormal;
-layout(binding = 6) uniform sampler2D s_emission;
-layout(binding = 7) uniform sampler2D s_metallicRoughnessAo;
+FVOG_DECLARE_ARGUMENTS(PushConstants)
+{
+  FVOG_UINT32 globalUniformsIndex;
+  FVOG_UINT32 shadingUniformsIndex;
+  FVOG_UINT32 shadowUniformsIndex;
+  FVOG_UINT32 lightBufferIndex;
+
+  FVOG_UINT32 gAlbedoIndex;
+  FVOG_UINT32 gNormalAndFaceNormalIndex;
+  FVOG_UINT32 gDepthIndex;
+  FVOG_UINT32 gSmoothVertexNormalIndex;
+  FVOG_UINT32 gEmissionIndex;
+  FVOG_UINT32 gMetallicRoughnessAoIndex;
+};
+
+#define d_perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
+
+// layout(binding = 0) uniform sampler2D s_gAlbedo;
+// layout(binding = 1) uniform sampler2D s_gNormalAndFaceNormal;
+// layout(binding = 2) uniform sampler2D s_gDepth;
+// layout(binding = 3) uniform sampler2D s_gSmoothVertexNormal;
+// layout(binding = 6) uniform sampler2D s_emission;
+// layout(binding = 7) uniform sampler2D s_metallicRoughnessAo;
+
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 layout(location = 0) in vec2 v_uv;
 
@@ -27,16 +46,20 @@ layout(location = 0) out vec3 o_color;
 #define VSM_SHOW_DIRTY_PAGES   (1 << 4)
 #define BLEND_NORMALS          (1 << 5)
 
-layout(binding = 1, std140) uniform ShadingUniforms
+//layout(binding = 1, std140) uniform ShadingUniforms
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadingUniforms)
 {
   vec4 sunDir;
   vec4 sunStrength;
   vec2 random;
   uint numberOfLights;
   uint debugFlags;
-}shadingUniforms;
+}shadingUniformsBuffers[];
 
-layout(binding = 2, std140) uniform ShadowUniforms
+#define d_shadingUniforms shadingUniformsBuffers[shadingUniformsIndex]
+
+//layout(binding = 2, std140) uniform ShadowUniforms
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadowUniforms)
 {
   uint shadowMode; // 0 = PCSS, 1 = SMRT
 
@@ -53,12 +76,17 @@ layout(binding = 2, std140) uniform ShadowUniforms
   float rayStepSize;
   float heightmapThickness;
   float sourceAngleRad;
-}shadowUniforms;
+}shadowUniformsBuffers[];
 
-layout(binding = 6, std430) readonly buffer LightBuffer
+#define d_shadowUniforms shadowUniformsBuffers[shadowUniformsIndex]
+
+//layout(binding = 6, std430) readonly buffer LightBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly LightBuffer)
 {
   GpuLight lights[];
-}lightBuffer;
+}lightBuffers[];
+
+#define d_lightBuffer lightBuffers[lightBufferIndex]
 
 // Returns an exact shadow bias in the space of whatever texelWidth is in.
 // N and L are expected to be normalized
@@ -70,6 +98,16 @@ float GetShadowBias(vec3 N, vec3 L, float texelWidth)
   const float NoL = clamp(abs(dot(N, L)), 0.0001, 1.0);
   return quantize + b * length(cross(N, L)) / NoL;
 }
+
+
+
+
+
+
+
+
+
+#if 0
 
 float CalcVsmShadowBias(uint clipmapLevel, vec3 faceNormal)
 {
@@ -97,7 +135,7 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   ret.projectedDepth = 0;
 
   const ivec2 gid = ivec2(gl_FragCoord.xy);
-  const float depthSample = texelFetch(s_gDepth, gid, 0).x;
+  const float depthSample = texelFetch(FvogGetSampledImage(texture2D, gDepthIndex), gid, 0).x;
   PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
 
   ret.vsmUv = addr.pageUv;
@@ -284,13 +322,21 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
   return lightVisibility / shadowUniforms.pcfSamples;
 }
 
+#endif
+
+
+
+
+
+
+
 vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 {
   vec3 color = { 0, 0, 0 };
 
-  for (uint i = 0; i < shadingUniforms.numberOfLights; i++)
+  for (uint i = 0; i < d_shadingUniforms.numberOfLights; i++)
   {
-    GpuLight light = lightBuffer.lights[i];
+    GpuLight light = d_lightBuffer.lights[i];
 
     color += EvaluatePunctualLight(viewDir, light, surface);
   }
@@ -300,38 +346,53 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 
 void main()
 {
-  const vec3 albedo = textureLod(s_gAlbedo, v_uv, 0.0).rgb;
-  const vec4 normalOctAndFlatNormalOct = textureLod(s_gNormalAndFaceNormal, v_uv, 0.0).xyzw;
+  const ivec2 gid = ivec2(gl_FragCoord.xy);
+  const vec3 albedo = texelFetch(FvogGetSampledImage(texture2D, gAlbedoIndex), gid, 0).rgb;
+  const vec4 normalOctAndFlatNormalOct = texelFetch(FvogGetSampledImage(texture2D, gNormalAndFaceNormalIndex), gid, 0).xyzw;
   const vec3 mappedNormal = OctToVec3(normalOctAndFlatNormalOct.xy);
   const vec3 flatNormal = OctToVec3(normalOctAndFlatNormalOct.zw);
-  const vec3 smoothNormal = OctToVec3(textureLod(s_gSmoothVertexNormal, v_uv, 0.0).xy);
-  const float depth = textureLod(s_gDepth, v_uv, 0.0).x;
-  const vec3 emission = textureLod(s_emission, v_uv, 0.0).rgb;
-  const vec3 metallicRoughnessAo = textureLod(s_metallicRoughnessAo, v_uv, 0.0).rgb;
+  const vec3 smoothNormal = OctToVec3(texelFetch(FvogGetSampledImage(texture2D, gSmoothVertexNormalIndex), gid, 0).xy);
+  const float depth = texelFetch(FvogGetSampledImage(texture2D, gDepthIndex), gid, 0).x;
+  const vec3 emission = texelFetch(FvogGetSampledImage(texture2D, gEmissionIndex), gid, 0).rgb;
+  const vec3 metallicRoughnessAo = texelFetch(FvogGetSampledImage(texture2D, gMetallicRoughnessAoIndex), gid, 0).rgb;
 
   if (depth == FAR_DEPTH)
   {
     discard;
   }
 
-  const vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, perFrameUniforms.invViewProj);
+  const vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, d_perFrameUniforms.invViewProj);
   
+
+
+
+  #if 0
+
   ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
   float shadowSun = shadowVsm.shadow;
   shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal);
 
+  #else
+
+  float shadowSun = 1;
+
+  #endif
+
+
+
+
   vec3 normal = mappedNormal;
 
-  if ((shadingUniforms.debugFlags & BLEND_NORMALS) != 0)
+  if ((d_shadingUniforms.debugFlags & BLEND_NORMALS) != 0)
   {
     // https://marmosetco.tumblr.com/post/81245981087
-    const float NoL_sun_flat = dot(smoothNormal, -shadingUniforms.sunDir.xyz);
+    const float NoL_sun_flat = dot(smoothNormal, -d_shadingUniforms.sunDir.xyz);
     float horiz = 1.0 - NoL_sun_flat;
     horiz *= horiz;
     normal = normalize(mix(mappedNormal, smoothNormal, clamp(horiz, 0.0, 1.0)));
   }
 
-  vec3 viewDir = normalize(perFrameUniforms.cameraPos.xyz - fragWorldPos);
+  vec3 viewDir = normalize(d_perFrameUniforms.cameraPos.xyz - fragWorldPos);
   
   Surface surface;
   surface.albedo = albedo;
@@ -347,12 +408,15 @@ void main()
 
   vec3 finalColor = vec3(.03) * albedo * metallicRoughnessAo.z; // Ambient lighting
 
-  float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
-  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * shadingUniforms.sunStrength.rgb * NoL_sun * shadowSun;
+  float NoL_sun = clamp(dot(normal, -d_shadingUniforms.sunDir.xyz), 0.0, 1.0);
+  finalColor += BRDF(viewDir, -d_shadingUniforms.sunDir.xyz, surface) * d_shadingUniforms.sunStrength.rgb * NoL_sun * shadowSun;
   finalColor += LocalLightIntensity(viewDir, surface);
   finalColor += emission;
 
   o_color = finalColor;
+
+
+  #if 0
 
   // Disco view (hashed physical address or clipmap level)
   if (GetIsPageVisible(shadowVsm.pageData))
@@ -396,4 +460,9 @@ void main()
       o_color.rgb = vec3(1, 0, 0);
     }
   }
+
+  #endif
+
+
+
 }

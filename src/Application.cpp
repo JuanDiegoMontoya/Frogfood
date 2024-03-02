@@ -1,5 +1,4 @@
 #include "Application.h"
-
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <volk.h>
@@ -11,6 +10,7 @@
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Texture2.h"
 #include "Fvog/Rendering2.h"
+#include "Fvog/detail/Common.h"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -28,9 +28,6 @@
 #include <sstream>
 #include <fstream>
 #include <filesystem>
-
-// This is definitely temporary
-#include <stb_image.h>
 
 #ifdef TRACY_ENABLE
 #include <cstdlib>
@@ -123,8 +120,9 @@ public:
 
     if (newWidth > 0 && newHeight > 0)
     {
-      app->shouldResizeNextFrame = true;
-      app->Draw(0.016);
+      app->ResizeCallbackThingy(app->windowWidth, app->windowHeight);
+      //app->shouldResizeNextFrame = true;
+      //app->Draw(0.016);
     }
   }
 
@@ -150,19 +148,21 @@ std::pair<std::unique_ptr<std::byte[]>, std::size_t> Application::LoadBinaryFile
   return {std::move(memory), fsize};
 }
 
-template<class T>
-static [[nodiscard]] T* Address(T&& v)
+static auto MakeVkbSwapchain(const vkb::Device& device, uint32_t width, uint32_t height, [[maybe_unused]] VkPresentModeKHR presentMode, VkSwapchainKHR oldSwapchain)
 {
-  return std::addressof(v);
-}
-
-static void CheckVkResult(VkResult result)
-{
-  // TODO: don't throw for certain non-success codes (since they aren't always errors)
-  if (result != VK_SUCCESS)
-  {
-    throw std::runtime_error("result was not VK_SUCCESS");
-  }
+  return vkb::SwapchainBuilder{device}
+    .set_old_swapchain(VK_NULL_HANDLE)
+    .set_desired_min_image_count(2)
+    .set_old_swapchain(oldSwapchain)
+    .set_desired_present_mode(presentMode)
+    .add_fallback_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
+    .add_fallback_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+    .add_fallback_present_mode(VK_PRESENT_MODE_FIFO_RELAXED_KHR)
+    .add_fallback_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
+    .set_desired_extent(width, height)
+    .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+    .build()
+    .value();
 }
 
 Application::Application(const CreateInfo& createInfo)
@@ -252,7 +252,13 @@ Application::Application(const CreateInfo& createInfo)
   }
   destroyList_.Push([this] { vkDestroySurfaceKHR(instance_, surface_, nullptr); });
 
+  // device
   device_.emplace(instance_, surface);
+  
+  // swapchain
+  swapchain_ = MakeVkbSwapchain(device_->device_, windowWidth, windowHeight, vsyncEnabled ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR, VK_NULL_HANDLE);
+  swapchainImages_ = swapchain_.get_images().value();
+  swapchainImageViews_ = swapchain_.get_image_views().value();
 
   const auto commandPoolInfo = VkCommandPoolCreateInfo{
     .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -289,12 +295,12 @@ Application::Application(const CreateInfo& createInfo)
   destroyList_.Push([] { ImGui_ImplGlfw_Shutdown(); });
 
   // ImGui may create many sets, but each will only have one combined image sampler
-  vkCreateDescriptorPool(device_->device_, Address(VkDescriptorPoolCreateInfo{
+  vkCreateDescriptorPool(device_->device_, Fvog::detail::Address(VkDescriptorPoolCreateInfo{
     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
     .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
     .maxSets = 1234, // TODO: make this constant a variable
     .poolSizeCount = 1,
-    .pPoolSizes = Address(VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1}),
+    .pPoolSizes = Fvog::detail::Address(VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1}),
   }), nullptr, &imguiDescriptorPool_);
 
   auto imguiVulkanInitInfo = ImGui_ImplVulkan_InitInfo{
@@ -304,11 +310,11 @@ Application::Application(const CreateInfo& createInfo)
     .QueueFamily = device_->graphicsQueueFamilyIndex_,
     .Queue = device_->graphicsQueue_,
     .DescriptorPool = imguiDescriptorPool_,
-    .MinImageCount = device_->swapchain_.image_count,
-    .ImageCount = device_->swapchain_.image_count,
+    .MinImageCount = swapchain_.image_count,
+    .ImageCount = swapchain_.image_count,
     .UseDynamicRendering = true,
-    .ColorAttachmentFormat = device_->swapchain_.image_format,
-    .CheckVkResultFn = CheckVkResult,
+    .ColorAttachmentFormat = swapchain_.image_format,
+    .CheckVkResultFn = Fvog::detail::CheckVkResult,
   };
 
   ImGui_ImplVulkan_LoadFunctions([](const char *functionName, void *vulkanInstance) {
@@ -328,26 +334,78 @@ Application::~Application()
   // Destroying a command pool implicitly frees command buffers allocated from it
   vkDestroyCommandPool(device_->device_, tracyCommandPool_, nullptr);
 
+  vkb::destroy_swapchain(swapchain_);
+
+  for (auto view : swapchainImageViews_)
+  {
+    vkDestroyImageView(device_->device_, view, nullptr);
+  }
+
   // Must happen before device is destroyed, thus cannot go in the destroy list
   ImGui_ImplVulkan_Shutdown();
 }
 
-void Application::Draw(double dt)
+void Application::Draw()
 {
   ZoneScoped;
 
+  auto prevTime = timeOfLastDraw;
+  timeOfLastDraw = glfwGetTime();
+  auto dtDraw = timeOfLastDraw - prevTime;
+
+  device_->frameNumber++;
+  auto& currentFrameData = device_->GetCurrentFrameData();
+
+  vkWaitSemaphores(device_->device_, Fvog::detail::Address(VkSemaphoreWaitInfo{
+    .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+    .semaphoreCount = 1,
+    .pSemaphores = &device_->graphicsQueueTimelineSemaphore_,
+    .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
+  }), UINT64_MAX);
+
+  device_->FreeUnusedResources();
+  
+  uint32_t swapchainImageIndex{};
+  if (auto acquireResult = vkAcquireNextImage2KHR(device_->device_, Fvog::detail::Address(VkAcquireNextImageInfoKHR{
+    .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
+    .swapchain = swapchain_,
+    .timeout = static_cast<uint64_t>(-1),
+    .semaphore = currentFrameData.swapchainSemaphore,
+    .deviceMask = 1,
+  }), &swapchainImageIndex); acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
+  {
+    swapchainOk = false;
+  }
+  else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+  {
+    throw std::runtime_error("vkAcquireNextImage failed");
+  }
+
+  if (!swapchainOk)
+  {
+    return;
+  }
+
+  auto commandBuffer = currentFrameData.commandBuffer;
+
+  Fvog::detail::CheckVkResult(vkResetCommandPool(device_->device_, currentFrameData.commandPool, 0));
+
+  Fvog::detail::CheckVkResult(vkBeginCommandBuffer(commandBuffer, Fvog::detail::Address(VkCommandBufferBeginInfo{
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+  })));
+
+  auto ctx = Fvog::Context(commandBuffer);
+  
   // Start a new ImGui frame
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplGlfw_NewFrame();
   ImGui::NewFrame();
 
-  if (windowWidth > 0 && windowHeight > 0)
-  {
-    OnRender(dt);
-    OnGui(dt);
-  }
-
-  // Updates ImGui.
+  OnRender(dtDraw, commandBuffer, swapchainImageIndex);
+  OnGui(dtDraw);
+  
+  // Render ImGui
   // A frame marker is inserted to distinguish ImGui rendering from the application's in a debugger.
   {
     ZoneScopedN("Draw UI");
@@ -355,18 +413,93 @@ void Application::Draw(double dt)
     auto* drawData = ImGui::GetDrawData();
     if (drawData->CmdListsCount > 0)
     {
+      vkCmdBeginRendering(commandBuffer, Fvog::detail::Address(VkRenderingInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .renderArea = {{}, {windowWidth, windowHeight}},
+        .layerCount = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = Fvog::detail::Address(VkRenderingAttachmentInfo{
+          .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+          .imageView = swapchainImageViews_[swapchainImageIndex],
+          .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+          .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+          .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        })
+      }));
       //auto marker = Fwog::ScopedDebugMarker("Draw GUI");
-      //glDisable(GL_FRAMEBUFFER_SRGB);
-      //glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      //ImGui_ImplOpenGL3_RenderDrawData(drawData);
-      //device_->ImmediateSubmit([drawData](VkCommandBuffer commandBuffer) { ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer); });
+      ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
+      vkCmdEndRendering(commandBuffer);
     }
+
+    ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
   }
 
   {
-    ZoneScopedN("SwapBuffers");
-    //glfwSwapBuffers(window);
+    {
+      ZoneScopedN("End Recording");
+      Fvog::detail::CheckVkResult(vkEndCommandBuffer(commandBuffer));
+    }
+    
+    {
+      ZoneScopedN("Submit");
+      const auto queueSubmitSignalSemaphores = std::array{
+        VkSemaphoreSubmitInfo{
+          .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+          .semaphore = device_->graphicsQueueTimelineSemaphore_,
+          .value = device_->frameNumber,
+          .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+        },
+        VkSemaphoreSubmitInfo{
+          .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+          .semaphore = currentFrameData.renderSemaphore,
+          .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+        }};
+
+      Fvog::detail::CheckVkResult(vkQueueSubmit2(
+        device_->graphicsQueue_,
+        1,
+        Fvog::detail::Address(VkSubmitInfo2{
+          .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+          .waitSemaphoreInfoCount = 1,
+          .pWaitSemaphoreInfos = Fvog::detail::Address(VkSemaphoreSubmitInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = currentFrameData.swapchainSemaphore,
+            .stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+          }),
+          .commandBufferInfoCount = 1,
+          .pCommandBufferInfos = Fvog::detail::Address(VkCommandBufferSubmitInfo{
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .commandBuffer = commandBuffer,
+          }),
+          .signalSemaphoreInfoCount = static_cast<uint32_t>(queueSubmitSignalSemaphores.size()),
+          .pSignalSemaphoreInfos = queueSubmitSignalSemaphores.data(),
+        }),
+        VK_NULL_HANDLE)
+      );
+
+      currentFrameData.renderTimelineSemaphoreWaitValue = device_->frameNumber;
+    }
+
+    {
+      ZoneScopedN("Present");
+      if (auto presentResult = vkQueuePresentKHR(device_->graphicsQueue_, Fvog::detail::Address(VkPresentInfoKHR{
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &currentFrameData.renderSemaphore,
+        .swapchainCount = 1,
+        .pSwapchains = &swapchain_.swapchain,
+        .pImageIndices = &swapchainImageIndex,
+      })); presentResult == VK_ERROR_OUT_OF_DATE_KHR)
+      {
+        swapchainOk = false;
+      }
+      else if (presentResult != VK_SUCCESS && presentResult != VK_SUBOPTIMAL_KHR)
+      {
+        throw std::runtime_error("vkQueuePresent failed");
+      }
+    }
   }
+
   //TracyVkCollect(tracyVkContext_, tracyCommandBuffer_) // TODO: figure out how this is supposed to work
   FrameMark;
 }
@@ -375,149 +508,6 @@ void Application::Run()
 {
   ZoneScoped;
   glfwSetInputMode(window, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
-
-  static const char* gVertexSource = R"(
-#version 460 core
-
-const vec2 positions[4] = {{-0.5, -0.5}, {0.5, -0.5}, {0.5, 0.5}, {-0.5, 0.5}};
-const vec2 texcoords[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-const uint indices[6] = {0, 2, 1, 0, 3, 2};
-
-layout(location = 0) out vec2 v_texcoord;
-
-void main()
-{
-  uint index = indices[gl_VertexIndex];
-  v_texcoord = texcoords[index];
-  gl_Position = vec4(positions[index], 0.0, 1.0);
-}
-)";
-
-  static const char* gFragmentSource = R"(
-#version 460 core
-#extension GL_EXT_nonuniform_qualifier : require
-#extension GL_EXT_scalar_block_layout : enable
-#extension GL_EXT_buffer_reference : require
-
-layout(buffer_reference, scalar) buffer ColorBuffer
-{
-  vec4 color;
-};
-
-layout(set = 0, binding = 0) buffer TestBuffers
-{
-  ColorBuffer colorBuffer;
-}buffers[];
-
-layout(push_constant) uniform PushConstants
-{
-  uint bufferIndex;
-  uint samplerIndex;
-}pushConstants;
-
-layout(set = 0, binding = 1) uniform sampler2D samplers[];
-
-layout(location = 0) in vec2 v_texcoord;
-layout(location = 0) out vec4 o_color;
-
-void main()
-{
-  vec4 bufferColor = buffers[pushConstants.bufferIndex].colorBuffer.color;
-  vec4 samplerColor = texture(samplers[pushConstants.samplerIndex], v_texcoord);
-  samplerColor.a = 1;
-  o_color = bufferColor * samplerColor;
-}
-)";
-
-  auto pipelineLayout = VkPipelineLayout{};
-  CheckVkResult(
-    vkCreatePipelineLayout(
-      device_->device_,
-      Address(VkPipelineLayoutCreateInfo{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &device_->descriptorSetLayout_,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = Address(VkPushConstantRange{
-          .stageFlags = VK_SHADER_STAGE_ALL,
-          .offset = 0,
-          .size = 64,
-        }),
-      }),
-      nullptr,
-      &pipelineLayout));
-
-  const auto vertexShader = Fvog::Shader(device_->device_, Fvog::PipelineStage::VERTEX_SHADER, gVertexSource);
-  const auto fragmentShader = Fvog::Shader(device_->device_, Fvog::PipelineStage::FRAGMENT_SHADER, gFragmentSource);
-  const auto renderTargetFormats = {VK_FORMAT_B8G8R8A8_SRGB};
-  auto pipeline = Fvog::GraphicsPipeline(device_->device_, pipelineLayout, {
-    .vertexShader = &vertexShader,
-    .fragmentShader = &fragmentShader,
-    .renderTargetFormats = {.colorAttachmentFormats = renderTargetFormats},
-  });
-  
-  auto testTexture = Fvog::Texture(device_.value(), {
-    .imageViewType = VK_IMAGE_VIEW_TYPE_2D,
-    .format = VK_FORMAT_B8G8R8A8_SRGB,
-    .extent = {windowWidth / 10, windowHeight / 10, 1},
-    .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-  });
-
-  int x{};
-  int y{};
-  auto* imageData = stbi_load("textures/bluenoise32.png", &x, &y, nullptr, 4);
-  assert(imageData);
-
-  auto testSampledTexture = Fvog::Texture(device_.value(), {
-    .imageViewType = VK_IMAGE_VIEW_TYPE_2D,
-    .format = VK_FORMAT_R8G8B8A8_SRGB,
-    .extent = {(uint32_t)x, (uint32_t)y, 1},
-    .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-  });
-
-  auto testUploadBuffer = Fvog::Buffer(*device_, {.size = uint32_t(x * y * 4), .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE});
-  memcpy(testUploadBuffer.GetMappedMemory(), imageData, x * y * 4);
-
-  stbi_image_free(imageData);
-
-  device_->ImmediateSubmit(
-    [&testSampledTexture, &testUploadBuffer](VkCommandBuffer commandBuffer)
-    {
-      auto ctx = Fvog::Context(commandBuffer);
-      ctx.ImageBarrier(testSampledTexture, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-      vkCmdCopyBufferToImage2(commandBuffer, Address(VkCopyBufferToImageInfo2{
-        .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
-        .srcBuffer = testUploadBuffer.Handle(),
-        .dstImage = testSampledTexture.Image(),
-        .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        .regionCount = 1,
-        .pRegions = Address(VkBufferImageCopy2{
-          .sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
-          .bufferOffset = 0,
-          //.bufferRowLength = testSampledTexture.GetCreateInfo().extent.width * 4,
-          .imageSubresource = VkImageSubresourceLayers{
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .layerCount = 1,
-          },
-          .imageOffset = {},
-          .imageExtent = testSampledTexture.GetCreateInfo().extent,
-        }),
-      }));
-      ctx.ImageBarrier(testSampledTexture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-    });
-
-  auto sampler = VkSampler{};
-  CheckVkResult(vkCreateSampler(device_->device_, Address(VkSamplerCreateInfo{
-    .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-    .magFilter = VK_FILTER_NEAREST,
-    .minFilter = VK_FILTER_NEAREST,
-    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-    .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-    .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-    .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-  }), nullptr, &sampler));
-
-  auto updatedBuffer = Fvog::NDeviceBuffer(*device_, sizeof(glm::vec4));
 
   // The main loop.
   double prevFrame = glfwGetTime();
@@ -529,7 +519,16 @@ void main()
     prevFrame = curFrame;
 
     cursorFrameOffset = {0.0, 0.0};
-    glfwPollEvents();
+
+    if (swapchainOk)
+    {
+      glfwPollEvents();
+    }
+    else
+    {
+      glfwWaitEvents();
+      continue;
+    }
 
     // Close the app if the user presses Escape.
     if (glfwGetKey(window, GLFW_KEY_ESCAPE))
@@ -593,199 +592,50 @@ void main()
     // Call the application's overriden functions each frame.
     OnUpdate(dt);
 
-    device_->frameNumber++;
-    auto& currentFrameData = device_->GetCurrentFrameData();
-
-    vkWaitSemaphores(device_->device_, Address(VkSemaphoreWaitInfo{
-      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-      .semaphoreCount = 1,
-      .pSemaphores = &device_->graphicsQueueTimelineSemaphore_,
-      .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
-    }), UINT64_MAX);
-
-    device_->FreeUnusedResources();
-
-    // TODO:
-    // On success, this command returns
-    //    VK_SUCCESS
-    //    VK_TIMEOUT
-    //    VK_NOT_READY
-    //    VK_SUBOPTIMAL_KHR
-    uint32_t swapchainImageIndex{};
-    CheckVkResult(vkAcquireNextImage2KHR(device_->device_, Address(VkAcquireNextImageInfoKHR{
-      .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
-      .swapchain = device_->swapchain_,
-      .timeout = static_cast<uint64_t>(-1),
-      .semaphore = currentFrameData.swapchainSemaphore,
-      .deviceMask = 1,
-    }), &swapchainImageIndex));
-
-    auto commandBuffer = currentFrameData.commandBuffer;
-    auto ctx = Fvog::Context(commandBuffer);
-
-    CheckVkResult(vkResetCommandPool(device_->device_, currentFrameData.commandPool, 0));
-
-    CheckVkResult(vkBeginCommandBuffer(commandBuffer, Address(VkCommandBufferBeginInfo{
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-    })));
-
-    // Holds actual data
-    //auto testBuffer = Fvog::Buffer(*device_, {.size = sizeof(glm::vec4)});
-    const auto testColor = glm::vec4{1.0f, 1.0f, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1.0f};
-
-    // Holds pointer to testBuffer
-    auto testBuffer2 = Fvog::Buffer(*device_, {.size = sizeof(VkDeviceAddress)});
-    updatedBuffer.UpdateData(commandBuffer, testColor);
-    //vkCmdUpdateBuffer(commandBuffer, testBuffer.Handle(), 0, sizeof(testColor), &testColor);
-    vkCmdUpdateBuffer(commandBuffer, testBuffer2.Handle(), 0, sizeof(VkDeviceAddress), &updatedBuffer.GetDeviceBuffer().GetDeviceAddress());
-
-    ctx.BufferBarrier(updatedBuffer.GetDeviceBuffer());
-
-    ctx.ImageBarrier(testTexture, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-    auto colorAttachment = Fvog::RenderColorAttachment{
-      .texture = testTexture,
-      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-      //.clearValue = {1.0f, 1.0f, std::sinf(device_->frameNumber / 1000.0f) * .5f + .5f, 1.0f},
-      .clearValue = {0.1f, 0.1f, 0.1f, 1.0f},
-    };
-    ctx.BeginRendering({
-      .colorAttachments = {&colorAttachment, 1},
-    });
-
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &device_->descriptorSet_, 0, nullptr);
-    struct
+    if (windowWidth > 0 && windowHeight > 0)
     {
-      uint32_t bufferIndex;
-      uint32_t samplerIndex;
-    }indices{};
-    const auto descriptorInfo = device_->AllocateStorageBufferDescriptor(testBuffer2.Handle());
-    const auto descriptorInfo2 = device_->AllocateCombinedImageSamplerDescriptor(sampler, testSampledTexture.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-    indices.bufferIndex = descriptorInfo.GpuResource().index;
-    indices.samplerIndex = descriptorInfo2.GpuResource().index;
-    vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(indices), &indices);
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle());
-    vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+      Draw();
+    }
+  }
+}
 
-    ctx.EndRendering();
+void Application::ResizeCallbackThingy([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight)
+{
+  ZoneScoped;
 
-    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  assert(newWidth > 0 && newHeight > 0);
 
-    ctx.ImageBarrier(testTexture, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-    vkCmdBlitImage2(commandBuffer, Address(VkBlitImageInfo2{
-      .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
-      .srcImage = testTexture.Image(),
-      .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-      .dstImage = device_->swapchainImages_[swapchainImageIndex],
-      .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      .regionCount = 1,
-      .pRegions = Address(VkImageBlit2{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
-        .srcSubresource = VkImageSubresourceLayers{
-          .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-          .mipLevel = 0,
-          .baseArrayLayer = 0,
-          .layerCount = 1,
-        },
-        .srcOffsets = {{}, {(int)testTexture.GetCreateInfo().extent.width, (int)testTexture.GetCreateInfo().extent.height, 1}},
-        .dstSubresource = VkImageSubresourceLayers{
-          .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-          .mipLevel = 0,
-          .baseArrayLayer = 0,
-          .layerCount = 1,
-        },
-        .dstOffsets = {{}, {(int)windowWidth, (int)windowHeight, 1}},
-      }),
-      .filter = VK_FILTER_NEAREST,
-    }));
-    
-    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-    vkCmdBeginRendering(commandBuffer, Address(VkRenderingInfo{
-      .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-      .renderArea = {{}, {windowWidth, windowHeight}},
-      .layerCount = 1,
-      .colorAttachmentCount = 1,
-      .pColorAttachments = Address(VkRenderingAttachmentInfo{
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = device_->swapchainImageViews_[swapchainImageIndex],
-        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-      })
-    }));
-    // TDOO: temp crap since Draw() doesn't have the cmdbuf
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
-    OnGui(dt);
-    ImGui::Render();
-    auto* drawData = ImGui::GetDrawData();
-    ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
-    // Draw(dt);
-    vkCmdEndRendering(commandBuffer);
-
-    ctx.ImageBarrier(device_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
-    // End recording
-    CheckVkResult(vkEndCommandBuffer(commandBuffer));
-
-    // Submit
-    const auto queueSubmitSignalSemaphores = std::array{
-      VkSemaphoreSubmitInfo{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        .semaphore = device_->graphicsQueueTimelineSemaphore_,
-        .value = device_->frameNumber,
-        .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-      },
-      VkSemaphoreSubmitInfo{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        .semaphore = currentFrameData.renderSemaphore,
-        .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-      }};
-    currentFrameData.renderTimelineSemaphoreWaitValue = device_->frameNumber;
-
-    CheckVkResult(vkQueueSubmit2(
-      device_->graphicsQueue_,
-      1,
-      Address(VkSubmitInfo2{
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-        .waitSemaphoreInfoCount = 1,
-        .pWaitSemaphoreInfos = Address(VkSemaphoreSubmitInfo{
-          .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-          .semaphore = currentFrameData.swapchainSemaphore,
-          .stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        }),
-        .commandBufferInfoCount = 1,
-        .pCommandBufferInfos = Address(VkCommandBufferSubmitInfo{
-          .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-          .commandBuffer = commandBuffer,
-        }),
-        .signalSemaphoreInfoCount = static_cast<uint32_t>(queueSubmitSignalSemaphores.size()),
-        .pSignalSemaphoreInfos = queueSubmitSignalSemaphores.data(),
-      }),
-      VK_NULL_HANDLE)
-    );
-
-    // Present
-    CheckVkResult(vkQueuePresentKHR(device_->graphicsQueue_, Address(VkPresentInfoKHR{
-      .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-      .waitSemaphoreCount = 1,
-      .pWaitSemaphores = &currentFrameData.renderSemaphore,
-      .swapchainCount = 1,
-      .pSwapchains = &device_->swapchain_.swapchain,
-      .pImageIndices = &swapchainImageIndex,
-    })));
+  {
+    ZoneScopedN("Device WFI");
+    vkDeviceWaitIdle(device_->device_);
   }
 
-  vkDeviceWaitIdle(device_->device_);
+  const auto oldSwapchain = swapchain_;
 
-  vkDestroyDescriptorPool(device_->device_, imguiDescriptorPool_, nullptr);
-  vkDestroySampler(device_->device_, sampler, nullptr);
-  vkDestroyPipelineLayout(device_->device_, pipelineLayout, nullptr);
+  {
+    ZoneScopedN("Create New Swapchain");
+    swapchain_ = MakeVkbSwapchain(device_->device_, windowWidth, windowHeight, vsyncEnabled ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR, oldSwapchain);
+  }
+
+  {
+    ZoneScopedN("Destroy Old Swapchain");
+    vkb::destroy_swapchain(oldSwapchain);
+
+    for (auto view : swapchainImageViews_)
+    {
+      vkDestroyImageView(device_->device_, view, nullptr);
+    }
+  }
+
+  swapchainImages_ = swapchain_.get_images().value();
+  swapchainImageViews_ = swapchain_.get_image_views().value();
+
+  swapchainOk = true;
+
+  OnWindowResize(newWidth, newHeight);
+
+  // Redraw the window
+  Draw();
 }
 
 void DestroyList::Push(std::function<void()> fn)

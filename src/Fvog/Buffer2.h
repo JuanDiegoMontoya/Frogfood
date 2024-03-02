@@ -4,8 +4,7 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include <Fwog/Buffer.h>
-
+#include <cstddef>
 #include <string_view>
 #include <span>
 #include <type_traits>
@@ -48,17 +47,17 @@ namespace Fvog
     VkDeviceSize size{};
     BufferFlagThingy flag{};
   };
-
+  
   class Buffer
   {
   public:
-    Buffer(Device& device, const BufferCreateInfo& createInfo);
+    explicit Buffer(Device& device, const BufferCreateInfo& createInfo);
     ~Buffer();
 
     Buffer(const Buffer&) = delete;
     Buffer& operator=(const Buffer&) = delete;
-    Buffer(Buffer&&) noexcept; // TODO
-    Buffer& operator=(Buffer&&) noexcept; // TODO
+    Buffer(Buffer&&) noexcept;
+    Buffer& operator=(Buffer&&) noexcept;
 
     [[nodiscard]] VkBuffer Handle() const noexcept
     {
@@ -80,33 +79,77 @@ namespace Fvog
       return createInfo_;
     }
 
-  private:
-    Device& device_;
+  protected:
+    Device* device_{};
     BufferCreateInfo createInfo_{};
     VkBuffer buffer_{};
     VmaAllocation allocation_{};
     void* mappedMemory_{};
     VkDeviceAddress deviceAddress_{};
+
+    template<typename T>
+    friend class NDeviceBuffer;
+
+    void UpdateDataGeneric(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes, Buffer& stagingBuffer, Buffer& deviceBuffer);
+  };
+
+  struct TypedBufferCreateInfo
+  {
+    std::string_view name{};
+    uint32_t count{1};
+    BufferFlagThingy flag{};
+  };
+  
+  template<typename T = std::byte>
+    requires std::is_trivially_copyable_v<T>
+  class TypedBuffer : public Buffer
+  {
+  public:
+    explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo)
+      : Buffer(device, {.name = createInfo.name, .size = createInfo.count * sizeof(T), .flag = createInfo.flag})
+    {
+    }
+
+    [[nodiscard]] T* GetMappedMemory() const noexcept
+    {
+      return static_cast<T*>(mappedMemory_);
+    }
+
+  private:
   };
 
   // Consists of N staging buffers for upload and one device buffer
   // Use for buffers that need to be uploaded every frame
+  template<typename T = std::byte>
+    //requires std::is_trivially_copyable_v<T>
   class NDeviceBuffer
   {
   public:
-    NDeviceBuffer(Device& device, VkDeviceSize size);
+    explicit NDeviceBuffer(Device& device, uint32_t count = 1)
+    : hostStagingBuffers_{
+        // TODO: create a helper for initializing this array so it doesn't fail to compile when Device::frameOverlap changes
+        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE})},
+        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE})},
+      },
+      deviceBuffer_(device, TypedBufferCreateInfo{.count = count})
+    {
+    }
 
     // Only call within a command buffer, once per frame
-    void UpdateData(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes = 0);
+    void UpdateData(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes = 0)
+    {
+      auto& stagingBuffer = hostStagingBuffers_[deviceBuffer_.device_->frameNumber % Device::frameOverlap];
+      stagingBuffer.UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, deviceBuffer_);
+    }
 
-    Buffer& GetDeviceBuffer()
+    [[nodiscard]] Buffer& GetDeviceBuffer() noexcept
     {
       return deviceBuffer_;
     }
 
   private:
-    Device& device_;
-    Buffer hostStagingBuffers_[Device::frameOverlap];
-    Buffer deviceBuffer_;
+
+    TypedBuffer<T> hostStagingBuffers_[Device::frameOverlap];
+    TypedBuffer<T> deviceBuffer_;
   };
 }

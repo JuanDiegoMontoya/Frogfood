@@ -29,6 +29,7 @@ namespace Fvog
         .textureCompressionBC = true,
         .fragmentStoresAndAtomics = true,
         .shaderStorageImageExtendedFormats = true,
+        // Apparently the next two features are not needed with 1.3 since you can query support in a granular fashion
         .shaderStorageImageReadWithoutFormat = true,
         .shaderStorageImageWriteWithoutFormat = true,
         .shaderUniformBufferArrayDynamicIndexing = true,
@@ -96,23 +97,26 @@ namespace Fvog
       .add_required_extension("VK_KHR_dynamic_rendering") // Needed for Dear ImGui's default Vulkan backend
       .select()
       .value();
+
+    auto usedFormats = std::array{VK_FORMAT_R32_SFLOAT};
+
+    for (auto format : usedFormats)
+    {
+      auto formatProperties3 = VkFormatProperties3{
+        .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3
+      };
+      auto formatProperties2 = VkFormatProperties2{
+        .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2,
+        .pNext = &formatProperties3,
+      };
+      vkGetPhysicalDeviceFormatProperties2(physicalDevice_, format, &formatProperties2);
+      printf("Formatless read: %d\n", (formatProperties3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT) != 0);
+      printf("Formatless write: %d\n", (formatProperties3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT) != 0);
+    }
     
     device_ = vkb::DeviceBuilder{physicalDevice_}.build().value();
     graphicsQueue_ = device_.get_queue(vkb::QueueType::graphics).value();
     graphicsQueueFamilyIndex_ = device_.get_queue_index(vkb::QueueType::graphics).value();
-
-    // swapchain
-    swapchain_ = vkb::SwapchainBuilder{device_}
-      .set_old_swapchain(VK_NULL_HANDLE)
-      .set_desired_min_image_count(2)
-      .use_default_present_mode_selection()
-      .set_desired_extent(1920, 1080)
-      .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-      .build()
-      .value();
-
-    swapchainImages_ = swapchain_.get_images().value();
-    swapchainImageViews_ = swapchain_.get_image_views().value();
 
     // Per-frame swapchain sync, command pools, and command buffers
     for (auto& frame : frameData)
@@ -270,13 +274,6 @@ namespace Fvog
     }
 
     vkDestroySemaphore(device_, graphicsQueueTimelineSemaphore_, nullptr);
-
-    vkb::destroy_swapchain(swapchain_);
-
-    for (auto view : swapchainImageViews_)
-    {
-      vkDestroyImageView(device_, view, nullptr);
-    }
 
     vmaDestroyAllocator(allocator_);
     vkb::destroy_device(device_);

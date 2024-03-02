@@ -1,6 +1,8 @@
+//? #version 450
 #ifndef DEBUG_COMMON_H
 #define DEBUG_COMMON_H
 
+#include "../Resources.h.glsl"
 #include "../BasicTypes.h.glsl"
 
 struct DebugAabb
@@ -18,47 +20,49 @@ struct DebugRect
   float depth;
 };
 
-layout(binding = 11, std430) restrict buffer DebugAabbBuffer
+//layout(binding = 11, std430) restrict buffer DebugAabbBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict DebugAabbBuffer)
 {
   DrawIndirectCommand drawCommand;
   DebugAabb aabbs[];
-} debugAabbBuffer;
+} debugAabbBuffers[];
 
-layout(binding = 12, std430) restrict buffer DebugRectBuffer
+//layout(binding = 12, std430) restrict buffer DebugRectBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict DebugRectBuffer)
 {
   DrawIndirectCommand drawCommand;
   DebugRect rects[];
-} debugRectBuffer;
+} debugRectBuffers[];
 
 // World-space box
-bool TryPushDebugAabb(DebugAabb box)
+bool TryPushDebugAabb(uint bufferIndex, DebugAabb box)
 {
-  uint index = atomicAdd(debugAabbBuffer.drawCommand.instanceCount, 1);
+  uint index = atomicAdd(debugAabbBuffers[bufferIndex].drawCommand.instanceCount, 1);
 
   // Check if buffer is full
-  if (index >= debugAabbBuffer.aabbs.length())
+  if (index >= debugAabbBuffers[bufferIndex].aabbs.length())
   {
-    atomicAdd(debugAabbBuffer.drawCommand.instanceCount, -1);
+    atomicAdd(debugAabbBuffers[bufferIndex].drawCommand.instanceCount, -1);
     return false;
   }
 
-  debugAabbBuffer.aabbs[index] = box;
+  debugAabbBuffers[bufferIndex].aabbs[index] = box;
   return true;
 }
 
 // UV-space rect
-bool TryPushDebugRect(DebugRect rect)
+bool TryPushDebugRect(uint bufferIndex, DebugRect rect)
 {
-  uint index = atomicAdd(debugRectBuffer.drawCommand.instanceCount, 1);
+  uint index = atomicAdd(debugRectBuffers[bufferIndex].drawCommand.instanceCount, 1);
 
   // Check if buffer is full
-  if (index >= debugRectBuffer.rects.length())
+  if (index >= debugRectBuffers[bufferIndex].rects.length())
   {
-    atomicAdd(debugRectBuffer.drawCommand.instanceCount, -1);
+    atomicAdd(debugRectBuffers[bufferIndex].drawCommand.instanceCount, -1);
     return false;
   }
 
-  debugRectBuffer.rects[index] = rect;
+  debugRectBuffers[bufferIndex].rects[index] = rect;
   return true;
 }
 

@@ -1,25 +1,49 @@
 #version 450 core
 
+#extension GL_GOOGLE_include_directive : enable
+
+#include "Resources.h.glsl"
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
-layout(binding = 0) uniform sampler2D s_sceneColor;
-layout(binding = 1) uniform sampler2D s_noise;
+//layout(binding = 0) uniform sampler2D s_sceneColor;
+//layout(binding = 1) uniform sampler2D s_noise;
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
+FVOG_DECLARE_SAMPLERS;
 
-layout(std140, binding = 0) uniform ExposureBuffer
+FVOG_DECLARE_ARGUMENTS(TonemapArguments)
+{
+  FVOG_UINT32 sceneColorIndex;
+  FVOG_UINT32 noiseIndex;
+  FVOG_UINT32 nearestSamplerIndex;
+
+  FVOG_UINT32 exposureIndex;
+  FVOG_UINT32 tonemapUniformsIndex;
+  FVOG_UINT32 outputImageIndex;
+};
+
+//layout(std140, binding = 0) uniform ExposureBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ExposureBuffer)
 {
   float exposure;
-} exposureBuffer;
+} exposureBuffers[];
 
-layout(std140, binding = 1) uniform TonemapUniformBuffer
+#define d_exposureBuffer exposureBuffers[exposureIndex]
+
+//layout(std140, binding = 1) uniform TonemapUniformBuffer
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly TonemapUniformBuffer)
 {
   float saturation;
   float agxDsLinearSection;
   float peak;
   float compression;
   uint enableDithering;
-} uniforms;
+} uniformsBuffers[];
 
-layout(binding = 0) uniform writeonly image2D i_output;
+#define d_uniforms uniformsBuffers[tonemapUniformsIndex]
+
+//layout(binding = 0) uniform writeonly image2D i_output;
+FVOG_DECLARE_STORAGE_IMAGES(image2D);
 
 // AgX implementation from here: https://www.shadertoy.com/view/Dt3XDr
 vec3 xyYToXYZ(vec3 xyY)
@@ -122,15 +146,15 @@ vec3 linear_to_nonlinear_srgb(vec3 linearColor)
 
 vec3 apply_dither(vec3 color, vec2 uv)
 {
-  vec2 uvNoise = uv * (vec2(textureSize(s_sceneColor, 0)) / vec2(textureSize(s_noise, 0)));
-  vec3 noiseSample = textureLod(s_noise, uvNoise, 0).rgb;
+  vec2 uvNoise = uv * (vec2(textureSize(Fvog_sampler2D(sceneColorIndex, nearestSamplerIndex), 0)) / vec2(textureSize(Fvog_sampler2D(noiseIndex, nearestSamplerIndex), 0)));
+  vec3 noiseSample = textureLod(Fvog_sampler2D(noiseIndex, nearestSamplerIndex), uvNoise, 0).rgb;
   return color + vec3((noiseSample - 0.5) / 255.0);
 }
 
 void main()
 {
   const ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
-  const ivec2 targetDim = imageSize(i_output);
+  const ivec2 targetDim = imageSize(Fvog_image2D(outputImageIndex));
 
   if (any(greaterThanEqual(gid, targetDim)))
   {
@@ -139,16 +163,16 @@ void main()
 
   const vec2 uv = (vec2(gid) + 0.5) / targetDim;
   
-  vec3 hdrColor = textureLod(s_sceneColor, uv, 0).rgb;
+  vec3 hdrColor = textureLod(Fvog_sampler2D(sceneColorIndex, nearestSamplerIndex), uv, 0).rgb;
   //vec3 ldrColor = AgX_DS(hdrColor, exposureBuffer.exposure, 1.0, 0.18, 1, 0.15);
-  vec3 ldrColor = AgX_DS(hdrColor, exposureBuffer.exposure, uniforms.saturation, uniforms.agxDsLinearSection, uniforms.peak, uniforms.compression);
+  vec3 ldrColor = AgX_DS(hdrColor, d_exposureBuffer.exposure, d_uniforms.saturation, d_uniforms.agxDsLinearSection, d_uniforms.peak, d_uniforms.compression);
   vec3 srgbColor = linear_to_nonlinear_srgb(ldrColor);
   vec3 ditheredColor = srgbColor;
   
-  if (bool(uniforms.enableDithering))
+  if (bool(d_uniforms.enableDithering))
   {
     ditheredColor = apply_dither(srgbColor, uv);
   }
 
-  imageStore(i_output, gid, vec4(ditheredColor, 1.0));
+  imageStore(Fvog_image2D(outputImageIndex), gid, vec4(ditheredColor, 1.0));
 }

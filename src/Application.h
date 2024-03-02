@@ -80,13 +80,17 @@ public:
   void Run();
 
 protected:
+  // Create swapchain size-dependent resources
   virtual void OnWindowResize([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight){}
   virtual void OnUpdate([[maybe_unused]] double dt){}
-  virtual void OnRender([[maybe_unused]] double dt){}
+  virtual void OnRender(
+    [[maybe_unused]] double dt,
+    [[maybe_unused]] VkCommandBuffer commandBuffer,
+    [[maybe_unused]] uint32_t swapchainImageIndex) {}
   virtual void OnGui([[maybe_unused]] double dt){}
   virtual void OnPathDrop([[maybe_unused]] std::span<const char*> paths){}
 
-  // TODO: determine the order in which stuff needs to be destroyed
+  // destroyList will be the last object to be automatically destroyed after the destructor returns
   DestroyList destroyList_;
   vkb::Instance instance_{};
   std::optional<Fvog::Device> device_;
@@ -94,6 +98,9 @@ protected:
   VkCommandPool tracyCommandPool_{};
   VkCommandBuffer tracyCommandBuffer_{};
   VkDescriptorPool imguiDescriptorPool_{};
+  vkb::Swapchain swapchain_{};
+  std::vector<VkImage> swapchainImages_;
+  std::vector<VkImageView> swapchainImageViews_;
   //tracy::VkCtx* tracyVkContext_{};
   GLFWwindow* window;
   View mainCamera{};
@@ -113,9 +120,12 @@ protected:
 private:
   friend class ApplicationAccess;
 
-  void Draw(double dt);
+  void ResizeCallbackThingy(uint32_t newWidth, uint32_t newHeight);
+  void Draw();
+  double timeOfLastDraw = 0;
 
   glm::dvec2 cursorFrameOffset{};
   bool cursorJustEnteredWindow = true;
   bool graveHeldLastFrame = false;
+  bool swapchainOk = true;
 };

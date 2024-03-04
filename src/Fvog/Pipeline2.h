@@ -117,9 +117,9 @@ namespace Fvog
 
   struct RenderTargetFormats
   {
-    std::span<const VkFormat> colorAttachmentFormats{};
-    VkFormat depthAttachmentFormat = VK_FORMAT_UNDEFINED;
-    VkFormat stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
+    std::span<const Fvog::Format> colorAttachmentFormats{};
+    Fvog::Format depthAttachmentFormat = Fvog::Format::UNDEFINED;
+    Fvog::Format stencilAttachmentFormat = Fvog::Format::UNDEFINED;
   };
 
   /// @brief Parameters for the constructor of GraphicsPipeline

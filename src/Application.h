@@ -49,7 +49,9 @@ public:
   ~DestroyList();
 
   DestroyList(const DestroyList&) = delete;
+  DestroyList(DestroyList&&) noexcept = delete;
   DestroyList&& operator=(const DestroyList&) = delete;
+  DestroyList&& operator=(DestroyList&&) noexcept = delete;
 
 private:
   std::vector<std::function<void()>> destructorList;

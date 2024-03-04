@@ -110,14 +110,14 @@ namespace Fvog
     public:
       struct ResourceHandle
       {
-        ResourceType type;
-        uint32_t index;
+        ResourceType type{};
+        uint32_t index{};
       };
       
       DescriptorInfo(const DescriptorInfo&) = delete;
       DescriptorInfo& operator=(const DescriptorInfo&) = delete;
-      DescriptorInfo(DescriptorInfo&&) noexcept; // TODO
-      DescriptorInfo& operator=(DescriptorInfo&&) noexcept; // TODO
+      DescriptorInfo(DescriptorInfo&&) noexcept;
+      DescriptorInfo& operator=(DescriptorInfo&&) noexcept;
       ~DescriptorInfo();
 
       [[nodiscard]] const ResourceHandle& GpuResource() const noexcept
@@ -127,9 +127,9 @@ namespace Fvog
 
     private:
       friend class Device;
-      DescriptorInfo(Device& device, ResourceHandle handle) : device_(device), handle_(handle) {}
-      Device& device_;
-      ResourceHandle handle_;
+      DescriptorInfo(Device& device, ResourceHandle handle) : device_(&device), handle_(handle) {}
+      Device* device_{};
+      ResourceHandle handle_{};
     };
 
     DescriptorInfo AllocateStorageBufferDescriptor(VkBuffer buffer);

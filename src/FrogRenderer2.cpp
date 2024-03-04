@@ -115,6 +115,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     //debugAabbsPipeline(Pipelines2::DebugAabbs(device_->device_)),
     //debugRectsPipeline(Pipelines2::DebugRects(device_->device_))
 {
+  ZoneScoped;
   CheckVkResult(
     vkCreatePipelineLayout(
       device_->device_,
@@ -134,13 +135,16 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   const auto vertexShader = Fvog::Shader(device_->device_, Fvog::PipelineStage::VERTEX_SHADER, gVertexSource);
   const auto fragmentShader = Fvog::Shader(device_->device_, Fvog::PipelineStage::FRAGMENT_SHADER, gFragmentSource);
-  const auto renderTargetFormats = {VK_FORMAT_B8G8R8A8_SRGB};
+  const auto renderTargetFormats = {Fvog::Format::B8G8R8A8_SRGB};
   pipeline = Fvog::GraphicsPipeline(device_->device_, pipelineLayout, {
     .vertexShader = &vertexShader,
     .fragmentShader = &fragmentShader,
     .renderTargetFormats = {.colorAttachmentFormats = renderTargetFormats},
   });
-  
+
+  //Utility::LoadModelFromFileMeshlet(*device_, scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}));
+  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
+  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
 
   int x{};
   int y{};
@@ -148,8 +152,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   assert(imageData);
 
   testSampledTexture.emplace(device_.value(), Fvog::TextureCreateInfo{
-    .imageViewType = VK_IMAGE_VIEW_TYPE_2D,
-    .format = VK_FORMAT_R8G8B8A8_SRGB,
+    .viewType = VK_IMAGE_VIEW_TYPE_2D,
+    .format = Fvog::Format::R8G8B8A8_SRGB,
     .extent = {(uint32_t)x, (uint32_t)y, 1},
     .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
   });
@@ -215,8 +219,8 @@ void FrogRenderer2::OnWindowResize([[maybe_unused]] uint32_t newWidth, [[maybe_u
   ZoneScoped;
 
   testTexture = Fvog::Texture(device_.value(), Fvog::TextureCreateInfo{
-    .imageViewType = VK_IMAGE_VIEW_TYPE_2D,
-    .format = VK_FORMAT_B8G8R8A8_SRGB, // TODO: get from swapchain
+    .viewType = VK_IMAGE_VIEW_TYPE_2D,
+    .format = Fvog::Format::B8G8R8A8_SRGB, // TODO: get from swapchain
     .extent = {windowWidth, windowHeight, 1},
     .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
   });

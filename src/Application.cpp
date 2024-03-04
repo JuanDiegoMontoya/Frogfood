@@ -91,7 +91,7 @@ class ApplicationAccess
 public:
   static void CursorPosCallback(GLFWwindow* window, double currentCursorX, double currentCursorY)
   {
-    Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     if (app->cursorJustEnteredWindow)
     {
       app->cursorPos = {currentCursorX, currentCursorY};
@@ -105,7 +105,7 @@ public:
 
   static void CursorEnterCallback(GLFWwindow* window, int entered)
   {
-    Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     if (entered)
     {
       app->cursorJustEnteredWindow = true;
@@ -114,7 +114,7 @@ public:
 
   static void FramebufferResizeCallback(GLFWwindow* window, int newWidth, int newHeight)
   {
-    Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     app->windowWidth = static_cast<uint32_t>(newWidth);
     app->windowHeight = static_cast<uint32_t>(newHeight);
 
@@ -128,7 +128,7 @@ public:
 
   static void PathDropCallback(GLFWwindow* window, int count, const char** paths)
   {
-    Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
     app->OnPathDrop({paths, static_cast<size_t>(count)});
   }
 };
@@ -151,7 +151,6 @@ std::pair<std::unique_ptr<std::byte[]>, std::size_t> Application::LoadBinaryFile
 static auto MakeVkbSwapchain(const vkb::Device& device, uint32_t width, uint32_t height, [[maybe_unused]] VkPresentModeKHR presentMode, VkSwapchainKHR oldSwapchain)
 {
   return vkb::SwapchainBuilder{device}
-    .set_old_swapchain(VK_NULL_HANDLE)
     .set_desired_min_image_count(2)
     .set_old_swapchain(oldSwapchain)
     .set_desired_present_mode(presentMode)

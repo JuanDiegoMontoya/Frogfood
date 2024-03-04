@@ -17,8 +17,8 @@ add_executable(frogRender
     src/SceneLoader.h
     vendor/stb_image.cpp
     src/Gui.cpp
-    src/FrogRenderer.h
-    src/FrogRenderer.cpp
+    #src/FrogRenderer.h
+    #src/FrogRenderer.cpp
     src/PCG.h
     src/techniques/Bloom.h
     src/techniques/Bloom.cpp

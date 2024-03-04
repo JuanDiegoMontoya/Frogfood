@@ -10,7 +10,7 @@
 
 namespace Fvog
 {
-  Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo)
+  Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo, std::string_view /*name*/)
     : device_(&device),
       createInfo_(createInfo)
   {

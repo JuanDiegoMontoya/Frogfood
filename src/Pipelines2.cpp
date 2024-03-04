@@ -208,7 +208,7 @@ namespace Pipelines2
     //auto colorBinding = Fvog::VertexInputBindingDescription{
     //  .location = 1,
     //  .binding = 0,
-    //  .format = Fvog::Format::R32G32B32A32_FLOAT,
+    //  .format = Fvog::Format::R32G32B32A32_SFLOAT,
     //  .offset = offsetof(Debug::Line, aColor),
     //};
 

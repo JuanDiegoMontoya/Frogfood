@@ -198,51 +198,51 @@ private:
   {
     // Main view visbuffer
     std::optional<Fvog::Texture> visbuffer;
-    constexpr static VkFormat visbufferFormat = VK_FORMAT_R32_UINT;
+    constexpr static Fvog::Format visbufferFormat = Fvog::Format::R32_UINT;
     std::optional<Fvog::Texture> materialDepth;
-    constexpr static VkFormat materialDepthFormat = VK_FORMAT_D32_SFLOAT;
+    constexpr static Fvog::Format materialDepthFormat = Fvog::Format::D32_SFLOAT;
     std::optional<Fvog::Texture> hzb;
-    constexpr static VkFormat hzbFormat = VK_FORMAT_R32_SFLOAT;
+    constexpr static Fvog::Format hzbFormat = Fvog::Format::R32_SFLOAT;
 
     // G-buffer textures
     std::optional<Fvog::Texture> gAlbedo;
-    constexpr static VkFormat gAlbedoFormat = VK_FORMAT_R8G8B8A8_SRGB;
+    constexpr static Fvog::Format gAlbedoFormat = Fvog::Format::R8G8B8A8_SRGB;
     std::optional<Fvog::Texture> gMetallicRoughnessAo;
-    constexpr static VkFormat gMetallicRoughnessAoFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    constexpr static Fvog::Format gMetallicRoughnessAoFormat = Fvog::Format::R8G8B8A8_UNORM;
     std::optional<Fvog::Texture> gNormalAndFaceNormal;
-    constexpr static VkFormat gNormalAndFaceNormalFormat = VK_FORMAT_R16G16B16A16_SNORM;
+    constexpr static Fvog::Format gNormalAndFaceNormalFormat = Fvog::Format::R16G16B16A16_SNORM;
     std::optional<Fvog::Texture> gSmoothVertexNormal;
-    constexpr static VkFormat gSmoothVertexNormalFormat = VK_FORMAT_R16G16_SNORM;
+    constexpr static Fvog::Format gSmoothVertexNormalFormat = Fvog::Format::R16G16_SNORM;
     std::optional<Fvog::Texture> gEmission;
-    constexpr static VkFormat gEmissionFormat = VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+    constexpr static Fvog::Format gEmissionFormat = Fvog::Format::B10G11R11_UFLOAT;
     std::optional<Fvog::Texture> gDepth;
-    constexpr static VkFormat gDepthFormat = VK_FORMAT_D32_SFLOAT;
+    constexpr static Fvog::Format gDepthFormat = Fvog::Format::D32_SFLOAT;
     std::optional<Fvog::Texture> gMotion;
-    constexpr static VkFormat gMotionFormat = VK_FORMAT_R16G16_SFLOAT;
+    constexpr static Fvog::Format gMotionFormat = Fvog::Format::R16G16_SFLOAT;
     std::optional<Fvog::Texture> gReactiveMask; // FSR 2 reactive mask texture
-    constexpr static VkFormat gReactiveMaskFormat = VK_FORMAT_R32_SFLOAT;
+    constexpr static Fvog::Format gReactiveMaskFormat = Fvog::Format::R32_SFLOAT;
 
     // Previous-frame G-buffer textures used for temporal effects
     std::optional<Fvog::Texture> gNormaAndFaceNormallPrev;
-    constexpr static VkFormat gNormaAndFaceNormallPrevFormat = gNormalAndFaceNormalFormat;
+    constexpr static Fvog::Format gNormaAndFaceNormallPrevFormat = gNormalAndFaceNormalFormat;
     std::optional<Fvog::Texture> gDepthPrev;
-    constexpr static VkFormat gDepthPrevFormat = gDepthFormat;
+    constexpr static Fvog::Format gDepthPrevFormat = gDepthFormat;
 
     // Post-lighting
     std::optional<Fvog::Texture> colorHdrRenderRes;
-    constexpr static VkFormat colorHdrRenderResFormat = VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+    constexpr static Fvog::Format colorHdrRenderResFormat = Fvog::Format::B10G11R11_UFLOAT;
 
     // Post-upscale (skipped if render res == window res)
     std::optional<Fvog::Texture> colorHdrWindowRes;
-    constexpr static VkFormat colorHdrWindowResFormat = colorHdrRenderResFormat;
+    constexpr static Fvog::Format colorHdrWindowResFormat = colorHdrRenderResFormat;
 
     // Bloom scratch buffer. Half window resolution.
     std::optional<Fvog::Texture> colorHdrBloomScratchBuffer;
-    constexpr static VkFormat colorHdrBloomScratchBufferFormat = VK_FORMAT_B10G11R11_UFLOAT_PACK32;
+    constexpr static Fvog::Format colorHdrBloomScratchBufferFormat = Fvog::Format::B10G11R11_UFLOAT;
 
     // Final tonemapped color
     std::optional<Fvog::Texture> colorLdrWindowRes;
-    constexpr static VkFormat colorLdrWindowResFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    constexpr static Fvog::Format colorLdrWindowResFormat = Fvog::Format::R8G8B8A8_UNORM;
 
     //// For debug drawing with ImGui
     //std::optional<Fvog::TextureView> gAlbedoSwizzled;

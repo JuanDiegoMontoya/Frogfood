@@ -1,7 +1,9 @@
 #include "Pipeline2.h"
 
-#include <volk.h>
 #include "Shader2.h"
+#include "detail/ApiToEnum2.h"
+
+#include <volk.h>
 
 #include "detail/Common.h"
 
@@ -9,6 +11,7 @@
 #include <cassert>
 #include <utility>
 #include <vector>
+#include <memory>
 
 namespace Fvog
 {
@@ -56,7 +59,13 @@ namespace Fvog
         .colorWriteMask = info.colorBlendState.attachments[i].colorWriteMask,
       };
     }
-    
+
+    auto colorAttachmentFormatsVk = std::make_unique<VkFormat[]>(info.renderTargetFormats.colorAttachmentFormats.size());
+    for (size_t i = 0; i < info.renderTargetFormats.colorAttachmentFormats.size(); i++)
+    {
+      colorAttachmentFormatsVk[i] = detail::FormatToVk(info.renderTargetFormats.colorAttachmentFormats[i]);
+    }
+
     CheckVkResult(vkCreateGraphicsPipelines(
       device,
       nullptr,
@@ -66,9 +75,9 @@ namespace Fvog
         .pNext = Address(VkPipelineRenderingCreateInfo{
           .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
           .colorAttachmentCount = static_cast<uint32_t>(info.renderTargetFormats.colorAttachmentFormats.size()),
-          .pColorAttachmentFormats = info.renderTargetFormats.colorAttachmentFormats.data(),
-          .depthAttachmentFormat = info.renderTargetFormats.depthAttachmentFormat,
-          .stencilAttachmentFormat = info.renderTargetFormats.stencilAttachmentFormat,
+          .pColorAttachmentFormats = colorAttachmentFormatsVk.get(),
+          .depthAttachmentFormat = detail::FormatToVk(info.renderTargetFormats.depthAttachmentFormat),
+          .stencilAttachmentFormat = detail::FormatToVk(info.renderTargetFormats.stencilAttachmentFormat),
         }),
         .stageCount = (uint32_t)stages.size(),
         .pStages = stages.data(),

@@ -363,11 +363,25 @@ namespace Fvog
                   });
   }
 
+  Device::DescriptorInfo::DescriptorInfo(DescriptorInfo&& old) noexcept
+    : device_(std::exchange(old.device_, nullptr)),
+      handle_(std::exchange(old.handle_, {}))
+  {
+  }
+
+  Device::DescriptorInfo& Device::DescriptorInfo::operator=(DescriptorInfo&& old) noexcept
+  {
+    if (&old == this)
+      return *this;
+    this->~DescriptorInfo();
+    return *new (this) DescriptorInfo(std::move(old));
+  }
+
   Device::DescriptorInfo::~DescriptorInfo()
   {
     if (handle_.type != ResourceType::INVALID)
     {
-      device_.descriptorDeletionQueue_.emplace_back(device_.frameNumber, handle_);
+      device_->descriptorDeletionQueue_.emplace_back(device_->frameNumber, handle_);
     }
   }
 

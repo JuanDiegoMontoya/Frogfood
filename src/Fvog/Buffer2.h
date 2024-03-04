@@ -43,7 +43,6 @@ namespace Fvog
 
   struct BufferCreateInfo
   {
-    std::string_view name{};
     VkDeviceSize size{};
     BufferFlagThingy flag{};
   };
@@ -51,7 +50,7 @@ namespace Fvog
   class Buffer
   {
   public:
-    explicit Buffer(Device& device, const BufferCreateInfo& createInfo);
+    explicit Buffer(Device& device, const BufferCreateInfo& createInfo, std::string_view name = "");
     ~Buffer();
 
     Buffer(const Buffer&) = delete;
@@ -90,12 +89,11 @@ namespace Fvog
     template<typename T>
     friend class NDeviceBuffer;
 
-    void UpdateDataGeneric(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes, Buffer& stagingBuffer, Buffer& deviceBuffer);
+    static void UpdateDataGeneric(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes, Buffer& stagingBuffer, Buffer& deviceBuffer);
   };
 
   struct TypedBufferCreateInfo
   {
-    std::string_view name{};
     uint32_t count{1};
     BufferFlagThingy flag{};
   };
@@ -105,8 +103,8 @@ namespace Fvog
   class TypedBuffer : public Buffer
   {
   public:
-    explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo)
-      : Buffer(device, {.name = createInfo.name, .size = createInfo.count * sizeof(T), .flag = createInfo.flag})
+    explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo, std::string_view name = "")
+      : Buffer(device, {.size = createInfo.count * sizeof(T), .flag = createInfo.flag}, name)
     {
     }
 

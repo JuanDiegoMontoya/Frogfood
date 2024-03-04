@@ -1,6 +1,7 @@
 #pragma once
-#include <Fwog/detail/Flags.h>
-#include <Fwog/Texture.h>
+#include "Fvog/detail/Flags.h"
+#include "Fvog/Texture2.h"
+#include "Fvog/Device.h"
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
@@ -35,8 +36,11 @@ namespace Utility
 
   struct CombinedTextureSampler
   {
-    Fwog::TextureView texture;
-    Fwog::SamplerState sampler;
+    //Fwog::TextureView texture;
+    //Fwog::SamplerState sampler;
+
+    Fvog::TextureView texture;
+    Fvog::Device::DescriptorInfo textureDescriptorInfo;
   };
 
   enum class MaterialFlagBit
@@ -47,7 +51,7 @@ namespace Utility
     HAS_OCCLUSION_TEXTURE          = 1 << 3,
     HAS_EMISSION_TEXTURE           = 1 << 4,
   };
-  FWOG_DECLARE_FLAG_TYPE(MaterialFlags, MaterialFlagBit, uint32_t)
+  FVOG_DECLARE_FLAG_TYPE(MaterialFlags, MaterialFlagBit, uint32_t)
 
   struct GpuMaterial
   {
@@ -58,9 +62,9 @@ namespace Utility
     glm::vec4 baseColorFactor = {1, 1, 1, 1};
     glm::vec3 emissiveFactor = {0, 0, 0};
     float emissiveStrength = 1.0f;
-    uint64_t baseColorTextureHandle{};
+    uint32_t baseColorTextureIndex{};
     float normalXyScale = 1.0f;
-    uint32_t _padding[1];
+    uint32_t _padding[2];
   };
 
   enum class LightType : uint32_t
@@ -160,5 +164,5 @@ namespace Utility
   inline constexpr auto maxMeshletPrimitives = 64u;
   inline constexpr auto meshletConeWeight = 0.0f;
 
-  bool LoadModelFromFileMeshlet(SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform);
+  bool LoadModelFromFileMeshlet(Fvog::Device& device, SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform);
 }

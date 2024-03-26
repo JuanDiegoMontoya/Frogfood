@@ -26,7 +26,7 @@ layout(location = 5) out vec2 o_motion;
 
 FVOG_DECLARE_SAMPLERS;
 FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
-FVOG_DECLARE_STORAGE_IMAGES(uimage2D);
+FVOG_DECLARE_SAMPLED_IMAGES(utexture2D);
 
 //layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
 
@@ -250,7 +250,7 @@ vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
 void main()
 {
   const ivec2 position = ivec2(gl_FragCoord.xy);
-  const uint payload = imageLoad(Fvog_uimage2D(visbufferIndex), position).x;
+  const uint payload = texelFetch(Fvog_utexture2D(visbufferIndex), position, 0).x;
   const uint meshletId = (payload >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
   const uint primitiveId = payload & MESHLET_PRIMITIVE_MASK;
   const Meshlet meshlet = d_meshlets[meshletId];
@@ -279,7 +279,7 @@ void main()
     transformPrevious * vec4(rawPosition[2], 1.0)
   );
 
-  const vec2 resolution = vec2(imageSize(Fvog_uimage2D(visbufferIndex)));
+  const vec2 resolution = vec2(textureSize(Fvog_utexture2D(visbufferIndex), 0));
   const PartialDerivatives partialDerivatives = ComputeDerivatives(clipPosition, i_uv * 2.0 - 1.0, resolution);
   const UvGradient uvGrad = MakeUvGradient(partialDerivatives, rawUv);
   const vec3 flatNormal = normalize(cross(rawPosition[1] - rawPosition[0], rawPosition[2] - rawPosition[0]));

@@ -1,5 +1,6 @@
 #include "Device.h"
 #include "detail/Common.h"
+#include "detail/SamplerCache2.h"
 
 #include <vk_mem_alloc.h>
 
@@ -13,7 +14,7 @@ namespace Fvog
   Device::Device(vkb::Instance& instance, VkSurfaceKHR surface)
     : instance_(instance),
       surface_(surface),
-      samplerCache_(this)
+      samplerCache_(std::make_unique<detail::SamplerCache>(this))
   {
     using namespace detail;
     auto selector = vkb::PhysicalDeviceSelector{instance_};
@@ -274,8 +275,10 @@ namespace Fvog
     }
 
     vkDestroySemaphore(device_, graphicsQueueTimelineSemaphore_, nullptr);
-
+    
     vmaDestroyAllocator(allocator_);
+
+    samplerCache_.reset();
     vkb::destroy_device(device_);
   }
 
@@ -289,6 +292,18 @@ namespace Fvog
     })));
 
     function(immediateSubmitCommandBuffer_);
+
+    vkCmdPipelineBarrier2(immediateSubmitCommandBuffer_, Address(VkDependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .memoryBarrierCount = 1,
+      .pMemoryBarriers = Address(VkMemoryBarrier2{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+      }),
+    }));
 
     CheckVkResult(vkEndCommandBuffer(immediateSubmitCommandBuffer_));
 

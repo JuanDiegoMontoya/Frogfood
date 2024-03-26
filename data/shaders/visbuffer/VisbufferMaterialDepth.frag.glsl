@@ -5,14 +5,16 @@
 #define M_GOLDEN_CONJ 0.6180339887498948482045868343656
 
 //layout(r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
-FVOG_DECLARE_STORAGE_IMAGES(uimage2D);
+//FVOG_DECLARE_STORAGE_IMAGES(uimage2D);
+FVOG_DECLARE_SAMPLED_IMAGES(utexture2D);
 
 layout (location = 0) in vec2 i_uv;
 
 void main()
 {
   const ivec2 position = ivec2(gl_FragCoord.xy);
-  const uint payload = imageLoad(FvogGetStorageImage(uimage2D, visbufferIndex), position).x;
+  //const uint payload = imageLoad(FvogGetStorageImage(uimage2D, visbufferIndex), position).x;
+  const uint payload = texelFetch(FvogGetSampledImage(utexture2D, visbufferIndex), position, 0).x;
   if (payload == ~0u)
   {
     discard;

@@ -47,6 +47,22 @@ namespace Fvog::detail
     return !(FormatIsDepth(format) || FormatIsStencil(format));
   }
 
+  bool FormatIsSrgb(Format format)
+  {
+    switch (format)
+    {
+    case Fvog::Format::R8G8B8A8_SRGB:
+    case Fvog::Format::B8G8R8A8_SRGB:
+    case Fvog::Format::BC1_RGBA_SRGB:
+    case Fvog::Format::BC1_RGB_SRGB:
+    case Fvog::Format::BC2_RGBA_SRGB:
+    case Fvog::Format::BC3_RGBA_SRGB:
+    case Fvog::Format::BC7_RGBA_SRGB:
+      return true;
+    default: return false;
+    }
+  }
+
   VkFormat FormatToVk(Format format)
   {
     switch (format)

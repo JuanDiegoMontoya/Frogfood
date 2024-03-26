@@ -3,6 +3,9 @@
 
 namespace Pipelines2
 {
+  // TODO: disgusting, remove
+  extern VkPipelineLayout pipelineLayout;
+
   void InitPipelineLayout(VkDevice device, VkDescriptorSetLayout descriptorSetLayout);
   void DestroyPipelineLayout(VkDevice device);
 

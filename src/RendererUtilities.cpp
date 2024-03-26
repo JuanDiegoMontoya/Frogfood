@@ -35,5 +35,5 @@ Fvog::Shader LoadShaderWithIncludes2(VkDevice device, Fvog::PipelineStage stage,
   {
     throw std::runtime_error("Failed to process includes");
   }
-  return Fvog::Shader(device, stage, processedSource.get());
+  return Fvog::Shader(device, stage, processedSource.get(), path.filename().string().c_str());
 }

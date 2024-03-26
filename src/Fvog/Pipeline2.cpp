@@ -145,8 +145,14 @@ namespace Fvog
       }),
       nullptr,
       &pipeline_));
-
-    // TODO: set debug name
+    
+    // TODO: gate behind compile-time switch
+    vkSetDebugUtilsObjectNameEXT(device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+      .objectType = VK_OBJECT_TYPE_PIPELINE,
+      .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
+      .pObjectName = info.name,
+    }));
   }
 
   GraphicsPipeline::~GraphicsPipeline()
@@ -190,8 +196,14 @@ namespace Fvog
       }),
       nullptr,
       &pipeline_));
-
-    // TODO: set debug name
+    
+    // TODO: gate behind compile-time switch
+    vkSetDebugUtilsObjectNameEXT(device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+      .objectType = VK_OBJECT_TYPE_PIPELINE,
+      .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
+      .pObjectName = info.name,
+    }));
   }
 
   ComputePipeline::~ComputePipeline()

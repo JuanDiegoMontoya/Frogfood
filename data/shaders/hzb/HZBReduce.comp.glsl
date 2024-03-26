@@ -11,7 +11,7 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 FVOG_DECLARE_STORAGE_IMAGES(image2D);
 //layout (r32f, binding = 1) uniform restrict writeonly image2D curr_hzb;
 
-FVOG_DECLARE_ARGUMENTS(PushConstants)
+FVOG_DECLARE_ARGUMENTS(HzbReducePushConstants)
 {
   FVOG_UINT32 prevHzbIndex;
   FVOG_UINT32 curHzbIndex;

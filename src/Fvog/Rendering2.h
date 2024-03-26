@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BasicTypes2.h"
+#include "TriviallyCopyableByteSpan.h"
 
 #include <vulkan/vulkan_core.h>
 
@@ -14,7 +15,10 @@
 namespace Fvog
 {
   class Texture;
+  class TextureView;
   class Buffer;
+  class GraphicsPipeline;
+  class ComputePipeline;
 
   // Minimal reference wrapper type. Didn't want to pull in <functional> just for this
   template<class T>
@@ -31,6 +35,9 @@ namespace Fvog
       ptr = std::addressof(ref);
     }
 
+    ReferenceWrapper(const ReferenceWrapper&) = default;
+    ReferenceWrapper& operator=(const ReferenceWrapper&) = default;
+
     constexpr operator T&() const noexcept
     {
       return *ptr;
@@ -44,6 +51,9 @@ namespace Fvog
   private:
     T* ptr{};
   };
+
+  template<class T>
+  ReferenceWrapper(T&) -> ReferenceWrapper<T>;
 
   struct ClearColorValue
   {
@@ -66,7 +76,8 @@ namespace Fvog
 
   struct RenderColorAttachment
   {
-    ReferenceWrapper<const Texture> texture;
+    //std::reference_wrapper<const TextureView> texture;
+    ReferenceWrapper<const TextureView> texture;
     VkImageLayout layout{};
     VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     ClearColorValue clearValue{};
@@ -74,7 +85,8 @@ namespace Fvog
 
   struct RenderDepthStencilAttachment
   {
-    ReferenceWrapper<const Texture> texture;
+    //std::reference_wrapper<const TextureView> texture;
+    ReferenceWrapper<const TextureView> texture;
     VkImageLayout layout{};
     VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     ClearDepthStencilValue clearValue{};
@@ -83,7 +95,7 @@ namespace Fvog
   struct RenderInfo
   {
     /// @brief An optional name to demarcate the pass in a graphics debugger
-    std::string_view name;
+    const char* name;
 
     /// @brief An optional viewport
     ///
@@ -92,6 +104,15 @@ namespace Fvog
     std::span<const RenderColorAttachment> colorAttachments;
     std::optional<RenderDepthStencilAttachment> depthAttachment = std::nullopt;
     std::optional<RenderDepthStencilAttachment> stencilAttachment = std::nullopt;
+  };
+
+  struct TextureClearInfo
+  {
+    ClearColorValue color{};
+    uint32_t baseMipLevel = 0;
+    uint32_t levelCount = 1;
+    uint32_t baseArrayLayer = 0;
+    uint32_t layerCount = 1;
   };
 
   class Context
@@ -105,8 +126,28 @@ namespace Fvog
     void ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT) const;
     void BufferBarrier(const Buffer& buffer) const;
     void BufferBarrier(VkBuffer buffer) const;
+    void Barrier() const;
+
+    void ClearTexture(const Texture& texture, VkImageLayout layout, const TextureClearInfo& clearInfo);
+
+    void BindGraphicsPipeline(const GraphicsPipeline& pipeline) const;
+    void BindComputePipeline(const ComputePipeline& pipeline) const;
+
+    void Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const;
+    void Dispatch(Extent3D groupCount) const;
+    void DispatchInvocations(uint32_t invocationCountX, uint32_t invocationCountY, uint32_t invocationCountZ) const;
+    void DispatchInvocations(Extent3D invocationCount) const;
+    void DispatchIndirect(const Fvog::Buffer& buffer, VkDeviceSize offset = 0) const;
+
+    void Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const;
+    void DrawIndexedIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const;
+
+    void BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const;
+
+    void SetPushConstants(TriviallyCopyableByteSpan values, uint32_t offset = 0) const;
 
   private:
     VkCommandBuffer commandBuffer_;
+    mutable const ComputePipeline* boundComputePipeline_{};
   };
 }

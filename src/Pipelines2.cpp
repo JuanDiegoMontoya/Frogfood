@@ -14,7 +14,8 @@
 
 namespace Pipelines2
 {
-  static VkPipelineLayout pipelineLayout{};
+  // TODO: should be static or somewhere else (possibly in Fvog if we're okay with forcing every pipeline to have the same layout)
+  VkPipelineLayout pipelineLayout{};
 
   void InitPipelineLayout(VkDevice device, VkDescriptorSetLayout descriptorSetLayout)
   {
@@ -46,6 +47,7 @@ namespace Pipelines2
     auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/CullMeshlets.comp.glsl");
 
     return Fvog::ComputePipeline(device, pipelineLayout, {
+      .name = "Cull Meshlets",
       .shader = &comp,
     });
   }
@@ -55,6 +57,7 @@ namespace Pipelines2
     auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/CullTriangles.comp.glsl");
 
     return Fvog::ComputePipeline(device, pipelineLayout, {
+      .name = "Cull Triangles",
       .shader = &comp,
     });
   }
@@ -85,6 +88,7 @@ namespace Pipelines2
     auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/Visbuffer.frag.glsl");
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Visbuffer",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       // TODO: "temp" until more material types are supported (transparent, opaque, masked, and two-sided versions of each)
@@ -105,6 +109,7 @@ namespace Pipelines2
     auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/VisbufferMaterialDepth.frag.glsl");
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Material Depth",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
@@ -119,6 +124,7 @@ namespace Pipelines2
     auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/VisbufferResolve.frag.glsl");
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Visbuffer Resolve",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
@@ -133,6 +139,7 @@ namespace Pipelines2
     auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/ShadeDeferredPbr.frag.glsl");
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Shading",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
@@ -145,7 +152,7 @@ namespace Pipelines2
     auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/TonemapAndDither.comp.glsl");
 
     return Fvog::ComputePipeline(device, pipelineLayout, {
-      .name = "Image Formation",
+      .name = "Tonemap and dither",
       .shader = &comp,
     });
   }
@@ -156,6 +163,7 @@ namespace Pipelines2
     auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/Texture.frag.glsl");
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Debug Texture",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
@@ -168,6 +176,7 @@ namespace Pipelines2
     auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Shadow Main",
       .vertexShader = &vs,
       .fragmentShader = nullptr,
       .rasterizationState = {.cullMode = VK_CULL_MODE_BACK_BIT},
@@ -186,6 +195,7 @@ namespace Pipelines2
     auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/shadows/vsm/VsmShadow.frag.glsl");
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Shadow VSM",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_BACK_BIT},
@@ -215,6 +225,7 @@ namespace Pipelines2
     //auto bindings = {positionBinding, colorBinding};
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Debug Lines",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST},
@@ -248,6 +259,7 @@ namespace Pipelines2
     auto blends = {blend0, blend1};
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Indirect Debug AABBs",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP},
@@ -290,6 +302,7 @@ namespace Pipelines2
     auto blends = {blend0, blend1};
 
     return Fvog::GraphicsPipeline(device, pipelineLayout, {
+      .name = "Indirect Debug Rects",
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN},

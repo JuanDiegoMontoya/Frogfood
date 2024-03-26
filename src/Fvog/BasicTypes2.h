@@ -10,6 +10,10 @@ namespace Fvog
   {
     uint32_t width{};
     uint32_t height{};
+
+#ifdef VK_HEADER_VERSION
+    operator VkExtent2D() const { return {width, height}; }
+#endif
     bool operator==(const Extent2D&) const noexcept = default;
     Extent2D operator+(const Extent2D& other) const { return { width + other.width, height + other.height }; }
     Extent2D operator-(const Extent2D& other) const { return { width - other.width, height - other.height }; }
@@ -37,7 +41,10 @@ namespace Fvog
     uint32_t width{};
     uint32_t height{};
     uint32_t depth{};
-
+    
+#ifdef VK_HEADER_VERSION
+    operator VkExtent3D() const { return {width, height, depth}; }
+#endif
     operator Extent2D() const { return { width, height }; }
     bool operator==(const Extent3D&) const noexcept = default;
     Extent3D operator+(const Extent3D& other) const { return { width + other.width, height + other.height, depth + other.depth }; }
@@ -65,7 +72,10 @@ namespace Fvog
   {
     uint32_t x{};
     uint32_t y{};
-
+    
+#ifdef VK_HEADER_VERSION
+    operator VkOffset2D() const { return {int32_t(x), int32_t(y)}; }
+#endif
     bool operator==(const Offset2D&) const noexcept = default;
     Offset2D operator+(const Offset2D & other) const { return { x + other.x, y + other.y }; }
     Offset2D operator-(const Offset2D & other) const { return { x - other.x, y - other.y }; }
@@ -93,7 +103,10 @@ namespace Fvog
     uint32_t x{};
     uint32_t y{};
     uint32_t z{};
-
+    
+#ifdef VK_HEADER_VERSION
+    operator VkOffset3D() const { return {int32_t(x), int32_t(y), int32_t(z)}; }
+#endif
     operator Offset2D() const { return { x, y }; }
     bool operator==(const Offset3D&) const noexcept = default;
     Offset3D operator+(const Offset3D& other) const { return { x + other.x, y + other.y, z + other.z }; }
@@ -121,7 +134,10 @@ namespace Fvog
   {
     Offset2D offset;
     Extent2D extent;
-
+    
+#ifdef VK_HEADER_VERSION
+    operator VkRect2D() const { return {VkOffset2D(offset), VkExtent2D(extent)}; }
+#endif
     bool operator==(const Rect2D&) const noexcept = default;
   };
 

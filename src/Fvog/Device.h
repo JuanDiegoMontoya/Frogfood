@@ -2,19 +2,23 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include "detail/SamplerCache2.h"
-
 #include <VkBootstrap.h>
 
 #include <deque>
 #include <functional>
 #include <stack>
+#include <memory>
 
 typedef struct VmaAllocator_T* VmaAllocator;
 typedef struct VmaAllocation_T* VmaAllocation;
 
 namespace Fvog
 {
+  namespace detail
+  {
+    class SamplerCache;
+  }
+
   class Device
   {
   public:
@@ -170,6 +174,6 @@ namespace Fvog
 
     std::deque<DescriptorDeleteInfo> descriptorDeletionQueue_;
 
-    detail::SamplerCache samplerCache_;
+    std::unique_ptr<detail::SamplerCache> samplerCache_;
   };
 }

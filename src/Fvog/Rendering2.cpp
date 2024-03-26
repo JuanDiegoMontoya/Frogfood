@@ -1,9 +1,13 @@
 #include "Rendering2.h"
 
 #include "Buffer2.h"
+#include "Pipeline2.h"
 #include "Texture2.h"
 #include "detail/Common.h"
 #include "detail/ApiToEnum2.h"
+
+// TODO: disgusting, remove (using extern declared in user code)
+#include "../Pipelines2.h"
 
 #include <volk.h>
 
@@ -42,6 +46,12 @@ namespace Fvog
 
   void Context::BeginRendering(const RenderInfo& renderInfo) const
   {
+    vkCmdBeginDebugUtilsLabelEXT(commandBuffer_, Address(VkDebugUtilsLabelEXT{
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+      .pLabelName = renderInfo.name,
+      .color = {0.67f, 0.2f, 0.2f, 1.0f},
+    }));
+
     auto colorAttachments = std::vector<VkRenderingAttachmentInfo>();
     colorAttachments.reserve(renderInfo.colorAttachments.size());
 
@@ -73,11 +83,11 @@ namespace Fvog
       .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
       .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
     };
-    if (renderInfo.depthAttachment.has_value())
+    if (renderInfo.stencilAttachment.has_value())
     {
-      stencilAttachment.imageView = renderInfo.depthAttachment->texture.get().ImageView();
-      stencilAttachment.imageLayout = renderInfo.depthAttachment->layout;
-      stencilAttachment.loadOp = renderInfo.depthAttachment->loadOp;
+      stencilAttachment.imageView = renderInfo.stencilAttachment->texture.get().ImageView();
+      stencilAttachment.imageLayout = renderInfo.stencilAttachment->layout;
+      stencilAttachment.loadOp = renderInfo.stencilAttachment->loadOp;
       stencilAttachment.clearValue = VkClearValue{.depthStencil = VkClearDepthStencilValue{.stencil = renderInfo.stencilAttachment->clearValue.stencil,}};
     }
 
@@ -99,20 +109,20 @@ namespace Fvog
 
     for (const auto& attachment : renderInfo.colorAttachments)
     {
-      minX = std::min(minX, attachment.texture.get().GetCreateInfo().extent.width);
-      minY = std::min(minY, attachment.texture.get().GetCreateInfo().extent.height);
+      minX = std::min(minX, attachment.texture.get().GetTextureCreateInfo().extent.width);
+      minY = std::min(minY, attachment.texture.get().GetTextureCreateInfo().extent.height);
     }
 
     if (renderInfo.depthAttachment.has_value())
     {
-      minX = std::min(minX, renderInfo.depthAttachment->texture.get().GetCreateInfo().extent.width);
-      minY = std::min(minY, renderInfo.depthAttachment->texture.get().GetCreateInfo().extent.height);
+      minX = std::min(minX, renderInfo.depthAttachment->texture.get().GetTextureCreateInfo().extent.width);
+      minY = std::min(minY, renderInfo.depthAttachment->texture.get().GetTextureCreateInfo().extent.height);
     }
 
     if (renderInfo.stencilAttachment.has_value())
     {
-      minX = std::min(minX, renderInfo.stencilAttachment->texture.get().GetCreateInfo().extent.width);
-      minY = std::min(minY, renderInfo.stencilAttachment->texture.get().GetCreateInfo().extent.height);
+      minX = std::min(minX, renderInfo.stencilAttachment->texture.get().GetTextureCreateInfo().extent.width);
+      minY = std::min(minY, renderInfo.stencilAttachment->texture.get().GetTextureCreateInfo().extent.height);
     }
 
     // Infer viewport width and height from union of attachment dimensions
@@ -141,11 +151,15 @@ namespace Fvog
   void Context::EndRendering() const
   {
     vkCmdEndRendering(commandBuffer_);
+    vkCmdEndDebugUtilsLabelEXT(commandBuffer_);
   }
 
   void Context::ImageBarrier(const Texture& texture, VkImageLayout oldLayout, VkImageLayout newLayout) const
   {
-    const VkImageAspectFlags aspectMask = FormatIsColor(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    VkImageAspectFlags aspectMask{};
+    aspectMask |= FormatIsColor(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
+    aspectMask |= FormatIsDepth(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
+    aspectMask |= FormatIsStencil(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
     ImageBarrier(texture.Image(), oldLayout, newLayout, aspectMask);
   }
 
@@ -193,5 +207,94 @@ namespace Fvog
         .size = VK_WHOLE_SIZE,
       }),
     }));
+  }
+
+  void Context::Barrier() const
+  {
+    vkCmdPipelineBarrier2(commandBuffer_, Address(VkDependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .memoryBarrierCount = 1,
+      .pMemoryBarriers = Address(VkMemoryBarrier2{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+      }),
+    }));
+  }
+
+  void Context::ClearTexture(const Texture& texture, VkImageLayout layout, const TextureClearInfo& clearInfo)
+  {
+    vkCmdClearColorImage(commandBuffer_,
+                         texture.Image(),
+                         layout,
+                         Address(ClearColorValueToVk(clearInfo.color)),
+                         1,
+                         Address(VkImageSubresourceRange{
+                           .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                           .baseMipLevel = clearInfo.baseMipLevel,
+                           .levelCount = clearInfo.levelCount,
+                           .baseArrayLayer = clearInfo.baseArrayLayer,
+                           .layerCount = clearInfo.layerCount,
+                         }));
+  }
+
+  void Context::BindGraphicsPipeline(const GraphicsPipeline& pipeline) const
+  {
+    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle());
+  }
+
+  void Context::BindComputePipeline(const ComputePipeline& pipeline) const
+  {
+    boundComputePipeline_ = &pipeline;
+    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.Handle());
+  }
+
+  void Context::Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const
+  {
+    Dispatch({groupCountX, groupCountY, groupCountZ});
+  }
+
+  void Context::Dispatch(Extent3D groupCount) const
+  {
+    vkCmdDispatch(commandBuffer_, groupCount.width, groupCount.height, groupCount.depth);
+  }
+
+  void Context::DispatchInvocations(uint32_t invocationCountX, uint32_t invocationCountY, uint32_t invocationCountZ) const
+  {
+    DispatchInvocations({invocationCountX, invocationCountY, invocationCountZ});
+  }
+
+  void Context::DispatchInvocations(Extent3D invocationCount) const
+  {
+    const auto workgroupSize = boundComputePipeline_->WorkgroupSize();
+    const auto [x, y, z] = (invocationCount + workgroupSize - 1) / workgroupSize;
+
+    vkCmdDispatch(commandBuffer_, x, y, z);
+  }
+  void Context::DispatchIndirect(const Fvog::Buffer& buffer, VkDeviceSize offset) const
+  {
+    vkCmdDispatchIndirect(commandBuffer_, buffer.Handle(), offset);
+  }
+
+  void Context::Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const
+  {
+    vkCmdDraw(commandBuffer_, vertexCount, instanceCount, firstVertex, firstInstance);
+  }
+
+  void Context::DrawIndexedIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const
+  {
+    vkCmdDrawIndexedIndirect(commandBuffer_, buffer.Handle(), bufferOffset, drawCount, stride);
+  }
+
+  void Context::BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const
+  {
+    vkCmdBindIndexBuffer(commandBuffer_, buffer.Handle(), offset, indexType);
+  }
+
+  void Context::SetPushConstants(TriviallyCopyableByteSpan values, uint32_t offset) const
+  {
+    vkCmdPushConstants(commandBuffer_, Pipelines2::pipelineLayout, VK_SHADER_STAGE_ALL, offset, static_cast<uint32_t>(values.size_bytes()), values.data());
   }
 } // namespace Fvog

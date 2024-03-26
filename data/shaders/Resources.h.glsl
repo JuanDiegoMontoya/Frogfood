@@ -3,6 +3,7 @@
 #define RESOURCES_H_GLSL
 
 #ifdef __cplusplus
+
 #define FVOG_FLOAT float
 #define FVOG_VEC2 glm::vec2
 #define FVOG_VEC3 glm::vec3
@@ -87,6 +88,9 @@
 
 #define Fvog_uimage2D(imageIndex) \
   FvogGetStorageImage(uimage2D, imageIndex)
+
+#define Fvog_utexture2D(textureIndex) \
+  FvogGetSampledImage(utexture2D, textureIndex)
 
 #endif // __cplusplus
 #endif // RESOURCES_H_GLSL

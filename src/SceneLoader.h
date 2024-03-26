@@ -40,7 +40,7 @@ namespace Utility
     //Fwog::SamplerState sampler;
 
     Fvog::TextureView texture;
-    Fvog::Device::DescriptorInfo textureDescriptorInfo;
+    //Fvog::Device::DescriptorInfo textureDescriptorInfo;
   };
 
   enum class MaterialFlagBit

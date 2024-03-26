@@ -333,11 +333,13 @@ namespace Utility
       auto loadedImages = std::vector<Fvog::Texture>();
       loadedImages.reserve(rawImageData.size());
 
-      constexpr auto imageUsageFlags = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+      //constexpr auto imageUsageFlags = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+      constexpr auto usage = Fvog::TextureUsage::READ_ONLY;
 
       for (const auto& image : rawImageData)
       {
         VkExtent2D dims = {static_cast<uint32_t>(image.width), static_cast<uint32_t>(image.height)};
+        auto name = image.name.empty() ? "Loaded Material" : image.name;
 
         // Upload KTX2 compressed image
         if (image.isKtx)
@@ -345,7 +347,7 @@ namespace Utility
           ZoneScopedN("Upload BCn Image");
           auto* ktx = image.ktx.get();
 
-          auto textureData = Fvog::CreateTexture2DMip(device, dims, image.formatIfKtx, ktx->numLevels, imageUsageFlags, image.name);
+          auto textureData = Fvog::CreateTexture2DMip(device, dims, image.formatIfKtx, ktx->numLevels, usage, name.c_str());
 
           for (uint32_t level = 0; level < ktx->numLevels; level++)
           {
@@ -378,8 +380,8 @@ namespace Utility
                                                       Fvog::Format::R8G8B8A8_UNORM,
                                                       //uint32_t(1 + floor(log2(glm::max(dims.width, dims.height)))),
                                                       1,
-                                                      imageUsageFlags,
-                                                      image.name);
+                                                      usage,
+                                                      name.c_str());
 
           // Update uncompressed image
           textureData.UpdateImageSLOW({
@@ -481,7 +483,7 @@ namespace Utility
     return indices;
   }
 
-  std::vector<Material> LoadMaterials(Fvog::Device& device, const fastgltf::Asset& model, std::span<Fvog::Texture> images)
+  std::vector<Material> LoadMaterials([[maybe_unused]] Fvog::Device& device, const fastgltf::Asset& model, std::span<Fvog::Texture> images)
   {
     ZoneScoped;
     auto LoadSampler = [](const fastgltf::Sampler& sampler)
@@ -520,11 +522,12 @@ namespace Utility
         auto occlusionTextureIndex = loaderMaterial.occlusionTexture->textureIndex;
         const auto& occlusionTexture = model.textures[occlusionTextureIndex];
         auto& image = images[occlusionTexture.imageIndex.value()];
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format));
-        auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+        auto name = occlusionTexture.name.empty() ? "Occlusion" : occlusionTexture.name;
+        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.occlusionTextureSampler = {
           std::move(view),
-          std::move(desc)
+          //std::move(desc)
           //LoadSampler(model.samplers[occlusionTexture.samplerIndex.value()]),
         };
       }
@@ -535,11 +538,12 @@ namespace Utility
         auto emissiveTextureIndex = loaderMaterial.emissiveTexture->textureIndex;
         const auto& emissiveTexture = model.textures[emissiveTextureIndex];
         auto& image = images[emissiveTexture.imageIndex.value()];
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format));
-        auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+        auto name = emissiveTexture.name.empty() ? "Emissive" : emissiveTexture.name;
+        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.emissiveTextureSampler = {
           std::move(view),
-          std::move(desc)
+          //std::move(desc)
           //LoadSampler(model.samplers[emissiveTexture.samplerIndex.value()]),
         };
       }
@@ -550,11 +554,12 @@ namespace Utility
         auto normalTextureIndex = loaderMaterial.normalTexture->textureIndex;
         const auto& normalTexture = model.textures[normalTextureIndex];
         auto& image = images[normalTexture.imageIndex.value()];
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format));
-        auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+        auto name = normalTexture.name.empty() ? "Normal Map" : normalTexture.name;
+        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.normalTextureSampler = {
           std::move(view),
-          std::move(desc)
+          //std::move(desc)
           //LoadSampler(model.samplers[normalTexture.samplerIndex.value()]),
         };
         material.gpuMaterial.normalXyScale = loaderMaterial.normalTexture->scale;
@@ -566,15 +571,17 @@ namespace Utility
         auto baseColorTextureIndex = loaderMaterial.pbrData.baseColorTexture->textureIndex;
         const auto& baseColorTexture = model.textures[baseColorTextureIndex];
         auto& image = images[baseColorTexture.imageIndex.value()];
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format));
-        auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+        auto name = baseColorTexture.name.empty() ? "Base Color" : baseColorTexture.name;
+        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.albedoTextureSampler = {
           std::move(view),
-          std::move(desc)
+          //std::move(desc)
           //LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
         };
         
-        material.gpuMaterial.baseColorTextureIndex = material.albedoTextureSampler->textureDescriptorInfo.GpuResource().index;
+        //material.gpuMaterial.baseColorTextureIndex = material.albedoTextureSampler->textureDescriptorInfo.GpuResource().index;
+        material.gpuMaterial.baseColorTextureIndex = material.albedoTextureSampler->texture.GetSampledResourceHandle().index;
       }
 
       if (loaderMaterial.pbrData.metallicRoughnessTexture.has_value())
@@ -583,11 +590,12 @@ namespace Utility
         auto metallicRoughnessTextureIndex = loaderMaterial.pbrData.metallicRoughnessTexture->textureIndex;
         const auto& metallicRoughnessTexture = model.textures[metallicRoughnessTextureIndex];
         auto& image = images[metallicRoughnessTexture.imageIndex.value()];
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format));
-        auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+        auto name = metallicRoughnessTexture.name.empty() ? "MetallicRoughness" : metallicRoughnessTexture.name;
+        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.metallicRoughnessTextureSampler = {
           std::move(view),
-          std::move(desc)
+          //std::move(desc)
           //LoadSampler(model.samplers[metallicRoughnessTexture.samplerIndex.value()]),
         };
       }
@@ -1072,7 +1080,7 @@ namespace Utility
       if (!node->meshlets.empty())
       {
         const auto instanceId = sceneFlattened.transforms.size();
-        // TOOD: get previous transform from node
+        // TODO: get previous transform from node
         sceneFlattened.transforms.emplace_back(globalTransform, globalTransform);
         for (auto meshlet : node->meshlets)
         {

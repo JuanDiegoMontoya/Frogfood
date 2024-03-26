@@ -7,7 +7,7 @@
 
 namespace Fvog::detail
 {
-  Sampler SamplerCache::CreateOrGetCachedTextureSampler(const SamplerCreateInfo& samplerState)
+  Sampler SamplerCache::CreateOrGetCachedTextureSampler(const SamplerCreateInfo& samplerState, const char* name)
   {
     if (auto it = samplerCache_.find(samplerState); it != samplerCache_.end())
     {
@@ -33,10 +33,19 @@ namespace Fvog::detail
       .borderColor = samplerState.borderColor,
       .unnormalizedCoordinates = VK_FALSE,
     }), nullptr, &sampler);
+    
+    // TODO: gate behind compile-time switch
+    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+      .objectType = VK_OBJECT_TYPE_SAMPLER,
+      .objectHandle = reinterpret_cast<uint64_t>(sampler),
+      .pObjectName = name ? (name + std::string(" (sampler)")).c_str() : nullptr,
+    }));
 
     //detail::InvokeVerboseMessageCallback("Created sampler with handle ", sampler);
 
-    return samplerCache_.insert({samplerState, Sampler(sampler)}).first->second;
+    auto& descriptorInfo = descriptorCache_.insert({samplerState, device_->AllocateSamplerDescriptor(sampler)}).first->second;
+    return samplerCache_.insert({samplerState, Sampler(sampler, descriptorInfo)}).first->second;
   }
 
   size_t SamplerCache::Size() const
@@ -52,6 +61,7 @@ namespace Fvog::detail
       vkDestroySampler(device_->device_, sampler.Handle(), nullptr);
     }
 
+    descriptorCache_.clear();
     samplerCache_.clear();
   }
 } // namespace Fwog::detail

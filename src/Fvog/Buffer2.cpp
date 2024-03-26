@@ -10,11 +10,13 @@
 
 namespace Fvog
 {
-  Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo, std::string_view /*name*/)
+  Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo, const char* name)
     : device_(&device),
       createInfo_(createInfo)
   {
     using namespace detail;
+
+    // The only usages that have a practical perf implication on modern desktop hardware are *_DESCRIPTOR_BUFFER_BIT
     constexpr auto usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
                            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
@@ -34,12 +36,13 @@ namespace Fvog
       vmaAllocFlags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
     }
 
+    auto size = std::max(createInfo.size, VkDeviceSize(1));
     auto allocationInfo = VmaAllocationInfo{};
     CheckVkResult(vmaCreateBuffer(
       device_->allocator_,
       Address(VkBufferCreateInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = createInfo.size,
+        .size = size,
         .usage = usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
       }),
@@ -52,6 +55,15 @@ namespace Fvog
       &allocationInfo
     ));
 
+
+    // TODO: gate behind compile-time switch
+    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+      .objectType = VK_OBJECT_TYPE_BUFFER,
+      .objectHandle = reinterpret_cast<uint64_t>(buffer_),
+      .pObjectName = name ? (name + std::string(" (buffer)")).c_str() : nullptr,
+    }));
+
     mappedMemory_ = allocationInfo.pMappedData;
 
     if (createInfo.flag == BufferFlagThingy::NONE)
@@ -61,6 +73,8 @@ namespace Fvog
         .buffer = buffer_,
       }));
     }
+
+    descriptorInfo_ = device_->AllocateStorageBufferDescriptor(buffer_);
   }
 
   Buffer::~Buffer()
@@ -77,7 +91,8 @@ namespace Fvog
       buffer_(std::exchange(old.buffer_, VK_NULL_HANDLE)),
       allocation_(std::exchange(old.allocation_, nullptr)),
       mappedMemory_(std::exchange(old.mappedMemory_, nullptr)),
-      deviceAddress_(std::exchange(old.deviceAddress_, 0))
+      deviceAddress_(std::exchange(old.deviceAddress_, 0)),
+      descriptorInfo_(std::move(old.descriptorInfo_))
   {
   }
 
@@ -89,8 +104,32 @@ namespace Fvog
     return *new (this) Buffer(std::move(old));
   }
 
+  void Buffer::UpdateDataExpensive(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes)
+  {
+    auto stagingBuffer = Buffer(*device_, {.size = createInfo_.size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "Staging Buffer (UpdateDataExpensive)");
+    UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, *this);
+  }
+
+  void Buffer::FillData(VkCommandBuffer commandBuffer, const BufferFillInfo& clear)
+  {
+    vkCmdFillBuffer(commandBuffer, buffer_, clear.offset, clear.size, clear.data);
+  }
+
   void Buffer::UpdateDataGeneric(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes, Buffer& stagingBuffer, Buffer& deviceBuffer)
   {
+    // TODO: temp
+    vkCmdPipelineBarrier2(commandBuffer, detail::Address(VkDependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .memoryBarrierCount = 1,
+      .pMemoryBarriers = detail::Address(VkMemoryBarrier2{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+      }),
+    }));
+
     // Overwrite some memory in a host-visible buffer, then copy it to the device buffer when the command buffer executes
     assert(data.size_bytes() + destOffsetBytes <= stagingBuffer.GetCreateInfo().size);
     void* ptr = stagingBuffer.GetMappedMemory();
@@ -106,6 +145,19 @@ namespace Fvog
         .srcOffset = destOffsetBytes, // The 'dest' offset applies to both buffers
         .dstOffset = destOffsetBytes,
         .size = data.size_bytes(),
+      }),
+    }));
+
+    // TODO: temp
+    vkCmdPipelineBarrier2(commandBuffer, detail::Address(VkDependencyInfo{
+      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+      .memoryBarrierCount = 1,
+      .pMemoryBarriers = detail::Address(VkMemoryBarrier2{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
       }),
     }));
   }

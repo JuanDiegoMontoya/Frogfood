@@ -202,7 +202,7 @@ namespace Fvog
     }
   } // namespace
 
-  Shader::Shader(VkDevice device, PipelineStage stage, std::string_view source, [[maybe_unused]] std::string_view name)
+  Shader::Shader(VkDevice device, PipelineStage stage, std::string_view source, const char* name)
     : device_(device)
   {
     using namespace detail;
@@ -219,7 +219,15 @@ namespace Fvog
         nullptr,
         &shaderModule_));
 
-    // TODO: set debug name
+    workgroupSize_ = info.workgroupSize_;
+    
+    // TODO: gate behind compile-time switch
+    vkSetDebugUtilsObjectNameEXT(device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+      .objectType = VK_OBJECT_TYPE_SHADER_MODULE,
+      .objectHandle = reinterpret_cast<uint64_t>(shaderModule_),
+      .pObjectName = name ? (name + std::string(" (shader)")).c_str() : nullptr,
+    }));
   }
 
   Shader::Shader(Shader&& old) noexcept

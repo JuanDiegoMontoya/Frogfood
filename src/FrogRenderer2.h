@@ -12,6 +12,95 @@
 #include "Fvog/Buffer2.h"
 #include "Fvog/Pipeline2.h"
 
+#include "shaders/Resources.h.glsl"
+
+// TODO: these structs should come from a shared header
+FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
+{
+  // Common
+  FVOG_UINT32 globalUniformsIndex;
+  FVOG_UINT32 meshletDataIndex;
+  FVOG_UINT32 meshletPrimitivesIndex;
+  FVOG_UINT32 meshletVerticesIndex;
+  FVOG_UINT32 meshletIndicesIndex;
+  FVOG_UINT32 transformsIndex;
+  FVOG_UINT32 indirectDrawIndex;
+  FVOG_UINT32 materialsIndex;
+  FVOG_UINT32 viewIndex;
+
+  // CullMeshlets.comp
+  FVOG_UINT32 hzbIndex;
+  FVOG_UINT32 hzbSamplerIndex;
+  FVOG_UINT32 cullTrianglesDispatchIndex;
+
+  // CullMeshlets.comp and CullTriangles.comp
+  FVOG_UINT32 visibleMeshletsIndex;
+
+  // CullTriangles.comp
+  FVOG_UINT32 indexBufferIndex;
+
+  // Visbuffer.frag
+  FVOG_UINT32 materialSamplerIndex;
+  
+  // VisbufferMaterialDepth.frag
+  FVOG_UINT32 visbufferIndex;
+
+  // VisbufferResolve.frag
+  FVOG_UINT32 baseColorIndex;
+  FVOG_UINT32 metallicRoughnessIndex;
+  FVOG_UINT32 normalIndex;
+  FVOG_UINT32 occlusionIndex;
+  FVOG_UINT32 emissionIndex;
+
+  // Debug
+  FVOG_UINT32 debugAabbBufferIndex;
+  FVOG_UINT32 debugRectBufferIndex;
+};
+
+FVOG_DECLARE_ARGUMENTS(HzbCopyPushConstants)
+{
+  FVOG_UINT32 hzbIndex;
+  FVOG_UINT32 depthIndex;
+  FVOG_UINT32 depthSamplerIndex;
+};
+
+FVOG_DECLARE_ARGUMENTS(HzbReducePushConstants)
+{
+  FVOG_UINT32 prevHzbIndex;
+  FVOG_UINT32 curHzbIndex;
+};
+
+FVOG_DECLARE_ARGUMENTS(TonemapArguments)
+{
+  FVOG_UINT32 sceneColorIndex;
+  FVOG_UINT32 noiseIndex;
+  FVOG_UINT32 nearestSamplerIndex;
+
+  FVOG_UINT32 exposureIndex;
+  FVOG_UINT32 tonemapUniformsIndex;
+  FVOG_UINT32 outputImageIndex;
+};
+
+FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
+{
+  FVOG_UINT32 globalUniformsIndex;
+  FVOG_UINT32 shadingUniformsIndex;
+  FVOG_UINT32 shadowUniformsIndex;
+  FVOG_UINT32 lightBufferIndex;
+
+  FVOG_UINT32 gAlbedoIndex;
+  FVOG_UINT32 gNormalAndFaceNormalIndex;
+  FVOG_UINT32 gDepthIndex;
+  FVOG_UINT32 gSmoothVertexNormalIndex;
+  FVOG_UINT32 gEmissionIndex;
+  FVOG_UINT32 gMetallicRoughnessAoIndex;
+};
+
+inline glm::vec3 PolarToCartesian(float elevation, float azimuth)
+{
+  return {std::sin(elevation) * std::cos(azimuth), std::cos(elevation), std::sin(elevation) * std::sin(azimuth)};
+}
+
 namespace Debug
 {
   struct Line
@@ -42,16 +131,19 @@ class FrogRenderer2 final : public Application
 {
 public:
   FrogRenderer2(const Application::CreateInfo& createInfo);
-  ~FrogRenderer2();
+  ~FrogRenderer2() override;
 
 private:
+  struct ViewParams;
+
   void OnWindowResize(uint32_t newWidth, uint32_t newHeight) override;
   void OnUpdate(double dt) override;
   void OnRender(double dt, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex) override;
   void OnGui(double dt) override;
   void OnPathDrop(std::span<const char*> paths) override;
 
-  
+  void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, std::string_view name = "Cull Meshlet Pass");
+  void MakeStaticSceneBuffers(VkCommandBuffer commandBuffer);
 
   enum class GlobalFlags : uint32_t
   {
@@ -95,7 +187,7 @@ private:
     VIRTUAL = 1,
   };
 
-  struct View
+  struct ViewParams
   {
     glm::mat4 oldProj;
     glm::mat4 oldView;
@@ -265,9 +357,10 @@ private:
   std::optional<Fvog::TypedBuffer<Utility::Vertex>> vertexBuffer;
   std::optional<Fvog::TypedBuffer<uint32_t>> indexBuffer;
   std::optional<Fvog::TypedBuffer<uint8_t>> primitiveBuffer;
-  std::optional<Fvog::TypedBuffer<Utility::ObjectUniforms>> transformBuffer;
-  std::optional<Fvog::TypedBuffer<Utility::GpuMaterial>> materialStorageBuffer;
-  std::optional<Fvog::TypedBuffer<View>> viewBuffer;
+  std::optional<Fvog::NDeviceBuffer<Utility::ObjectUniforms>> transformBuffer;
+  std::optional<Fvog::NDeviceBuffer<Utility::GpuMaterial>> materialStorageBuffer;
+  //std::optional<Fvog::NDeviceBuffer<ViewParams>> viewBuffer;
+  std::optional<Fvog::TypedBuffer<ViewParams>> viewBuffer;
   // Output
   std::optional<Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>> meshletIndirectCommand;
   std::optional<Fvog::TypedBuffer<uint32_t>> instancedMeshletBuffer;
@@ -292,8 +385,8 @@ private:
   Utility::SceneMeshlet scene;
 
   // Punctual lights
-  std::optional<Fvog::TypedBuffer<Utility::GpuLight>> lightBuffer;
-  std::optional<Fvog::TypedBuffer<Utility::Meshlet>> meshletBuffer;
+  std::optional<Fvog::NDeviceBuffer<Utility::GpuLight>> lightBuffer;
+  std::optional<Fvog::NDeviceBuffer<Utility::Meshlet>> meshletBuffer;
 
   Utility::SceneFlattened sceneFlattened;
 
@@ -308,7 +401,8 @@ private:
 
 #ifdef FROGRENDER_FSR2_ENABLE
   // FSR 2
-  bool fsr2Enable = true;
+  // TODO: temporarily set to false until FSR 2 is integrated
+  bool fsr2Enable = false;
   bool fsr2FirstInit = true;
   float fsr2Sharpness = 0;
   float fsr2Ratio = 1.5f; // FFX_FSR2_QUALITY_MODE_QUALITY
@@ -332,16 +426,16 @@ private:
 
   //// Auto-exposure
   //Techniques::AutoExposure autoExposure;
-  //Fwog::TypedBuffer<float> exposureBuffer;
+  Fvog::TypedBuffer<float> exposureBuffer;
   //float autoExposureLogMinLuminance = -15.0f;
   //float autoExposureLogMaxLuminance = 15.0f;
   //// sRGB middle gray (https://en.wikipedia.org/wiki/Middle_gray)
   //float autoExposureTargetLuminance = 0.2140f;
   //float autoExposureAdjustmentSpeed = 1.0f;
 
-  //// Camera
-  //float cameraNearPlane = 0.1f;
-  //float cameraFovyRadians = glm::radians(70.0f);
+  // Camera
+  float cameraNearPlane = 0.1f;
+  float cameraFovyRadians = glm::radians(70.0f);
 
   //// VSM
   //Techniques::VirtualShadowMaps::Context vsmContext;
@@ -367,13 +461,159 @@ private:
   //Fwog::GraphicsPipeline viewerVsmBitmaskHzbPipeline;
   //std::optional<Fwog::Texture> viewerOutputTexture;
 
+  Fvog::Sampler nearestSampler;
+  Fvog::Sampler hzbSampler;
 
-  // TODO: temp stuff
-  VkSampler sampler{};
-  VkPipelineLayout pipelineLayout{};
-  std::optional<Fvog::GraphicsPipeline> pipeline;
-  std::optional<Fvog::Texture> testTexture;
-  std::optional<Fvog::Texture> testSampledTexture;
-  std::optional<Fvog::Buffer> testUploadBuffer;
-  std::optional<Fvog::NDeviceBuffer<std::byte>> updatedBuffer;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  //template<typename T>
+  //struct ScrollingBuffer
+  //{
+  //  ScrollingBuffer(size_t capacity = 2000) : capacity(capacity)
+  //  {
+  //    data = std::make_unique<T[]>(capacity);
+  //  }
+
+  //  void Push(const T& v)
+  //  {
+  //    data[offset] = v;
+  //    offset = (offset + 1) % capacity;
+  //    if (size < capacity)
+  //      size++;
+  //  }
+
+  //  void Clear()
+  //  {
+  //    std::fill_n(data.get(), capacity, T{});
+  //  }
+
+  //  size_t capacity;
+  //  size_t offset = 0;
+  //  size_t size = 0;
+  //  std::unique_ptr<T[]> data;
+  //};
+
+  //enum class StatGroup
+  //{
+  //  eMainGpu,
+  //  eVsm,
+
+  //  eCount
+  //};
+
+  //struct StatGroupInfo
+  //{
+  //  const char* groupName;
+  //  std::vector<const char*> statNames;
+  //};
+
+  //const static inline StatGroupInfo statGroups[] = {
+  //  {
+  //    "Main GPU",
+  //   {
+  //     "Frame",
+  //     "Cull Meshlets Main",
+  //     "Render Visbuffer Main",
+  //     "Virtual Shadow Maps",
+  //     "Build Hi-Z Buffer",
+  //     "Make Material Depth Buffer",
+  //     "Resolve Visibility Buffer",
+  //     "Shade Opaque",
+  //     "Debug Geometry",
+  //     "Auto Exposure",
+  //     "FSR 2",
+  //     "Bloom",
+  //     "Resolve Image",
+  //   }},
+  //  {
+  //    "Virtual Shadow Maps",
+  //   {
+  //     "VSM Reset Page Visibility",
+  //     "VSM Mark Visible Pages",
+  //     "VSM Free Non-Visible Pages",
+  //     "VSM Allocate Pages",
+  //     "VSM Generate HPB",
+  //     "VSM Clear Pages",
+  //     "VSM Render Pages",
+  //   }},
+  //};
+
+  //// static_assert((int)StatGroup::eCount == std::extent_v<decltype(statGroupNames)>);
+
+  //enum MainGpuStat
+  //{
+  //  eFrame = 0,
+  //  eCullMeshletsMain,
+  //  eRenderVisbufferMain,
+  //  eVsm,
+  //  eHzb,
+  //  eMakeMaterialDepthBuffer,
+  //  eResolveVisbuffer,
+  //  eShadeOpaque,
+  //  eDebugGeometry,
+  //  eAutoExposure,
+  //  eFsr2,
+  //  eBloom,
+  //  eResolveImage,
+  //};
+
+  //enum VsmStat
+  //{
+  //  eVsmResetPageVisibility,
+  //  eVsmMarkVisiblePages,
+  //  eVsmFreeNonVisiblePages,
+  //  eVsmAllocatePages,
+  //  eVsmGenerateHpb,
+  //  eVsmClearDirtyPages,
+  //  eVsmRenderDirtyPages,
+  //};
+
+  //// static_assert(eStatCount == std::extent_v<decltype(statNames)>);
+
+  //struct StatInfo
+  //{
+  //  // std::string name;
+  //  ScrollingBuffer<double> timings;
+  //  Fwog::TimerQueryAsync timer{5};
+
+  //  void Measure()
+  //  {
+  //    if (auto t = timer.PopTimestamp())
+  //    {
+  //      timings.Push(*t / 10e5); // ns to ms
+  //    }
+  //    else
+  //    {
+  //      timings.Push(0);
+  //    }
+  //  }
+
+  //  [[nodiscard]] auto MakeScopedTimer()
+  //  {
+  //    return Fwog::TimerScoped(timer);
+  //  }
+  //};
+
+  //std::vector<std::vector<StatInfo>> stats;
+  //ScrollingBuffer<double> accumTimes;
+  //double accumTime = 0;
 };

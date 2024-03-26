@@ -78,7 +78,7 @@ struct GpuMaterial
   float normalXyScale;
 };
 
-FVOG_DECLARE_ARGUMENTS(PushConstants)
+FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
 {
   // Common
   FVOG_UINT32 globalUniformsIndex;

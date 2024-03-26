@@ -9,7 +9,7 @@
 //#include "shadows/vsm/VsmCommon.h.glsl"
 #include "Utility.h.glsl"
 
-FVOG_DECLARE_ARGUMENTS(PushConstants)
+FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
 {
   FVOG_UINT32 globalUniformsIndex;
   FVOG_UINT32 shadingUniformsIndex;

@@ -1,10 +1,12 @@
 #pragma once
 
 #include "BasicTypes2.h"
+#include "Device.h"
 
 #include <vulkan/vulkan_core.h>
 
 #include <string_view>
+#include <optional>
 
 typedef struct VmaAllocation_T* VmaAllocation;
 
@@ -12,6 +14,7 @@ namespace Fvog
 {
   class Device;
   class TextureView;
+  class Texture;
 
   namespace detail
   {
@@ -37,15 +40,22 @@ namespace Fvog
     bool operator==(const SamplerCreateInfo&) const noexcept = default;
   };
 
+  enum class TextureUsage
+  {
+    GENERAL,              // Compatible with everything (e.g., use for written storage images)
+    READ_ONLY,            // Ideal for loaded materials
+    ATTACHMENT_READ_ONLY, // Ideal for gbuffer attachments that are later read
+  };
+
   struct TextureCreateInfo
   {
     VkImageViewType viewType = {};
     Format format = {};
-    VkExtent3D extent = {};
+    Extent3D extent = {};
     uint32_t mipLevels = 1;
     uint32_t arrayLayers = 1;
     VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
-    VkImageUsageFlags usage = {};
+    TextureUsage usage = TextureUsage::GENERAL;
   };
 
   struct TextureViewCreateInfo
@@ -64,8 +74,8 @@ namespace Fvog
   struct TextureUpdateInfo
   {
     uint32_t level = 0;
-    VkOffset3D offset = {};
-    VkExtent3D extent = {};
+    Offset3D offset = {};
+    Extent3D extent = {};
     const void* data = nullptr;
 
     /// @brief Specifies, in texels, the size of rows in the array (for 2D and 3D images). If zero, it is assumed to be tightly packed according to size
@@ -78,68 +88,34 @@ namespace Fvog
   class Sampler
   {
   public:
-    explicit Sampler(Device& device, const SamplerCreateInfo& samplerState);
+    // Note: name MAY be ignored if samplerState matches a cached entry
+    explicit Sampler(Device& device, const SamplerCreateInfo& samplerState, const char* name = nullptr);
     
     [[nodiscard]] VkSampler Handle() const noexcept
     {
       return sampler_;
     }
 
+    Device::DescriptorInfo::ResourceHandle GetResourceHandle() const noexcept
+    {
+      return descriptorInfo_->GpuResource();
+    }
+
   private:
     friend class detail::SamplerCache;
-    //Sampler() = default; // you cannot create samplers out of thin air
-    explicit Sampler(VkSampler sampler) : sampler_(sampler) {}
+
+    explicit Sampler(VkSampler sampler, Device::DescriptorInfo& descriptorInfo)
+      : sampler_(sampler),
+        descriptorInfo_(&descriptorInfo) {}
     
     VkSampler sampler_{};
-  };
-
-  class Texture
-  {
-  public:
-    // Verbose constructor
-    explicit Texture(Device& device, const TextureCreateInfo& createInfo, std::string_view name = {});
-    ~Texture();
-
-    TextureView CreateFormatView(Format format, std::string_view name = "") const;
-
-    /// @brief Updates a subresource of the image
-    /// @param info The subresource and data to upload
-    /// @note info.data must be in a compatible image format
-    /// @note This function is provided for backwards compatibility only
-    void UpdateImageSLOW(const TextureUpdateInfo& info);
-
-    Texture(const Texture&) = delete;
-    Texture& operator=(const Texture&) = delete;
-    Texture(Texture&&) noexcept;
-    Texture& operator=(Texture&&) noexcept;
-
-    [[nodiscard]] VkImage Image() const noexcept
-    {
-      return image_;
-    }
-
-    [[nodiscard]] VkImageView ImageView() const noexcept
-    {
-      return imageView_;
-    }
-
-    [[nodiscard]] TextureCreateInfo GetCreateInfo() const noexcept
-    {
-      return createInfo_;
-    }
-
-  private:
-    Device* device_{};
-    TextureCreateInfo createInfo_{};
-    VkImage image_{};
-    VkImageView imageView_{};
-    VmaAllocation allocation_{};
+    Device::DescriptorInfo* descriptorInfo_;
   };
 
   class TextureView
   {
   public:
-    explicit TextureView(Device& device, const Texture& texture, const TextureViewCreateInfo& createInfo, std::string_view name = "");
+    explicit TextureView(Device& device, const Texture& texture, const TextureViewCreateInfo& createInfo, const char* name = nullptr);
     ~TextureView();
 
     TextureView(const TextureView&) = delete;
@@ -157,19 +133,93 @@ namespace Fvog
       return createInfo_;
     }
 
-    [[nodiscard]] const Texture* GetTexture() const noexcept
+    //[[nodiscard]] const Texture* GetTexture() const noexcept
+    //{
+    //  return texture_;
+    //}
+
+    operator VkImageView() const noexcept
     {
-      return texture_;
+      return imageView_;
+    }
+
+    [[nodiscard]] Device::DescriptorInfo::ResourceHandle GetSampledResourceHandle() noexcept
+    {
+      return sampledDescriptorInfo_.value().GpuResource();
+    }
+
+    [[nodiscard]] Device::DescriptorInfo::ResourceHandle GetStorageResourceHandle() noexcept
+    {
+      return storageDescriptorInfo_.value().GpuResource();
+    }
+
+    [[nodiscard]] TextureCreateInfo GetTextureCreateInfo() const noexcept
+    {
+      return parentCreateInfo_;
+    }
+
+    [[nodiscard]] VkImage Image() noexcept
+    {
+      return image_;
     }
 
   private:
     Device* device_{};
-    const Texture* texture_{};
     TextureViewCreateInfo createInfo_{};
     VkImageView imageView_{};
+    std::optional<Device::DescriptorInfo> sampledDescriptorInfo_;
+    std::optional<Device::DescriptorInfo> storageDescriptorInfo_;
+
+    // Duplicate of parent data to avoid potential dangling pointers
+    TextureCreateInfo parentCreateInfo_{};
+    VkImage image_{};
+  };
+
+  class Texture
+  {
+  public:
+    // Verbose constructor
+    explicit Texture(Device& device, const TextureCreateInfo& createInfo, const char* name = nullptr);
+    ~Texture();
+
+    [[nodiscard]] TextureView CreateFormatView(Format format, const char* name = nullptr) const;
+    [[nodiscard]] TextureView CreateSingleMipView(uint32_t level, const char* name = nullptr) const;
+
+    /// @brief Updates a subresource of the image
+    /// @param info The subresource and data to upload
+    /// @note info.data must be in a compatible image format
+    /// @note This function is provided for backwards compatibility only
+    void UpdateImageSLOW(const TextureUpdateInfo& info);
+
+    Texture(const Texture&) = delete;
+    Texture& operator=(const Texture&) = delete;
+    Texture(Texture&&) noexcept;
+    Texture& operator=(Texture&&) noexcept;
+
+    [[nodiscard]] VkImage Image() const noexcept
+    {
+      return image_;
+    }
+
+    [[nodiscard]] TextureView& ImageView() noexcept
+    {
+      return textureView_.value();
+    }
+
+    [[nodiscard]] TextureCreateInfo GetCreateInfo() const noexcept
+    {
+      return createInfo_;
+    }
+
+  private:
+    Device* device_{};
+    TextureCreateInfo createInfo_{};
+    VkImage image_{};
+    std::optional<TextureView> textureView_;
+    VmaAllocation allocation_{};
   };
 
   // convenience functions
-  Texture CreateTexture2D(Device& device, VkExtent2D size, Format format, VkImageUsageFlags usage, std::string_view name = "");
-  Texture CreateTexture2DMip(Device& device, VkExtent2D size, Format format, uint32_t mipLevels, VkImageUsageFlags usage, std::string_view name = "");
+  [[nodiscard]] Texture CreateTexture2D(Device& device, VkExtent2D size, Format format, TextureUsage usage, const char* name = nullptr);
+  [[nodiscard]] Texture CreateTexture2DMip(Device& device, VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, const char* name = "");
 }

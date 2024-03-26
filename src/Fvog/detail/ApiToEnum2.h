@@ -14,6 +14,8 @@ namespace Fvog::detail
 
   bool FormatIsColor(Format format);
 
+  bool FormatIsSrgb(Format format);
+
   VkFormat FormatToVk(Format format);
 
   Format VkToFormat(VkFormat format);

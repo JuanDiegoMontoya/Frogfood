@@ -221,8 +221,8 @@ Application::Application(const CreateInfo& createInfo)
   instance_ = vkb::InstanceBuilder()
     .set_app_name("Frogrenderer")
     .require_api_version(1, 3, 0)
-    .request_validation_layers() // TODO: make optional
     .use_default_debug_messenger() // TODO: make optional
+    .enable_extension("VK_EXT_debug_utils")
     .build()
     .value();
 
@@ -605,7 +605,7 @@ void Application::ResizeCallbackThingy([[maybe_unused]] uint32_t newWidth, [[may
   assert(newWidth > 0 && newHeight > 0);
 
   {
-    ZoneScopedN("Device WFI");
+    ZoneScopedN("Device Wait Idle");
     vkDeviceWaitIdle(device_->device_);
   }
 
@@ -618,6 +618,8 @@ void Application::ResizeCallbackThingy([[maybe_unused]] uint32_t newWidth, [[may
 
   {
     ZoneScopedN("Destroy Old Swapchain");
+
+    // Technically UB, but in practice the WFI makes it work
     vkb::destroy_swapchain(oldSwapchain);
 
     for (auto view : swapchainImageViews_)

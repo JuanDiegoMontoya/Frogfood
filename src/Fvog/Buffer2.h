@@ -1,39 +1,16 @@
 #pragma once
 
 #include "Device.h"
+#include "TriviallyCopyableByteSpan.h"
 
 #include <vulkan/vulkan_core.h>
 
-#include <cstddef>
+#include <string>
 #include <string_view>
-#include <span>
-#include <type_traits>
+#include <optional>
 
 namespace Fvog
 {
-  /// @brief Used to constrain the types accpeted by Buffer
-  class TriviallyCopyableByteSpan : public std::span<const std::byte>
-  {
-  public:
-    template<typename T>
-      requires std::is_trivially_copyable_v<T>
-    TriviallyCopyableByteSpan(const T& t) : std::span<const std::byte>(std::as_bytes(std::span{&t, static_cast<size_t>(1)}))
-    {
-    }
-
-    template<typename T>
-      requires std::is_trivially_copyable_v<T>
-    TriviallyCopyableByteSpan(std::span<const T> t) : std::span<const std::byte>(std::as_bytes(t))
-    {
-    }
-
-    template<typename T>
-      requires std::is_trivially_copyable_v<T>
-    TriviallyCopyableByteSpan(std::span<T> t) : std::span<const std::byte>(std::as_bytes(t))
-    {
-    }
-  };
-
   enum class BufferFlagThingy
   {
     NONE,
@@ -46,11 +23,18 @@ namespace Fvog
     VkDeviceSize size{};
     BufferFlagThingy flag{};
   };
+
+  struct BufferFillInfo
+  {
+    VkDeviceSize offset = 0;
+    VkDeviceSize size = VK_WHOLE_SIZE;
+    uint32_t data = 0;
+  };
   
   class Buffer
   {
   public:
-    explicit Buffer(Device& device, const BufferCreateInfo& createInfo, std::string_view name = "");
+    explicit Buffer(Device& device, const BufferCreateInfo& createInfo, const char* name = nullptr);
     ~Buffer();
 
     Buffer(const Buffer&) = delete;
@@ -78,6 +62,15 @@ namespace Fvog
       return createInfo_;
     }
 
+    void UpdateDataExpensive(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes = 0);
+
+    void FillData(VkCommandBuffer commandBuffer, const BufferFillInfo& clear = {});
+
+    Device::DescriptorInfo::ResourceHandle GetResourceHandle()
+    {
+      return descriptorInfo_.value().GpuResource();
+    }
+
   protected:
     Device* device_{};
     BufferCreateInfo createInfo_{};
@@ -85,6 +78,7 @@ namespace Fvog
     VmaAllocation allocation_{};
     void* mappedMemory_{};
     VkDeviceAddress deviceAddress_{};
+    std::optional<Device::DescriptorInfo> descriptorInfo_;
 
     template<typename T>
     friend class NDeviceBuffer;
@@ -103,7 +97,7 @@ namespace Fvog
   class TypedBuffer : public Buffer
   {
   public:
-    explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo, std::string_view name = "")
+    explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo = {}, const char* name = nullptr)
       : Buffer(device, {.size = createInfo.count * sizeof(T), .flag = createInfo.flag}, name)
     {
     }
@@ -111,6 +105,17 @@ namespace Fvog
     [[nodiscard]] T* GetMappedMemory() const noexcept
     {
       return static_cast<T*>(mappedMemory_);
+    }
+
+    // UpdateDataExpensive CAN be called multiple times per frame, but each time it allocates a new buffer
+    void UpdateDataExpensive(VkCommandBuffer commandBuffer, std::span<const T> data, VkDeviceSize destOffsetBytes = 0)
+    {
+      Buffer::UpdateDataExpensive(commandBuffer, data, destOffsetBytes);
+    }
+
+    void UpdateDataExpensive(VkCommandBuffer commandBuffer, const T& data, VkDeviceSize destOffsetBytes = 0)
+    {
+      Buffer::UpdateDataExpensive(commandBuffer, std::span(&data, 1), destOffsetBytes);
     }
 
   private:
@@ -123,21 +128,24 @@ namespace Fvog
   class NDeviceBuffer
   {
   public:
-    explicit NDeviceBuffer(Device& device, uint32_t count = 1)
+    explicit NDeviceBuffer(Device& device, uint32_t count = 1, const char* name = nullptr)
     : hostStagingBuffers_{
         // TODO: create a helper for initializing this array so it doesn't fail to compile when Device::frameOverlap changes
-        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE})},
-        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE})},
+        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name ? (name + std::string(" (host)")).c_str() : nullptr)},
+        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name ? (name + std::string(" (host)")).c_str() : nullptr)},
       },
-      deviceBuffer_(device, TypedBufferCreateInfo{.count = count})
+      deviceBuffer_(device, TypedBufferCreateInfo{.count = count}, name)
     {
     }
 
-    // Only call within a command buffer, once per frame
-    void UpdateData(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes = 0)
+    void UpdateData(VkCommandBuffer commandBuffer, std::span<const T> data, VkDeviceSize destOffsetElements = 0)
     {
-      auto& stagingBuffer = hostStagingBuffers_[deviceBuffer_.device_->frameNumber % Device::frameOverlap];
-      stagingBuffer.UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, deviceBuffer_);
+      updateData(commandBuffer, data, destOffsetElements * sizeof(T));
+    }
+
+    void UpdateData(VkCommandBuffer commandBuffer, const T& data, VkDeviceSize destOffsetElements = 0)
+    {
+      updateData(commandBuffer, std::span(&data, 1), destOffsetElements * sizeof(T));
     }
 
     [[nodiscard]] Buffer& GetDeviceBuffer() noexcept
@@ -146,6 +154,16 @@ namespace Fvog
     }
 
   private:
+    // Only call within a command buffer, once per frame
+    void updateData(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes = 0)
+    {
+      if (data.size() == 0)
+      {
+        return;
+      }
+      auto& stagingBuffer = hostStagingBuffers_[deviceBuffer_.device_->frameNumber % Device::frameOverlap];
+      stagingBuffer.UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, deviceBuffer_);
+    }
 
     TypedBuffer<T> hostStagingBuffers_[Device::frameOverlap];
     TypedBuffer<T> deviceBuffer_;

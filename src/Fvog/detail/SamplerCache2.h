@@ -28,12 +28,13 @@ namespace Fvog::detail
       Clear();
     }
 
-    Sampler CreateOrGetCachedTextureSampler(const SamplerCreateInfo& samplerState);
+    [[nodiscard]] Sampler CreateOrGetCachedTextureSampler(const SamplerCreateInfo& samplerState, const char* name = nullptr);
     [[nodiscard]] size_t Size() const;
     void Clear();
 
   private:
     Device* device_;
     std::unordered_map<SamplerCreateInfo, Sampler> samplerCache_;
+    std::unordered_map<SamplerCreateInfo, Device::DescriptorInfo> descriptorCache_;
   };
 } // namespace Fwog::detail

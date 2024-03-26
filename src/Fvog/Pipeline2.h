@@ -126,7 +126,7 @@ namespace Fvog
   struct GraphicsPipelineInfo
   {
     /// @brief An optional name for viewing in a graphics debugger
-    std::string_view name;
+    const char* name = nullptr;
 
     /// @brief Non-null pointer to a vertex shader
     const Shader* vertexShader            = nullptr;
@@ -148,15 +148,16 @@ namespace Fvog
   struct ComputePipelineInfo
   {
     /// @brief An optional name for viewing in a graphics debugger
-    std::string_view name;
+    const char* name = nullptr;
 
     /// @brief Non-null pointer to a compute shader
     const Shader* shader;
   };
 
   /// @brief An object that encapsulates the state needed to issue draws
-  struct GraphicsPipeline
+  class GraphicsPipeline
   {
+  public:
     /// @throws PipelineCompilationException
     explicit GraphicsPipeline(VkDevice device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info);
     ~GraphicsPipeline();
@@ -180,8 +181,9 @@ namespace Fvog
   };
 
   /// @brief An object that encapsulates the state needed to issue dispatches
-  struct ComputePipeline
+  class ComputePipeline
   {
+  public:
     /// @throws PipelineCompilationException
     explicit ComputePipeline(VkDevice device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info);
     ~ComputePipeline();

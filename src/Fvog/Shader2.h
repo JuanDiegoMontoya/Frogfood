@@ -21,7 +21,7 @@ namespace Fvog
     /// @param stage A pipeline stage
     /// @param source A GLSL source string
     /// @throws ShaderCompilationException if the shader is malformed
-    explicit Shader(VkDevice device, PipelineStage stage, std::string_view source, std::string_view name = "");
+    explicit Shader(VkDevice device, PipelineStage stage, std::string_view source, const char* name = nullptr);
     Shader(const Shader&) = delete;
     Shader(Shader&& old) noexcept;
     Shader& operator=(const Shader&) = delete;

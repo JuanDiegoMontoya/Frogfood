@@ -9,6 +9,12 @@
 #include <vector>
 #include <cassert>
 #include <stdexcept>
+#include <fstream>
+#include <stdexcept>
+#include <memory>
+#include <span>
+#include <cstddef>
+#include "TriviallyCopyableByteSpan.h"
 
 namespace Fvog
 {
@@ -136,6 +142,86 @@ namespace Fvog
       };
     }
 
+    std::string LoadFile(const std::filesystem::path& path)
+    {
+      std::ifstream file{path};
+      if (!file)
+      {
+        throw std::runtime_error("File not found");
+      }
+      return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    }
+
+    // For debugging
+    void WriteBinaryFile(const std::filesystem::path& path, TriviallyCopyableByteSpan bytes)
+    {
+      auto file = std::ofstream(path, std::ios::out | std::ios::binary);
+      if (!file)
+      {
+        throw std::runtime_error("Could not open file for writing");
+      }
+      file.write(reinterpret_cast<const char*>(bytes.data()), bytes.size_bytes());
+    }
+
+    // Hackity hack
+    size_t NumberOfPathComponents(std::filesystem::path path)
+    {
+      size_t parents = 0;
+      while (!path.empty())
+      {
+        parents++;
+        path = path.parent_path();
+      }
+      return parents > 0 ? parents - 1 : 0; // The path will contain a filename, which we will ignore
+    }
+    
+    class IncludeHandler final : public glslang::TShader::Includer
+    {
+    public:
+      IncludeHandler(const std::filesystem::path& sourcePath)
+      {
+        // Seed the "stack" with just the parent directory of the top-level source
+        currentIncluderDir_ /= sourcePath.parent_path();
+      }
+
+      glslang::TShader::Includer::IncludeResult* includeLocal(
+        const char* requested_source,
+        [[maybe_unused]] const char* requesting_source,
+        [[maybe_unused]] size_t include_depth) override
+      {
+        // Everything will explode if this is not relative
+        assert(std::filesystem::path(requested_source).is_relative());
+        auto fullRequestedSource = currentIncluderDir_ / requested_source;
+        currentIncluderDir_ = fullRequestedSource.parent_path();
+
+        auto contentPtr = std::make_unique<std::string>(LoadFile(fullRequestedSource));
+        auto content = contentPtr.get();
+        auto sourcePathPtr = std::make_unique<std::string>(requested_source);
+        //auto sourcePath = sourcePathPtr.get();
+
+        contentStrings_.emplace_back(std::move(contentPtr));
+        sourcePathStrings_.emplace_back(std::move(sourcePathPtr));
+
+        return new glslang::TShader::Includer::IncludeResult(requested_source, content->c_str(), content->size(), nullptr);
+      }
+
+      void releaseInclude(glslang::TShader::Includer::IncludeResult* data) override
+      {
+        for (size_t i = 0; i < NumberOfPathComponents(data->headerName); i++)
+        {
+          currentIncluderDir_ = currentIncluderDir_.parent_path();
+        }
+        
+        delete data;
+      }
+
+    private:
+      // Acts like a stack that we "push" path components to when include{Local, System} are invoked, and "pop" when releaseInclude is invoked
+      std::filesystem::path currentIncluderDir_;
+      std::vector<std::unique_ptr<std::string>> contentStrings_;
+      std::vector<std::unique_ptr<std::string>> sourcePathStrings_;
+    };
+
     constexpr EShLanguage VkShaderStageToGlslang(VkShaderStageFlagBits stage)
     {
       switch (stage)
@@ -147,13 +233,7 @@ namespace Fvog
       return static_cast<EShLanguage>(-1);
     }
 
-    struct ShaderInfo
-    {
-      std::vector<uint32_t> binarySpv;
-      Extent3D workgroupSize_{};
-    };
-
-    ShaderInfo CompileShaderToSpirv(VkShaderStageFlagBits stage, std::string_view source)
+    detail::ShaderCompileInfo CompileShaderToSpirv(VkShaderStageFlagBits stage, std::string_view source, glslang::TShader::Includer* includer)
     {
       constexpr auto compilerMessages = EShMessages(EShMessages::EShMsgSpvRules | EShMessages::EShMsgVulkanRules);
       const auto resourceLimits = GetGlslangResourceLimits();
@@ -166,26 +246,39 @@ namespace Fvog
       shader.setEnvInput(glslang::EShSource::EShSourceGlsl, glslangStage, glslang::EShClient::EShClientVulkan, 460);
       shader.setEnvClient(glslang::EShClient::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_3);
       shader.setEnvTarget(glslang::EShTargetLanguage::EShTargetSpv, glslang::EShTargetLanguageVersion::EShTargetSpv_1_6);
-      if (!shader.parse(&resourceLimits, 450, EProfile::ECoreProfile, false, false, compilerMessages))
+
+      bool parseResult;
+      if (includer)
+      {
+        parseResult = shader.parse(&resourceLimits, 460, EProfile::ECoreProfile, false, false, compilerMessages, *includer);
+      }
+      else
+      {
+        parseResult = shader.parse(&resourceLimits, 460, EProfile::ECoreProfile, false, false, compilerMessages);
+      }
+
+      if (!parseResult)
       {
         printf("Info log: %s\nDebug log: %s\n", shader.getInfoLog(), shader.getInfoDebugLog());
         // TODO: throw shader compile error
         throw std::runtime_error("rip");
       }
+
+      constexpr bool generateDebugInfo = true;
+      shader.setDebugInfo(generateDebugInfo);
 
       auto program = glslang::TProgram();
       program.addShader(&shader);
       
       if (!program.link(EShMessages::EShMsgDefault))
       {
-        printf("Info log: %s\nDebug log: %s\n", shader.getInfoLog(), shader.getInfoDebugLog());
+        printf("Info log: %s\nDebug log: %s\n", program.getInfoLog(), program.getInfoDebugLog());
         // TODO: throw shader compile error
         throw std::runtime_error("rip");
       }
-
+      
       program.buildReflection();
-
-      ShaderInfo info;
+      detail::ShaderCompileInfo info;
 
       // TODO: task/mesh stages
       if (stage == VK_SHADER_STAGE_COMPUTE_BIT)
@@ -195,19 +288,27 @@ namespace Fvog
         info.workgroupSize_.depth = program.getLocalSize(2);
       }
 
-      auto options = glslang::SpvOptions{};
+      auto options = glslang::SpvOptions{
+        .generateDebugInfo = generateDebugInfo,
+        .disableOptimizer = generateDebugInfo,
+        //.validate = true,
+        .emitNonSemanticShaderDebugInfo = generateDebugInfo,
+        .emitNonSemanticShaderDebugSource = generateDebugInfo,
+      };
       glslang::GlslangToSpv(*program.getIntermediate(glslangStage), info.binarySpv, &options);
+
+      // For debug-dumping SPIR-V to a file
+      //WriteBinaryFile("TEST.spv", std::span(info.binarySpv));
 
       return info;
     }
   } // namespace
 
-  Shader::Shader(VkDevice device, PipelineStage stage, std::string_view source, const char* name)
+  Shader::Shader(VkDevice device, const detail::ShaderCompileInfo& info, const char* name)
     : device_(device)
   {
     using namespace detail;
-
-    const auto info = CompileShaderToSpirv(PipelineStageToVK(stage), source);
+    
     CheckVkResult(
       vkCreateShaderModule(
         device,
@@ -228,6 +329,16 @@ namespace Fvog
       .objectHandle = reinterpret_cast<uint64_t>(shaderModule_),
       .pObjectName = name ? (name + std::string(" (shader)")).c_str() : nullptr,
     }));
+  }
+
+  Shader::Shader(VkDevice device, PipelineStage stage, std::string_view source, const char* name)
+    : Shader(device, CompileShaderToSpirv(PipelineStageToVK(stage), source, nullptr), name)
+  {
+  }
+  
+  Shader::Shader(VkDevice device, PipelineStage stage, const std::filesystem::path& path, const char* name)
+    : Shader(device, CompileShaderToSpirv(PipelineStageToVK(stage), LoadFile(path), detail::Address(IncludeHandler(path))), name)
+  {
   }
 
   Shader::Shader(Shader&& old) noexcept

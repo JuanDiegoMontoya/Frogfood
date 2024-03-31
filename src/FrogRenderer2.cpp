@@ -244,11 +244,11 @@ void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
   meshletBuffer = Fvog::NDeviceBuffer<Utility::Meshlet>(*device_, (uint32_t)sceneFlattened.meshlets.size(), "Meshlets");
 }
 
-void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, [[maybe_unused]] std::string_view name)
+void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, std::string_view name)
 {
-  // TODO: use multiple view buffers
   //viewBuffer->UpdateData(view);
   auto ctx = Fvog::Context(commandBuffer);
+  auto marker = ctx.MakeScopedDebugMarker(name.data(), {.5f, .5f, 1.0f, 1.0f});
   ctx.Barrier();
   viewBuffer->UpdateDataExpensive(commandBuffer, view);
 
@@ -579,6 +579,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //  "HZB Build Pass",
     //  [&]
     {
+      auto marker = ctx.MakeScopedDebugMarker("HZB Build Pass", {.5f, .5f, 1.0f, 1.0f});
       ctx.SetPushConstants(HzbCopyPushConstants{
         .hzbIndex = frame.hzb->ImageView().GetStorageResourceHandle().index,
         .depthIndex = frame.gDepth->ImageView().GetSampledResourceHandle().index,
@@ -985,6 +986,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   //Fwog::Compute("Postprocessing",
   //  [&]
   {
+    auto marker = ctx.MakeScopedDebugMarker("Postprocessing", {.5f, .5f, 1.0f, 1.0f});
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage);
     //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::UNIFORM_BUFFER_BIT);
     ctx.Barrier();

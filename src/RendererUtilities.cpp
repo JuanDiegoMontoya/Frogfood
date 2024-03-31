@@ -21,12 +21,23 @@ Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesy
   return Fwog::Shader(stage, processedSource.get());
 }
 
+// Experimental includer that uses glslang includer
+//Fvog::Shader LoadShaderWithIncludes2(VkDevice device, Fvog::PipelineStage stage, const std::filesystem::path& path)
+//{
+//  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path))
+//  {
+//    throw std::runtime_error("Path does not refer to a file");
+//  }
+//  return Fvog::Shader(device, stage, path, path.filename().string().c_str());
+//}
+
 Fvog::Shader LoadShaderWithIncludes2(VkDevice device, Fvog::PipelineStage stage, const std::filesystem::path& path)
 {
   if (!std::filesystem::exists(path) || std::filesystem::is_directory(path))
   {
     throw std::runtime_error("Path does not refer to a file");
   }
+
   auto pathStr = path.string();
   auto parentPathStr = path.parent_path().string();
   char error[256]{};
@@ -35,5 +46,5 @@ Fvog::Shader LoadShaderWithIncludes2(VkDevice device, Fvog::PipelineStage stage,
   {
     throw std::runtime_error("Failed to process includes");
   }
-  return Fvog::Shader(device, stage, processedSource.get(), path.filename().string().c_str());
+  return Fvog::Shader(device, stage, std::string_view(processedSource.get()), path.filename().string().c_str());
 }

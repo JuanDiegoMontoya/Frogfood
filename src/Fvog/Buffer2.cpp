@@ -66,15 +66,17 @@ namespace Fvog
 
     mappedMemory_ = allocationInfo.pMappedData;
 
+    // Buffer is device-local
     if (createInfo.flag == BufferFlagThingy::NONE)
     {
       deviceAddress_ = vkGetBufferDeviceAddress(device_->device_, Address(VkBufferDeviceAddressInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
         .buffer = buffer_,
       }));
+
+      descriptorInfo_ = device_->AllocateStorageBufferDescriptor(buffer_);
     }
 
-    descriptorInfo_ = device_->AllocateStorageBufferDescriptor(buffer_);
   }
 
   Buffer::~Buffer()

@@ -297,4 +297,24 @@ namespace Fvog
   {
     vkCmdPushConstants(commandBuffer_, Pipelines2::pipelineLayout, VK_SHADER_STAGE_ALL, offset, static_cast<uint32_t>(values.size_bytes()), values.data());
   }
+
+  ScopedDebugMarker::ScopedDebugMarker(VkCommandBuffer commandBuffer, const char* message, std::array<float, 4> color)
+    : commandBuffer_(commandBuffer)
+  {
+    vkCmdBeginDebugUtilsLabelEXT(commandBuffer_, Address(VkDebugUtilsLabelEXT{
+      .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+      .pLabelName = message,
+      .color = {color[0], color[1], color[2], color[3]},
+    }));
+  }
+
+  ScopedDebugMarker::~ScopedDebugMarker()
+  {
+    vkCmdEndDebugUtilsLabelEXT(commandBuffer_);
+  }
+
+  ScopedDebugMarker Context::MakeScopedDebugMarker(const char* message, std::array<float, 4> color) const
+  {
+    return {commandBuffer_, message, color};
+  }
 } // namespace Fvog

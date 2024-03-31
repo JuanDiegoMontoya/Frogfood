@@ -56,7 +56,7 @@ add_executable(frogRender
     src/Pipelines2.h
     src/Pipelines2.cpp
     src/Fvog/TriviallyCopyableByteSpan.h
-  )
+)
 
 target_compile_options(frogRender
     PRIVATE

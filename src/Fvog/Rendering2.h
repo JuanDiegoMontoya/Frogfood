@@ -115,6 +115,21 @@ namespace Fvog
     uint32_t layerCount = 1;
   };
 
+  class [[nodiscard]] ScopedDebugMarker
+  {
+  public:
+    ScopedDebugMarker(VkCommandBuffer commandBuffer, const char* message, std::array<float, 4> color = {1, 1, 1, 1});
+    ~ScopedDebugMarker();
+
+    ScopedDebugMarker(const ScopedDebugMarker&) = delete;
+    ScopedDebugMarker(ScopedDebugMarker&&) noexcept = delete;
+    ScopedDebugMarker& operator=(const ScopedDebugMarker&) = delete;
+    ScopedDebugMarker& operator=(ScopedDebugMarker&&) noexcept = delete;
+
+  private:
+    VkCommandBuffer commandBuffer_;
+  };
+
   class Context
   {
   public:
@@ -145,6 +160,8 @@ namespace Fvog
     void BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const;
 
     void SetPushConstants(TriviallyCopyableByteSpan values, uint32_t offset = 0) const;
+
+    ScopedDebugMarker MakeScopedDebugMarker(const char* message, std::array<float, 4> color = {1, 1, 1, 1}) const;
 
   private:
     VkCommandBuffer commandBuffer_;

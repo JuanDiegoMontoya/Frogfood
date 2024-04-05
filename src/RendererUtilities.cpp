@@ -6,7 +6,7 @@
 
 Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesystem::path& path)
 {
-  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path))
+  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path) || !path.has_filename())
   {
     throw std::runtime_error("Path does not refer to a file");
   }
@@ -18,5 +18,5 @@ Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesy
   {
     throw std::runtime_error("Failed to process includes");
   }
-  return Fwog::Shader(stage, processedSource.get());
+  return Fwog::Shader(stage, processedSource.get(), path.filename().string());
 }

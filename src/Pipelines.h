@@ -15,6 +15,7 @@ namespace Pipelines
   Fwog::GraphicsPipeline DebugTexture();
   Fwog::GraphicsPipeline ShadowMain();
   Fwog::GraphicsPipeline ShadowVsm();
+  Fwog::GraphicsPipeline ShadowVsmInitStencil();
   Fwog::GraphicsPipeline DebugLines();
   Fwog::GraphicsPipeline DebugAabbs();
   Fwog::GraphicsPipeline DebugRects();

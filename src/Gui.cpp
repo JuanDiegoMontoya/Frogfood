@@ -600,6 +600,18 @@ void FrogRenderer::GuiDrawPerfWindow()
         }
         ImPlot::EndPlot();
       }
+
+      if (ImGui::TreeNode(statGroup.groupName))
+      {
+        ImGui::Text("%-20s: %-10s", "Stat Name", "Average");
+        for (size_t statIdx = 0; statIdx < stats[groupIdx].size(); statIdx++)
+        {
+          const auto& stat = stats[groupIdx][statIdx];
+          ImGui::Text("%-20s: %-10fms", statGroup.statNames[statIdx], stat.movingAverage);
+          ImGui::Separator();
+        }
+        ImGui::TreePop();
+      }
       groupIdx++;
     }
   }

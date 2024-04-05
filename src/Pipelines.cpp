@@ -152,10 +152,61 @@ namespace Pipelines
     auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
     auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/shadows/vsm/VsmShadow.frag.glsl");
 
+    constexpr auto stencilOpState = Fwog::StencilOpState{
+      .passOp = Fwog::StencilOp::KEEP,
+      .failOp = Fwog::StencilOp::KEEP,
+      .depthFailOp = Fwog::StencilOp::KEEP,
+      .compareOp = Fwog::CompareOp::EQUAL,
+      .compareMask = 0xFFFF,
+      .writeMask = 0xFFFF,
+      .reference = 1,
+    };
+
     return Fwog::GraphicsPipeline({
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = Fwog::CullMode::BACK},
+#if VSM_USE_TEMP_ZBUFFER 
+      .depthState =
+        {
+          .depthTestEnable = true,
+          .depthWriteEnable = true,
+        },
+#endif
+#if VSM_USE_TEMP_SBUFFER
+      .stencilState =
+      {
+        .stencilTestEnable = true,
+        .front = stencilOpState,
+        .back = stencilOpState,
+      },
+#endif
+    });
+  }
+
+  Fwog::GraphicsPipeline ShadowVsmInitStencil()
+  {
+    auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/shadows/vsm/VsmInitStencil.frag.glsl");
+
+    constexpr auto stencilOpState = Fwog::StencilOpState{
+      .passOp = Fwog::StencilOp::REPLACE,
+      .compareOp = Fwog::CompareOp::ALWAYS,
+      .compareMask = 0xFFFF,
+      .writeMask = 0xFFFF,
+      .reference = 1,
+    };
+
+    return Fwog::GraphicsPipeline({
+      .vertexShader = &vs,
+      .fragmentShader = &fs,
+      .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+      .stencilState =
+      {
+        .stencilTestEnable = true,
+        .front = stencilOpState,
+        .back = stencilOpState,
+      },
     });
   }
 

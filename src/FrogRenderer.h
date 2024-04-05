@@ -367,7 +367,9 @@ private:
   Techniques::VirtualShadowMaps::Context vsmContext;
   Techniques::VirtualShadowMaps::DirectionalVirtualShadowMap vsmSun;
   Fwog::GraphicsPipeline vsmShadowPipeline;
+  Fwog::GraphicsPipeline vsmInitStencilPipeline;
   Fwog::TypedBuffer<uint32_t> vsmShadowUniformBuffer;
+  std::optional<Fwog::Texture> vsmTempDepthStencil;
   Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};
   float vsmFirstClipmapWidth = 10.0f;
   float vsmDirectionalProjectionZLength = 100.0f;
@@ -498,13 +500,22 @@ private:
   {
     // std::string name;
     ScrollingBuffer<double> timings;
+    double movingAverage = 0;
+    static constexpr double movingAverageWeight = 0.005;
     Fwog::TimerQueryAsync timer{5};
 
     void Measure()
     {
       if (auto t = timer.PopTimestamp())
       {
-        timings.Push(*t / 10e5); // ns to ms
+        auto t_ms = *t / 10e5; // ns to ms
+        timings.Push(t_ms);
+        double weight = movingAverageWeight;
+        if (timings.size < 100) // Quicker accumulation at the start
+        {
+          weight = 1.0 / timings.size;
+        }
+        movingAverage = movingAverage * (1.0 - weight) + t_ms * weight;
       }
       else
       {

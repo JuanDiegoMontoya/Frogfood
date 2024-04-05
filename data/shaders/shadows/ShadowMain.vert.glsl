@@ -4,6 +4,7 @@
 
 layout(location = 0) out vec2 v_uv;
 layout(location = 1) out uint v_meshletId;
+layout(location = 2) out vec3 i_objectSpacePos;
 
 void main()
 {
@@ -23,5 +24,6 @@ void main()
 
   v_meshletId = meshletId;
   v_uv = PackedToVec2(vertex.uv);
+  i_objectSpacePos = position;
   gl_Position = currentView.viewProj * transform * vec4(position, 1.0);
 }

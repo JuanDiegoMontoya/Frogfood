@@ -1,6 +1,8 @@
 #version 450 core
 
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_ARB_shader_ballot : require
+#extension GL_KHR_shader_subgroup_basic : require
 
 #include "../../Config.shared.h"
 #include "VsmCommon.h.glsl"
@@ -27,27 +29,40 @@ void main()
 
   PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
 
-  const uint pageData = imageAtomicOr(i_pageTables, addr.pageAddress, PAGE_VISIBLE_BIT);
-
-  if ((vsmUniforms.debugFlags & VSM_FORCE_DIRTY_VISIBLE_PAGES) != 0)
+  // Waterfall- only do the imageAtomicOr once per unique addr.pageAddress in the subgroup.
+  // This provides a ~10x speedup for tested scenes on NV.
+  for (;;)
   {
-    imageAtomicOr(i_pageTables, addr.pageAddress, PAGE_DIRTY_BIT);
-  }
+    ivec3 firstLanePageAddress = readFirstInvocationARB(addr.pageAddress);
+    if (addr.pageAddress == firstLanePageAddress)
+    {
+      if (subgroupElect())
+      {
+        const uint pageData = imageAtomicOr(i_pageTables, addr.pageAddress, PAGE_VISIBLE_BIT);
 
-  if (!GetIsPageVisible(pageData))
-  {
-    if (GetIsPageBacked(pageData))
-    {
-      // Mark visible in bitmask so allocator doesn't overwrite
-      const uint physicalAddress = GetPagePhysicalAddress(pageData);
-      atomicOr(visiblePagesBitmask.data[physicalAddress / 32], 1 << (physicalAddress % 32));
-    }
-    else // Page fault
-    {
-      VsmPageAllocRequest request;
-      request.pageTableAddress = addr.pageAddress;
-      request.pageTableLevel = 0; // TODO: change for lower-res mipmaps
-      TryPushAllocRequest(request);
+        if ((vsmUniforms.debugFlags & VSM_FORCE_DIRTY_VISIBLE_PAGES) != 0)
+        {
+          imageAtomicOr(i_pageTables, addr.pageAddress, PAGE_DIRTY_BIT);
+        }
+
+        if (!GetIsPageVisible(pageData))
+        {
+          if (GetIsPageBacked(pageData))
+          {
+            // Mark visible in bitmask so allocator doesn't overwrite
+            const uint physicalAddress = GetPagePhysicalAddress(pageData);
+            atomicOr(visiblePagesBitmask.data[physicalAddress / 32], 1 << (physicalAddress % 32));
+          }
+          else // Page fault
+          {
+            VsmPageAllocRequest request;
+            request.pageTableAddress = addr.pageAddress;
+            request.pageTableLevel = 0; // TODO: change for lower-res mipmaps
+            TryPushAllocRequest(request);
+          }
+        }
+      }
+      break;
     }
   }
 }

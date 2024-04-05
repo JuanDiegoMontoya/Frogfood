@@ -107,6 +107,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
       .numClipmaps = 10,
     }),
     vsmShadowPipeline(Pipelines::ShadowVsm()),
+    vsmInitStencilPipeline(Pipelines::ShadowVsmInitStencil()),
     vsmShadowUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     viewerUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     viewerVsmPageTablesPipeline(Pipelines::ViewerVsm()),
@@ -186,6 +187,20 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
   {
     stats[i].resize(statGroups[i].statNames.size());
   }
+
+  constexpr auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+  constexpr auto vsmTempZSBufferFormat = [] {
+    if constexpr (VSM_USE_TEMP_ZBUFFER && VSM_USE_TEMP_SBUFFER)
+    {
+      return Fwog::Format::D32_FLOAT_S8_UINT;
+    }
+    if constexpr (VSM_USE_TEMP_SBUFFER)
+    {
+      return Fwog::Format::S8_UINT;
+    }
+    return Fwog::Format::D32_FLOAT;
+  }();
+  vsmTempDepthStencil = Fwog::CreateTexture2D(vsmExtent, vsmTempZSBufferFormat, "VSM Temp Depth Stencil");
 
   OnWindowResize(windowWidth, windowHeight);
 }
@@ -382,6 +397,7 @@ static glm::vec2 GetJitterOffset(
 
 void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
 {
+  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::ALL_BITS);
   Fwog::SamplerState ss = {};
   ss.minFilter = Fwog::Filter::NEAREST;
   ss.magFilter = Fwog::Filter::NEAREST;
@@ -612,6 +628,34 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
 
       CullMeshletsForView(sunCurrentClipmapView, "Cull Sun VSM Meshlets, View " + std::to_string(i));
 
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+
+#if VSM_USE_TEMP_ZBUFFER || VSM_USE_TEMP_SBUFFER
+  #if VSM_USE_TEMP_ZBUFFER
+      auto vsmDepthAttachment = Fwog::RenderDepthStencilAttachment{
+        .texture = vsmTempDepthStencil.value(),
+        .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+        .clearValue = {.depth = 1},
+      };
+  #endif
+  #if VSM_USE_TEMP_SBUFFER
+      auto vsmStencilAttachment = Fwog::RenderDepthStencilAttachment{
+        .texture = vsmTempDepthStencil.value(),
+        .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+        .clearValue = {.stencil = 0},
+      };
+  #endif
+      Fwog::Render(
+        {
+          .name = "Render Clipmap",
+  #if VSM_USE_TEMP_ZBUFFER
+          .depthAttachment = vsmDepthAttachment,
+  #endif
+  #if VSM_USE_TEMP_SBUFFER
+          .stencilAttachment = vsmStencilAttachment,
+  #endif
+        },
+#else
       const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
       Fwog::RenderNoAttachments(
         {
@@ -620,10 +664,22 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
           .framebufferSize = {vsmExtent.width, vsmExtent.height, 1},
           .framebufferSamples = Fwog::SampleCount::SAMPLES_1,
         },
+#endif
         [&]
         {
-          Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+          vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
+          vsmSun.BindResourcesForDrawing();
+
+#if VSM_USE_TEMP_SBUFFER
+          Fwog::Cmd::BindGraphicsPipeline(vsmInitStencilPipeline);
+          Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
+          Fwog::Cmd::Draw(3, 1, 0, 0);
+#endif
+
           Fwog::Cmd::BindGraphicsPipeline(vsmShadowPipeline);
+#if !VSM_USE_TEMP_SBUFFER
+          Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
+#endif
           Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
           Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
           Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
@@ -632,12 +688,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt)
           Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
           Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
           Fwog::Cmd::BindStorageBuffer("MaterialBuffer", materialStorageBuffer.value());
-          vsmSun.BindResourcesForDrawing();
           Fwog::Cmd::BindImage(1, vsmContext.physicalPagesUint_, 0);
-          Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
           Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
 
-          vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
           Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
         });
     }

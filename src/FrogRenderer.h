@@ -128,6 +128,7 @@ private:
     VSM_SHOW_SHADOW_DEPTH  = 1 << 3,
     VSM_SHOW_DIRTY_PAGES   = 1 << 4,
     BLEND_NORMALS          = 1 << 5,
+    VSM_SHOW_OVERDRAW      = 1 << 6,
   };
   //FWOG_DECLARE_FLAG_TYPE(ShadingDebugFlags, ShadingDebugFlag, uint32_t)
 
@@ -387,6 +388,7 @@ private:
   Fwog::GraphicsPipeline viewerVsmPageTablesPipeline;
   Fwog::GraphicsPipeline viewerVsmPhysicalPagesPipeline;
   Fwog::GraphicsPipeline viewerVsmBitmaskHzbPipeline;
+  Fwog::GraphicsPipeline viewerVsmPhysicalPagesOverdrawPipeline;
   std::optional<Fwog::Texture> viewerOutputTexture;
 
   template<typename T>

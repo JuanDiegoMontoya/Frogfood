@@ -1,5 +1,7 @@
 #include "VirtualShadowMaps.h"
 
+#include "shaders/Config.shared.h"
+
 #include "../RendererUtilities.h"
 
 #include <Fwog/Buffer.h>
@@ -111,12 +113,12 @@ namespace Techniques::VirtualShadowMaps
         },
         "VSM Physical Pages"),
       physicalPagesUint_(physicalPages_.CreateFormatView(Fwog::Format::R32_UINT)),
-      visiblePagesBitmask_(sizeof(uint32_t) * createInfo.numPages / 32),
-      pageVisibleTimeTree_(sizeof(uint32_t) * createInfo.numPages * 2),
+      physicalPagesOverdrawHeatmap_(Fwog::CreateTexture2D(physicalPages_.Extent(), Fwog::Format::R32_UINT, "VSM Physical Pages Heatmap")),
+      visiblePagesBitmask_(sizeof(uint32_t) * createInfo.numPages / 32, Fwog::BufferStorageFlag::NONE, "Visible Pages Bitmask"),
       uniformBuffer_(VsmGlobalUniforms{}, Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
       pageAllocRequests_(sizeof(PageAllocRequest) * (createInfo.numPages + 1)),
-      pagesToClear_(sizeof(uint32_t) + sizeof(uint32_t) * createInfo.numPages),
-      pageClearDispatchParams_(Fwog::DispatchIndirectCommand{pageSize / 8, pageSize / 8, 0}),
+      pagesToClear_(sizeof(uint32_t) + sizeof(uint32_t) * createInfo.numPages, Fwog::BufferStorageFlag::NONE, "Pages to clear"),
+      pageClearDispatchParams_(Fwog::DispatchIndirectCommand{pageSize / 8, pageSize / 8, 0}, Fwog::BufferStorageFlag::NONE, "Page Clear Dispatch Params"),
       resetPageVisibility_(CreateResetPageVisibilityPipeline()),
       allocatePages_(CreateAllocatorPipeline()),
       markVisiblePages_(CreateMarkVisiblePipeline()),
@@ -136,8 +138,8 @@ namespace Techniques::VirtualShadowMaps
     }
 
     physicalPages_.ClearImage({});
+    physicalPagesOverdrawHeatmap_.ClearImage({});
     visiblePagesBitmask_.FillData();
-    pageVisibleTimeTree_.FillData();
   }
 
   void Context::UpdateUniforms(const VsmGlobalUniforms& uniforms)
@@ -172,6 +174,11 @@ namespace Techniques::VirtualShadowMaps
   // Should make it take a list of VSM indices to reset
   void Context::ResetPageVisibility()
   {
+#if VSM_RENDER_OVERDRAW
+    // This just needs to happen sometime before the shadow maps are rendered
+    physicalPagesOverdrawHeatmap_.ClearImage({});
+#endif
+
     Fwog::Compute(
       "VSM Reset Page Visibility",
       [&]
@@ -368,6 +375,7 @@ namespace Techniques::VirtualShadowMaps
     Fwog::Cmd::BindUniformBuffer(6, context_.uniformBuffer_);
     Fwog::Cmd::BindImage(0, context_.pageTables_, 0);
     Fwog::Cmd::BindImage(1, context_.physicalPages_, 0);
+    Fwog::Cmd::BindImage(2, context_.physicalPagesOverdrawHeatmap_, 0);
   }
   
   void DirectionalVirtualShadowMap::GenerateBitmaskHzb()

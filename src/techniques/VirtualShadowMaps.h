@@ -93,15 +93,12 @@ namespace Techniques::VirtualShadowMaps
     // Physical memory used to back various VSMs
     Fwog::Texture physicalPages_;
     Fwog::TextureView physicalPagesUint_; // For doing atomic ops
+    Fwog::Texture physicalPagesOverdrawHeatmap_; // Integer texture, used for debugging
   private:
 
     // Bitmask indicating whether each page is visible this frame
     // Only non-visible pages should be evicted
     Fwog::Buffer visiblePagesBitmask_;
-
-    // Min-2-tree with the time (frame number) that each page was last seen
-    // TODO: upgrade to a subgroup-optimized tree to speed up traversal, if needed
-    Fwog::Buffer pageVisibleTimeTree_;
 
     /// BUFFERS
   public:

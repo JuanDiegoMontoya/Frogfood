@@ -69,6 +69,10 @@ void main()
     const int atlasWidth = imageSize(i_physicalPagesUint).x / PAGE_SIZE;
     const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
     const uint depthUint = floatBitsToUint(gl_FragCoord.z);
-    imageAtomicMin(i_physicalPagesUint, pageCorner + pageTexel, depthUint);
+    const ivec2 physicalTexel = pageCorner + pageTexel;
+    imageAtomicMin(i_physicalPagesUint, physicalTexel, depthUint);
+#if VSM_RENDER_OVERDRAW
+    imageAtomicAdd(i_physicalPagesOverdrawHeatmap, physicalTexel, 1);
+#endif
   }
 }

@@ -16,6 +16,7 @@
 ////////////// Resources
 layout(binding = 0, r32ui) uniform restrict uimage2DArray i_pageTables; // Level 0
 layout(binding = 1, r32f) uniform restrict image2D i_physicalPages;   // Level 0
+layout(binding = 2, r32ui) uniform restrict uimage2D i_physicalPagesOverdrawHeatmap;
 layout(binding = 10) uniform usampler2DArray s_vsmBitmaskHzb;
 
 layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUniforms
@@ -100,18 +101,21 @@ bool TryPushPageClear(uint pageIndex)
   return true;
 }
 
-float LoadPageTexel(ivec2 texel, uint page)
+ivec2 GetPhysicalTexelAddress(ivec2 texel, uint page)
 {
   const int atlasWidth = imageSize(i_physicalPages).x / PAGE_SIZE;
   const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
-  return imageLoad(i_physicalPages, pageCorner + texel).x;
+  return pageCorner + texel;
+}
+
+float LoadPageTexel(ivec2 texel, uint page)
+{
+  return imageLoad(i_physicalPages, GetPhysicalTexelAddress(texel, page)).x;
 }
 
 void StorePageTexel(ivec2 texel, uint page, float value)
 {
-  const int atlasWidth = imageSize(i_physicalPages).x / PAGE_SIZE;
-  const ivec2 pageCorner = PAGE_SIZE * ivec2(page / atlasWidth, page % atlasWidth);
-  imageStore(i_physicalPages, pageCorner + texel, vec4(value, 0, 0, 0));
+  imageStore(i_physicalPages, GetPhysicalTexelAddress(texel, page), vec4(value, 0, 0, 0));
 }
 
 bool SampleVsmBitmaskHzb(uint vsmIndex, vec2 uv, int level)

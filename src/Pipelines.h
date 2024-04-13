@@ -22,4 +22,5 @@ namespace Pipelines
   Fwog::GraphicsPipeline ViewerVsm();
   Fwog::GraphicsPipeline ViewerVsmPhysicalPages();
   Fwog::GraphicsPipeline ViewerVsmBitmaskHzb();
+  Fwog::GraphicsPipeline ViewerVsmPhysicalPagesOverdraw();
 }

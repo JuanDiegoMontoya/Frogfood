@@ -112,7 +112,8 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
     viewerUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     viewerVsmPageTablesPipeline(Pipelines::ViewerVsm()),
     viewerVsmPhysicalPagesPipeline(Pipelines::ViewerVsmPhysicalPages()),
-    viewerVsmBitmaskHzbPipeline(Pipelines::ViewerVsmBitmaskHzb())
+    viewerVsmBitmaskHzbPipeline(Pipelines::ViewerVsmBitmaskHzb()),
+    viewerVsmPhysicalPagesOverdrawPipeline(Pipelines::ViewerVsmPhysicalPagesOverdraw())
 {
   ZoneScoped;
   int x = 0;

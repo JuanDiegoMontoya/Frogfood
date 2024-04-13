@@ -361,4 +361,16 @@ namespace Pipelines
       .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
     });
   }
+
+  Fwog::GraphicsPipeline ViewerVsmPhysicalPagesOverdraw()
+  {
+    auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmOverdrawHeatmap.frag.glsl");
+
+    return Fwog::GraphicsPipeline({
+      .vertexShader = &vs,
+      .fragmentShader = &fs,
+      .rasterizationState = {.cullMode = Fwog::CullMode::NONE},
+    });
+  }
 } // namespace Pipelines

@@ -372,6 +372,7 @@ void FrogRenderer::GuiDrawDebugWindow()
     ImGui_FlagCheckbox("Show Page Outlines", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES);
     ImGui_FlagCheckbox("Show Shadow Depth", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH);
     ImGui_FlagCheckbox("Show Dirty Pages", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES);
+    ImGui_FlagCheckbox("Show Overdraw", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_OVERDRAW);
     ImGui_FlagCheckbox("Blend Normals", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::BLEND_NORMALS);
 
     ImGui::Separator();
@@ -482,6 +483,7 @@ void FrogRenderer::GuiDrawViewer()
     map[&vsmContext.pageTables_] = {"VSM Page Tables", &viewerVsmPageTablesPipeline};
     map[&vsmContext.physicalPages_] = {"VSM Physical Pages", &viewerVsmPhysicalPagesPipeline};
     map[&vsmContext.vsmBitmaskHzb_] = {"VSM Bitmask HZB", &viewerVsmBitmaskHzbPipeline};
+    map[&vsmContext.physicalPagesOverdrawHeatmap_] = {"VSM Overdraw", &viewerVsmPhysicalPagesOverdrawPipeline};
 
     if (ImGui::BeginCombo("Texture", map.find(viewerCurrentTexture)->second.name.c_str()))
     {
@@ -502,6 +504,11 @@ void FrogRenderer::GuiDrawViewer()
       if (ImGui::Selectable(map[&vsmContext.vsmBitmaskHzb_].name.c_str()))
       {
         viewerCurrentTexture = &vsmContext.vsmBitmaskHzb_;
+        selectedTex = true;
+      }
+      if (ImGui::Selectable(map[&vsmContext.physicalPagesOverdrawHeatmap_].name.c_str()))
+      {
+        viewerCurrentTexture = &vsmContext.physicalPagesOverdrawHeatmap_;
         selectedTex = true;
       }
 

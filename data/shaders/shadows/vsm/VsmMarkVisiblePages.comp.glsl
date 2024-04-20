@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_ARB_shader_ballot : require
 #extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_vote : require
 
 #include "../../Config.shared.h"
 #include "VsmCommon.h.glsl"
@@ -31,7 +32,11 @@ void main()
 
   // Waterfall- only do the imageAtomicOr once per unique addr.pageAddress in the subgroup.
   // This provides a ~10x speedup for tested scenes on NV.
-  for (;;)
+
+  // This boolean is used to avoid hitting an apparent driver bug on NV. When break is used instead,
+  // pages will be occasionally missed, creating a flickering artifact.
+  bool loop = true;
+  while (loop)
   {
     ivec3 firstLanePageAddress = readFirstInvocationARB(addr.pageAddress);
     if (addr.pageAddress == firstLanePageAddress)
@@ -62,7 +67,8 @@ void main()
           }
         }
       }
-      break;
+      //break;
+      loop = false;
     }
   }
 }

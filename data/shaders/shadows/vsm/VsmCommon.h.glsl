@@ -164,9 +164,7 @@ struct PageAddressInfo
   vec3 posLightNdc;
 };
 
-// Analyzes the provided depth buffer and returns and address and data of a page.
-// Works for clipmaps only.
-PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBufferSize)
+PageAddressInfo GetClipmapPageFromDepth1(float depth, ivec2 gid, ivec2 depthBufferSize)
 {
   const vec2 texel = 1.0 / depthBufferSize;
   const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
@@ -203,6 +201,88 @@ PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBuffe
   addr.posLightNdc = posLightNdc;
 
   return addr;
+}
+
+PageAddressInfo GetClipmapPageFromDepth2(float depth, ivec2 gid, ivec2 depthBufferSize)
+{
+  const vec2 texel = 1.0 / depthBufferSize;
+  const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
+
+  const vec3 posW = UnprojectUV_ZO(depth, uvCenter, perFrameUniforms.invViewProj);
+  const float dist = distance(posW, perFrameUniforms.cameraPos.xyz);
+
+  // Assume each clipmap is 2x the side length of the previous
+  const ivec2 tableSize = imageSize(i_pageTables).xy;
+  const float firstClipmapWidth = tableSize.x * PAGE_SIZE * clipmapUniforms.firstClipmapTexelLength;
+  const uint clipmapLevel = clamp(uint(ceil(vsmUniforms.lodBias + log2(2.0 * dist / firstClipmapWidth))), 0, clipmapUniforms.numClipmaps - 1);
+  const uint clipmapIndex = clipmapUniforms.clipmapTableIndices[clipmapLevel];
+
+  const vec4 posLightC = clipmapUniforms.clipmapViewProjections[clipmapLevel] * vec4(posW, 1.0);
+  const vec3 posLightNdc = posLightC.xyz / posLightC.w;
+  const vec2 posLightUv = fract(posLightNdc.xy * 0.5 + 0.5);
+
+  const ivec2 posLightTexel = ivec2(posLightUv * imageSize(i_pageTables).xy);
+  const ivec3 pageAddress = ivec3(posLightTexel, clipmapIndex);
+
+  PageAddressInfo addr;
+  addr.pageAddress = pageAddress;
+  // Tile UV across VSM
+  addr.pageUv = tableSize * mod(posLightUv, 1.0 / tableSize);
+  addr.projectedDepth = posLightC.z / posLightC.w;
+  addr.clipmapLevel = clipmapLevel;
+  addr.vsmUv = posLightUv;
+  addr.posLightNdc = posLightNdc;
+
+  return addr;
+}
+
+PageAddressInfo GetClipmapPageFromDepth3(float depth, ivec2 gid, ivec2 depthBufferSize)
+{
+  const vec2 texel = 1.0 / depthBufferSize;
+  const vec2 uvCenter = (vec2(gid) + 0.5) * texel;
+  const vec2 uvCenter2 = vec2(0);
+  // Unproject arbitrary, but opposing sides of the pixel (assume square) to compute side length
+  const vec2 uvLeft = uvCenter2 + vec2(-texel.x, 0) * 0.5;
+  const vec2 uvRight = uvCenter2 + vec2(texel.x, 0) * 0.5;
+
+  const mat4 invProj = perFrameUniforms.invProj;
+  const vec3 leftV = UnprojectUV_ZO(depth, uvLeft, invProj);
+  const vec3 rightV = UnprojectUV_ZO(depth, uvRight, invProj);
+
+  const float projLength = distance(leftV, rightV);
+
+  // Assume each clipmap is 2x the side length of the previous
+  precise const uint clipmapLevel = clamp(uint(ceil(vsmUniforms.lodBias + log2(projLength / clipmapUniforms.firstClipmapTexelLength))), 0, clipmapUniforms.numClipmaps - 1);
+  const uint clipmapIndex = clipmapUniforms.clipmapTableIndices[clipmapLevel];
+
+  const vec3 posW = UnprojectUV_ZO(depth, uvCenter, perFrameUniforms.invViewProj);
+  const vec4 posLightC = clipmapUniforms.clipmapViewProjections[clipmapLevel] * vec4(posW, 1.0);
+  const vec3 posLightNdc = posLightC.xyz / posLightC.w;
+  const vec2 posLightUv = fract(posLightNdc.xy * 0.5 + 0.5);
+
+  const ivec2 posLightTexel = ivec2(posLightUv * imageSize(i_pageTables).xy);
+  const ivec3 pageAddress = ivec3(posLightTexel, clipmapIndex);
+
+  PageAddressInfo addr;
+  addr.pageAddress = pageAddress;
+  // Tile UV across VSM
+  const ivec2 tableSize = imageSize(i_pageTables).xy;
+  addr.pageUv = tableSize * mod(posLightUv, 1.0 / tableSize);
+  addr.projectedDepth = posLightC.z / posLightC.w;
+  addr.clipmapLevel = clipmapLevel;
+  addr.vsmUv = posLightUv;
+  addr.posLightNdc = posLightNdc;
+
+  return addr;
+}
+
+// Analyzes the provided depth buffer and returns and address and data of a page.
+// Works for clipmaps only.
+PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBufferSize)
+{
+  //return GetClipmapPageFromDepth1(depth, gid, depthBufferSize);
+  return GetClipmapPageFromDepth2(depth, gid, depthBufferSize);
+  //return GetClipmapPageFromDepth3(depth, gid, depthBufferSize);
 }
 
 #endif // VSM_COMMON_H

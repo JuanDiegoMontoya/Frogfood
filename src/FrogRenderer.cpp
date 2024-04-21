@@ -104,7 +104,7 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
     vsmSun({
       .context = vsmContext,
       .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
-      .numClipmaps = 10,
+      .numClipmaps = 16,
     }),
     vsmShadowPipeline(Pipelines::ShadowVsm()),
     vsmInitStencilPipeline(Pipelines::ShadowVsmInitStencil()),
@@ -147,32 +147,32 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
   debugGpuRectsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, vertexCount), .size = sizeof(uint32_t), .data = 4});
 
   Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}));
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}));
+  //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}));
 
   //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}));
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain.glb", glm::scale(glm::vec3{0.125f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::translate(glm::vec3(0, 5, 0)), glm::vec3{50.0f}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::vec3{1.0f}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/powerplant.glb", glm::scale(glm::vec3{1.0f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/silent_ash.glb", glm::scale(glm::vec3{1.0f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/character_ancient2.glb", glm::scale(glm::vec3{1.0f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube_1x1.glb", glm::scale(glm::vec3{1.0f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/open_world_compressed.glb", glm::scale(glm::vec3{1.0f}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain.glb", glm::scale(glm::vec3{0.125f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::translate(glm::vec3(0, 5, 0)), glm::vec3{50.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/powerplant.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/silent_ash.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/character_ancient2.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube_1x1.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/open_world_compressed.glb", glm::scale(glm::vec3{1.0f}));
   //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/EuropeanHornbeam_compressed.glb", glm::scale(glm::vec3{1.0f}));
 
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}), false);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
 
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}), false);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
 
   //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
   //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1}));
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::scale(glm::vec3{1}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::scale(glm::vec3{1}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/deccer_balls.gltf", glm::scale(glm::vec3{1}), false);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/MetalRoughSpheres/glTF-Binary/MetalRoughSpheres.glb", glm::scale(glm::vec3{1}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/deccer_balls.gltf", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/MetalRoughSpheres/glTF-Binary/MetalRoughSpheres.glb", glm::scale(glm::vec3{1}));
   
   MakeStaticSceneBuffers();
 

@@ -361,7 +361,7 @@ private:
   float autoExposureAdjustmentSpeed = 1.0f;
 
   // Camera
-  float cameraNearPlane = 0.1f;
+  float cameraNearPlane = 0.075f;
   float cameraFovyRadians = glm::radians(70.0f);
 
   // VSM

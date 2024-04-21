@@ -37,21 +37,22 @@
 
 #include "MathUtilities.h"
 
-static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near, float far)
+static std::vector<Debug::Line> GenerateSubfrustumWireframe(
+  const glm::mat4& invViewProj, const glm::vec4& color, float near, float far, float bottom, float top, float left, float right)
 {
   auto lines = std::vector<Debug::Line>{};
 
   // Get frustum corners in world space
-  auto tln = Math::UnprojectUV_ZO(near, {0, 1}, invViewProj);
-  auto trn = Math::UnprojectUV_ZO(near, {1, 1}, invViewProj);
-  auto bln = Math::UnprojectUV_ZO(near, {0, 0}, invViewProj);
-  auto brn = Math::UnprojectUV_ZO(near, {1, 0}, invViewProj);
+  auto tln = Math::UnprojectUV_ZO(near, {left, top}, invViewProj);
+  auto trn = Math::UnprojectUV_ZO(near, {right, top}, invViewProj);
+  auto bln = Math::UnprojectUV_ZO(near, {left, bottom}, invViewProj);
+  auto brn = Math::UnprojectUV_ZO(near, {right, bottom}, invViewProj);
 
   // Far corners are lerped slightly to near in case it is an infinite projection
-  auto tlf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 1}, invViewProj);
-  auto trf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 1}, invViewProj);
-  auto blf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {0, 0}, invViewProj);
-  auto brf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {1, 0}, invViewProj);
+  auto tlf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {left, top}, invViewProj);
+  auto trf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {right, top}, invViewProj);
+  auto blf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {left, bottom}, invViewProj);
+  auto brf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {right, bottom}, invViewProj);
 
   // Connect-the-dots
   // Near and far "squares"
@@ -71,6 +72,11 @@ static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invVie
   lines.emplace_back(brn, color, brf, color);
 
   return lines;
+}
+
+static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near, float far)
+{
+  return GenerateSubfrustumWireframe(invViewProj, color, near, far, 0, 1, 0, 1);
 }
 
 FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
@@ -321,6 +327,23 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
   {
     auto mainFrustumLines = GenerateFrustumWireframe(glm::inverse(debugMainViewProj), glm::vec4(10, 1, 10, 1), NEAR_DEPTH, FAR_DEPTH);
     debugLines.insert(debugLines.end(), mainFrustumLines.begin(), mainFrustumLines.end());
+
+    // Debug visualization of "pixels" in frustum
+    //const int subdivX = 4;
+    //const int subdivY = 4;
+    //for (int x = 0; x < subdivX; x++)
+    //{
+    //  for (int y = 0; y < subdivY; y++)
+    //  {
+    //    const float bottom = (float)y / subdivY;
+    //    const float top = bottom + 1.0f / subdivY;
+    //    const float left = (float)x / subdivX;
+    //    const float right = left + 1.0f / subdivX;
+    //    auto mainFrustumLines = GenerateSubfrustumWireframe(glm::inverse(debugMainViewProj), glm::vec4(10, 1, 10, 1), NEAR_DEPTH, .1f,
+    //      bottom, top, left, right);
+    //    debugLines.insert(debugLines.end(), mainFrustumLines.begin(), mainFrustumLines.end());
+    //  }
+    //}
 
     for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
     {

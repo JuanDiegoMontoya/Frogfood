@@ -1,10 +1,13 @@
 #ifndef VISBUFFER_COMMON_H
 #define VISBUFFER_COMMON_H
 
+// Driver bug workaround for CullMeshlets.comp.glsl
+#ifndef DONT_REQUEST_EXTENSIONS
 #extension GL_GOOGLE_include_directive : enable
 #extension GL_EXT_shader_explicit_arithmetic_types : enable
 #extension GL_NV_gpu_shader5 : enable
 #extension GL_EXT_nonuniform_qualifier : enable
+#endif
 
 // On modern AMD platforms, this extension is implicitly supported.
 // On all NV platforms, GL_NV_gpu_shader5 is sufficient to non-uniformly index sampler arrays.

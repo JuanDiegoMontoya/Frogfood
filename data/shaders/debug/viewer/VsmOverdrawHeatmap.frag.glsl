@@ -1,9 +1,6 @@
 #version 460 core
-#extension GL_GOOGLE_include_directive : enable
 
 #include "../../Config.shared.h"
-#include "../../Math.h.glsl"
-#include "../../GlobalUniforms.h.glsl"
 #include "../../shadows/vsm/VsmCommon.h.glsl"
 
 layout(binding = 0) uniform ViewerUniforms

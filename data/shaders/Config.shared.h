@@ -22,7 +22,7 @@
 
 // When VSM_RENDER_OVERDRAW is enabled, clamp the colormap to this amount of overdraw.
 // This number should be a float.
-#define VSM_MAX_OVERDRAW 64.0f
+#define VSM_MAX_OVERDRAW 32.0f
 
 #if REVERSE_Z
   #define NEAR_DEPTH 1.0f

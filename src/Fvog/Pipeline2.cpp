@@ -1,5 +1,6 @@
 #include "Pipeline2.h"
 
+#include "Device.h"
 #include "Shader2.h"
 #include "detail/ApiToEnum2.h"
 
@@ -15,8 +16,8 @@
 
 namespace Fvog
 {
-  GraphicsPipeline::GraphicsPipeline(VkDevice device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info)
-    : device_(device)
+  GraphicsPipeline::GraphicsPipeline(Device& device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info)
+    : device_(&device)
   {
     using namespace detail;
 
@@ -67,7 +68,7 @@ namespace Fvog
     }
 
     CheckVkResult(vkCreateGraphicsPipelines(
-      device,
+      device.device_,
       nullptr,
       1,
       Address(VkGraphicsPipelineCreateInfo{
@@ -147,7 +148,7 @@ namespace Fvog
       &pipeline_));
     
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_PIPELINE,
       .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
@@ -155,11 +156,16 @@ namespace Fvog
     }));
   }
 
+  GraphicsPipeline::GraphicsPipeline(Device& device, const GraphicsPipelineInfo& info)
+    : GraphicsPipeline(device, device.defaultPipelineLayout, info)
+  {}
+
   GraphicsPipeline::~GraphicsPipeline()
   {
+    // TODO: put this into a queue for delayed deletion
     if (device_)
     {
-      vkDestroyPipeline(device_, pipeline_, nullptr);
+      vkDestroyPipeline(device_->device_, pipeline_, nullptr);
     }
   }
 
@@ -175,13 +181,13 @@ namespace Fvog
     return *new (this) GraphicsPipeline(std::move(old));
   }
 
-  ComputePipeline::ComputePipeline(VkDevice device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info)
-    : device_(device),
+  ComputePipeline::ComputePipeline(Device& device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info)
+    : device_(&device),
       workgroupSize_(info.shader->WorkgroupSize())
   {
     using namespace detail;
     CheckVkResult(vkCreateComputePipelines(
-      device_,
+      device_->device_,
       nullptr,
       1,
       Address(VkComputePipelineCreateInfo{
@@ -198,7 +204,7 @@ namespace Fvog
       &pipeline_));
     
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_PIPELINE,
       .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
@@ -206,11 +212,16 @@ namespace Fvog
     }));
   }
 
+  ComputePipeline::ComputePipeline(Device& device, const ComputePipelineInfo& info)
+    : ComputePipeline(device, device.defaultPipelineLayout, info)
+  {}
+
   ComputePipeline::~ComputePipeline()
   {
+    // TODO: put this into a queue for delayed deletion
     if (device_)
     {
-      vkDestroyPipeline(device_, pipeline_, nullptr);
+      vkDestroyPipeline(device_->device_, pipeline_, nullptr);
     }
   }
 

@@ -76,6 +76,7 @@ struct GpuMaterial
   float emissiveStrength;
   uint baseColorTextureIndex;
   float normalXyScale;
+  uint[2] _padding;
 };
 
 FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)

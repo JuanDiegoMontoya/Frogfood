@@ -111,6 +111,7 @@ target_include_directories(frogRender
     ${Vulkan_INCLUDE_DIRS}
     vendor
     data
+    src
 )
 
 target_link_libraries(frogRender

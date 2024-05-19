@@ -69,7 +69,7 @@
 
 // Qualifiers can be put in the block name
 #define FVOG_DECLARE_STORAGE_BUFFERS(blockname) \
-  layout(set = 0, binding = 0, scalar) buffer blockname
+  layout(set = 0, binding = 0, std430) buffer blockname
 
 #define FvogGetSampledImage(type, index) \
   t_sampledImages_##type[index]

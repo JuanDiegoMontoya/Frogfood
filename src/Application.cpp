@@ -84,6 +84,50 @@ void operator delete[](void* ptr, const std::nothrow_t&) noexcept
 }
 #endif
 
+namespace
+{
+  VKAPI_ATTR VkBool32 VKAPI_CALL vulkan_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                                       VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                                       const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+                                                       void*)
+  {
+    if (messageType == VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT)
+    {
+      return VK_FALSE;
+    }
+
+    auto ms = vkb::to_string_message_severity(messageSeverity);
+    auto mt = vkb::to_string_message_type(messageType);
+    printf("[%s: %s]\n%s\n", ms, mt, pCallbackData->pMessage);
+
+    return VK_FALSE;
+  }
+
+  std::vector<VkImageView> MakeSwapchainImageViews(VkDevice device, std::span<const VkImage> swapchainImages, VkFormat format)
+  {
+    auto imageViews = std::vector<VkImageView>();
+    for (auto image : swapchainImages)
+    {
+      VkImageView imageView{};
+      Fvog::detail::CheckVkResult(vkCreateImageView(
+      device,
+      Fvog::detail::Address(VkImageViewCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = image,
+        .viewType = VK_IMAGE_VIEW_TYPE_2D,
+        .format = format,
+        .subresourceRange = VkImageSubresourceRange{
+          .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+          .levelCount = 1,
+          .layerCount = 1,
+        },
+      }), nullptr, &imageView));
+      imageViews.emplace_back(imageView);
+    }
+    return imageViews;
+  }
+}
+
 // This class provides static callbacks for GLFW.
 // It has access to the private members of Application and assumes a pointer to it is present in the window's user pointer.
 class ApplicationAccess
@@ -148,8 +192,18 @@ std::pair<std::unique_ptr<std::byte[]>, std::size_t> Application::LoadBinaryFile
   return {std::move(memory), fsize};
 }
 
-static auto MakeVkbSwapchain(const vkb::Device& device, uint32_t width, uint32_t height, [[maybe_unused]] VkPresentModeKHR presentMode, VkSwapchainKHR oldSwapchain)
+static auto MakeVkbSwapchain(const vkb::Device& device,
+                             uint32_t width,
+                             uint32_t height,
+                             [[maybe_unused]] VkPresentModeKHR presentMode,
+                             VkSwapchainKHR oldSwapchain,
+                             VkFormat srgbFormat,
+                             VkFormat unormFormat)
 {
+  const auto allowedViewFormats = std::array{
+    srgbFormat,
+    unormFormat,
+  };
   return vkb::SwapchainBuilder{device}
     .set_desired_min_image_count(2)
     .set_old_swapchain(oldSwapchain)
@@ -160,6 +214,13 @@ static auto MakeVkbSwapchain(const vkb::Device& device, uint32_t width, uint32_t
     .add_fallback_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
     .set_desired_extent(width, height)
     .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+    .set_desired_format({srgbFormat, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+    .set_create_flags(VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR)
+    .add_pNext(Fvog::detail::Address(VkImageFormatListCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO,
+      .viewFormatCount = static_cast<uint32_t>(allowedViewFormats.size()),
+      .pViewFormats = allowedViewFormats.data(),
+    }))
     .build()
     .value();
 }
@@ -221,7 +282,7 @@ Application::Application(const CreateInfo& createInfo)
   instance_ = vkb::InstanceBuilder()
     .set_app_name("Frogrenderer")
     .require_api_version(1, 3, 0)
-    .use_default_debug_messenger() // TODO: make optional
+    .set_debug_callback(vulkan_debug_callback)
     .enable_extension("VK_EXT_debug_utils")
     .build()
     .value();
@@ -255,9 +316,16 @@ Application::Application(const CreateInfo& createInfo)
   device_.emplace(instance_, surface);
   
   // swapchain
-  swapchain_ = MakeVkbSwapchain(device_->device_, windowWidth, windowHeight, vsyncEnabled ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR, VK_NULL_HANDLE);
+  swapchain_ = MakeVkbSwapchain(device_->device_,
+                                windowWidth,
+                                windowHeight,
+                                vsyncEnabled ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR,
+                                VK_NULL_HANDLE,
+                                swapchainSrgbFormat,
+                                swapchainUnormFormat);
   swapchainImages_ = swapchain_.get_images().value();
-  swapchainImageViews_ = swapchain_.get_image_views().value();
+  swapchainImageViewsSrgb_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainSrgbFormat);
+  swapchainImageViewsUnorm_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainUnormFormat);
 
   const auto commandPoolInfo = VkCommandPoolCreateInfo{
     .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -335,7 +403,12 @@ Application::~Application()
 
   vkb::destroy_swapchain(swapchain_);
 
-  for (auto view : swapchainImageViews_)
+  for (auto view : swapchainImageViewsSrgb_)
+  {
+    vkDestroyImageView(device_->device_, view, nullptr);
+  }
+
+  for (auto view : swapchainImageViewsUnorm_)
   {
     vkDestroyImageView(device_->device_, view, nullptr);
   }
@@ -394,7 +467,7 @@ void Application::Draw()
     .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
   })));
 
-  auto ctx = Fvog::Context(commandBuffer);
+  auto ctx = Fvog::Context(*device_, commandBuffer);
   
   // Start a new ImGui frame
   ImGui_ImplVulkan_NewFrame();
@@ -419,7 +492,7 @@ void Application::Draw()
         .colorAttachmentCount = 1,
         .pColorAttachments = Fvog::detail::Address(VkRenderingAttachmentInfo{
           .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-          .imageView = swapchainImageViews_[swapchainImageIndex],
+          .imageView = swapchainImageViewsUnorm_[swapchainImageIndex],
           .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
           .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
           .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -613,7 +686,13 @@ void Application::ResizeCallbackThingy([[maybe_unused]] uint32_t newWidth, [[may
 
   {
     ZoneScopedN("Create New Swapchain");
-    swapchain_ = MakeVkbSwapchain(device_->device_, windowWidth, windowHeight, vsyncEnabled ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR, oldSwapchain);
+    swapchain_ = MakeVkbSwapchain(device_->device_,
+                                  windowWidth,
+                                  windowHeight,
+                                  vsyncEnabled ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR,
+                                  oldSwapchain,
+                                  swapchainSrgbFormat,
+                                  swapchainUnormFormat);
   }
 
   {
@@ -622,14 +701,20 @@ void Application::ResizeCallbackThingy([[maybe_unused]] uint32_t newWidth, [[may
     // Technically UB, but in practice the WFI makes it work
     vkb::destroy_swapchain(oldSwapchain);
 
-    for (auto view : swapchainImageViews_)
+    for (auto view : swapchainImageViewsSrgb_)
+    {
+      vkDestroyImageView(device_->device_, view, nullptr);
+    }
+
+    for (auto view : swapchainImageViewsUnorm_)
     {
       vkDestroyImageView(device_->device_, view, nullptr);
     }
   }
 
   swapchainImages_ = swapchain_.get_images().value();
-  swapchainImageViews_ = swapchain_.get_image_views().value();
+  swapchainImageViewsSrgb_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainSrgbFormat);
+  swapchainImageViewsUnorm_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainUnormFormat);
 
   swapchainOk = true;
 

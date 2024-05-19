@@ -186,7 +186,10 @@ namespace Utility
       
       auto MakeRawImageData = [](const void* data, std::size_t dataSize, fastgltf::MimeType mimeType, std::string_view name) -> RawImageData
       {
-        assert(mimeType == fastgltf::MimeType::JPEG || mimeType == fastgltf::MimeType::PNG || mimeType == fastgltf::MimeType::KTX2);
+        assert(mimeType == fastgltf::MimeType::JPEG || 
+               mimeType == fastgltf::MimeType::PNG ||
+               mimeType == fastgltf::MimeType::KTX2 ||
+               mimeType == fastgltf::MimeType::GltfBuffer);
         auto dataCopy = std::make_unique<std::byte[]>(dataSize);
         std::copy_n(static_cast<const std::byte*>(data), dataSize, dataCopy.get());
 
@@ -523,7 +526,7 @@ namespace Utility
         const auto& occlusionTexture = model.textures[occlusionTextureIndex];
         auto& image = images[occlusionTexture.imageIndex.value()];
         auto name = occlusionTexture.name.empty() ? "Occlusion" : occlusionTexture.name;
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.occlusionTextureSampler = {
           std::move(view),
@@ -555,7 +558,7 @@ namespace Utility
         const auto& normalTexture = model.textures[normalTextureIndex];
         auto& image = images[normalTexture.imageIndex.value()];
         auto name = normalTexture.name.empty() ? "Normal Map" : normalTexture.name;
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.normalTextureSampler = {
           std::move(view),
@@ -591,7 +594,7 @@ namespace Utility
         const auto& metallicRoughnessTexture = model.textures[metallicRoughnessTextureIndex];
         auto& image = images[metallicRoughnessTexture.imageIndex.value()];
         auto name = metallicRoughnessTexture.name.empty() ? "MetallicRoughness" : metallicRoughnessTexture.name;
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.metallicRoughnessTextureSampler = {
           std::move(view),
@@ -637,6 +640,7 @@ namespace Utility
     std::vector<NodeTempData> tempData;
     std::vector<RawMesh> rawMeshes;
     std::vector<Material> materials;
+    std::vector<Fvog::Texture> images;
   };
 
   std::optional<LoadModelResult> LoadModelFromFileBase(Fvog::Device& device, std::filesystem::path path, glm::mat4 rootTransform, uint32_t baseMaterialIndex)
@@ -691,6 +695,7 @@ namespace Utility
 
     auto materials = LoadMaterials(device, asset, images);
     std::ranges::move(materials, std::back_inserter(scene.materials));
+    std::ranges::move(images, std::back_inserter(scene.images));
 
     struct AccessorIndices
     {
@@ -1037,6 +1042,7 @@ namespace Utility
     }
 
     std::ranges::move(loadedScene->materials, std::back_inserter(scene.materials));
+    std::ranges::move(loadedScene->images, std::back_inserter(scene.images));
     scene.rootNodes.emplace_back(&loadedScene->nodes.front());
     scene.nodes.splice(scene.nodes.end(), loadedScene->nodes);
 

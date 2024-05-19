@@ -150,19 +150,21 @@ namespace Fvog
       extent.height = std::max(extent.height, 1u);
       extent.depth = std::max(extent.depth, 1u);
 
-      size_t size;
+      uint64_t size;
       if (detail::FormatIsBlockCompressed(createInfo_.format))
       {
-        size = detail::BlockCompressedImageSize(createInfo_.format, extent.width, extent.height, extent.depth);
+        auto sizes = detail::BlockCompressedImageSize(createInfo_.format, extent.width, extent.height, extent.depth);
+        size = sizes.size;
+        extent = sizes.extent;
       }
       else
       {
         size = extent.width * extent.height * extent.depth * detail::FormatStorageSize(createInfo_.format);
       }
-      auto uploadBuffer = Buffer(*this->device_, {.size = size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "UpdateImageSLOW Staging Buffer");
+      auto uploadBuffer = Buffer(*device_, {.size = size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "UpdateImageSLOW Staging Buffer");
       // TODO: account for row length and image height here
       std::memcpy(uploadBuffer.GetMappedMemory(), info.data, size);
-      auto ctx = Fvog::Context(commandBuffer);
+      auto ctx = Fvog::Context(*device_, commandBuffer);
       ctx.ImageBarrier(*this, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
       vkCmdCopyBufferToImage2(commandBuffer, detail::Address(VkCopyBufferToImageInfo2{
@@ -178,6 +180,7 @@ namespace Fvog
           .bufferImageHeight = info.imageHeight,
           .imageSubresource = VkImageSubresourceLayers{
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel = info.level,
             .layerCount = 1,
           },
           .imageOffset = info.offset,

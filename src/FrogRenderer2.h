@@ -2,6 +2,8 @@
 #include "Application.h"
 #include "SceneLoader.h"
 #include "PCG.h"
+#include "techniques/Bloom.h"
+#include "techniques/AutoExposure.h"
 
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
@@ -14,7 +16,7 @@
 
 #include "shaders/Resources.h.glsl"
 
-// TODO: these structs should come from a shared header
+// TODO: these structs should come from shared headers rather than copying them
 FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
 {
   // Common
@@ -94,6 +96,12 @@ FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
   FVOG_UINT32 gSmoothVertexNormalIndex;
   FVOG_UINT32 gEmissionIndex;
   FVOG_UINT32 gMetallicRoughnessAoIndex;
+};
+
+FVOG_DECLARE_ARGUMENTS(DebugTextureArguments)
+{
+  FVOG_UINT32 textureIndex;
+  FVOG_UINT32 samplerIndex;
 };
 
 inline glm::vec3 PolarToCartesian(float elevation, float azimuth)
@@ -376,7 +384,7 @@ private:
   Fvog::GraphicsPipeline visbufferResolvePipeline;
   Fvog::GraphicsPipeline shadingPipeline;
   Fvog::ComputePipeline tonemapPipeline;
-  //Fvog::GraphicsPipeline debugTexturePipeline;
+  Fvog::GraphicsPipeline debugTexturePipeline;
   //Fvog::GraphicsPipeline debugLinesPipeline;
   //Fvog::GraphicsPipeline debugAabbsPipeline;
   //Fvog::GraphicsPipeline debugRectsPipeline;
@@ -424,14 +432,14 @@ private:
   //float bloomWidth = 1.0f;
   //bool bloomUseLowPassFilter = true;
 
-  //// Auto-exposure
-  //Techniques::AutoExposure autoExposure;
+  // Auto-exposure
+  Techniques::AutoExposure autoExposure;
   Fvog::TypedBuffer<float> exposureBuffer;
-  //float autoExposureLogMinLuminance = -15.0f;
-  //float autoExposureLogMaxLuminance = 15.0f;
-  //// sRGB middle gray (https://en.wikipedia.org/wiki/Middle_gray)
-  //float autoExposureTargetLuminance = 0.2140f;
-  //float autoExposureAdjustmentSpeed = 1.0f;
+  float autoExposureLogMinLuminance = -15.0f;
+  float autoExposureLogMaxLuminance = 15.0f;
+  // sRGB middle gray (https://en.wikipedia.org/wiki/Middle_gray)
+  float autoExposureTargetLuminance = 0.2140f;
+  float autoExposureAdjustmentSpeed = 1.0f;
 
   // Camera
   float cameraNearPlane = 0.1f;
@@ -616,4 +624,6 @@ private:
   //std::vector<std::vector<StatInfo>> stats;
   //ScrollingBuffer<double> accumTimes;
   //double accumTime = 0;
+
+  bool showGui = false;
 };

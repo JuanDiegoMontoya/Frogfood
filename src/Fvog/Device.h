@@ -98,6 +98,7 @@ namespace Fvog
     VkDescriptorPool descriptorPool_{};
     VkDescriptorSetLayout descriptorSetLayout_{};
     VkDescriptorSet descriptorSet_{};
+    VkPipelineLayout defaultPipelineLayout{};
 
     enum class ResourceType : uint32_t
     {

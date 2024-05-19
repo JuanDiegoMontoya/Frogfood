@@ -152,6 +152,7 @@ namespace Utility
     std::vector<index_t> indices;
     std::vector<uint8_t> primitives;
     std::vector<Material> materials;
+    std::vector<Fvog::Texture> images;
 
   private:
     mutable size_t previousMeshletsSize{};

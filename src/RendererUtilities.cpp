@@ -3,6 +3,7 @@
 #define STB_INCLUDE_IMPLEMENTATION
 #define STB_INCLUDE_LINE_GLSL
 #include "stb_include.h"
+#include "Fvog/Device.h"
 
 Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesystem::path& path)
 {
@@ -31,7 +32,7 @@ Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesy
 //  return Fvog::Shader(device, stage, path, path.filename().string().c_str());
 //}
 
-Fvog::Shader LoadShaderWithIncludes2(VkDevice device, Fvog::PipelineStage stage, const std::filesystem::path& path)
+Fvog::Shader LoadShaderWithIncludes2(Fvog::Device& device, Fvog::PipelineStage stage, const std::filesystem::path& path)
 {
   if (!std::filesystem::exists(path) || std::filesystem::is_directory(path))
   {
@@ -46,5 +47,5 @@ Fvog::Shader LoadShaderWithIncludes2(VkDevice device, Fvog::PipelineStage stage,
   {
     throw std::runtime_error("Failed to process includes");
   }
-  return Fvog::Shader(device, stage, std::string_view(processedSource.get()), path.filename().string().c_str());
+  return Fvog::Shader(device.device_, stage, std::string_view(processedSource.get()), path.filename().string().c_str());
 }

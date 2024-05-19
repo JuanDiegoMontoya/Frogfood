@@ -19,6 +19,7 @@ namespace Fvog
   class Buffer;
   class GraphicsPipeline;
   class ComputePipeline;
+  class Device;
 
   // Minimal reference wrapper type. Didn't want to pull in <functional> just for this
   template<class T>
@@ -133,7 +134,7 @@ namespace Fvog
   class Context
   {
   public:
-    Context(VkCommandBuffer commandBuffer);
+    Context(Device& device, VkCommandBuffer commandBuffer);
 
     void BeginRendering(const RenderInfo& renderInfo) const;
     void EndRendering() const;
@@ -164,7 +165,8 @@ namespace Fvog
     ScopedDebugMarker MakeScopedDebugMarker(const char* message, std::array<float, 4> color = {1, 1, 1, 1}) const;
 
   private:
-    VkCommandBuffer commandBuffer_;
+    Fvog::Device* device_{};
+    VkCommandBuffer commandBuffer_{};
     mutable const ComputePipeline* boundComputePipeline_{};
   };
 }

@@ -1,22 +1,32 @@
 #pragma once
-#include <Fwog/Texture.h>
-#include <Fwog/Buffer.h>
-#include <Fwog/Pipeline.h>
+//#include <Fwog/Texture.h>
+//#include <Fwog/Buffer.h>
+//#include <Fwog/Pipeline.h>
+#include "Fvog/Texture2.h"
+#include "Fvog/Buffer2.h"
+#include "Fvog/Pipeline2.h"
+
+#include "shaders/Resources.h.glsl"
+
+namespace Fvog
+{
+  class Device;
+}
 
 namespace Techniques
 {
   class AutoExposure
   {
   public:
-    explicit AutoExposure();
+    explicit AutoExposure(Fvog::Device& device);
 
     struct ApplyParams
     {
       // Image whose average luminance is to be computed
-      const Fwog::Texture& image;
+      Fvog::Texture& image;
 
       // Buffer containing the output exposure value
-      Fwog::Buffer& exposureBuffer;
+      Fvog::Buffer& exposureBuffer;
 
       float deltaTime;
 
@@ -29,10 +39,17 @@ namespace Techniques
       float logMaxLuminance;
     };
 
-    void Apply(const ApplyParams& params);
+    void Apply(VkCommandBuffer cmd, const ApplyParams& params);
 
   private:
     static constexpr uint32_t numBuckets = 128;
+
+    FVOG_DECLARE_ARGUMENTS(AutoExposurePushConstants)
+    {
+      FVOG_UINT32 autoExposureBufferIndex;
+      FVOG_UINT32 exposureBufferIndex;
+      FVOG_UINT32 hdrBufferIndex;
+    };
 
     // Read-only data
     struct AutoExposureUniforms
@@ -50,10 +67,11 @@ namespace Techniques
       AutoExposureUniforms uniforms;
       uint32_t histogramBuckets[numBuckets];
     };
-    
-    Fwog::Buffer dataBuffer_;
 
-    Fwog::ComputePipeline generateLuminanceHistogramPipeline_;
-    Fwog::ComputePipeline resolveLuminanceHistogramPipeline_;
+    Fvog::Device* device_{};
+    Fvog::NDeviceBuffer<AutoExposureBufferData> dataBuffer_;
+
+    Fvog::ComputePipeline generateLuminanceHistogramPipeline_;
+    Fvog::ComputePipeline resolveLuminanceHistogramPipeline_;
   };
 }

@@ -1,18 +1,19 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
 
+#include "AutoExposureCommon.h.glsl"
 #include "../Math.h.glsl"
 #include "../Utility.h.glsl"
-#include "AutoExposureCommon.h.glsl"
 
-layout(location = 0) uniform sampler2D u_hdrBuffer;
+//layout(location = 0) uniform sampler2D u_hdrBuffer;
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 uint ColorToBucket(vec3 color)
 {
   const float luminance = Luminance(color);
   if (luminance < 1e-5)
     return 0;
-  float mapped = Remap(log2(luminance), autoExposure.logMinLuminance, autoExposure.logMaxLuminance, 1.0, float(NUM_BUCKETS - 1));
+  float mapped = Remap(log2(luminance), d_autoExposure.logMinLuminance, d_autoExposure.logMaxLuminance, 1.0, float(NUM_BUCKETS - 1));
   return clamp(int(mapped), 0, NUM_BUCKETS - 1);
 }
 
@@ -26,11 +27,11 @@ void main()
   
   barrier();
 
-  const uvec2 texSize = textureSize(u_hdrBuffer, 0);
+  const uvec2 texSize = textureSize(FvogGetSampledImage(texture2D, hdrBufferIndex), 0);
   const uvec2 coords = uvec2(gl_GlobalInvocationID.xy);
   if (all(lessThan(coords, texSize)))
   {
-    vec3 color = texelFetch(u_hdrBuffer, ivec2(coords), 0).rgb;
+    vec3 color = texelFetch(FvogGetSampledImage(texture2D, hdrBufferIndex), ivec2(coords), 0).rgb;
     uint bucket = ColorToBucket(color);
     atomicAdd(sh_buckets[bucket], 1);
   }
@@ -40,6 +41,6 @@ void main()
   // Only do one global atomic add per bucket
   if (localId < NUM_BUCKETS)
   {
-    atomicAdd(autoExposure.histogramBuckets[localId], sh_buckets[localId]);
+    atomicAdd(d_autoExposure.histogramBuckets[localId], sh_buckets[localId]);
   }
 }

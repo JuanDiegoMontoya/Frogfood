@@ -4,5 +4,10 @@
 
 #include <filesystem>
 
+namespace Fvog
+{
+  class Device;
+}
+
 Fwog::Shader LoadShaderWithIncludes(Fwog::PipelineStage stage, const std::filesystem::path& path);
-Fvog::Shader LoadShaderWithIncludes2(VkDevice device, Fvog::PipelineStage stage, const std::filesystem::path& path);
+Fvog::Shader LoadShaderWithIncludes2(Fvog::Device& device, Fvog::PipelineStage stage, const std::filesystem::path& path);

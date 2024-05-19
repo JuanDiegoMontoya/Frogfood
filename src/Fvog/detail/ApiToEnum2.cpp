@@ -243,15 +243,18 @@ namespace Fvog::detail
     return false;
   }
 
-  uint64_t BlockCompressedImageSize(Format bcFormat, uint32_t width, uint32_t height, uint32_t depth)
+  ImageSizes BlockCompressedImageSize(Format bcFormat, uint32_t width, uint32_t height, uint32_t depth)
   {
     assert(FormatIsBlockCompressed(bcFormat));
 
     // BCn formats store 4x4 blocks of pixels, even if the dimensions aren't a multiple of 4
     // We round up to the nearest multiple of 4 for width and height, but not depth, since
     // 3D BCn images are just multiple 2D images stacked
-    width = (width + 4 - 1) & -4;
-    height = (height + 4 - 1) & -4;
+    auto extent = Extent3D{
+      .width = (width + 4 - 1) & -4,
+      .height = (height + 4 - 1) & -4,
+      .depth = depth,
+    };
 
     switch (bcFormat)
     {
@@ -261,7 +264,7 @@ namespace Fvog::detail
     case Format::BC1_RGB_SRGB:
     case Format::BC1_RGBA_SRGB:
     case Format::BC4_R_UNORM:
-    case Format::BC4_R_SNORM: return width * height * depth / 2;
+    case Format::BC4_R_SNORM: return {extent.width * extent.height * extent.depth / 2, extent};
 
     // BC2, BC3, BC5, BC6, and BC7 store 4x4 blocks with 128 bits (16 bytes)
     case Format::BC2_RGBA_UNORM:
@@ -273,11 +276,11 @@ namespace Fvog::detail
     case Format::BC6H_RGB_UFLOAT:
     case Format::BC6H_RGB_SFLOAT:
     case Format::BC7_RGBA_UNORM:
-    case Format::BC7_RGBA_SRGB: return width * height * depth;
+    case Format::BC7_RGBA_SRGB: return {extent.width * extent.height * extent.depth, extent};
     }
 
     assert(false);
-    return 0;
+    return {};
   }
 
   uint32_t FormatStorageSize(Format format)

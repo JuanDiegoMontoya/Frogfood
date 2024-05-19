@@ -103,7 +103,10 @@ protected:
   VkDescriptorPool imguiDescriptorPool_{};
   vkb::Swapchain swapchain_{};
   std::vector<VkImage> swapchainImages_;
-  std::vector<VkImageView> swapchainImageViews_;
+  std::vector<VkImageView> swapchainImageViewsSrgb_;
+  std::vector<VkImageView> swapchainImageViewsUnorm_;
+  static constexpr auto swapchainSrgbFormat = VK_FORMAT_B8G8R8A8_SRGB;
+  static constexpr auto swapchainUnormFormat = VK_FORMAT_B8G8R8A8_UNORM;
   //tracy::VkCtx* tracyVkContext_{};
   GLFWwindow* window;
   View mainCamera{};

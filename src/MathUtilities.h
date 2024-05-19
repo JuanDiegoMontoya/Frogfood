@@ -5,7 +5,12 @@ namespace Math
   inline glm::mat4 InfReverseZPerspectiveRH(float fovY_radians, float aspectWbyH, float zNear)
   {
     float f = 1.0f / tan(fovY_radians / 2.0f);
-    return glm::mat4(f / aspectWbyH, 0.0f, 0.0f, 0.0f, 0.0f, f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, zNear, 0.0f);
+    return {
+      f / aspectWbyH, 0.0f, 0.0f, 0.0f, 
+      0.0f, -f, 0.0f, 0.0f, // Negate [1][1] to work with Vulkan
+      0.0f, 0.0f, 0.0f, -1.0f, 
+      0.0f, 0.0f, zNear, 0.0f
+    };
   }
 
   inline constexpr uint32_t PreviousPower2(uint32_t x)

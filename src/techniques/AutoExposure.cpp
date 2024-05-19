@@ -1,7 +1,8 @@
 #include "AutoExposure.h"
 
-#include "Fwog/Rendering.h"
-#include "Fwog/Shader.h"
+#include "Fvog/Device.h"
+#include "Fvog/Rendering2.h"
+#include "Fvog/Shader2.h"
 
 #include "../RendererUtilities.h"
 
@@ -9,67 +10,79 @@
 
 namespace Techniques
 {
-  static Fwog::ComputePipeline CreateGenerateLuminanceHistogramPipeline()
+  static Fvog::ComputePipeline CreateGenerateLuminanceHistogramPipeline(Fvog::Device& device)
   {
-    auto cs = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/GenerateLuminanceHistogram.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/GenerateLuminanceHistogram.comp.glsl");
 
-    return Fwog::ComputePipeline({
+    return Fvog::ComputePipeline(device, {
       .name = "Generate Luminance Histogram",
       .shader = &cs,
     });
   }
 
-  static Fwog::ComputePipeline CreateResolveLuminanceHistogramPipeline()
+  static Fvog::ComputePipeline CreateResolveLuminanceHistogramPipeline(Fvog::Device& device)
   {
-    auto cs = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/ResolveLuminanceHistogram.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/ResolveLuminanceHistogram.comp.glsl");
 
-    return Fwog::ComputePipeline({
+    return Fvog::ComputePipeline(device, {
       .name = "Resolve Luminance Histogram",
       .shader = &cs,
     });
   }
 
-  AutoExposure::AutoExposure()
-    : dataBuffer_(sizeof(AutoExposureBufferData), Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
-      generateLuminanceHistogramPipeline_(CreateGenerateLuminanceHistogramPipeline()),
-      resolveLuminanceHistogramPipeline_(CreateResolveLuminanceHistogramPipeline())
+  AutoExposure::AutoExposure(Fvog::Device& device)
+    : device_(&device),
+      dataBuffer_(device, 1, "Auto Exposure Data"),
+      generateLuminanceHistogramPipeline_(CreateGenerateLuminanceHistogramPipeline(device)),
+      resolveLuminanceHistogramPipeline_(CreateResolveLuminanceHistogramPipeline(device))
   {
     // Initialize buckets to zero
-    dataBuffer_.FillData();
+    //dataBuffer_.FillData();
+    device.ImmediateSubmit(
+      [this](VkCommandBuffer cmd) {
+        vkCmdFillBuffer(cmd, dataBuffer_.GetDeviceBuffer().Handle(), 0, VK_WHOLE_SIZE, 0);
+      });
   }
 
-  void AutoExposure::Apply(const ApplyParams& params)
+  void AutoExposure::Apply(VkCommandBuffer cmd, const ApplyParams& params)
   {
-    Fwog::Compute(
-      "Auto Exposure",
-      [&]
-      {
-        auto uniforms = AutoExposureUniforms{
-          .deltaTime = params.deltaTime,
-          .adjustmentSpeed = params.adjustmentSpeed,
-          .logMinLuminance = std::log2(params.targetLuminance / std::exp2(params.logMinLuminance)),
-          .logMaxLuminance = std::log2(params.targetLuminance / std::exp2(params.logMaxLuminance)),
-          .targetLuminance = params.targetLuminance,
-          .numPixels = params.image.Extent().width * params.image.Extent().height,
-        };
-        dataBuffer_.UpdateData(std::span{&uniforms, 1});
+    auto ctx = Fvog::Context(*device_, cmd);
+    auto d = ctx.MakeScopedDebugMarker("Auto Exposure");
 
-        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+    auto uniforms = AutoExposureUniforms{
+      .deltaTime = params.deltaTime,
+      .adjustmentSpeed = params.adjustmentSpeed,
+      .logMinLuminance = std::log2(params.targetLuminance / std::exp2(params.logMinLuminance)),
+      .logMaxLuminance = std::log2(params.targetLuminance / std::exp2(params.logMaxLuminance)),
+      .targetLuminance = params.targetLuminance,
+      .numPixels = params.image.GetCreateInfo().extent.width * params.image.GetCreateInfo().extent.height,
+    };
+    auto uploaded = AutoExposureBufferData{uniforms};
+    dataBuffer_.UpdateData(cmd, {&uploaded, 1});
 
-        // Generate histogram
-        Fwog::Cmd::BindStorageBuffer(0, dataBuffer_);
-        Fwog::Cmd::BindStorageBuffer(1, params.exposureBuffer);
-        Fwog::Cmd::BindSampledImage(0, params.image, Fwog::Sampler(Fwog::SamplerState{}));
+    //Fvog::MemoryBarrier(Fvog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fvog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+    ctx.Barrier();
 
-        Fwog::Cmd::BindComputePipeline(generateLuminanceHistogramPipeline_);
-        Fwog::Cmd::DispatchInvocations(params.image.Extent());
+    // Generate histogram
+    //Fvog::Cmd::BindStorageBuffer(0, dataBuffer_);
+    //Fvog::Cmd::BindStorageBuffer(1, params.exposureBuffer);
+    //Fvog::Cmd::BindSampledImage(0, params.image, Fvog::Sampler(*device_, Fvog::SamplerCreateInfo{}));
+    ctx.SetPushConstants(AutoExposurePushConstants{
+      .autoExposureBufferIndex = dataBuffer_.GetDeviceBuffer().GetResourceHandle().index,
+      .exposureBufferIndex = params.exposureBuffer.GetResourceHandle().index,
+      .hdrBufferIndex = params.image.ImageView().GetSampledResourceHandle().index,
+    });
 
-        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+    ctx.BindComputePipeline(generateLuminanceHistogramPipeline_);
+    ctx.DispatchInvocations(params.image.GetCreateInfo().extent);
 
-        // Resolve histogram
-        Fwog::Cmd::BindComputePipeline(resolveLuminanceHistogramPipeline_);
-        Fwog::Cmd::Dispatch(1, 1, 1);
-      }
-    );
+    //Fvog::MemoryBarrier(Fvog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+    ctx.Barrier();
+
+    // Resolve histogram
+    ctx.BindComputePipeline(resolveLuminanceHistogramPipeline_);
+    ctx.Dispatch(1, 1, 1);
+
+    ctx.Barrier();
   }
 } // namespace Techniques

@@ -3,28 +3,22 @@
 
 namespace Pipelines2
 {
-  // TODO: disgusting, remove
-  extern VkPipelineLayout pipelineLayout;
-
-  void InitPipelineLayout(VkDevice device, VkDescriptorSetLayout descriptorSetLayout);
-  void DestroyPipelineLayout(VkDevice device);
-
-  Fvog::ComputePipeline CullMeshlets(VkDevice device);
-  Fvog::ComputePipeline CullTriangles(VkDevice device);
-  Fvog::ComputePipeline HzbCopy(VkDevice device);
-  Fvog::ComputePipeline HzbReduce(VkDevice device);
-  Fvog::GraphicsPipeline Visbuffer(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline MaterialDepth(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline VisbufferResolve(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline Shading(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::ComputePipeline Tonemap(VkDevice device);
-  Fvog::GraphicsPipeline DebugTexture(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline ShadowMain(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline ShadowVsm(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline DebugLines(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline DebugAabbs(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline DebugRects(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline ViewerVsm(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline ViewerVsmPhysicalPages(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  Fvog::GraphicsPipeline ViewerVsmBitmaskHzb(VkDevice device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::ComputePipeline CullMeshlets(Fvog::Device& device);
+  [[nodiscard]] Fvog::ComputePipeline CullTriangles(Fvog::Device& device);
+  [[nodiscard]] Fvog::ComputePipeline HzbCopy(Fvog::Device& device);
+  [[nodiscard]] Fvog::ComputePipeline HzbReduce(Fvog::Device& device);
+  [[nodiscard]] Fvog::GraphicsPipeline Visbuffer(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline MaterialDepth(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline VisbufferResolve(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline Shading(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::ComputePipeline Tonemap(Fvog::Device& device);
+  [[nodiscard]] Fvog::GraphicsPipeline DebugTexture(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline ShadowMain(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline ShadowVsm(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline DebugLines(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline DebugAabbs(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline DebugRects(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline ViewerVsm(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline ViewerVsmPhysicalPages(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+  [[nodiscard]] Fvog::GraphicsPipeline ViewerVsmBitmaskHzb(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
 } // namespace Pipelines2

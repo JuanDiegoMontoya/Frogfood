@@ -10,6 +10,7 @@ namespace Fvog
 {
   // clang-format off
   class Shader;
+  class Device;
 
   struct InputAssemblyState
   {
@@ -159,7 +160,10 @@ namespace Fvog
   {
   public:
     /// @throws PipelineCompilationException
-    explicit GraphicsPipeline(VkDevice device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info);
+    explicit GraphicsPipeline(Device& device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info);
+    
+    // Constructs pipeline with default pipeline layout (bindless)
+    explicit GraphicsPipeline(Device& device, const GraphicsPipelineInfo& info);
     ~GraphicsPipeline();
     GraphicsPipeline(GraphicsPipeline&& old) noexcept;
     GraphicsPipeline& operator=(GraphicsPipeline&& old) noexcept;
@@ -176,7 +180,7 @@ namespace Fvog
     }
 
   private:
-    VkDevice device_;
+    Fvog::Device* device_{};
     VkPipeline pipeline_{};
   };
 
@@ -185,7 +189,10 @@ namespace Fvog
   {
   public:
     /// @throws PipelineCompilationException
-    explicit ComputePipeline(VkDevice device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info);
+    explicit ComputePipeline(Device& device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info);
+
+    // Constructs pipeline with default pipeline layout (bindless)
+    explicit ComputePipeline(Device& device, const ComputePipelineInfo& info);
     ~ComputePipeline();
     ComputePipeline(ComputePipeline&& old) noexcept;
     ComputePipeline& operator=(ComputePipeline&& old) noexcept;
@@ -204,7 +211,7 @@ namespace Fvog
     }
 
   private:
-    VkDevice device_;
+    Device* device_{};
     VkPipeline pipeline_{};
     Extent3D workgroupSize_;
   };

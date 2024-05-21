@@ -34,7 +34,7 @@ namespace Fvog
   class Buffer
   {
   public:
-    explicit Buffer(Device& device, const BufferCreateInfo& createInfo, const char* name = nullptr);
+    explicit Buffer(Device& device, const BufferCreateInfo& createInfo, std::string name = {});
     ~Buffer();
 
     Buffer(const Buffer&) = delete;
@@ -79,6 +79,7 @@ namespace Fvog
     void* mappedMemory_{};
     VkDeviceAddress deviceAddress_{};
     std::optional<Device::DescriptorInfo> descriptorInfo_;
+    std::string name_;
 
     template<typename T>
     friend class NDeviceBuffer;
@@ -97,8 +98,8 @@ namespace Fvog
   class TypedBuffer : public Buffer
   {
   public:
-    explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo = {}, const char* name = nullptr)
-      : Buffer(device, {.size = createInfo.count * sizeof(T), .flag = createInfo.flag}, name)
+    explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo = {}, std::string name = {})
+      : Buffer(device, {.size = createInfo.count * sizeof(T), .flag = createInfo.flag}, std::move(name))
     {
     }
 
@@ -128,13 +129,13 @@ namespace Fvog
   class NDeviceBuffer
   {
   public:
-    explicit NDeviceBuffer(Device& device, uint32_t count = 1, const char* name = nullptr)
+    explicit NDeviceBuffer(Device& device, uint32_t count = 1, std::string name = {})
     : hostStagingBuffers_{
         // TODO: create a helper for initializing this array so it doesn't fail to compile when Device::frameOverlap changes
-        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name ? (name + std::string(" (host)")).c_str() : nullptr)},
-        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name ? (name + std::string(" (host)")).c_str() : nullptr)},
+        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name + std::string(" (host)"))},
+        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name + std::string(" (host)"))},
       },
-      deviceBuffer_(device, TypedBufferCreateInfo{.count = count}, name)
+      deviceBuffer_(device, TypedBufferCreateInfo{.count = count}, std::move(name))
     {
     }
 

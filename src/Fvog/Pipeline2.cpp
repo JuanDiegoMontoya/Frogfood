@@ -3,10 +3,11 @@
 #include "Device.h"
 #include "Shader2.h"
 #include "detail/ApiToEnum2.h"
+#include "detail/Common.h"
 
 #include <volk.h>
 
-#include "detail/Common.h"
+#include <tracy/Tracy.hpp>
 
 #include <array>
 #include <cassert>
@@ -17,9 +18,13 @@
 namespace Fvog
 {
   GraphicsPipeline::GraphicsPipeline(Device& device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info)
-    : device_(&device)
+    : device_(&device),
+      name_(info.name)
   {
     using namespace detail;
+    ZoneScoped;
+    ZoneNamed(_, true);
+    ZoneNameV(_, name_.data(), name_.size());
 
     auto stages = std::vector<VkPipelineShaderStageCreateInfo>();
     
@@ -152,7 +157,7 @@ namespace Fvog
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_PIPELINE,
       .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
-      .pObjectName = info.name,
+      .pObjectName = name_.data(),
     }));
   }
 
@@ -171,7 +176,9 @@ namespace Fvog
 
   GraphicsPipeline::GraphicsPipeline(GraphicsPipeline&& old) noexcept
     : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
-      pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)) {}
+      pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
+      name_(std::move(old.name_))
+  {}
 
   GraphicsPipeline& GraphicsPipeline::operator=(GraphicsPipeline&& old) noexcept
   {
@@ -183,9 +190,14 @@ namespace Fvog
 
   ComputePipeline::ComputePipeline(Device& device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info)
     : device_(&device),
-      workgroupSize_(info.shader->WorkgroupSize())
+      workgroupSize_(info.shader->WorkgroupSize()),
+      name_(info.name)
   {
     using namespace detail;
+    ZoneScoped;
+    ZoneNamed(_, true);
+    ZoneNameV(_, name_.data(), name_.size());
+
     CheckVkResult(vkCreateComputePipelines(
       device_->device_,
       nullptr,
@@ -208,7 +220,7 @@ namespace Fvog
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_PIPELINE,
       .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
-      .pObjectName = info.name,
+      .pObjectName = name_.data(),
     }));
   }
 
@@ -228,7 +240,9 @@ namespace Fvog
   ComputePipeline::ComputePipeline(ComputePipeline&& old) noexcept
     : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
       pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
-      workgroupSize_(std::exchange(old.workgroupSize_, {})) {}
+      workgroupSize_(std::exchange(old.workgroupSize_, {})),
+      name_(std::move(old.name_))
+  {}
 
   ComputePipeline& ComputePipeline::operator=(ComputePipeline&& old) noexcept
   {

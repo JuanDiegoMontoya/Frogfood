@@ -215,7 +215,15 @@ namespace Utility
         {
           ZoneScopedN("Load Image");
           const fastgltf::Image& image = asset.images[index];
-          ZoneName(image.name.c_str(), image.name.size());
+          if (image.name.empty())
+          {
+            constexpr std::string_view unnamed = "Unnamed image";
+            ZoneName(unnamed.data(), unnamed.size());
+          }
+          else
+          {
+            ZoneName(image.name.c_str(), image.name.size());
+          }
 
           auto rawImage = [&]
           {

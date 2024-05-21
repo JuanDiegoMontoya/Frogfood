@@ -28,7 +28,7 @@ namespace Fvog::detail
       Clear();
     }
 
-    [[nodiscard]] Sampler CreateOrGetCachedTextureSampler(const SamplerCreateInfo& samplerState, const char* name = nullptr);
+    [[nodiscard]] Sampler CreateOrGetCachedTextureSampler(const SamplerCreateInfo& samplerState, std::string name);
     [[nodiscard]] size_t Size() const;
     void Clear();
 

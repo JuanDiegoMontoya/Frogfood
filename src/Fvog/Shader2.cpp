@@ -1,10 +1,13 @@
 #include "Shader2.h"
 #include "detail/Common.h"
+#include "TriviallyCopyableByteSpan.h"
 
 #include <volk.h>
 
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/SPIRV/GlslangToSpv.h>
+
+#include <tracy/Tracy.hpp>
 
 #include <vector>
 #include <cassert>
@@ -14,7 +17,6 @@
 #include <memory>
 #include <span>
 #include <cstddef>
-#include "TriviallyCopyableByteSpan.h"
 
 namespace Fvog
 {
@@ -189,6 +191,7 @@ namespace Fvog
         [[maybe_unused]] const char* requesting_source,
         [[maybe_unused]] size_t include_depth) override
       {
+        ZoneScoped;
         // Everything will explode if this is not relative
         assert(std::filesystem::path(requested_source).is_relative());
         auto fullRequestedSource = currentIncluderDir_ / requested_source;
@@ -235,6 +238,7 @@ namespace Fvog
 
     detail::ShaderCompileInfo CompileShaderToSpirv(VkShaderStageFlagBits stage, std::string_view source, glslang::TShader::Includer* includer)
     {
+      ZoneScoped;
       constexpr auto compilerMessages = EShMessages(EShMessages::EShMsgSpvRules | EShMessages::EShMsgVulkanRules);
       const auto resourceLimits = GetGlslangResourceLimits();
       const auto glslangStage = VkShaderStageToGlslang(stage);
@@ -304,10 +308,10 @@ namespace Fvog
     }
   } // namespace
 
-  Shader::Shader(VkDevice device, const detail::ShaderCompileInfo& info, const char* name)
-    : device_(device)
+  void Shader::Initialize(VkDevice device, const detail::ShaderCompileInfo& info)
   {
     using namespace detail;
+    ZoneScoped;
     
     CheckVkResult(
       vkCreateShaderModule(
@@ -327,23 +331,36 @@ namespace Fvog
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_SHADER_MODULE,
       .objectHandle = reinterpret_cast<uint64_t>(shaderModule_),
-      .pObjectName = name ? (name + std::string(" (shader)")).c_str() : nullptr,
+      .pObjectName = name_.data(),
     }));
   }
 
-  Shader::Shader(VkDevice device, PipelineStage stage, std::string_view source, const char* name)
-    : Shader(device, CompileShaderToSpirv(PipelineStageToVK(stage), source, nullptr), name)
+  Shader::Shader(VkDevice device, PipelineStage stage, std::string_view source, std::string name)
+    : device_(device),
+      name_(std::move(name))
   {
+    ZoneScoped;
+    ZoneNamed(_, true);
+    ZoneNameV(_, name_.data(), name_.size());
+    Initialize(device, CompileShaderToSpirv(PipelineStageToVK(stage), source, nullptr));
   }
   
-  Shader::Shader(VkDevice device, PipelineStage stage, const std::filesystem::path& path, const char* name)
-    : Shader(device, CompileShaderToSpirv(PipelineStageToVK(stage), LoadFile(path), detail::Address(IncludeHandler(path))), name)
+  Shader::Shader(VkDevice device, PipelineStage stage, const std::filesystem::path& path, std::string name)
+    : device_(device),
+      name_(std::move(name))
   {
+    ZoneScoped;
+    ZoneNamed(_, true);
+    ZoneNameV(_, name_.data(), name_.size());
+    Initialize(device, CompileShaderToSpirv(PipelineStageToVK(stage), LoadFile(path), detail::Address(IncludeHandler(path))));
   }
 
   Shader::Shader(Shader&& old) noexcept
     : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
-      shaderModule_(std::exchange(old.shaderModule_, VK_NULL_HANDLE)) {}
+      shaderModule_(std::exchange(old.shaderModule_, VK_NULL_HANDLE)),
+      workgroupSize_(std::exchange(old.workgroupSize_, {})),
+      name_(std::move(old.name_))
+  {}
 
   Shader& Shader::operator=(Shader&& old) noexcept
   {

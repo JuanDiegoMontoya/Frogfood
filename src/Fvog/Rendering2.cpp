@@ -11,6 +11,8 @@
 
 #include <volk.h>
 
+#include <tracy/Tracy.hpp>
+
 #include <algorithm>
 #include <vector>
 
@@ -49,6 +51,7 @@ namespace Fvog
 
   void Context::BeginRendering(const RenderInfo& renderInfo) const
   {
+    ZoneScoped;
     vkCmdBeginDebugUtilsLabelEXT(commandBuffer_, Address(VkDebugUtilsLabelEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
       .pLabelName = renderInfo.name,
@@ -153,12 +156,14 @@ namespace Fvog
 
   void Context::EndRendering() const
   {
+    ZoneScoped;
     vkCmdEndRendering(commandBuffer_);
     vkCmdEndDebugUtilsLabelEXT(commandBuffer_);
   }
 
   void Context::ImageBarrier(const Texture& texture, VkImageLayout oldLayout, VkImageLayout newLayout) const
   {
+    ZoneScoped;
     VkImageAspectFlags aspectMask{};
     aspectMask |= FormatIsColor(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
     aspectMask |= FormatIsDepth(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
@@ -168,6 +173,7 @@ namespace Fvog
 
   void Context::ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask) const
   {
+    ZoneScoped;
     vkCmdPipelineBarrier2(commandBuffer_, Address(VkDependencyInfo{
       .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
       .imageMemoryBarrierCount = 1,
@@ -196,6 +202,7 @@ namespace Fvog
 
   void Context::BufferBarrier(VkBuffer buffer) const
   {
+    ZoneScoped;
     vkCmdPipelineBarrier2(commandBuffer_, Address(VkDependencyInfo{
       .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
       .bufferMemoryBarrierCount = 1,
@@ -214,6 +221,7 @@ namespace Fvog
 
   void Context::Barrier() const
   {
+    ZoneScoped;
     vkCmdPipelineBarrier2(commandBuffer_, Address(VkDependencyInfo{
       .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
       .memoryBarrierCount = 1,
@@ -229,6 +237,7 @@ namespace Fvog
 
   void Context::ClearTexture(const Texture& texture, VkImageLayout layout, const TextureClearInfo& clearInfo)
   {
+    ZoneScoped;
     vkCmdClearColorImage(commandBuffer_,
                          texture.Image(),
                          layout,
@@ -245,11 +254,13 @@ namespace Fvog
 
   void Context::BindGraphicsPipeline(const GraphicsPipeline& pipeline) const
   {
+    ZoneScoped;
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Handle());
   }
 
   void Context::BindComputePipeline(const ComputePipeline& pipeline) const
   {
+    ZoneScoped;
     boundComputePipeline_ = &pipeline;
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.Handle());
   }
@@ -261,6 +272,7 @@ namespace Fvog
 
   void Context::Dispatch(Extent3D groupCount) const
   {
+    ZoneScoped;
     vkCmdDispatch(commandBuffer_, groupCount.width, groupCount.height, groupCount.depth);
   }
 
@@ -271,6 +283,7 @@ namespace Fvog
 
   void Context::DispatchInvocations(Extent3D invocationCount) const
   {
+    ZoneScoped;
     const auto workgroupSize = boundComputePipeline_->WorkgroupSize();
     const auto [x, y, z] = (invocationCount + workgroupSize - 1) / workgroupSize;
 
@@ -278,32 +291,38 @@ namespace Fvog
   }
   void Context::DispatchIndirect(const Fvog::Buffer& buffer, VkDeviceSize offset) const
   {
+    ZoneScoped;
     vkCmdDispatchIndirect(commandBuffer_, buffer.Handle(), offset);
   }
 
   void Context::Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const
   {
+    ZoneScoped;
     vkCmdDraw(commandBuffer_, vertexCount, instanceCount, firstVertex, firstInstance);
   }
 
   void Context::DrawIndexedIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const
   {
+    ZoneScoped;
     vkCmdDrawIndexedIndirect(commandBuffer_, buffer.Handle(), bufferOffset, drawCount, stride);
   }
 
   void Context::BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const
   {
+    ZoneScoped;
     vkCmdBindIndexBuffer(commandBuffer_, buffer.Handle(), offset, indexType);
   }
 
   void Context::SetPushConstants(TriviallyCopyableByteSpan values, uint32_t offset) const
   {
+    ZoneScoped;
     vkCmdPushConstants(commandBuffer_, device_->defaultPipelineLayout, VK_SHADER_STAGE_ALL, offset, static_cast<uint32_t>(values.size_bytes()), values.data());
   }
 
   ScopedDebugMarker::ScopedDebugMarker(VkCommandBuffer commandBuffer, const char* message, std::array<float, 4> color)
     : commandBuffer_(commandBuffer)
   {
+    ZoneScoped;
     vkCmdBeginDebugUtilsLabelEXT(commandBuffer_, Address(VkDebugUtilsLabelEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
       .pLabelName = message,
@@ -313,6 +332,7 @@ namespace Fvog
 
   ScopedDebugMarker::~ScopedDebugMarker()
   {
+    ZoneScoped;
     vkCmdEndDebugUtilsLabelEXT(commandBuffer_);
   }
 

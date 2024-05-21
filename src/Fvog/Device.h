@@ -7,6 +7,7 @@
 #include <deque>
 #include <functional>
 #include <stack>
+#include <string>
 #include <memory>
 
 typedef struct VmaAllocator_T* VmaAllocator;
@@ -153,6 +154,7 @@ namespace Fvog
       uint64_t frameOfLastUse{};
       VmaAllocation allocation{};
       VkBuffer buffer{};
+      std::string name;
     };
 
     std::deque<BufferDeleteInfo> bufferDeletionQueue_;
@@ -162,10 +164,18 @@ namespace Fvog
       uint64_t frameOfLastUse{};
       VmaAllocation allocation{};
       VkImage image{};
-      VkImageView imageView{};
+      std::string name;
     };
 
     std::deque<ImageDeleteInfo> imageDeletionQueue_;
+
+    struct ImageViewDeleteInfo
+    {
+      uint64_t frameOfLastUse{};
+      VkImageView imageView{};
+      std::string name;
+    };
+    std::deque<ImageViewDeleteInfo> imageViewDeletionQueue_;
 
     struct DescriptorDeleteInfo
     {

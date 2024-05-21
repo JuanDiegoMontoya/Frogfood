@@ -428,12 +428,15 @@ void Application::Draw()
   device_->frameNumber++;
   auto& currentFrameData = device_->GetCurrentFrameData();
 
-  vkWaitSemaphores(device_->device_, Fvog::detail::Address(VkSemaphoreWaitInfo{
-    .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-    .semaphoreCount = 1,
-    .pSemaphores = &device_->graphicsQueueTimelineSemaphore_,
-    .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
-  }), UINT64_MAX);
+  {
+    ZoneScopedN("Wait for graphics queue semaphore");
+    vkWaitSemaphores(device_->device_, Fvog::detail::Address(VkSemaphoreWaitInfo{
+      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+      .semaphoreCount = 1,
+      .pSemaphores = &device_->graphicsQueueTimelineSemaphore_,
+      .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
+    }), UINT64_MAX);
+  }
 
   device_->FreeUnusedResources();
   

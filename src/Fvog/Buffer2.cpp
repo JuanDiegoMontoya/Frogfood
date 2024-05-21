@@ -5,17 +5,22 @@
 #include <volk.h>
 #include <vk_mem_alloc.h>
 
+#include <tracy/Tracy.hpp>
+
 #include <cstddef>
 #include <utility>
 
 namespace Fvog
 {
-  Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo, const char* name)
+  Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo, std::string name)
     : device_(&device),
-      createInfo_(createInfo)
+      createInfo_(createInfo),
+      name_(std::move(name))
   {
     using namespace detail;
-
+    ZoneScoped;
+    ZoneNamed(_, true);
+    ZoneNameV(_, name_.data(), name_.size());
     // The only usages that have a practical perf implication on modern desktop hardware are *_DESCRIPTOR_BUFFER_BIT
     constexpr auto usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
@@ -61,7 +66,7 @@ namespace Fvog
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_BUFFER,
       .objectHandle = reinterpret_cast<uint64_t>(buffer_),
-      .pObjectName = name ? (name + std::string(" (buffer)")).c_str() : nullptr,
+      .pObjectName = name_.data(),
     }));
 
     mappedMemory_ = allocationInfo.pMappedData;
@@ -76,14 +81,13 @@ namespace Fvog
 
       descriptorInfo_ = device_->AllocateStorageBufferDescriptor(buffer_);
     }
-
   }
 
   Buffer::~Buffer()
   {
     if (buffer_ != VK_NULL_HANDLE)
     {
-      device_->bufferDeletionQueue_.emplace_back(device_->frameNumber, allocation_, buffer_);
+      device_->bufferDeletionQueue_.emplace_back(device_->frameNumber, allocation_, buffer_, std::move(name_));
     }
   }
 
@@ -94,7 +98,8 @@ namespace Fvog
       allocation_(std::exchange(old.allocation_, nullptr)),
       mappedMemory_(std::exchange(old.mappedMemory_, nullptr)),
       deviceAddress_(std::exchange(old.deviceAddress_, 0)),
-      descriptorInfo_(std::move(old.descriptorInfo_))
+      descriptorInfo_(std::move(old.descriptorInfo_)),
+      name_(std::move(old.name_))
   {
   }
 
@@ -108,6 +113,7 @@ namespace Fvog
 
   void Buffer::UpdateDataExpensive(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes)
   {
+    ZoneScoped;
     auto stagingBuffer = Buffer(*device_, {.size = createInfo_.size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "Staging Buffer (UpdateDataExpensive)");
     UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, *this);
   }
@@ -119,6 +125,7 @@ namespace Fvog
 
   void Buffer::UpdateDataGeneric(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes, Buffer& stagingBuffer, Buffer& deviceBuffer)
   {
+    ZoneScoped;
     // TODO: temp
     vkCmdPipelineBarrier2(commandBuffer, detail::Address(VkDependencyInfo{
       .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,

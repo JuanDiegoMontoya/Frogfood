@@ -6,17 +6,46 @@
 
 #include <volk.h>
 
+#include <tracy/Tracy.hpp>
+
+#include <cstdio>
 #include <array>
 #include <ranges>
 
 namespace Fvog
 {
+  namespace
+  {
+    auto BytesToPostfixAndDivisor(uint64_t bytes)
+    {
+      const auto* postfix = "B";
+      double divisor = 1.0;
+      if (bytes > 1000)
+      {
+        postfix = "KB";
+        divisor = 1000;
+      }
+      if (bytes > 1'000'000)
+      {
+        postfix = "MB";
+        divisor = 1'000'000;
+      }
+      if (bytes > 1'000'000'000)
+      {
+        postfix = "GB";
+        divisor = 1'000'000'000;
+      }
+      return std::pair{postfix, divisor};
+    }
+  }
+
   Device::Device(vkb::Instance& instance, VkSurfaceKHR surface)
     : instance_(instance),
       surface_(surface),
       samplerCache_(std::make_unique<detail::SamplerCache>(this))
   {
     using namespace detail;
+    ZoneScoped;
     auto selector = vkb::PhysicalDeviceSelector{instance_};
 
     // physical device
@@ -275,6 +304,7 @@ namespace Fvog
   
   Device::~Device()
   {
+    ZoneScoped;
     detail::CheckVkResult(vkDeviceWaitIdle(device_));
 
     FreeUnusedResources();
@@ -302,6 +332,7 @@ namespace Fvog
 
   void Device::ImmediateSubmit(const std::function<void(VkCommandBuffer)>& function) const
   {
+    ZoneScoped;
     using namespace detail;
     CheckVkResult(vkResetCommandBuffer(immediateSubmitCommandBuffer_, 0));
     CheckVkResult(vkBeginCommandBuffer(immediateSubmitCommandBuffer_, Address(VkCommandBufferBeginInfo{
@@ -340,60 +371,101 @@ namespace Fvog
 
   void Device::FreeUnusedResources()
   {
+    ZoneScoped;
     auto value = uint64_t{};
-    detail::CheckVkResult(vkGetSemaphoreCounterValue(device_, graphicsQueueTimelineSemaphore_, &value));
 
-    std::erase_if(bufferDeletionQueue_,
-                  [this, value](const BufferDeleteInfo& bufferAlloc)
-                  {
-                    if (value >= bufferAlloc.frameOfLastUse)
-                    {
-                      vmaDestroyBuffer(allocator_, bufferAlloc.buffer, bufferAlloc.allocation);
-                      return true;
-                    }
-                    return false;
-                  });
+    {
+      ZoneScopedN("Get graphics queue semaphore value");
+      detail::CheckVkResult(vkGetSemaphoreCounterValue(device_, graphicsQueueTimelineSemaphore_, &value));
+    }
 
-    std::erase_if(imageDeletionQueue_,
-                  [this, value](const ImageDeleteInfo& imageAlloc)
-                  {
-                    if (value >= imageAlloc.frameOfLastUse)
+    {
+      ZoneScopedN("Free unused buffers");
+      std::erase_if(bufferDeletionQueue_,
+                   [this, value](const BufferDeleteInfo& bufferAlloc)
+                   {
+                     if (value >= bufferAlloc.frameOfLastUse)
+                     {
+                       ZoneScopedN("Destroy VMA buffer");
+                       VmaAllocationInfo info{};
+                       vmaGetAllocationInfo(allocator_, bufferAlloc.allocation, &info);
+                       auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
+                       char buffer[128]{};
+                       auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
+                       ZoneText(buffer, size);
+                       ZoneName(bufferAlloc.name.c_str(), bufferAlloc.name.size());
+                       vmaDestroyBuffer(allocator_, bufferAlloc.buffer, bufferAlloc.allocation);
+                       return true;
+                     }
+                     return false;
+                   });
+    }
+    {
+      ZoneScopedN("Free unused images");
+      std::erase_if(imageDeletionQueue_,
+                    [this, value](const ImageDeleteInfo& imageAlloc)
                     {
-                      vkDestroyImageView(device_, imageAlloc.imageView, nullptr);
-                      vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
-                      return true;
-                    }
-                    return false;
-                  });
-
-    std::erase_if(descriptorDeletionQueue_,
-                  [this, value](const DescriptorDeleteInfo& descriptorAlloc)
-                  {
-                    if (value >= descriptorAlloc.frameOfLastUse)
-                    {
-                      switch (descriptorAlloc.handle.type)
+                      if (value >= imageAlloc.frameOfLastUse)
                       {
-                      case ResourceType::STORAGE_BUFFER:
-                        storageBufferDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                        ZoneScopedN("Destroy VMA image");
+                        VmaAllocationInfo info{};
+                        vmaGetAllocationInfo(allocator_, imageAlloc.allocation, &info);
+                        auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
+                        char buffer[128]{};
+                        auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
+                        ZoneText(buffer, size);
+                        ZoneName(imageAlloc.name.c_str(), imageAlloc.name.size());
+                        vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
                         return true;
-                      case ResourceType::COMBINED_IMAGE_SAMPLER:
-                        combinedImageSamplerDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                        return true;
-                      case ResourceType::STORAGE_IMAGE:
-                        storageImageDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                        return true;
-                      case ResourceType::SAMPLED_IMAGE:
-                        sampledImageDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                        return true;
-                      case ResourceType::SAMPLER:
-                        samplerDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                        return true;
-                      case ResourceType::INVALID:
-                      default: assert(0); return true;
                       }
-                    }
-                    return false;
-                  });
+                      return false;
+                    });
+    }
+    {
+      ZoneScopedN("Free unused image views");
+      std::erase_if(imageViewDeletionQueue_,
+                    [this, value](const ImageViewDeleteInfo& imageAlloc)
+                    {
+                      if (value >= imageAlloc.frameOfLastUse)
+                      {
+                        ZoneScopedN("Destroy VkImageView");
+                        vkDestroyImageView(device_, imageAlloc.imageView, nullptr);
+                        return true;
+                      }
+                      return false;
+                    });
+    }
+    {
+      ZoneScopedN("Free unused descriptor indices");
+      std::erase_if(descriptorDeletionQueue_,
+                    [this, value](const DescriptorDeleteInfo& descriptorAlloc)
+                    {
+                      if (value >= descriptorAlloc.frameOfLastUse)
+                      {
+                        switch (descriptorAlloc.handle.type)
+                        {
+                        case ResourceType::STORAGE_BUFFER:
+                          storageBufferDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                          return true;
+                        case ResourceType::COMBINED_IMAGE_SAMPLER:
+                          combinedImageSamplerDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                          return true;
+                        case ResourceType::STORAGE_IMAGE:
+                          storageImageDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                          return true;
+                        case ResourceType::SAMPLED_IMAGE:
+                          sampledImageDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                          return true;
+                        case ResourceType::SAMPLER:
+                          samplerDescriptorAllocator.Free(descriptorAlloc.handle.index);
+                          return true;
+                        case ResourceType::INVALID:
+                        default: assert(0); return true;
+                        }
+                      }
+                      return false;
+                    });
+    }
   }
 
   Device::DescriptorInfo::DescriptorInfo(DescriptorInfo&& old) noexcept
@@ -420,6 +492,7 @@ namespace Fvog
 
   Device::DescriptorInfo Device::AllocateStorageBufferDescriptor(VkBuffer buffer)
   {
+    ZoneScoped;
     const auto myIdx = storageBufferDescriptorAllocator.Allocate();
 
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
@@ -446,6 +519,7 @@ namespace Fvog
 
   Device::DescriptorInfo Device::AllocateCombinedImageSamplerDescriptor(VkSampler sampler, VkImageView imageView, VkImageLayout imageLayout)
   {
+    ZoneScoped;
     const auto myIdx = combinedImageSamplerDescriptorAllocator.Allocate();
 
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
@@ -472,6 +546,7 @@ namespace Fvog
 
   Device::DescriptorInfo Device::AllocateStorageImageDescriptor(VkImageView imageView, VkImageLayout imageLayout)
   {
+    ZoneScoped;
     const auto myIdx = storageImageDescriptorAllocator.Allocate();
 
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
@@ -497,6 +572,7 @@ namespace Fvog
 
   Device::DescriptorInfo Device::AllocateSampledImageDescriptor(VkImageView imageView, VkImageLayout imageLayout)
   {
+    ZoneScoped;
     const auto myIdx = sampledImageDescriptorAllocator.Allocate();
 
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
@@ -522,6 +598,7 @@ namespace Fvog
 
   Device::DescriptorInfo Device::AllocateSamplerDescriptor(VkSampler sampler)
   {
+    ZoneScoped;
     const auto myIdx = samplerDescriptorAllocator.Allocate();
 
     vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{

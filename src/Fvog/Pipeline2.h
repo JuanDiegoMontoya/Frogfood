@@ -4,6 +4,7 @@
 #include "BasicTypes2.h"
 
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace Fvog
@@ -127,7 +128,7 @@ namespace Fvog
   struct GraphicsPipelineInfo
   {
     /// @brief An optional name for viewing in a graphics debugger
-    const char* name = nullptr;
+    std::string name = {};
 
     /// @brief Non-null pointer to a vertex shader
     const Shader* vertexShader            = nullptr;
@@ -149,7 +150,7 @@ namespace Fvog
   struct ComputePipelineInfo
   {
     /// @brief An optional name for viewing in a graphics debugger
-    const char* name = nullptr;
+    std::string name = {};
 
     /// @brief Non-null pointer to a compute shader
     const Shader* shader;
@@ -182,6 +183,7 @@ namespace Fvog
   private:
     Fvog::Device* device_{};
     VkPipeline pipeline_{};
+    std::string name_;
   };
 
   /// @brief An object that encapsulates the state needed to issue dispatches
@@ -214,6 +216,7 @@ namespace Fvog
     Device* device_{};
     VkPipeline pipeline_{};
     Extent3D workgroupSize_;
+    std::string name_;
   };
   // clang-format on
 } // namespace Fvog

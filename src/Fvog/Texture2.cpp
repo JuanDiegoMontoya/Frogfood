@@ -10,20 +10,24 @@
 #include <volk.h>
 #include <vk_mem_alloc.h>
 
+#include <tracy/Tracy.hpp>
+
 #include <utility>
 
 namespace Fvog
 {
-  Sampler::Sampler(Device& device, const SamplerCreateInfo& samplerState, const char* name)
-    : Sampler(device.samplerCache_->CreateOrGetCachedTextureSampler(samplerState, name))
+  Sampler::Sampler(Device& device, const SamplerCreateInfo& samplerState, std::string name)
+    : Sampler(device.samplerCache_->CreateOrGetCachedTextureSampler(samplerState, std::move(name)))
   {
   }
 
-  Texture::Texture(Device& device, const TextureCreateInfo& createInfo, const char* name)
+  Texture::Texture(Device& device, const TextureCreateInfo& createInfo, std::string name)
     : device_(&device),
-      createInfo_(createInfo)
+      createInfo_(createInfo),
+      name_(std::move(name))
   {
     using namespace detail;
+    ZoneScoped;
 
     // Inferred usages
     // TextureUsage::GENERAL
@@ -83,24 +87,25 @@ namespace Fvog
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_IMAGE,
       .objectHandle = reinterpret_cast<uint64_t>(image_),
-      .pObjectName = (name + std::string(" (tex)")).c_str(),
+      .pObjectName = name_.data(),
     }));
 
     // Identity view for convenience
-    textureView_ = CreateFormatView(createInfo.format, name ? (name + std::string(" default ")).c_str() : nullptr);
+    textureView_ = CreateFormatView(createInfo.format, name_);
   }
 
   Texture::~Texture()
   {
     if (device_ != nullptr && image_ != VK_NULL_HANDLE)
     {
-      device_->imageDeletionQueue_.emplace_back(device_->frameNumber, allocation_, image_, VK_NULL_HANDLE);
+      device_->imageDeletionQueue_.emplace_back(device_->frameNumber, allocation_, image_, std::move(name_));
     }
   }
 
-  TextureView Texture::CreateFormatView(Format format, const char* name) const
+  TextureView Texture::CreateFormatView(Format format, std::string name) const
   {
     using namespace detail;
+    ZoneScoped;
     auto aspectFlags = VkImageAspectFlags{};
     aspectFlags |= FormatIsDepth(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
     aspectFlags |= FormatIsStencil(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
@@ -116,12 +121,13 @@ namespace Fvog
         .baseArrayLayer = 0,
         .layerCount = VK_REMAINING_ARRAY_LAYERS,
       },
-    }, name);
+    }, std::move(name));
   }
 
-  TextureView Texture::CreateSingleMipView(uint32_t level, const char* name) const
+  TextureView Texture::CreateSingleMipView(uint32_t level, std::string name) const
   {
     using namespace detail;
+    ZoneScoped;
     auto format = createInfo_.format;
     auto aspectFlags = VkImageAspectFlags{};
     aspectFlags |= FormatIsDepth(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
@@ -137,11 +143,12 @@ namespace Fvog
         .baseArrayLayer = 0,
         .layerCount = VK_REMAINING_ARRAY_LAYERS,
       },
-    }, name ? (name + std::string(" ") + std::to_string(level)).c_str() : nullptr);
+    }, name + std::string(" mip ") + std::to_string(level));
   }
 
   void Texture::UpdateImageSLOW(const TextureUpdateInfo& info)
   {
+    ZoneScoped;
     device_->ImmediateSubmit(
     [this, &info](VkCommandBuffer commandBuffer)
     {
@@ -196,7 +203,8 @@ namespace Fvog
       createInfo_(std::exchange(old.createInfo_, {})),
       image_(std::exchange(old.image_, VK_NULL_HANDLE)),
       textureView_(std::move(old.textureView_)),
-      allocation_(std::exchange(old.allocation_, nullptr))
+      allocation_(std::exchange(old.allocation_, nullptr)),
+      name_(std::move(old.name_))
   {
   }
 
@@ -208,12 +216,14 @@ namespace Fvog
     return *new (this) Texture(std::move(old));
   }
 
-  TextureView::TextureView(Device& device, const Texture& texture, const TextureViewCreateInfo& createInfo, const char* name)
+  TextureView::TextureView(Device& device, const Texture& texture, const TextureViewCreateInfo& createInfo, std::string name)
     : device_(&device),
       createInfo_(createInfo),
       parentCreateInfo_(texture.GetCreateInfo()),
-      image_(texture.Image())
+      image_(texture.Image()),
+      name_(std::move(name))
   {
+    ZoneScoped;
     detail::CheckVkResult(vkCreateImageView(device.device_, detail::Address(VkImageViewCreateInfo{
       .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
       .image = texture.Image(),
@@ -228,7 +238,7 @@ namespace Fvog
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_IMAGE_VIEW,
       .objectHandle = reinterpret_cast<uint64_t>(imageView_),
-      .pObjectName = name ? (name + std::string(" (view)")).c_str() : nullptr,
+      .pObjectName = name_.data(),
     }));
 
     const auto usage = parentCreateInfo_.usage;
@@ -252,7 +262,7 @@ namespace Fvog
     if (device_ != nullptr && imageView_ != VK_NULL_HANDLE)
     {
       // It's safe to pass VMA null allocators and/or handles, so we can reuse the image deletion queue here
-      device_->imageDeletionQueue_.emplace_back(device_->frameNumber, nullptr, VK_NULL_HANDLE, imageView_);
+      device_->imageViewDeletionQueue_.emplace_back(device_->frameNumber, imageView_, std::move(name_));
     }
   }
 
@@ -263,7 +273,8 @@ namespace Fvog
       sampledDescriptorInfo_(std::move(old.sampledDescriptorInfo_)),
       storageDescriptorInfo_(std::move(old.storageDescriptorInfo_)),
       parentCreateInfo_(std::exchange(old.parentCreateInfo_, {})),
-      image_(std::exchange(old.image_, VK_NULL_HANDLE))
+      image_(std::exchange(old.image_, VK_NULL_HANDLE)),
+      name_(std::move(old.name_))
   {}
 
   TextureView& TextureView::operator=(TextureView&& old) noexcept
@@ -274,8 +285,9 @@ namespace Fvog
     return *new (this) TextureView(std::move(old));
   }
 
-  Texture CreateTexture2D(Device& device, VkExtent2D size, Format format, TextureUsage usage, const char* name)
+  Texture CreateTexture2D(Device& device, VkExtent2D size, Format format, TextureUsage usage, std::string name)
   {
+    ZoneScoped;
     TextureCreateInfo createInfo{
       .viewType = VK_IMAGE_VIEW_TYPE_2D,
       .format = format,
@@ -285,11 +297,12 @@ namespace Fvog
       .sampleCount = VK_SAMPLE_COUNT_1_BIT,
       .usage = usage,
     };
-    return Texture(device, createInfo, name);
+    return Texture(device, createInfo, std::move(name));
   }
 
-  Texture CreateTexture2DMip(Device& device, VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, const char* name)
+  Texture CreateTexture2DMip(Device& device, VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, std::string name)
   {
+    ZoneScoped;
     TextureCreateInfo createInfo{
       .viewType = VK_IMAGE_VIEW_TYPE_2D,
       .format = format,
@@ -299,6 +312,6 @@ namespace Fvog
       .sampleCount = VK_SAMPLE_COUNT_1_BIT,
       .usage = usage,
     };
-    return Texture(device, createInfo, name);
+    return Texture(device, createInfo, std::move(name));
   }
 } // namespace Fvog

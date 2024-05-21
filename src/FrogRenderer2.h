@@ -470,6 +470,7 @@ private:
   //std::optional<Fwog::Texture> viewerOutputTexture;
 
   Fvog::Sampler nearestSampler;
+  Fvog::Sampler linearMipmapSampler;
   Fvog::Sampler hzbSampler;
 
 

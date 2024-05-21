@@ -91,6 +91,14 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
       .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
     }, "Nearest"),
+    linearMipmapSampler(*device_, {
+      .magFilter = VK_FILTER_LINEAR,
+      .minFilter = VK_FILTER_LINEAR,
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+      .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    }, "Nearest"),
     hzbSampler(*device_, {
       .magFilter = VK_FILTER_NEAREST,
       .minFilter = VK_FILTER_NEAREST,
@@ -776,6 +784,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
         .meshletIndicesIndex = indexBuffer->GetResourceHandle().index,
         .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
         .materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index,
+        .materialSamplerIndex = linearMipmapSampler.GetResourceHandle().index,
 
         .visbufferIndex = frame.visbuffer->ImageView().GetSampledResourceHandle().index,
       };

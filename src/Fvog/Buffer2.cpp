@@ -126,6 +126,8 @@ namespace Fvog
   void Buffer::UpdateDataGeneric(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes, Buffer& stagingBuffer, Buffer& deviceBuffer)
   {
     ZoneScoped;
+    ZoneNamed(_, true);
+    ZoneNameV(_, deviceBuffer.name_.data(), deviceBuffer.name_.size());
     // TODO: temp
     vkCmdPipelineBarrier2(commandBuffer, detail::Address(VkDependencyInfo{
       .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,

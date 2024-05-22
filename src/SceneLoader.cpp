@@ -643,7 +643,7 @@ namespace Utility
 
   struct LoadModelResult
   {
-    std::list<Node> nodes;
+    std::vector<std::unique_ptr<Node>> nodes;
     // This is a semi-hacky way to extend `nodes` without changing the node type, so we can still splice our nodes onto the main scene's
     std::vector<NodeTempData> tempData;
     std::vector<RawMesh> rawMeshes;
@@ -737,7 +737,7 @@ namespace Utility
     const auto rootRotation = glm::quat{rootRotationArray[3], rootRotationArray[0], rootRotationArray[1], rootRotationArray[2]};
     const auto rootScale = glm::make_vec3(rootScaleArray.data());
 
-    Node* rootNode = &scene.nodes.emplace_back(path.stem().string(), rootTranslation, rootRotation, rootScale);
+    Node* rootNode = scene.nodes.emplace_back(std::make_unique<Node>(path.stem().string(), rootTranslation, rootRotation, rootScale)).get();
     scene.tempData.emplace_back();
 
     // All nodes referenced in the scene MUST be root nodes
@@ -745,7 +745,7 @@ namespace Utility
     {
       const auto& assetNode = asset.nodes[nodeIndex];
       const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
-      Node* sceneNode = &scene.nodes.emplace_back(name, rootTranslation, rootRotation, rootScale);
+      Node* sceneNode = scene.nodes.emplace_back(std::make_unique<Node>(name, rootTranslation, rootRotation, rootScale)).get();
       rootNode->children.emplace_back(sceneNode);
       nodeStack.emplace(sceneNode, &assetNode, scene.tempData.size());
       scene.tempData.emplace_back();
@@ -774,9 +774,9 @@ namespace Utility
       {
         const auto& assetNode = asset.nodes[childNodeIndex];
         const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
-        Node* childSceneNode = &scene.nodes.emplace_back(name);
-        node->children.emplace_back(childSceneNode);
-        nodeStack.emplace(childSceneNode, &assetNode, scene.tempData.size());
+        auto& childSceneNode = scene.nodes.emplace_back(std::make_unique<Node>(name));
+        node->children.emplace_back(childSceneNode.get());
+        nodeStack.emplace(childSceneNode.get(), &assetNode, scene.tempData.size());
         scene.tempData.emplace_back();
       }
 
@@ -998,7 +998,7 @@ namespace Utility
         return meshletInfo;
       });
 
-    auto perMeshMeshlets = std::vector<std::vector<Meshlet>>(meshletInfos.size());
+    auto perMeshMeshlets = std::vector<std::vector<uint32_t>>(meshletInfos.size());
 
     // For each mesh, create "meshlet templates" (meshlets without per-instance data) and copy vertices, indices, and primitives to mega buffers
     for (size_t meshIndex = 0; meshIndex < meshletInfos.size(); meshIndex++)
@@ -1016,8 +1016,10 @@ namespace Utility
           min = glm::min(min, vertex.position);
           max = glm::max(max, vertex.position);
         }
-        
-        perMeshMeshlets[meshIndex].emplace_back(Meshlet{
+
+        auto meshletId = scene.meshlets.size();
+        perMeshMeshlets[meshIndex].emplace_back((uint32_t)meshletId);
+        scene.meshlets.emplace_back(Meshlet{
           .vertexOffset = vertexOffset,
           .indexOffset = indexOffset + meshlet.vertex_offset,
           .primitiveOffset = primitiveOffset + meshlet.triangle_offset,
@@ -1041,28 +1043,32 @@ namespace Utility
     {
       for (const auto& [rawMeshIndex, materialId] : loadedScene->tempData[i++].indices)
       {
-        for (auto meshlet : perMeshMeshlets[rawMeshIndex])
+        for (auto meshletIndex : perMeshMeshlets[rawMeshIndex])
         {
-          meshlet.materialId = (uint32_t)materialId;
-          node.meshlets.emplace_back(meshlet);
+          //meshlet.materialId = (uint32_t)materialId;
+          //node->meshlets.emplace_back(meshlet);
+
+          // Instance index is determined each frame
+          node->meshletIndices.emplace_back(meshletIndex, 0, (uint32_t)materialId);
         }
       }
     }
 
     std::ranges::move(loadedScene->materials, std::back_inserter(scene.materials));
     std::ranges::move(loadedScene->images, std::back_inserter(scene.images));
-    scene.rootNodes.emplace_back(&loadedScene->nodes.front());
-    scene.nodes.splice(scene.nodes.end(), loadedScene->nodes);
+    scene.rootNodes.emplace_back(loadedScene->nodes.front().get());
+    std::ranges::move(loadedScene->nodes, std::back_inserter(scene.nodes));
 
     return true;
   }
 
   SceneFlattened SceneMeshlet::Flatten() const
   {
+    ZoneScoped;
     SceneFlattened sceneFlattened;
 
     // Use vector sizes from previous scene flattening to reduce copies
-    sceneFlattened.meshlets.reserve(previousMeshletsSize);
+    sceneFlattened.meshletInstances.reserve(previousMeshletsSize);
     sceneFlattened.transforms.reserve(previousTransformsSize);
     sceneFlattened.lights.reserve(previousLightsSize);
 
@@ -1091,15 +1097,16 @@ namespace Utility
         nodeStack.emplace(childNode, globalTransform);
       }
 
-      if (!node->meshlets.empty())
+      if (!node->meshletIndices.empty())
       {
-        const auto instanceId = sceneFlattened.transforms.size();
+        const auto instanceId = static_cast<uint32_t>(sceneFlattened.transforms.size());
         // TODO: get previous transform from node
         sceneFlattened.transforms.emplace_back(globalTransform, globalTransform);
-        for (auto meshlet : node->meshlets)
+        for (auto [meshletIndex, _, materialId] : node->meshletIndices)
         {
-          meshlet.instanceId = static_cast<uint32_t>(instanceId);
-          sceneFlattened.meshlets.emplace_back(meshlet);
+          //meshlet.instanceId = static_cast<uint32_t>(instanceId);
+          //sceneFlattened.meshlets.emplace_back(meshlet);
+          sceneFlattened.meshletInstances.emplace_back(meshletIndex, instanceId, materialId);
         }
       }
 
@@ -1125,9 +1132,17 @@ namespace Utility
     }
 
     // Update cached values
-    previousMeshletsSize = sceneFlattened.meshlets.size();
+    previousMeshletsSize = sceneFlattened.meshletInstances.size();
     previousTransformsSize = sceneFlattened.transforms.size();
     previousLightsSize = sceneFlattened.lights.size();
+
+    char buffer[128]{};
+    auto size = snprintf(buffer, std::size(buffer), "Nodes: %d\nMeshlet instances: %d\nTransforms: %d\nLights: %d",
+      (int)nodes.size(),
+      (int)previousMeshletsSize,
+      (int)previousTransformsSize,
+      (int)previousLightsSize);
+    ZoneText(buffer, size);
 
     return sceneFlattened;
   }

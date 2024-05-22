@@ -42,10 +42,16 @@ struct Meshlet
   uint primitiveOffset;
   uint indexCount;
   uint primitiveCount;
-  uint materialId;
-  uint instanceId;
+  //uint instanceId;
   PackedVec3 aabbMin;
   PackedVec3 aabbMax;
+};
+
+struct MeshletInstance
+{
+  uint meshletId;
+  uint instanceId;
+  uint materialId;
 };
 
 struct View
@@ -83,6 +89,7 @@ FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
 {
   // Common
   FVOG_UINT32 globalUniformsIndex;
+  FVOG_UINT32 meshletInstancesIndex;
   FVOG_UINT32 meshletDataIndex;
   FVOG_UINT32 meshletPrimitivesIndex;
   FVOG_UINT32 meshletVerticesIndex;
@@ -130,6 +137,13 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletDataBuffer)
 }MeshletDataBuffers[];
 
 #define d_meshlets MeshletDataBuffers[meshletDataIndex].meshlets
+
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletInstancesBuffer)
+{
+  MeshletInstance instances[];
+}MeshletInstancesBuffers[];
+
+#define d_meshletInstances MeshletInstancesBuffers[meshletInstancesIndex].instances
 
 //layout (std430, binding = 1) restrict readonly buffer MeshletPrimitiveBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletPrimitiveBuffer)

@@ -749,7 +749,7 @@ void FrogRenderer::OnGui(double dt)
   ImGui::Begin("glTF Viewer");
   ImGui::Text("Framerate: %.0f Hertz", 1 / dt);
 
-  ImGui::Text("Meshlets: %llu", sceneFlattened.meshlets.size());
+  ImGui::Text("Meshlets: %llu", sceneFlattened.meshletInstances.size());
   ImGui::Text("Indices: %llu", scene.indices.size());
   ImGui::Text("Vertices: %llu", scene.vertices.size());
   ImGui::Text("Primitives: %llu", scene.primitives.size());

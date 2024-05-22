@@ -20,6 +20,6 @@ void main()
     discard;
   }
   const uint meshletId = (payload >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
-  const uint materialId = d_meshlets[meshletId].materialId;
+  const uint materialId = d_meshletInstances[meshletId].materialId;
   gl_FragDepth = uintBitsToFloat(0x3f7fffffu - (materialId & MESHLET_MATERIAL_ID_MASK));
 }

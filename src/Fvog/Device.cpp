@@ -407,7 +407,7 @@ namespace Fvog
                     {
                       if (value >= imageAlloc.frameOfLastUse)
                       {
-                        ZoneScopedN("Destroy VMA image");
+                        ZoneScopedN("vmaDestroyImage");
                         VmaAllocationInfo info{};
                         vmaGetAllocationInfo(allocator_, imageAlloc.allocation, &info);
                         auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
@@ -428,7 +428,8 @@ namespace Fvog
                     {
                       if (value >= imageAlloc.frameOfLastUse)
                       {
-                        ZoneScopedN("Destroy VkImageView");
+                        ZoneScopedN("vkDestroyImageView");
+                        ZoneName(imageAlloc.name.data(), imageAlloc.name.size());
                         vkDestroyImageView(device_, imageAlloc.imageView, nullptr);
                         return true;
                       }

@@ -20,6 +20,7 @@ namespace Fvog
 
   struct BufferCreateInfo
   {
+    // Size in bytes
     VkDeviceSize size{};
     BufferFlagThingy flag{};
   };
@@ -62,6 +63,11 @@ namespace Fvog
       return createInfo_;
     }
 
+    [[nodiscard]] VkDeviceSize SizeBytes() const noexcept
+    {
+      return createInfo_.size;
+    }
+
     void UpdateDataExpensive(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes = 0);
 
     void FillData(VkCommandBuffer commandBuffer, const BufferFillInfo& clear = {});
@@ -101,6 +107,13 @@ namespace Fvog
     explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo = {}, std::string name = {})
       : Buffer(device, {.size = createInfo.count * sizeof(T), .flag = createInfo.flag}, std::move(name))
     {
+      assert(createInfo.count > 0);
+    }
+
+    // Number of elements of T that this buffer could hold
+    [[nodiscard]] uint32_t Size() const noexcept
+    {
+      return static_cast<uint32_t>(createInfo_.size) / sizeof(T);
     }
 
     [[nodiscard]] T* GetMappedMemory() const noexcept
@@ -137,6 +150,12 @@ namespace Fvog
       },
       deviceBuffer_(device, TypedBufferCreateInfo{.count = count}, std::move(name))
     {
+    }
+
+    // Number of elements of T that this buffer could hold
+    [[nodiscard]] uint32_t Size() const noexcept
+    {
+      return deviceBuffer_.Size();
     }
 
     void UpdateData(VkCommandBuffer commandBuffer, std::span<const T> data, VkDeviceSize destOffsetElements = 0)

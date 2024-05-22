@@ -21,6 +21,7 @@ FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
 {
   // Common
   FVOG_UINT32 globalUniformsIndex;
+  FVOG_UINT32 meshletInstancesIndex;
   FVOG_UINT32 meshletDataIndex;
   FVOG_UINT32 meshletPrimitivesIndex;
   FVOG_UINT32 meshletVerticesIndex;
@@ -367,6 +368,8 @@ private:
   std::optional<Fvog::TypedBuffer<uint8_t>> primitiveBuffer;
   std::optional<Fvog::NDeviceBuffer<Utility::ObjectUniforms>> transformBuffer;
   std::optional<Fvog::NDeviceBuffer<Utility::GpuMaterial>> materialStorageBuffer;
+  std::optional<Fvog::TypedBuffer<Utility::Meshlet>> meshletBuffer;
+  std::optional<Fvog::NDeviceBuffer<Utility::MeshletInstance>> meshletInstancesBuffer;
   //std::optional<Fvog::NDeviceBuffer<ViewParams>> viewBuffer;
   std::optional<Fvog::TypedBuffer<ViewParams>> viewBuffer;
   // Output
@@ -394,7 +397,6 @@ private:
 
   // Punctual lights
   std::optional<Fvog::NDeviceBuffer<Utility::GpuLight>> lightBuffer;
-  std::optional<Fvog::NDeviceBuffer<Utility::Meshlet>> meshletBuffer;
 
   Utility::SceneFlattened sceneFlattened;
 

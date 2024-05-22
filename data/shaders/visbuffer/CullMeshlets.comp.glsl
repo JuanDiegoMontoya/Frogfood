@@ -12,10 +12,12 @@
 
 #include "../debug/DebugCommon.h.glsl"
 
-void DebugDrawMeshletAabb(in uint meshletId)
+void DebugDrawMeshletAabb(in uint meshletInstanceId)
 {
+  const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
+  const uint meshletId = meshletInstance.meshletId;
   const Meshlet meshlet = MeshletDataBuffers[meshletDataIndex].meshlets[meshletId];
-  const uint instanceId = meshlet.instanceId;
+  const uint instanceId = meshletInstance.instanceId;
   const mat4 transform = TransformBuffers[transformsIndex].transforms[instanceId].modelCurrent;
   const vec3 aabbMin = PackedToVec3(meshlet.aabbMin);
   const vec3 aabbMax = PackedToVec3(meshlet.aabbMax);
@@ -79,7 +81,7 @@ bool IsAABBInsidePlane(in vec3 center, in vec3 extent, in vec4 plane)
 
 struct GetMeshletUvBoundsParams
 {
-  uint meshletId;
+  uint meshletInstanceId;
   mat4 viewProj;
   bool clampNdc;
   bool reverseZ;
@@ -87,8 +89,9 @@ struct GetMeshletUvBoundsParams
 
 void GetMeshletUvBounds(GetMeshletUvBoundsParams params, out vec2 minXY, out vec2 maxXY, out float nearestZ, out bool intersectsNearPlane)
 {
-  const Meshlet meshlet = d_meshlets[params.meshletId];
-  const uint instanceId = meshlet.instanceId;
+  const MeshletInstance meshletInstance = d_meshletInstances[params.meshletInstanceId];
+  const Meshlet meshlet = d_meshlets[meshletInstance.meshletId];
+  const uint instanceId = meshletInstance.instanceId;
   const mat4 transform = d_transforms[instanceId].modelCurrent;
   const vec3 aabbMin = PackedToVec3(meshlet.aabbMin);
   const vec3 aabbMax = PackedToVec3(meshlet.aabbMax);
@@ -177,11 +180,12 @@ bool CullQuadHiz(vec2 minXY, vec2 maxXY, float nearestZ)
   return true;
 }
 
-bool CullMeshletFrustum(in uint meshletId, View view)
+bool CullMeshletFrustum(uint meshletInstanceId, View view)
 {
-  //const Meshlet meshlet = MeshletDataBuffers[meshletDataIndex].meshlets[meshletId];
+  const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
+  const uint meshletId = meshletInstance.meshletId;
   const Meshlet meshlet = d_meshlets[meshletId];
-  const uint instanceId = meshlet.instanceId;
+  const uint instanceId = meshletInstance.instanceId;
   const mat4 transform = d_transforms[instanceId].modelCurrent;
   const vec3 aabbMin = PackedToVec3(meshlet.aabbMin);
   const vec3 aabbMax = PackedToVec3(meshlet.aabbMax);
@@ -218,7 +222,9 @@ bool CullMeshletFrustum(in uint meshletId, View view)
 layout (local_size_x = 128) in;
 void main()
 {
-  const uint meshletId = gl_GlobalInvocationID.x;
+  const uint meshletInstanceId = gl_GlobalInvocationID.x;
+  const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
+  const uint meshletId = meshletInstance.meshletId;
 
   if (meshletId >= d_perFrameUniforms.meshletCount)
   {
@@ -230,7 +236,7 @@ void main()
     bool isVisible = false;
     
     GetMeshletUvBoundsParams params;
-    params.meshletId = meshletId;
+    params.meshletInstanceId = meshletInstanceId;
 
     if (d_currentView.type == VIEW_TYPE_MAIN)
     {

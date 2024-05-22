@@ -253,10 +253,11 @@ void main()
   const uint payload = texelFetch(Fvog_utexture2D(visbufferIndex), position, 0).x;
   const uint meshletId = (payload >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
   const uint primitiveId = payload & MESHLET_PRIMITIVE_MASK;
-  const Meshlet meshlet = d_meshlets[meshletId];
-  const GpuMaterial material = d_materials[meshlet.materialId];
-  const mat4 transform = d_transforms[meshlet.instanceId].modelCurrent;
-  const mat4 transformPrevious = d_transforms[meshlet.instanceId].modelPrevious;
+  const MeshletInstance meshletInstance = d_meshletInstances[meshletId];
+  const Meshlet meshlet = d_meshlets[meshletInstance.meshletId];
+  const GpuMaterial material = d_materials[meshletInstance.materialId];
+  const mat4 transform = d_transforms[meshletInstance.instanceId].modelCurrent;
+  const mat4 transformPrevious = d_transforms[meshletInstance.instanceId].modelPrevious;
 
   const uint[] indexIDs = VisbufferLoadIndexIds(meshlet, primitiveId);
   const vec3[] rawPosition = VisbufferLoadPosition(indexIDs, meshlet.vertexOffset);

@@ -9,11 +9,8 @@
 #include <glm/vec2.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include <list>
-#include <variant>
 #include <vector>
 #include <string>
-#include <string_view>
 #include <optional>
 #include <filesystem>
 
@@ -104,10 +101,16 @@ namespace Utility
     uint32_t primitiveOffset = 0;
     uint32_t indexCount = 0;
     uint32_t primitiveCount = 0;
-    uint32_t materialId = 0;
-    uint32_t instanceId = 0;
+    //uint32_t instanceId = 0;
     float aabbMin[3] = {};
     float aabbMax[3] = {};
+  };
+
+  struct MeshletInstance
+  {
+    uint32_t meshletId;
+    uint32_t instanceId;
+    uint32_t materialId = 0;
   };
 
   struct ObjectUniforms
@@ -131,13 +134,17 @@ namespace Utility
     glm::vec3 globalAabbMax;
 
     std::vector<Node*> children;
-    std::vector<Meshlet> meshlets;
+    //std::vector<Meshlet> meshlets;
+
+    // A list of meshlets (minus their transform ID), which are stored in the scene
+    std::vector<MeshletInstance> meshletIndices;
     std::optional<GpuLight> light; // TODO: hold a light without position/direction type safety
   };
 
   struct SceneFlattened
   {
-    std::vector<Meshlet> meshlets;
+    //std::vector<uint32_t> instanceMeshIndices;
+    std::vector<MeshletInstance> meshletInstances;
     std::vector<ObjectUniforms> transforms;
     std::vector<GpuLight> lights;
   };
@@ -147,7 +154,8 @@ namespace Utility
     SceneFlattened Flatten() const;
 
     std::vector<Node*> rootNodes;
-    std::list<Node> nodes;
+    std::vector<std::unique_ptr<Node>> nodes;
+    std::vector<Meshlet> meshlets;
     std::vector<Vertex> vertices;
     std::vector<index_t> indices;
     std::vector<uint8_t> primitives;

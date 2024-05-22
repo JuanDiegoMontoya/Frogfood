@@ -9,6 +9,7 @@ layout (location = 0) in flat uint i_meshletId;
 layout (location = 1) in flat uint i_primitiveId;
 layout (location = 2) in vec2 i_uv;
 layout (location = 3) in vec3 i_objectSpacePos;
+layout (location = 4) in flat uint i_materialId;
 
 layout (location = 0) out uint o_pixel;
 
@@ -17,8 +18,7 @@ FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 void main()
 {
-  const Meshlet meshlet = d_meshlets[i_meshletId];
-  const GpuMaterial material = d_materials[NonUniformIndex(meshlet.materialId)];
+  const GpuMaterial material = d_materials[i_materialId];
 
   vec2 dxuv = dFdx(i_uv);
   vec2 dyuv = dFdy(i_uv);

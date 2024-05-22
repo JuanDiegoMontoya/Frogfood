@@ -198,7 +198,9 @@ bool CullTriangle(Meshlet meshlet, uint localId)
 layout(local_size_x = MAX_PRIMITIVES) in;
 void main()
 {
-  const uint meshletId = d_visibleMeshlets.indices[gl_WorkGroupID.x];
+  const uint meshletInstanceId = d_visibleMeshlets.indices[gl_WorkGroupID.x];
+  const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
+  const uint meshletId = meshletInstance.meshletId;
   const Meshlet meshlet = d_meshlets[meshletId];
   const uint localId = gl_LocalInvocationID.x;
   const uint primitiveId = localId * 3;
@@ -206,7 +208,7 @@ void main()
   if (localId == 0)
   {
     sh_primitivesPassed = 0;
-    sh_mvp = d_currentView.viewProj * d_transforms[meshlet.instanceId].modelCurrent;
+    sh_mvp = d_currentView.viewProj * d_transforms[meshletInstance.instanceId].modelCurrent;
   }
 
   barrier();

@@ -429,7 +429,7 @@ void Application::Draw()
   auto& currentFrameData = device_->GetCurrentFrameData();
 
   {
-    ZoneScopedN("Wait for graphics queue semaphore");
+    ZoneScopedN("vkWaitSemaphores (graphics queue timeline)");
     vkWaitSemaphores(device_->device_, Fvog::detail::Address(VkSemaphoreWaitInfo{
       .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
       .semaphoreCount = 1,
@@ -441,41 +441,53 @@ void Application::Draw()
   device_->FreeUnusedResources();
   
   uint32_t swapchainImageIndex{};
-  if (auto acquireResult = vkAcquireNextImage2KHR(device_->device_, Fvog::detail::Address(VkAcquireNextImageInfoKHR{
-    .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
-    .swapchain = swapchain_,
-    .timeout = static_cast<uint64_t>(-1),
-    .semaphore = currentFrameData.swapchainSemaphore,
-    .deviceMask = 1,
-  }), &swapchainImageIndex); acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
-  {
-    swapchainOk = false;
-  }
-  else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
-  {
-    throw std::runtime_error("vkAcquireNextImage failed");
-  }
 
-  if (!swapchainOk)
   {
-    return;
+    ZoneScopedN("vkAcquireNextImage2KHR");
+    if (auto acquireResult = vkAcquireNextImage2KHR(device_->device_, Fvog::detail::Address(VkAcquireNextImageInfoKHR{
+      .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
+      .swapchain = swapchain_,
+      .timeout = static_cast<uint64_t>(-1),
+      .semaphore = currentFrameData.swapchainSemaphore,
+      .deviceMask = 1,
+    }), &swapchainImageIndex); acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+      swapchainOk = false;
+    }
+    else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+    {
+      throw std::runtime_error("vkAcquireNextImage failed");
+    }
+
+    if (!swapchainOk)
+    {
+      return;
+    }
   }
 
   auto commandBuffer = currentFrameData.commandBuffer;
 
-  Fvog::detail::CheckVkResult(vkResetCommandPool(device_->device_, currentFrameData.commandPool, 0));
+  {
+    ZoneScopedN("vkResetCommandPool");
+    Fvog::detail::CheckVkResult(vkResetCommandPool(device_->device_, currentFrameData.commandPool, 0));
+  }
 
-  Fvog::detail::CheckVkResult(vkBeginCommandBuffer(commandBuffer, Fvog::detail::Address(VkCommandBufferBeginInfo{
-    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-  })));
+  {
+    ZoneScopedN("vkBeginCommandBuffer");
+    Fvog::detail::CheckVkResult(vkBeginCommandBuffer(commandBuffer, Fvog::detail::Address(VkCommandBufferBeginInfo{
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    })));
+  }
 
   auto ctx = Fvog::Context(*device_, commandBuffer);
-  
-  // Start a new ImGui frame
-  ImGui_ImplVulkan_NewFrame();
-  ImGui_ImplGlfw_NewFrame();
-  ImGui::NewFrame();
+
+  {
+    ZoneScopedN("Begin ImGui frame");
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+  }
 
   OnRender(dtDraw, commandBuffer, swapchainImageIndex);
   OnGui(dtDraw);

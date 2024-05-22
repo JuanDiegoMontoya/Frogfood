@@ -257,18 +257,40 @@ void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
   sceneFlattened = scene.Flatten();
   shadingUniforms.numberOfLights = (uint32_t)sceneFlattened.lights.size();
 
-  // TODO: don't create a bunch of buffers here (instead, just upload and conditionally resize the buffers)
-  const auto maxIndices = sceneFlattened.meshlets.size() * Utility::maxMeshletPrimitives * 3;
-  instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>(*device_, {.count = (uint32_t)maxIndices}, "Instanced Meshlets");
-  visibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = (uint32_t)sceneFlattened.meshlets.size()}, "Visible Meshlet IDs");
+  // A few of these buffers are really slow (2-3ms) to create and destroy every frame (large ones hit vkAllocateMemory), so
+  // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
+  // The current scheme works fine when the scene is mostly static.
+  const auto numMeshlets = static_cast<uint32_t>(sceneFlattened.meshletInstances.size());
+  const auto maxIndices = numMeshlets * Utility::maxMeshletPrimitives * 3;
+  if (!instancedMeshletBuffer || instancedMeshletBuffer->Size() < maxIndices)
+  {
+    instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>(*device_, {.count = maxIndices}, "Instanced Meshlets");
+  }
 
-  lightBuffer = Fvog::NDeviceBuffer<Utility::GpuLight>(*device_, (uint32_t)sceneFlattened.lights.size(), "Lights");
-  transformBuffer = Fvog::NDeviceBuffer<Utility::ObjectUniforms>(*device_, (uint32_t)sceneFlattened.transforms.size(), "Transforms");
-  meshletBuffer = Fvog::NDeviceBuffer<Utility::Meshlet>(*device_, (uint32_t)sceneFlattened.meshlets.size(), "Meshlets");
+  if (!lightBuffer || lightBuffer->Size() < sceneFlattened.lights.size())
+  {
+    lightBuffer = Fvog::NDeviceBuffer<Utility::GpuLight>(*device_, (uint32_t)sceneFlattened.lights.size(), "Lights");
+  }
+
+  if (!transformBuffer || transformBuffer->Size() < sceneFlattened.transforms.size())
+  {
+    transformBuffer = Fvog::NDeviceBuffer<Utility::ObjectUniforms>(*device_, (uint32_t)sceneFlattened.transforms.size(), "Transforms");
+  }
+
+  if (!visibleMeshletIds || visibleMeshletIds->Size() < numMeshlets)
+  {
+    visibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = numMeshlets}, "Visible Meshlet IDs");
+  }
+
+  if (!meshletInstancesBuffer || meshletInstancesBuffer->Size() < numMeshlets)
+  {
+    meshletInstancesBuffer = Fvog::NDeviceBuffer<Utility::MeshletInstance>(*device_, numMeshlets, "Meshlet Instances");
+  }
 }
 
 void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, std::string_view name)
 {
+  ZoneScoped;
   //viewBuffer->UpdateData(view);
   auto ctx = Fvog::Context(*device_, commandBuffer);
   auto marker = ctx.MakeScopedDebugMarker(name.data(), {.5f, .5f, 1.0f, 1.0f});
@@ -296,7 +318,8 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
 
   auto visbufferPushConstants = VisbufferPushConstants{
     .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-    .meshletDataIndex = meshletBuffer->GetDeviceBuffer().GetResourceHandle().index,
+    .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
+    .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
     .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
     .indirectDrawIndex = meshletIndirectCommand->GetResourceHandle().index,
     .viewIndex = viewBuffer->GetResourceHandle().index,
@@ -322,7 +345,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
   //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
   //Fwog::Cmd::BindSampledImage("s_hzb", *frame.hzb, hzbSampler);
   //vsmContext.BindResourcesForCulling();
-  ctx.DispatchInvocations((uint32_t)sceneFlattened.meshlets.size(), 1, 1);
+  ctx.DispatchInvocations((uint32_t)sceneFlattened.meshletInstances.size(), 1, 1);
 
   //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
   ctx.Barrier();
@@ -374,7 +397,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     materialStorageBuffer->UpdateData(commandBuffer, gpuMaterials);
     lightBuffer->UpdateData(commandBuffer, sceneFlattened.lights);
     transformBuffer->UpdateData(commandBuffer, sceneFlattened.transforms);
-    meshletBuffer->UpdateData(commandBuffer, sceneFlattened.meshlets);
+    meshletInstancesBuffer->UpdateData(commandBuffer, sceneFlattened.meshletInstances);
     ctx.Barrier();
   }
 
@@ -419,7 +442,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   const auto projJittered = jitterMatrix * projUnjittered;
   
   // Set global uniforms
-  const uint32_t meshletCount = (uint32_t)sceneFlattened.meshlets.size();
+  const uint32_t meshletCount = (uint32_t)sceneFlattened.meshletInstances.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 
@@ -506,7 +529,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     ctx.BindGraphicsPipeline(visbufferPipeline);
     auto visbufferArguments = VisbufferPushConstants{
       .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-      .meshletDataIndex = meshletBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
       .meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index,
       .meshletVerticesIndex = vertexBuffer->GetResourceHandle().index,
       .meshletIndicesIndex = indexBuffer->GetResourceHandle().index,
@@ -691,7 +715,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eMakeMaterialDepthBuffer);
     ctx.BindGraphicsPipeline(materialDepthPipeline);
     ctx.SetPushConstants(VisbufferPushConstants{
-      .meshletDataIndex = meshletBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
       .visbufferIndex = frame.visbuffer->ImageView().GetSampledResourceHandle().index,
     });
     //Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
@@ -778,7 +803,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
       auto pushConstants = VisbufferPushConstants{
         .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-        .meshletDataIndex = meshletBuffer->GetDeviceBuffer().GetResourceHandle().index,
+        .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
+        .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
         .meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index,
         .meshletVerticesIndex = vertexBuffer->GetResourceHandle().index,
         .meshletIndicesIndex = indexBuffer->GetResourceHandle().index,
@@ -1151,6 +1177,9 @@ void FrogRenderer2::MakeStaticSceneBuffers(VkCommandBuffer commandBuffer)
 
   primitiveBuffer = Fvog::TypedBuffer<uint8_t>(*device_, {(uint32_t)scene.primitives.size()}, "Primitive Buffer");
   primitiveBuffer->UpdateDataExpensive(commandBuffer, scene.primitives);
+
+  meshletBuffer = Fvog::TypedBuffer<Utility::Meshlet>(*device_, {(uint32_t)scene.meshlets.size()}, "Meshlet Buffer");
+  meshletBuffer->UpdateDataExpensive(commandBuffer, scene.meshlets);
 
   std::vector<Utility::GpuMaterial> materials(scene.materials.size());
   std::transform(scene.materials.begin(), scene.materials.end(), materials.begin(), [](const auto& m) { return m.gpuMaterial; });

@@ -66,7 +66,7 @@ namespace Fvog
       colorAttachments.emplace_back(VkRenderingAttachmentInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
         .imageView = attachment.texture.get().ImageView(),
-        .imageLayout = attachment.layout,
+        .imageLayout = *attachment.texture.get().currentLayout,
         .loadOp = attachment.loadOp,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         .clearValue = VkClearValue{.color = ClearColorValueToVk(attachment.clearValue)},
@@ -80,7 +80,7 @@ namespace Fvog
     if (renderInfo.depthAttachment.has_value())
     {
       depthAttachment.imageView = renderInfo.depthAttachment->texture.get().ImageView();
-      depthAttachment.imageLayout = renderInfo.depthAttachment->layout;
+      depthAttachment.imageLayout = *renderInfo.depthAttachment->texture.get().currentLayout;
       depthAttachment.loadOp = renderInfo.depthAttachment->loadOp;
       depthAttachment.clearValue = VkClearValue{.depthStencil = VkClearDepthStencilValue{.depth = renderInfo.depthAttachment->clearValue.depth,}};
     }
@@ -92,7 +92,7 @@ namespace Fvog
     if (renderInfo.stencilAttachment.has_value())
     {
       stencilAttachment.imageView = renderInfo.stencilAttachment->texture.get().ImageView();
-      stencilAttachment.imageLayout = renderInfo.stencilAttachment->layout;
+      stencilAttachment.imageLayout = *renderInfo.stencilAttachment->texture.get().currentLayout;
       stencilAttachment.loadOp = renderInfo.stencilAttachment->loadOp;
       stencilAttachment.clearValue = VkClearValue{.depthStencil = VkClearDepthStencilValue{.stencil = renderInfo.stencilAttachment->clearValue.stencil,}};
     }
@@ -161,14 +161,15 @@ namespace Fvog
     vkCmdEndDebugUtilsLabelEXT(commandBuffer_);
   }
 
-  void Context::ImageBarrier(const Texture& texture, VkImageLayout oldLayout, VkImageLayout newLayout) const
+  void Context::ImageBarrier(const Texture& texture, VkImageLayout newLayout) const
   {
     ZoneScoped;
     VkImageAspectFlags aspectMask{};
     aspectMask |= FormatIsColor(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
     aspectMask |= FormatIsDepth(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
     aspectMask |= FormatIsStencil(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
-    ImageBarrier(texture.Image(), oldLayout, newLayout, aspectMask);
+    ImageBarrier(texture.Image(), *texture.currentLayout, newLayout, aspectMask);
+    *texture.currentLayout = newLayout;
   }
 
   void Context::ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask) const
@@ -193,6 +194,17 @@ namespace Fvog
         },
       }),
     }));
+  }
+
+  void Context::ImageBarrierDiscard(const Texture& texture, VkImageLayout newLayout) const
+  {
+    ZoneScoped;
+    VkImageAspectFlags aspectMask{};
+    aspectMask |= FormatIsColor(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
+    aspectMask |= FormatIsDepth(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
+    aspectMask |= FormatIsStencil(texture.GetCreateInfo().format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
+    ImageBarrier(texture.Image(), VK_IMAGE_LAYOUT_UNDEFINED, newLayout, aspectMask);
+    *texture.currentLayout = newLayout;
   }
 
   void Context::BufferBarrier(const Buffer& buffer) const
@@ -235,12 +247,12 @@ namespace Fvog
     }));
   }
 
-  void Context::ClearTexture(const Texture& texture, VkImageLayout layout, const TextureClearInfo& clearInfo)
+  void Context::ClearTexture(const Texture& texture, const TextureClearInfo& clearInfo) const
   {
     ZoneScoped;
     vkCmdClearColorImage(commandBuffer_,
                          texture.Image(),
-                         layout,
+                         *texture.currentLayout,
                          Address(ClearColorValueToVk(clearInfo.color)),
                          1,
                          Address(VkImageSubresourceRange{
@@ -250,6 +262,12 @@ namespace Fvog
                            .baseArrayLayer = clearInfo.baseArrayLayer,
                            .layerCount = clearInfo.layerCount,
                          }));
+  }
+
+  void Context::TeenyBufferUpdate(Buffer& buffer, TriviallyCopyableByteSpan data, size_t offset) const
+  {
+    ZoneScoped;
+    vkCmdUpdateBuffer(commandBuffer_, buffer.Handle(), offset, data.size_bytes(), data.data());
   }
 
   void Context::BindGraphicsPipeline(const GraphicsPipeline& pipeline) const

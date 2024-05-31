@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <optional>
+#include <memory>
 
 typedef struct VmaAllocation_T* VmaAllocation;
 
@@ -164,6 +165,9 @@ namespace Fvog
       return image_;
     }
 
+    // Non-owning, becomes dangling if owning Texture is destroyed first
+    VkImageLayout* currentLayout{};
+
   private:
     Device* device_{};
     TextureViewCreateInfo createInfo_{};
@@ -213,6 +217,9 @@ namespace Fvog
     {
       return createInfo_;
     }
+
+    // TODO: Make layout per subresource and track it in the command buffer
+    std::unique_ptr<VkImageLayout> currentLayout{};
 
   private:
     Device* device_{};

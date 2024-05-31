@@ -22,13 +22,7 @@ namespace Fvog::detail
 
   bool FormatIsBlockCompressed(Format format);
 
-  struct ImageSizes
-  {
-    uint64_t size;
-    Extent3D extent;
-  };
-
-  ImageSizes BlockCompressedImageSize(Format bcFormat, uint32_t width, uint32_t height, uint32_t depth);
+  uint64_t BlockCompressedImageSize(Format bcFormat, uint32_t width, uint32_t height, uint32_t depth);
 
   // Returns the size, in bytes, of a single pixel or block (for compressed formats) of the input format
   uint32_t FormatStorageSize(Format format);

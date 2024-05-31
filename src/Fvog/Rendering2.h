@@ -79,7 +79,6 @@ namespace Fvog
   {
     //std::reference_wrapper<const TextureView> texture;
     ReferenceWrapper<const TextureView> texture;
-    VkImageLayout layout{};
     VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     ClearColorValue clearValue{};
   };
@@ -88,7 +87,6 @@ namespace Fvog
   {
     //std::reference_wrapper<const TextureView> texture;
     ReferenceWrapper<const TextureView> texture;
-    VkImageLayout layout{};
     VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
     ClearDepthStencilValue clearValue{};
   };
@@ -138,13 +136,25 @@ namespace Fvog
 
     void BeginRendering(const RenderInfo& renderInfo) const;
     void EndRendering() const;
-    void ImageBarrier(const Texture& texture, VkImageLayout oldLayout, VkImageLayout newLayout) const;
+    void ImageBarrier(const Texture& texture, VkImageLayout newLayout) const;
     void ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT) const;
+    // Image barrier from UNDEFINED (discard image contents)
+    void ImageBarrierDiscard(const Texture& texture, VkImageLayout newLayout) const;
     void BufferBarrier(const Buffer& buffer) const;
     void BufferBarrier(VkBuffer buffer) const;
+    // Everything->everything barrier
     void Barrier() const;
 
-    void ClearTexture(const Texture& texture, VkImageLayout layout, const TextureClearInfo& clearInfo);
+    void ClearTexture(const Texture& texture, const TextureClearInfo& clearInfo) const;
+
+    template<typename T>
+      requires std::is_trivially_copyable_v<T>
+    void TeenyBufferUpdate(Buffer& buffer, const T& data, size_t offset = 0) const
+    {
+      TeenyBufferUpdate(buffer, TriviallyCopyableByteSpan(data), offset);
+    }
+
+    void TeenyBufferUpdate(Buffer& buffer, TriviallyCopyableByteSpan data, size_t offset = 0) const;
 
     void BindGraphicsPipeline(const GraphicsPipeline& pipeline) const;
     void BindComputePipeline(const ComputePipeline& pipeline) const;

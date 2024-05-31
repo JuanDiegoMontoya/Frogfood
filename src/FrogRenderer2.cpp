@@ -98,7 +98,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
       .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
       .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-    }, "Nearest"),
+      .maxAnisotropy = 16,
+    }, "Linear Mipmap"),
     hzbSampler(*device_, {
       .magFilter = VK_FILTER_NEAREST,
       .minFilter = VK_FILTER_NEAREST,
@@ -502,18 +503,16 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     CullMeshletsForView(commandBuffer, mainView, "Cull Meshlets Main");
   }
 
-  ctx.ImageBarrier(*frame.visbuffer, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-  ctx.ImageBarrier(*frame.gDepth,    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.visbuffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.gDepth,    VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
   auto visbufferAttachment = Fvog::RenderColorAttachment{
     .texture = frame.visbuffer->ImageView(),
-    .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
     .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
     .clearValue = {~0u, ~0u, ~0u, ~0u},
   };
   auto visbufferDepthAttachment = Fvog::RenderDepthStencilAttachment{
     .texture = frame.gDepth->ImageView(),
-    .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
     .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
     .clearValue = {.depth = FAR_DEPTH},
   };
@@ -628,7 +627,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   // TODO: remove when descriptor indexing sync validation does not give false positives
   ctx.Barrier();
-  ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+  ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
 
   if (generateHizBuffer)
   {
@@ -660,7 +659,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       for (uint32_t level = 1; level < hzbLevels; ++level)
       {
         //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
-        ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
+        ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL);
         auto prevHzbView = frame.hzb->CreateSingleMipView(level - 1, "prevHzbMip");
         auto curHzbView = frame.hzb->CreateSingleMipView(level, "curHzbMip");
 
@@ -675,7 +674,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
         ctx.Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
       }
       //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
-      ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
+      ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL);
     }
   }
   else
@@ -686,17 +685,16 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       constexpr float farDepth = FAR_DEPTH;
       
       //frame.hzb->ClearImage({.level = level, .data = &farDepth});
-      ctx.ClearTexture(*frame.hzb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, {.color = {farDepth}, .baseMipLevel = level});
+      ctx.ClearTexture(*frame.hzb, {.color = {farDepth}, .baseMipLevel = level});
     }
   }
 
   // TODO: remove when descriptor indexing sync validation does not give false positives
   ctx.Barrier();
-  ctx.ImageBarrier(*frame.materialDepth, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.materialDepth, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
   auto materialDepthAttachment = Fvog::RenderDepthStencilAttachment{
     .texture = frame.materialDepth->ImageView(),
-    .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
     .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
     .clearValue = {.depth = 1.0f},
   };
@@ -726,42 +724,37 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   ctx.EndRendering();
 
   ctx.Barrier(); // MaterialDepth: attachment->attachment
-  ctx.ImageBarrier(*frame.gAlbedo,              VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-  ctx.ImageBarrier(*frame.gNormalAndFaceNormal, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-  ctx.ImageBarrier(*frame.gDepth,               VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-  ctx.ImageBarrier(*frame.gSmoothVertexNormal,  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-  ctx.ImageBarrier(*frame.gEmission,            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-  ctx.ImageBarrier(*frame.gMetallicRoughnessAo, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.gAlbedo,              VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.gNormalAndFaceNormal, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrier       (*frame.gDepth,               VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.gSmoothVertexNormal,  VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.gEmission,            VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.gMetallicRoughnessAo, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.gMotion,              VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
   Fvog::RenderColorAttachment gBufferAttachments[] = {
     {
       .texture = frame.gAlbedo->ImageView(),
-      .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
       .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE
     },
     {
       .texture = frame.gMetallicRoughnessAo->ImageView(),
-      .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
       .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     },
     {
       .texture = frame.gNormalAndFaceNormal->ImageView(),
-      .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
       .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     },
     {
       .texture = frame.gSmoothVertexNormal->ImageView(),
-      .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
       .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     },
     {
       .texture = frame.gEmission->ImageView(),
-      .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
       .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     },
     {
       .texture = frame.gMotion->ImageView(),
-      .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
       .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
       .clearValue = {0.f, 0.f, 0.f, 0.f},
     },
@@ -779,7 +772,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     .depthAttachment =
       Fvog::RenderDepthStencilAttachment{
         .texture = frame.materialDepth->ImageView(),
-        .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
         .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
       },
   });
@@ -862,18 +854,17 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   }
   ctx.EndRendering();
 
-  ctx.ImageBarrier(*frame.gAlbedo, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-  ctx.ImageBarrier(*frame.gNormalAndFaceNormal, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-  ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-  ctx.ImageBarrier(*frame.gSmoothVertexNormal, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-  ctx.ImageBarrier(*frame.gEmission, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-  ctx.ImageBarrier(*frame.gMetallicRoughnessAo, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-  ctx.ImageBarrier(*frame.colorHdrRenderRes, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrier(*frame.gAlbedo,                  VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+  ctx.ImageBarrier(*frame.gNormalAndFaceNormal,     VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+  ctx.ImageBarrier(*frame.gDepth,                   VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+  ctx.ImageBarrier(*frame.gSmoothVertexNormal,      VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+  ctx.ImageBarrier(*frame.gEmission,                VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+  ctx.ImageBarrier(*frame.gMetallicRoughnessAo,     VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+  ctx.ImageBarrierDiscard(*frame.colorHdrRenderRes, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
   // shading pass (full screen tri)
   auto shadingColorAttachment = Fvog::RenderColorAttachment{
     .texture = frame.colorHdrRenderRes->ImageView(),
-    .layout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
     .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
     .clearValue = {.1f, .3f, .5f, 0.0f},
   };
@@ -921,10 +912,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   };
 
   auto colorAttachments = std::vector<Fvog::RenderColorAttachment>{};
-  colorAttachments.emplace_back(frame.colorHdrRenderRes->ImageView(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_LOAD_OP_LOAD);
+  colorAttachments.emplace_back(frame.colorHdrRenderRes->ImageView(), VK_ATTACHMENT_LOAD_OP_LOAD);
   if (fsr2Enable)
   {
-    colorAttachments.emplace_back(frame.gReactiveMask->ImageView(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_ATTACHMENT_LOAD_OP_CLEAR, Fvog::ClearColorValue{0.0f});
+    colorAttachments.emplace_back(frame.gReactiveMask->ImageView(), VK_ATTACHMENT_LOAD_OP_CLEAR, Fvog::ClearColorValue{0.0f});
   }
 
   //Fwog::Render(
@@ -968,7 +959,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   {
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eAutoExposure);
-    ctx.ImageBarrier(frame.colorHdrRenderRes.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+    ctx.ImageBarrier(frame.colorHdrRenderRes.value(), VK_IMAGE_LAYOUT_GENERAL);
     autoExposure.Apply(commandBuffer, {
       .image = frame.colorHdrRenderRes.value(),
       .exposureBuffer = exposureBuffer,
@@ -1056,7 +1047,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage);
     //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::UNIFORM_BUFFER_BIT);
     ctx.Barrier();
-    ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    ctx.ImageBarrierDiscard(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_GENERAL);
 
     ctx.BindComputePipeline(tonemapPipeline);
     ctx.SetPushConstants(TonemapArguments{
@@ -1074,7 +1065,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //Fwog::Cmd::BindImage(0, frame.colorLdrWindowRes.value(), 0);
     ctx.DispatchInvocations(frame.colorLdrWindowRes.value().GetCreateInfo().extent);
     //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT); // So future samples can see changes
-    ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+    ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
   }
 
 

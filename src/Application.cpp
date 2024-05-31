@@ -283,7 +283,7 @@ Application::Application(const CreateInfo& createInfo)
     .set_app_name("Frogrenderer")
     .require_api_version(1, 3, 0)
     .set_debug_callback(vulkan_debug_callback)
-    .enable_extension("VK_EXT_debug_utils")
+    .enable_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
     .build()
     .value();
 
@@ -380,7 +380,7 @@ Application::Application(const CreateInfo& createInfo)
     .MinImageCount = swapchain_.image_count,
     .ImageCount = swapchain_.image_count,
     .UseDynamicRendering = true,
-    .ColorAttachmentFormat = swapchain_.image_format,
+    .ColorAttachmentFormat = swapchainUnormFormat,
     .CheckVkResultFn = Fvog::detail::CheckVkResult,
   };
 

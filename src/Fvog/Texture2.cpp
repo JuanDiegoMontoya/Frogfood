@@ -22,7 +22,8 @@ namespace Fvog
   }
 
   Texture::Texture(Device& device, const TextureCreateInfo& createInfo, std::string name)
-    : device_(&device),
+    : currentLayout(std::make_unique<VkImageLayout>(VK_IMAGE_LAYOUT_UNDEFINED)),
+      device_(&device),
       createInfo_(createInfo),
       name_(std::move(name))
   {
@@ -160,9 +161,7 @@ namespace Fvog
       uint64_t size;
       if (detail::FormatIsBlockCompressed(createInfo_.format))
       {
-        auto sizes = detail::BlockCompressedImageSize(createInfo_.format, extent.width, extent.height, extent.depth);
-        size = sizes.size;
-        extent = sizes.extent;
+        size = detail::BlockCompressedImageSize(createInfo_.format, extent.width, extent.height, extent.depth);
       }
       else
       {
@@ -172,7 +171,7 @@ namespace Fvog
       // TODO: account for row length and image height here
       std::memcpy(uploadBuffer.GetMappedMemory(), info.data, size);
       auto ctx = Fvog::Context(*device_, commandBuffer);
-      ctx.ImageBarrier(*this, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      ctx.ImageBarrier(*this, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
       vkCmdCopyBufferToImage2(commandBuffer, detail::Address(VkCopyBufferToImageInfo2{
         .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
@@ -194,12 +193,13 @@ namespace Fvog
           .imageExtent = extent,
         }),
       }));
-      ctx.ImageBarrier(*this, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+      ctx.ImageBarrier(*this, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
     });
   }
 
   Texture::Texture(Texture&& old) noexcept
-    : device_(std::exchange(old.device_, nullptr)),
+    : currentLayout(std::move(old.currentLayout)),
+      device_(std::exchange(old.device_, nullptr)),
       createInfo_(std::exchange(old.createInfo_, {})),
       image_(std::exchange(old.image_, VK_NULL_HANDLE)),
       textureView_(std::move(old.textureView_)),
@@ -217,7 +217,8 @@ namespace Fvog
   }
 
   TextureView::TextureView(Device& device, const Texture& texture, const TextureViewCreateInfo& createInfo, std::string name)
-    : device_(&device),
+    : currentLayout(texture.currentLayout.get()),
+      device_(&device),
       createInfo_(createInfo),
       parentCreateInfo_(texture.GetCreateInfo()),
       image_(texture.Image()),
@@ -267,7 +268,8 @@ namespace Fvog
   }
 
   TextureView::TextureView(TextureView&& old) noexcept
-    : device_(std::exchange(old.device_, nullptr)),
+    : currentLayout(std::exchange(old.currentLayout, nullptr)),
+      device_(std::exchange(old.device_, nullptr)),
       createInfo_(std::exchange(old.createInfo_, {})),
       imageView_(std::exchange(old.imageView_, VK_NULL_HANDLE)),
       sampledDescriptorInfo_(std::move(old.sampledDescriptorInfo_)),

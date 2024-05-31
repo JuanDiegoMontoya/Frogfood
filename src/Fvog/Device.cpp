@@ -54,8 +54,10 @@ namespace Fvog
       .prefer_gpu_device_type(vkb::PreferredDeviceType::discrete)
       .require_present()
       .set_surface(surface_)
+      .add_required_extension(VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)
       .set_required_features({
         .multiDrawIndirect = true,
+        .samplerAnisotropy = true,
         .textureCompressionBC = true,
         .fragmentStoresAndAtomics = true,
         .shaderStorageImageExtendedFormats = true,

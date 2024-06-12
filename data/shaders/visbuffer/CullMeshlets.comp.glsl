@@ -1,10 +1,14 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
 
-#include "../Resources.h.glsl"
+
+#define VISBUFFER_NO_PUSH_CONSTANTS
+#define VSM_NO_PUSH_CONSTANTS
+#include "CullMeshlets.h.glsl"
+
 #include "VisbufferCommon.h.glsl"
 #include "../hzb/HZBCommon.h.glsl"
-//#include "../shadows/vsm/VsmCommon.h.glsl"
+#include "../shadows/vsm/VsmCommon.h.glsl"
 
 #define ENABLE_DEBUG_DRAWING
 
@@ -223,15 +227,16 @@ layout (local_size_x = 128) in;
 void main()
 {
   const uint meshletInstanceId = gl_GlobalInvocationID.x;
-  const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
-  const uint meshletId = meshletInstance.meshletId;
 
-  if (meshletId >= d_perFrameUniforms.meshletCount)
+  if (meshletInstanceId >= d_perFrameUniforms.meshletCount)
   {
     return;
   }
 
-  if ((d_perFrameUniforms.flags & CULL_MESHLET_FRUSTUM) == 0 || CullMeshletFrustum(meshletId, d_currentView))
+  const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
+  const uint meshletId = meshletInstance.meshletId;
+
+  if ((d_perFrameUniforms.flags & CULL_MESHLET_FRUSTUM) == 0 || CullMeshletFrustum(meshletInstanceId, d_currentView))
   {
     bool isVisible = false;
     
@@ -274,7 +279,7 @@ void main()
       }
       else if (d_currentView.type == VIEW_TYPE_VIRTUAL)
       {
-        //isVisible = CullQuadVsm(minXY, maxXY, d_currentView.virtualTableIndex);
+        isVisible = CullQuadVsm(minXY, maxXY, d_currentView.virtualTableIndex);
       }
     }
 

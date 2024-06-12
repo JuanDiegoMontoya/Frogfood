@@ -131,6 +131,13 @@ namespace Fvog
       minY = std::min(minY, renderInfo.stencilAttachment->texture.get().GetTextureCreateInfo().extent.height);
     }
 
+    // If no attachments, render area should be viewport
+    if (renderInfo.colorAttachments.empty() && !renderInfo.depthAttachment && !renderInfo.stencilAttachment)
+    {
+      minX = (uint32_t)viewport.width;
+      minY = (uint32_t)viewport.height;
+    }
+
     // Infer viewport width and height from union of attachment dimensions
     if (!renderInfo.viewport.has_value())
     {

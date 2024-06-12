@@ -54,22 +54,27 @@
 
 #define NonUniformIndex nonuniformEXT
 
+#define FVOG_STORAGE_BUFFER_BINDING 0
+#define FVOG_STORAGE_IMAGE_BINDING 2
+#define FVOG_SAMPLED_IMAGE_BINDING 3
+#define FVOG_SAMPLER_BINDING 4
+
 // TODO: the bindings should come from a shared header
 #define FVOG_DECLARE_SAMPLED_IMAGES(type) \
-  layout(set = 0, binding = 3) uniform type t_sampledImages_##type[]
+  layout(set = 0, binding = FVOG_SAMPLED_IMAGE_BINDING) uniform type t_sampledImages_##type[]
 
 #define FVOG_DECLARE_SAMPLERS \
-  layout(set = 0, binding = 4) uniform sampler s_samplers[]
+  layout(set = 0, binding = FVOG_SAMPLER_BINDING) uniform sampler s_samplers[]
 
 #define FVOG_DECLARE_STORAGE_IMAGES(type) \
-  layout(set = 0, binding = 2) uniform type i_storageImages_##type[]
+  layout(set = 0, binding = FVOG_STORAGE_IMAGE_BINDING) uniform type i_storageImages_##type[]
 
 #define FVOG_DECLARE_BUFFER_REFERENCE(typename) \
   layout(buffer_reference, scalar) buffer typename
 
 // Qualifiers can be put in the block name
 #define FVOG_DECLARE_STORAGE_BUFFERS(blockname) \
-  layout(set = 0, binding = 0, std430) buffer blockname
+  layout(set = 0, binding = FVOG_STORAGE_BUFFER_BINDING, std430) buffer blockname
 
 #define FvogGetSampledImage(type, index) \
   t_sampledImages_##type[index]
@@ -83,11 +88,17 @@
 #define Fvog_sampler2D(textureIndex, samplerIndex) \
   sampler2D(FvogGetSampledImage(texture2D, textureIndex), FvogGetSampler(samplerIndex))
 
+#define Fvog_usampler2DArray(textureIndex, samplerIndex) \
+  usampler2DArray(FvogGetSampledImage(utexture2DArray, textureIndex), FvogGetSampler(samplerIndex))
+
 #define Fvog_image2D(imageIndex) \
   FvogGetStorageImage(image2D, imageIndex)
 
 #define Fvog_uimage2D(imageIndex) \
   FvogGetStorageImage(uimage2D, imageIndex)
+  
+#define Fvog_uimage2DArray(imageIndex) \
+  FvogGetStorageImage(uimage2DArray, imageIndex)
 
 #define Fvog_utexture2D(textureIndex) \
   FvogGetSampledImage(utexture2D, textureIndex)

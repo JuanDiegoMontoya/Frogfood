@@ -6,6 +6,7 @@
 
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/SPIRV/GlslangToSpv.h>
+#include <glslang/Public/ResourceLimits.h>
 
 #include <tracy/Tracy.hpp>
 
@@ -31,117 +32,6 @@ namespace Fvog
       case PipelineStage::COMPUTE_SHADER: return VK_SHADER_STAGE_COMPUTE_BIT;
       default: assert(0); return {};
       }
-    }
-
-    TBuiltInResource GetGlslangResourceLimits()
-    {
-      // TODO: populate this structure with actual device limits
-      return {
-        .maxLights = 32,
-        .maxClipPlanes = 6,
-        .maxTextureUnits = 32,
-        .maxTextureCoords = 32,
-        .maxVertexAttribs = 64,
-        .maxVertexUniformComponents = 4096,
-        .maxVaryingFloats = 64,
-        .maxVertexTextureImageUnits = 32,
-        .maxCombinedTextureImageUnits = 80,
-        .maxTextureImageUnits = 32,
-        .maxFragmentUniformComponents = 4096,
-        .maxDrawBuffers = 32,
-        .maxVertexUniformVectors = 128,
-        .maxVaryingVectors = 8,
-        .maxFragmentUniformVectors = 16,
-        .maxVertexOutputVectors = 16,
-        .maxFragmentInputVectors = 15,
-        .minProgramTexelOffset = -8,
-        .maxProgramTexelOffset = 7,
-        .maxClipDistances = 8,
-        .maxComputeWorkGroupCountX = 65535,
-        .maxComputeWorkGroupCountY = 65535,
-        .maxComputeWorkGroupCountZ = 65535,
-        .maxComputeWorkGroupSizeX = 1024,
-        .maxComputeWorkGroupSizeY = 1024,
-        .maxComputeWorkGroupSizeZ = 64,
-        .maxComputeUniformComponents = 1024,
-        .maxComputeTextureImageUnits = 16,
-        .maxComputeImageUniforms = 8,
-        .maxComputeAtomicCounters = 8,
-        .maxComputeAtomicCounterBuffers = 1,
-        .maxVaryingComponents = 60,
-        .maxVertexOutputComponents = 64,
-        .maxGeometryInputComponents = 64,
-        .maxGeometryOutputComponents = 128,
-        .maxFragmentInputComponents = 128,
-        .maxImageUnits = 8,
-        .maxCombinedImageUnitsAndFragmentOutputs = 8,
-        .maxCombinedShaderOutputResources = 8,
-        .maxImageSamples = 0,
-        .maxVertexImageUniforms = 0,
-        .maxTessControlImageUniforms = 0,
-        .maxTessEvaluationImageUniforms = 0,
-        .maxGeometryImageUniforms = 0,
-        .maxFragmentImageUniforms = 8,
-        .maxCombinedImageUniforms = 8,
-        .maxGeometryTextureImageUnits = 16,
-        .maxGeometryOutputVertices = 256,
-        .maxGeometryTotalOutputComponents = 1024,
-        .maxGeometryUniformComponents = 1024,
-        .maxGeometryVaryingComponents = 64,
-        .maxTessControlInputComponents = 128,
-        .maxTessControlOutputComponents = 128,
-        .maxTessControlTextureImageUnits = 16,
-        .maxTessControlUniformComponents = 1024,
-        .maxTessControlTotalOutputComponents = 4096,
-        .maxTessEvaluationInputComponents = 128,
-        .maxTessEvaluationOutputComponents = 128,
-        .maxTessEvaluationTextureImageUnits = 16,
-        .maxTessEvaluationUniformComponents = 1024,
-        .maxTessPatchComponents = 120,
-        .maxPatchVertices = 32,
-        .maxTessGenLevel = 64,
-        .maxViewports = 16,
-        .maxVertexAtomicCounters = 0,
-        .maxTessControlAtomicCounters = 0,
-        .maxTessEvaluationAtomicCounters = 0,
-        .maxGeometryAtomicCounters = 0,
-        .maxFragmentAtomicCounters = 8,
-        .maxCombinedAtomicCounters = 8,
-        .maxAtomicCounterBindings = 1,
-        .maxVertexAtomicCounterBuffers = 0,
-        .maxTessControlAtomicCounterBuffers = 0,
-        .maxTessEvaluationAtomicCounterBuffers = 0,
-        .maxGeometryAtomicCounterBuffers = 0,
-        .maxFragmentAtomicCounterBuffers = 1,
-        .maxCombinedAtomicCounterBuffers = 1,
-        .maxAtomicCounterBufferSize = 16384,
-        .maxTransformFeedbackBuffers = 4,
-        .maxTransformFeedbackInterleavedComponents = 64,
-        .maxCullDistances = 8,
-        .maxCombinedClipAndCullDistances = 8,
-        .maxSamples = 4,
-        .maxMeshOutputVerticesNV = 256,
-        .maxMeshOutputPrimitivesNV = 512,
-        .maxMeshWorkGroupSizeX_NV = 32,
-        .maxMeshWorkGroupSizeY_NV = 1,
-        .maxMeshWorkGroupSizeZ_NV = 1,
-        .maxTaskWorkGroupSizeX_NV = 32,
-        .maxTaskWorkGroupSizeY_NV = 1,
-        .maxTaskWorkGroupSizeZ_NV = 1,
-        .maxMeshViewCountNV = 4,
-        .limits =
-          {
-            .nonInductiveForLoops = true,
-            .whileLoops = true,
-            .doWhileLoops = true,
-            .generalUniformIndexing = true,
-            .generalAttributeMatrixVectorIndexing = true,
-            .generalVaryingIndexing = true,
-            .generalSamplerIndexing = true,
-            .generalVariableIndexing = true,
-            .generalConstantMatrixVectorIndexing = true,
-          },
-      };
     }
 
     std::string LoadFile(const std::filesystem::path& path)
@@ -240,7 +130,6 @@ namespace Fvog
     {
       ZoneScoped;
       constexpr auto compilerMessages = EShMessages(EShMessages::EShMsgSpvRules | EShMessages::EShMsgVulkanRules);
-      const auto resourceLimits = GetGlslangResourceLimits();
       const auto glslangStage = VkShaderStageToGlslang(stage);
 
       auto shader = glslang::TShader(glslangStage);
@@ -250,15 +139,19 @@ namespace Fvog
       shader.setEnvInput(glslang::EShSource::EShSourceGlsl, glslangStage, glslang::EShClient::EShClientVulkan, 460);
       shader.setEnvClient(glslang::EShClient::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_3);
       shader.setEnvTarget(glslang::EShTargetLanguage::EShTargetSpv, glslang::EShTargetLanguageVersion::EShTargetSpv_1_6);
+      shader.setPreamble("#extension GL_GOOGLE_include_directive : enable\n");
+
+      constexpr bool generateDebugInfo = true;
+      shader.setDebugInfo(generateDebugInfo);
 
       bool parseResult;
       if (includer)
       {
-        parseResult = shader.parse(&resourceLimits, 460, EProfile::ECoreProfile, false, false, compilerMessages, *includer);
+        parseResult = shader.parse(GetDefaultResources(), 460, EProfile::ECoreProfile, false, false, compilerMessages, *includer);
       }
       else
       {
-        parseResult = shader.parse(&resourceLimits, 460, EProfile::ECoreProfile, false, false, compilerMessages);
+        parseResult = shader.parse(GetDefaultResources(), 460, EProfile::ECoreProfile, false, false, compilerMessages);
       }
 
       if (!parseResult)
@@ -267,9 +160,6 @@ namespace Fvog
         // TODO: throw shader compile error
         throw std::runtime_error("rip");
       }
-
-      constexpr bool generateDebugInfo = true;
-      shader.setDebugInfo(generateDebugInfo);
 
       auto program = glslang::TProgram();
       program.addShader(&shader);

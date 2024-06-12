@@ -125,16 +125,24 @@ namespace Fvog
     }, std::move(name));
   }
 
-  TextureView Texture::CreateSingleMipView(uint32_t level, std::string name) const
+  TextureView& Texture::CreateSingleMipView(uint32_t level, std::string name)
   {
-    using namespace detail;
     ZoneScoped;
+    assert(level < singleMipViews_.size());
+
+    if (singleMipViews_[level].has_value())
+    {
+      return singleMipViews_[level].value();
+    }
+
+    using namespace detail;
     auto format = createInfo_.format;
     auto aspectFlags = VkImageAspectFlags{};
     aspectFlags |= FormatIsDepth(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
     aspectFlags |= FormatIsStencil(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
     aspectFlags |= FormatIsColor(format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
-    return TextureView(*device_, *this, {
+
+    return singleMipViews_[level].emplace(*device_, *this, TextureViewCreateInfo{
       .viewType = createInfo_.viewType,
       .format = createInfo_.format,
       .subresourceRange = VkImageSubresourceRange{

@@ -4,6 +4,7 @@
 #include "PCG.h"
 #include "techniques/Bloom.h"
 #include "techniques/AutoExposure.h"
+#include "techniques/VirtualShadowMaps.h"
 
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
@@ -15,6 +16,7 @@
 #include "Fvog/Pipeline2.h"
 
 #include "shaders/Resources.h.glsl"
+#include "shaders/ShadeDeferredPbr.h.glsl"
 
 // TODO: these structs should come from shared headers rather than copying them
 FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
@@ -84,21 +86,6 @@ FVOG_DECLARE_ARGUMENTS(TonemapArguments)
   FVOG_UINT32 outputImageIndex;
 };
 
-FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
-{
-  FVOG_UINT32 globalUniformsIndex;
-  FVOG_UINT32 shadingUniformsIndex;
-  FVOG_UINT32 shadowUniformsIndex;
-  FVOG_UINT32 lightBufferIndex;
-
-  FVOG_UINT32 gAlbedoIndex;
-  FVOG_UINT32 gNormalAndFaceNormalIndex;
-  FVOG_UINT32 gDepthIndex;
-  FVOG_UINT32 gSmoothVertexNormalIndex;
-  FVOG_UINT32 gEmissionIndex;
-  FVOG_UINT32 gMetallicRoughnessAoIndex;
-};
-
 FVOG_DECLARE_ARGUMENTS(DebugTextureArguments)
 {
   FVOG_UINT32 textureIndex;
@@ -145,11 +132,26 @@ public:
 private:
   struct ViewParams;
 
-  void OnWindowResize(uint32_t newWidth, uint32_t newHeight) override;
+  void OnFramebufferResize(uint32_t newWidth, uint32_t newHeight) override;
   void OnUpdate(double dt) override;
   void OnRender(double dt, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex) override;
-  void OnGui(double dt) override;
+  void OnGui(double dt, VkCommandBuffer commandBuffer) override;
   void OnPathDrop(std::span<const char*> paths) override;
+
+  void InitGui();
+  void GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered);
+  void GuiDrawDockspace(VkCommandBuffer commandBuffer);
+  void GuiDrawFsrWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawDebugWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawBloomWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawAutoExposureWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawCameraWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawShadowWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawViewer(VkCommandBuffer commandBuffer);
+  void GuiDrawMaterialsArray(VkCommandBuffer commandBuffer);
+  void GuiDrawPerfWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawSceneGraph(VkCommandBuffer commandBuffer);
+  void GuiDrawSceneGraphHelper(Utility::Node* node);
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, std::string_view name = "Cull Meshlet Pass");
   void MakeStaticSceneBuffers(VkCommandBuffer commandBuffer);
@@ -351,6 +353,8 @@ private:
     //std::optional<Fvog::TextureView> gEmissionSwizzled;
     //std::optional<Fvog::TextureView> gNormalSwizzled;
     //std::optional<Fvog::TextureView> gDepthSwizzled;
+
+    VkDescriptorSet colorLdrWindowResImGuiSet{};
   };
   Frame frame{};
 
@@ -405,8 +409,10 @@ private:
   Fvog::NDeviceBuffer<TonemapUniforms> tonemapUniformBuffer;
   TonemapUniforms tonemapUniforms{};
 
-  uint32_t renderWidth{};
-  uint32_t renderHeight{};
+  uint32_t renderInternalWidth{};
+  uint32_t renderInternalHeight{};
+  uint32_t renderOutputWidth{};
+  uint32_t renderOutputHeight{};
   uint32_t seed = PCG::Hash(17);
 
 #ifdef FROGRENDER_FSR2_ENABLE
@@ -447,14 +453,14 @@ private:
   float cameraNearPlane = 0.1f;
   float cameraFovyRadians = glm::radians(70.0f);
 
-  //// VSM
-  //Techniques::VirtualShadowMaps::Context vsmContext;
-  //Techniques::VirtualShadowMaps::DirectionalVirtualShadowMap vsmSun;
-  //Fwog::GraphicsPipeline vsmShadowPipeline;
-  //Fwog::TypedBuffer<uint32_t> vsmShadowUniformBuffer;
-  //Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};
-  //float vsmFirstClipmapWidth = 10.0f;
-  //float vsmDirectionalProjectionZLength = 100.0f;
+  // VSM
+  Techniques::VirtualShadowMaps::Context vsmContext;
+  Techniques::VirtualShadowMaps::DirectionalVirtualShadowMap vsmSun;
+  Fvog::GraphicsPipeline vsmShadowPipeline;
+  Fvog::TypedBuffer<uint32_t> vsmShadowUniformBuffer;
+  Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};
+  float vsmFirstClipmapWidth = 10.0f;
+  float vsmDirectionalProjectionZLength = 100.0f;
 
   //// Texture viewer
   //struct ViewerUniforms

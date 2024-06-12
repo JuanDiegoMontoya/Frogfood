@@ -168,10 +168,10 @@ private:
     uint32_t enableDithering = true;
   };
 
-  void OnWindowResize(uint32_t newWidth, uint32_t newHeight) override;
+  void OnFramebufferResize(uint32_t newWidth, uint32_t newHeight) override;
   void OnUpdate(double dt) override;
   void OnRender(double dt, VkCommandBuffer, uint32_t) override;
-  void OnGui(double dt) override;
+  void OnGui(double dt, VkCommandBuffer) override;
   void OnPathDrop(std::span<const char*> paths) override;
 
   void InitGui();
@@ -321,8 +321,8 @@ private:
   Fwog::TypedBuffer<TonemapUniforms> tonemapUniformBuffer;
   TonemapUniforms tonemapUniforms{};
 
-  uint32_t renderWidth{};
-  uint32_t renderHeight{};
+  uint32_t renderInternalWidth{};
+  uint32_t renderInternalHeight{};
   uint32_t frameIndex = 0;
   uint32_t seed = PCG::Hash(17);
 

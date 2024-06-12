@@ -1,27 +1,30 @@
 #version 460 core
-#extension GL_GOOGLE_include_directive : enable
+
+#define VISBUFFER_NO_PUSH_CONSTANTS
 #include "../visbuffer/VisbufferCommon.h.glsl"
+#include "vsm/VsmCommon.h.glsl"
 
 layout(location = 0) out vec2 v_uv;
-layout(location = 1) out uint v_meshletId;
+layout(location = 1) out uint v_materialId;
 
 void main()
 {
-  const uint meshletId = (uint(gl_VertexID) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
-  const uint primitiveId = uint(gl_VertexID) & MESHLET_PRIMITIVE_MASK;
-  const uint vertexOffset = meshlets[meshletId].vertexOffset;
-  const uint indexOffset = meshlets[meshletId].indexOffset;
-  const uint primitiveOffset = meshlets[meshletId].primitiveOffset;
-  const uint instanceId = meshlets[meshletId].instanceId;
-  const uint viewId = uint(gl_BaseInstance);
+  const uint meshletId = (uint(gl_VertexIndex) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
+  const uint primitiveId = uint(gl_VertexIndex) & MESHLET_PRIMITIVE_MASK;
+  const MeshletInstance meshletInstance = d_meshletInstances[meshletId];
+  const Meshlet meshlet = d_meshlets[meshletInstance.meshletId];
+  const uint vertexOffset = meshlet.vertexOffset;
+  const uint indexOffset = meshlet.indexOffset;
+  const uint primitiveOffset = meshlet.primitiveOffset;
+  const uint instanceId = meshletInstance.instanceId;
 
-  const uint primitive = uint(primitives[primitiveOffset + primitiveId]);
-  const uint index = indices[indexOffset + primitive];
-  const Vertex vertex = vertices[vertexOffset + index];
+  const uint primitive = uint(d_primitives[primitiveOffset + primitiveId]);
+  const uint index = d_indices[indexOffset + primitive];
+  const Vertex vertex = d_vertices[vertexOffset + index];
   const vec3 position = PackedToVec3(vertex.position);
-  const mat4 transform = transforms[instanceId].modelCurrent;
+  const mat4 transform = d_transforms[instanceId].modelCurrent;
 
-  v_meshletId = meshletId;
+  v_materialId = meshletInstance.materialId;
   v_uv = PackedToVec2(vertex.uv);
-  gl_Position = currentView.viewProj * transform * vec4(position, 1.0);
+  gl_Position = d_currentView.viewProj * transform * vec4(position, 1.0);
 }

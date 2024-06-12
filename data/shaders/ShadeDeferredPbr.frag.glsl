@@ -1,28 +1,14 @@
 #version 460 core
 
-#extension GL_GOOGLE_include_directive : enable
+#include "ShadeDeferredPbr.h.glsl"
 
 #include "Config.shared.h"
 #include "GlobalUniforms.h.glsl"
 #include "Math.h.glsl"
 #include "Pbr.h.glsl"
-//#include "shadows/vsm/VsmCommon.h.glsl"
+#define VSM_NO_PUSH_CONSTANTS
+#include "shadows/vsm/VsmCommon.h.glsl"
 #include "Utility.h.glsl"
-
-FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
-{
-  FVOG_UINT32 globalUniformsIndex;
-  FVOG_UINT32 shadingUniformsIndex;
-  FVOG_UINT32 shadowUniformsIndex;
-  FVOG_UINT32 lightBufferIndex;
-
-  FVOG_UINT32 gAlbedoIndex;
-  FVOG_UINT32 gNormalAndFaceNormalIndex;
-  FVOG_UINT32 gDepthIndex;
-  FVOG_UINT32 gSmoothVertexNormalIndex;
-  FVOG_UINT32 gEmissionIndex;
-  FVOG_UINT32 gMetallicRoughnessAoIndex;
-};
 
 #define d_perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
 
@@ -56,7 +42,7 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadingUniforms)
   uint debugFlags;
 }shadingUniformsBuffers[];
 
-#define d_shadingUniforms shadingUniformsBuffers[shadingUniformsIndex]
+#define shadingUniforms shadingUniformsBuffers[shadingUniformsIndex]
 
 //layout(binding = 2, std140) uniform ShadowUniforms
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadowUniforms)
@@ -78,7 +64,7 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadowUniforms)
   float sourceAngleRad;
 }shadowUniformsBuffers[];
 
-#define d_shadowUniforms shadowUniformsBuffers[shadowUniformsIndex]
+#define shadowUniforms shadowUniformsBuffers[shadowUniformsIndex]
 
 //layout(binding = 6, std430) readonly buffer LightBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly LightBuffer)
@@ -104,10 +90,6 @@ float GetShadowBias(vec3 N, vec3 L, float texelWidth)
 
 
 
-
-
-
-#if 0
 
 float CalcVsmShadowBias(uint clipmapLevel, vec3 faceNormal)
 {
@@ -136,7 +118,7 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
 
   const ivec2 gid = ivec2(gl_FragCoord.xy);
   const float depthSample = texelFetch(FvogGetSampledImage(texture2D, gDepthIndex), gid, 0).x;
-  PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
+  PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(FvogGetSampledImage(texture2D, gDepthIndex), 0));
 
   ret.vsmUv = addr.pageUv;
   ret.projectedDepth = addr.projectedDepth;
@@ -197,8 +179,8 @@ bool TrySampleVsmClipmap(int level, vec2 uv, vec2 worldOffset, out float depth)
 float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
 {
   const ivec2 gid = ivec2(gl_FragCoord.xy);
-  const float depthSample = texelFetch(s_gDepth, gid, 0).x;
-  const PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(s_gDepth, 0));
+  const float depthSample = texelFetch(FvogGetSampledImage(texture2D, gDepthIndex), gid, 0).x;
+  const PageAddressInfo addr = GetClipmapPageFromDepth(depthSample, gid, textureSize(FvogGetSampledImage(texture2D, gDepthIndex), 0));
 
   const float maxBias = exp2(addr.clipmapLevel) * 0.02;
   const float baseBias = min(maxBias, CalcVsmShadowBias(addr.clipmapLevel, flatNormal));
@@ -322,8 +304,6 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
   return lightVisibility / shadowUniforms.pcfSamples;
 }
 
-#endif
-
 
 
 
@@ -334,7 +314,7 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 {
   vec3 color = { 0, 0, 0 };
 
-  for (uint i = 0; i < d_shadingUniforms.numberOfLights; i++)
+  for (uint i = 0; i < shadingUniforms.numberOfLights; i++)
   {
     GpuLight light = d_lightBuffer.lights[i];
 
@@ -366,27 +346,22 @@ void main()
 
 
 
-  #if 0
 
   ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
   float shadowSun = shadowVsm.shadow;
   shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal);
 
-  #else
 
-  float shadowSun = 1;
-
-  #endif
 
 
 
 
   vec3 normal = mappedNormal;
 
-  if ((d_shadingUniforms.debugFlags & BLEND_NORMALS) != 0)
+  if ((shadingUniforms.debugFlags & BLEND_NORMALS) != 0)
   {
     // https://marmosetco.tumblr.com/post/81245981087
-    const float NoL_sun_flat = dot(smoothNormal, -d_shadingUniforms.sunDir.xyz);
+    const float NoL_sun_flat = dot(smoothNormal, -shadingUniforms.sunDir.xyz);
     float horiz = 1.0 - NoL_sun_flat;
     horiz *= horiz;
     normal = normalize(mix(mappedNormal, smoothNormal, clamp(horiz, 0.0, 1.0)));
@@ -408,15 +383,14 @@ void main()
 
   vec3 finalColor = vec3(.03) * albedo * metallicRoughnessAo.z; // Ambient lighting
 
-  float NoL_sun = clamp(dot(normal, -d_shadingUniforms.sunDir.xyz), 0.0, 1.0);
-  finalColor += BRDF(viewDir, -d_shadingUniforms.sunDir.xyz, surface) * d_shadingUniforms.sunStrength.rgb * NoL_sun * shadowSun;
+  float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
+  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * shadingUniforms.sunStrength.rgb * NoL_sun * shadowSun;
   finalColor += LocalLightIntensity(viewDir, surface);
   finalColor += emission;
 
   o_color = finalColor;
 
 
-  #if 0
 
   // Disco view (hashed physical address or clipmap level)
   if (GetIsPageVisible(shadowVsm.pageData))
@@ -461,7 +435,6 @@ void main()
     }
   }
 
-  #endif
 
 
 

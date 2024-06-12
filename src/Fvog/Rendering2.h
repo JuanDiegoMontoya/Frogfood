@@ -170,6 +170,13 @@ namespace Fvog
 
     void BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const;
 
+    template<typename T>
+      requires std::is_trivially_copyable_v<T>
+    void SetPushConstants(const T& data, uint32_t offset = 0) const
+    {
+      SetPushConstants(TriviallyCopyableByteSpan(data), offset);
+    }
+
     void SetPushConstants(TriviallyCopyableByteSpan values, uint32_t offset = 0) const;
 
     ScopedDebugMarker MakeScopedDebugMarker(const char* message, std::array<float, 4> color = {1, 1, 1, 1}) const;

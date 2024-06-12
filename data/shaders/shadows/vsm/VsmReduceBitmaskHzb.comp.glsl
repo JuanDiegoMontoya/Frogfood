@@ -6,13 +6,9 @@
 #include "../../GlobalUniforms.h.glsl"
 #include "VsmCommon.h.glsl"
 
-layout(binding = 2, r8ui) uniform restrict readonly uimage2DArray i_srcVsmBitmaskHzb;
-layout(binding = 3, r8ui) uniform restrict writeonly uimage2DArray i_dstVsmBitmaskHzb;
-
-layout(binding = 7, std140) uniform VsmReduceUniforms
-{
-  int currentPass;
-};
+FVOG_DECLARE_STORAGE_IMAGES(uimage2DArray);
+#define i_srcVsmBitmaskHzb Fvog_uimage2DArray(srcVsmBitmaskHzbIndex)
+#define i_dstVsmBitmaskHzb Fvog_uimage2DArray(dstVsmBitmaskHzbIndex)
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 void main()

@@ -1,18 +1,20 @@
-﻿#include "FrogRenderer.h"
+﻿#include "FrogRenderer2.h"
 
-#include <Fwog/Rendering.h>
+#include <Fvog/Rendering2.h>
 
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <implot.h>
+#include <imgui_impl_vulkan.h>
 
-#include FWOG_OPENGL_HEADER
+#include "vulkan/vulkan_core.h"
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <string>
 #include <stack>
+#include <unordered_map>
 
 #include <fastgltf/util.hpp>
 
@@ -50,7 +52,7 @@ namespace
   }
 }
 
-void FrogRenderer::InitGui()
+void FrogRenderer2::InitGui()
 {
   // Attempt to load default layout, if it exists
   if (std::filesystem::exists(g_defaultIniPath) && !std::filesystem::is_directory(g_defaultIniPath))
@@ -85,6 +87,8 @@ void FrogRenderer::InitGui()
     icons_config.GlyphOffset.y = 4; // Hack to realign the icons
     ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_MD, iconFontSize, &icons_config, icons_ranges);
   }
+
+  ImGui_ImplVulkan_CreateFontsTexture();
 
   ImGui::StyleColorsDark();
 
@@ -149,7 +153,7 @@ void FrogRenderer::InitGui()
   style.WindowMenuButtonPosition = ImGuiDir_None;
 }
 
-void FrogRenderer::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
+void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
 {
   bool magnifierLock = true;
 
@@ -208,16 +212,17 @@ void FrogRenderer::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 v
     glm::vec2 uv0{mp - magnifierHalfExtentUv};
     glm::vec2 uv1{mp + magnifierHalfExtentUv};
 
-    glTextureParameteri(frame.colorLdrWindowRes.value().Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())),
-                 magnifierSize,
-                 ImVec2(uv0.x, uv0.y),
-                 ImVec2(uv1.x, uv1.y));
+    // TODO
+    //glTextureParameteri(frame.colorLdrWindowRes.value().Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())),
+    //             magnifierSize,
+    //             ImVec2(uv0.x, uv0.y),
+    //             ImVec2(uv1.x, uv1.y));
   }
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawDockspace()
+void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
 {
   ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->Pos);
@@ -269,14 +274,15 @@ void FrogRenderer::GuiDrawDockspace()
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawFsrWindow()
+void FrogRenderer2::GuiDrawFsrWindow(VkCommandBuffer)
 {
   if (ImGui::Begin(ICON_MD_STAR " FSR 2###fsr2_window"))
   {
 #ifdef FROGRENDER_FSR2_ENABLE
     if (fsr2Enable)
     {
-      ImGui::Text("Performance: %f ms", fsr2Performance);
+      // TODO
+      //ImGui::Text("Performance: %f ms", fsr2Performance);
     }
     else
     {
@@ -326,14 +332,18 @@ void FrogRenderer::GuiDrawFsrWindow()
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawDebugWindow()
+void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
 {
   if (ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window"))
   {
-    if (ImGui::Checkbox("Enable Vsync", &vsyncEnabled))
+    const auto items = std::array{"Immediate", "Mailbox", "FIFO"};
+    auto pMode = static_cast<int>(presentMode);
+    if (ImGui::Combo("Present Mode", &pMode, items.data(), (int)items.size()))
     {
-      glfwSwapInterval(vsyncEnabled ? 1 : 0);
+      shouldRemakeSwapchainNextFrame = true;
+      presentMode = static_cast<VkPresentModeKHR>(pMode);
     }
+
     ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
     ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
     ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
@@ -381,33 +391,34 @@ void FrogRenderer::GuiDrawDebugWindow()
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawBloomWindow()
+void FrogRenderer2::GuiDrawBloomWindow(VkCommandBuffer)
 {
   if (ImGui::Begin(ICON_MD_CAMERA " Bloom###bloom_window"))
   {
-    ImGui::Checkbox("Enable", &bloomEnable);
+    // TODO
+    //ImGui::Checkbox("Enable", &bloomEnable);
 
-    if (!bloomEnable)
-    {
-      ImGui::BeginDisabled();
-    }
+    //if (!bloomEnable)
+    //{
+    //  ImGui::BeginDisabled();
+    //}
 
-    constexpr uint32_t zero = 0;
-    constexpr uint32_t eight = 8;
-    ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
-    ImGui::SliderFloat("Strength", &bloomStrength, 0, 1, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Upscale Width", &bloomWidth, 0, 2);
-    ImGui::Checkbox("Use Low-Pass Filter", &bloomUseLowPassFilter);
+    //constexpr uint32_t zero = 0;
+    //constexpr uint32_t eight = 8;
+    //ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
+    //ImGui::SliderFloat("Strength", &bloomStrength, 0, 1, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+    //ImGui::SliderFloat("Upscale Width", &bloomWidth, 0, 2);
+    //ImGui::Checkbox("Use Low-Pass Filter", &bloomUseLowPassFilter);
 
-    if (!bloomEnable)
-    {
-      ImGui::EndDisabled();
-    }
+    //if (!bloomEnable)
+    //{
+    //  ImGui::EndDisabled();
+    //}
   }
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawAutoExposureWindow()
+void FrogRenderer2::GuiDrawAutoExposureWindow(VkCommandBuffer)
 {
   if (ImGui::Begin(ICON_MD_BRIGHTNESS_AUTO " Auto Exposure###auto_exposure_window"))
   {
@@ -420,7 +431,7 @@ void FrogRenderer::GuiDrawAutoExposureWindow()
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawCameraWindow()
+void FrogRenderer2::GuiDrawCameraWindow(VkCommandBuffer)
 {
   if (ImGui::Begin(ICON_FA_CAMERA " Camera###camera_window"))
   {
@@ -438,7 +449,7 @@ void FrogRenderer::GuiDrawCameraWindow()
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawShadowWindow()
+void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
 {
   // TODO: pick icon for this window
   if (ImGui::Begin(" Shadow"))
@@ -448,12 +459,12 @@ void FrogRenderer::GuiDrawShadowWindow()
 
     if (ImGui::SliderFloat("First Clipmap Width", &vsmFirstClipmapWidth, 1.0f, 100.0f))
     {
-      vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+      vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
     }
 
     if (ImGui::SliderFloat("Projection Z Length", &vsmDirectionalProjectionZLength, 1.0f, 3000.0f, "%.2f", ImGuiSliderFlags_Logarithmic))
     {
-      vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+      vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
     }
     
     ImGui_FlagCheckbox("Disable HPB", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS);
@@ -464,94 +475,95 @@ void FrogRenderer::GuiDrawShadowWindow()
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawViewer()
+void FrogRenderer2::GuiDrawViewer(VkCommandBuffer)
 {
   // TODO: pick icon for this window (eye?)
   if (ImGui::Begin("Texture Viewer##viewer_window"))
   {
-    bool selectedTex = false;
+    // TODO
+    //bool selectedTex = false;
 
-    struct TexInfo
-    {
-      bool operator==(const TexInfo&) const noexcept = default;
-      std::string name;
-      Fwog::GraphicsPipeline* pipeline;
-    };
-    auto map = std::unordered_map<const Fwog::Texture*, TexInfo>();
-    map[nullptr] = {"None", nullptr};
-    map[&vsmContext.pageTables_] = {"VSM Page Tables", &viewerVsmPageTablesPipeline};
-    map[&vsmContext.physicalPages_] = {"VSM Physical Pages", &viewerVsmPhysicalPagesPipeline};
-    map[&vsmContext.vsmBitmaskHzb_] = {"VSM Bitmask HZB", &viewerVsmBitmaskHzbPipeline};
+    //struct TexInfo
+    //{
+    //  bool operator==(const TexInfo&) const noexcept = default;
+    //  std::string name;
+    //  Fwog::GraphicsPipeline* pipeline;
+    //};
+    //auto map = std::unordered_map<const Fwog::Texture*, TexInfo>();
+    //map[nullptr] = {"None", nullptr};
+    //map[&vsmContext.pageTables_] = {"VSM Page Tables", &viewerVsmPageTablesPipeline};
+    //map[&vsmContext.physicalPages_] = {"VSM Physical Pages", &viewerVsmPhysicalPagesPipeline};
+    //map[&vsmContext.vsmBitmaskHzb_] = {"VSM Bitmask HZB", &viewerVsmBitmaskHzbPipeline};
 
-    if (ImGui::BeginCombo("Texture", map.find(viewerCurrentTexture)->second.name.c_str()))
-    {
-      if (ImGui::Selectable(map[nullptr].name.c_str()))
-      {
-        viewerCurrentTexture = nullptr;
-      }
-      if (ImGui::Selectable(map[&vsmContext.pageTables_].name.c_str()))
-      {
-        viewerCurrentTexture = &vsmContext.pageTables_;
-        selectedTex = true;
-      }
-      if (ImGui::Selectable(map[&vsmContext.physicalPages_].name.c_str()))
-      {
-        viewerCurrentTexture = &vsmContext.physicalPages_;
-        selectedTex = true;
-      }
-      if (ImGui::Selectable(map[&vsmContext.vsmBitmaskHzb_].name.c_str()))
-      {
-        viewerCurrentTexture = &vsmContext.vsmBitmaskHzb_;
-        selectedTex = true;
-      }
+    //if (ImGui::BeginCombo("Texture", map.find(viewerCurrentTexture)->second.name.c_str()))
+    //{
+    //  if (ImGui::Selectable(map[nullptr].name.c_str()))
+    //  {
+    //    viewerCurrentTexture = nullptr;
+    //  }
+    //  if (ImGui::Selectable(map[&vsmContext.pageTables_].name.c_str()))
+    //  {
+    //    viewerCurrentTexture = &vsmContext.pageTables_;
+    //    selectedTex = true;
+    //  }
+    //  if (ImGui::Selectable(map[&vsmContext.physicalPages_].name.c_str()))
+    //  {
+    //    viewerCurrentTexture = &vsmContext.physicalPages_;
+    //    selectedTex = true;
+    //  }
+    //  if (ImGui::Selectable(map[&vsmContext.vsmBitmaskHzb_].name.c_str()))
+    //  {
+    //    viewerCurrentTexture = &vsmContext.vsmBitmaskHzb_;
+    //    selectedTex = true;
+    //  }
 
-      ImGui::EndCombo();
-    }
+    //  ImGui::EndCombo();
+    //}
 
-    if (selectedTex)
-    {
-      viewerOutputTexture = Fwog::CreateTexture2D({viewerCurrentTexture->Extent().width, viewerCurrentTexture->Extent().height}, Fwog::Format::R8G8B8A8_UNORM);
-      glTextureParameteri(viewerOutputTexture->Handle(), GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-      glTextureParameteri(viewerOutputTexture->Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    }
-    
-    if (viewerOutputTexture && viewerCurrentTexture)
-    {
-      ImGui::SliderInt("Layer", &viewerUniforms.texLayer, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().arrayLayers - 1));
-      ImGui::SliderInt("Level", &viewerUniforms.texLevel, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().mipLevels - 1));
+    //if (selectedTex)
+    //{
+    //  viewerOutputTexture = Fwog::CreateTexture2D({viewerCurrentTexture->Extent().width, viewerCurrentTexture->Extent().height}, Fwog::Format::R8G8B8A8_UNORM);
+    //  glTextureParameteri(viewerOutputTexture->Handle(), GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    //  glTextureParameteri(viewerOutputTexture->Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    //}
+    //
+    //if (viewerOutputTexture && viewerCurrentTexture)
+    //{
+    //  ImGui::SliderInt("Layer", &viewerUniforms.texLayer, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().arrayLayers - 1));
+    //  ImGui::SliderInt("Level", &viewerUniforms.texLevel, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().mipLevels - 1));
 
-      viewerUniformsBuffer.UpdateData(viewerUniforms);
+    //  viewerUniformsBuffer.UpdateData(viewerUniforms);
 
-      auto attachment = Fwog::RenderColorAttachment{
-        .texture = viewerOutputTexture.value(),
-        .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-      };
-      Fwog::Render(
-        {
-          .name = "Texture Viewer",
-          .colorAttachments = {&attachment, 1},
-        },
-        [&]
-        {
-          Fwog::Cmd::BindGraphicsPipeline(*map.find(viewerCurrentTexture)->second.pipeline);
-          Fwog::Cmd::BindSampledImage(0,
-                                      *viewerCurrentTexture,
-                                      Fwog::Sampler(Fwog::SamplerState{
-                                        .minFilter = Fwog::Filter::NEAREST,
-                                        .magFilter = Fwog::Filter::NEAREST,
-                                        .mipmapFilter = Fwog::Filter::NEAREST,
-                                      }));
-          Fwog::Cmd::BindUniformBuffer(0, viewerUniformsBuffer);
-          Fwog::Cmd::Draw(3, 1, 0, 0);
-        });
+    //  auto attachment = Fwog::RenderColorAttachment{
+    //    .texture = viewerOutputTexture.value(),
+    //    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
+    //  };
+    //  Fwog::Render(
+    //    {
+    //      .name = "Texture Viewer",
+    //      .colorAttachments = {&attachment, 1},
+    //    },
+    //    [&]
+    //    {
+    //      Fwog::Cmd::BindGraphicsPipeline(*map.find(viewerCurrentTexture)->second.pipeline);
+    //      Fwog::Cmd::BindSampledImage(0,
+    //                                  *viewerCurrentTexture,
+    //                                  Fwog::Sampler(Fwog::SamplerState{
+    //                                    .minFilter = Fwog::Filter::NEAREST,
+    //                                    .magFilter = Fwog::Filter::NEAREST,
+    //                                    .mipmapFilter = Fwog::Filter::NEAREST,
+    //                                  }));
+    //      Fwog::Cmd::BindUniformBuffer(0, viewerUniformsBuffer);
+    //      Fwog::Cmd::Draw(3, 1, 0, 0);
+    //    });
 
-      ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(viewerOutputTexture.value().Handle())), ImGui::GetContentRegionAvail(), {0, 1}, {1, 0});
-    }
+    //  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(viewerOutputTexture.value().Handle())), ImGui::GetContentRegionAvail(), {0, 1}, {1, 0});
+    //}
   }
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawMaterialsArray()
+void FrogRenderer2::GuiDrawMaterialsArray(VkCommandBuffer)
 {
   if (ImGui::Begin(" Materials##materials_window"))
   {
@@ -578,30 +590,31 @@ void FrogRenderer::GuiDrawMaterialsArray()
   ImGui::End();
 }
 
-void FrogRenderer::GuiDrawPerfWindow()
+void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
 {
   if (ImGui::Begin("Perf##perf_window", nullptr, 0))
   {
-    for (size_t groupIdx = 0; const auto& statGroup : statGroups)
-    {
-      if (ImPlot::BeginPlot(statGroup.groupName, ImVec2(-1, 250)))
-      {
-        ImPlot::SetupAxes(nullptr, nullptr, 0, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_RangeFit);
-        ImPlot::SetupAxisFormat(ImAxis_X1, "%g s");
-        ImPlot::SetupAxisFormat(ImAxis_Y1, "%g ms");
-        ImPlot::SetupAxisLimits(ImAxis_X1, accumTime - 5.0, accumTime, ImGuiCond_Always);
-        ImPlot::SetupLegend(ImPlotLocation_NorthWest, ImPlotLegendFlags_Outside);
+    // TODO
+    //for (size_t groupIdx = 0; const auto& statGroup : statGroups)
+    //{
+    //  if (ImPlot::BeginPlot(statGroup.groupName, ImVec2(-1, 250)))
+    //  {
+    //    ImPlot::SetupAxes(nullptr, nullptr, 0, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_RangeFit);
+    //    ImPlot::SetupAxisFormat(ImAxis_X1, "%g s");
+    //    ImPlot::SetupAxisFormat(ImAxis_Y1, "%g ms");
+    //    ImPlot::SetupAxisLimits(ImAxis_X1, accumTime - 5.0, accumTime, ImGuiCond_Always);
+    //    ImPlot::SetupLegend(ImPlotLocation_NorthWest, ImPlotLegendFlags_Outside);
 
-        for (size_t statIdx = 0; const auto& stat : stats[groupIdx])
-        {
-          ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 1.0f);
-          ImPlot::PlotLine(statGroup.statNames[statIdx], accumTimes.data.get(), stat.timings.data.get(), (int)stat.timings.size, 0, (int)stat.timings.offset, sizeof(double));
-          statIdx++;
-        }
-        ImPlot::EndPlot();
-      }
-      groupIdx++;
-    }
+    //    for (size_t statIdx = 0; const auto& stat : stats[groupIdx])
+    //    {
+    //      ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 1.0f);
+    //      ImPlot::PlotLine(statGroup.statNames[statIdx], accumTimes.data.get(), stat.timings.data.get(), (int)stat.timings.size, 0, (int)stat.timings.offset, sizeof(double));
+    //      statIdx++;
+    //    }
+    //    ImPlot::EndPlot();
+    //  }
+    //  groupIdx++;
+    //}
   }
   ImGui::End();
 }
@@ -684,7 +697,7 @@ void TraverseLight(std::optional<Utility::GpuLight>& lightOpt)
   }
 }
 
-void FrogRenderer::GuiDrawSceneGraphHelper(Utility::Node* node)
+void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
 {
   ImGui::PushID(static_cast<int>(std::hash<const void*>{}(node)));
   const bool isTreeNodeOpen = ImGui::TreeNode("", "%s", node->name.c_str());
@@ -715,7 +728,7 @@ void FrogRenderer::GuiDrawSceneGraphHelper(Utility::Node* node)
   ImGui::PopID();
 }
 
-void FrogRenderer::GuiDrawSceneGraph()
+void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
 {
   if (ImGui::Begin("Scene Graph##scene_graph_window"))
   {
@@ -727,7 +740,7 @@ void FrogRenderer::GuiDrawSceneGraph()
   ImGui::End();
 }
 
-void FrogRenderer::OnGui(double dt)
+void FrogRenderer2::OnGui(double dt, VkCommandBuffer commandBuffer)
 {
   if (ImGui::GetKeyPressedAmount(ImGuiKey_F1, 10000, 1))
   {
@@ -739,12 +752,12 @@ void FrogRenderer::OnGui(double dt)
     return;
   }
 
-  GuiDrawDockspace();
+  GuiDrawDockspace(commandBuffer);
 
   //ImGui::ShowDemoWindow();
   //ImPlot::ShowDemoWindow();
 
-  GuiDrawFsrWindow();
+  GuiDrawFsrWindow(commandBuffer);
 
   ImGui::Begin("glTF Viewer");
   ImGui::Text("Framerate: %.0f Hertz", 1 / dt);
@@ -755,6 +768,7 @@ void FrogRenderer::OnGui(double dt)
   ImGui::Text("Primitives: %llu", scene.primitives.size());
   ImGui::Text("Lights: %llu", sceneFlattened.lights.size());
   ImGui::Text("Materials: %llu", scene.materials.size());
+  ImGui::Text("Camera: %.2f, %.2f, %.2f", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
 
   if (ImGui::Checkbox("Use GUI viewport size", &useGuiViewportSizeForRendering))
   {
@@ -762,8 +776,8 @@ void FrogRenderer::OnGui(double dt)
     {
       int x, y;
       glfwGetFramebufferSize(window, &x, &y);
-      windowWidth = static_cast<uint32_t>(x);
-      windowHeight = static_cast<uint32_t>(y);
+      renderOutputWidth = static_cast<uint32_t>(x);
+      renderOutputHeight = static_cast<uint32_t>(y);
       shouldResizeNextFrame = true;
     }
   }
@@ -777,7 +791,7 @@ void FrogRenderer::OnGui(double dt)
   sunRotated |= ImGui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
   if (sunRotated)
   {
-    vsmSun.UpdateExpensive(mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+    vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
   }
 
   ImGui::ColorEdit3("Sun Color", &sunColor[0], ImGuiColorEditFlags_Float);
@@ -816,17 +830,18 @@ void FrogRenderer::OnGui(double dt)
   ImGui::BeginTabBar("tabbed");
   if (ImGui::BeginTabItem("G-Buffers"))
   {
-    float aspect = float(renderWidth) / renderHeight;
+    // TODO
+    //float aspect = float(renderInternalWidth) / renderInternalHeight;
 
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedoSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
-    ImGui::SameLine();
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gNormalSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedoSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    //ImGui::SameLine();
+    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gNormalSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
 
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gRoughnessMetallicAoSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
-    ImGui::SameLine();
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gEmissionSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gRoughnessMetallicAoSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    //ImGui::SameLine();
+    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gEmissionSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
 
-    ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gDepthSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gDepthSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
 
     ImGui::EndTabItem();
   }
@@ -839,13 +854,14 @@ void FrogRenderer::OnGui(double dt)
   ImGui::Begin(ICON_MD_BRUSH " Viewport###viewport_window", nullptr, viewportFlags);
 
   const auto viewportContentSize = ImGui::GetContentRegionAvail();
+  //ImGui::Text("stinky");
 
   if (useGuiViewportSizeForRendering)
   {
-    if (viewportContentSize.x != windowWidth || viewportContentSize.y != windowHeight)
+    if (viewportContentSize.x != renderOutputWidth || viewportContentSize.y != renderOutputHeight)
     {
-      windowWidth = (uint32_t)viewportContentSize.x;
-      windowHeight = (uint32_t)viewportContentSize.y;
+      renderOutputWidth = (uint32_t)viewportContentSize.x;
+      renderOutputHeight = (uint32_t)viewportContentSize.y;
       shouldResizeNextFrame = true;
     }
   }
@@ -861,7 +877,7 @@ void FrogRenderer::OnGui(double dt)
 
   aspectRatio = viewportContentSize.x / viewportContentSize.y;
 
-  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())), viewportContentSize, {0, 1}, {1, 0});
+  ImGui::Image((ImTextureID)frame.colorLdrWindowResImGuiSet, viewportContentSize);
 
   const bool viewportIsHovered = ImGui::IsItemHovered();
 
@@ -869,13 +885,13 @@ void FrogRenderer::OnGui(double dt)
   ImGui::PopStyleVar();
 
   GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y}, viewportIsHovered);
-  GuiDrawDebugWindow();
-  GuiDrawBloomWindow();
-  GuiDrawAutoExposureWindow();
-  GuiDrawCameraWindow();
-  GuiDrawShadowWindow();
-  GuiDrawViewer();
-  GuiDrawMaterialsArray();
-  GuiDrawPerfWindow();
-  GuiDrawSceneGraph();
+  GuiDrawDebugWindow(commandBuffer);
+  GuiDrawBloomWindow(commandBuffer);
+  GuiDrawAutoExposureWindow(commandBuffer);
+  GuiDrawCameraWindow(commandBuffer);
+  GuiDrawShadowWindow(commandBuffer);
+  GuiDrawViewer(commandBuffer);
+  GuiDrawMaterialsArray(commandBuffer);
+  GuiDrawPerfWindow(commandBuffer);
+  GuiDrawSceneGraph(commandBuffer);
 }

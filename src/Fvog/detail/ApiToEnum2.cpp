@@ -8,12 +8,12 @@ namespace Fvog::detail
   {
     switch (viewType)
     {
-    case VK_IMAGE_VIEW_TYPE_1D: return VK_IMAGE_TYPE_1D;
     case VK_IMAGE_VIEW_TYPE_1D_ARRAY:
+    case VK_IMAGE_VIEW_TYPE_1D: return VK_IMAGE_TYPE_1D;
     case VK_IMAGE_VIEW_TYPE_CUBE:
     case VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:
-    case VK_IMAGE_VIEW_TYPE_2D: return VK_IMAGE_TYPE_2D;
     case VK_IMAGE_VIEW_TYPE_2D_ARRAY:
+    case VK_IMAGE_VIEW_TYPE_2D: return VK_IMAGE_TYPE_2D;
     case VK_IMAGE_VIEW_TYPE_3D: return VK_IMAGE_TYPE_3D;
     default: assert(0); return {};
     }

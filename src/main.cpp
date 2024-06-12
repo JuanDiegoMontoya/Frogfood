@@ -45,7 +45,7 @@
  * [X] Render into an ImGui window
  * [X] Install a font + header from here: https://github.com/juliettef/IconFontCppHeaders
  * [ ] Figure out an epic layout
- * [ ] Config file so stuff doesn't reset every time
+ * [X] Config file so stuff doesn't reset every time
  * [ ] Model browser
  * [ ] Command console
  *
@@ -53,7 +53,7 @@
  * [ ] Meshlet color view
  * [ ] Meshlet HZB LoD view
  * [ ] Frustum visualization for other views
- * [ ] Texture viewer (basically the one from RenderDoc):
+ * [/] Texture viewer (basically the one from RenderDoc):
  *   [ ] Register textures to list of viewable textures in GUI (perhaps just a vector of Texture*)
  *   [ ] Selector for range of displayable values
  *   [ ] Toggles for visible channels
@@ -82,7 +82,6 @@ int main()
   
   auto app = FrogRenderer2({
     .name = "FrogRender",
-    .vsync = true,
   });
   app.Run();
 

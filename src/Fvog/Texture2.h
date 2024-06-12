@@ -5,6 +5,7 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include <array>
 #include <string>
 #include <string_view>
 #include <optional>
@@ -190,7 +191,9 @@ namespace Fvog
     ~Texture();
 
     [[nodiscard]] TextureView CreateFormatView(Format format, std::string name = {}) const;
-    [[nodiscard]] TextureView CreateSingleMipView(uint32_t level, std::string name = {}) const;
+
+    // Returns a cached view of a single mip
+    [[nodiscard]] TextureView& CreateSingleMipView(uint32_t level, std::string name = {});
 
     /// @brief Updates a subresource of the image
     /// @param info The subresource and data to upload
@@ -226,6 +229,7 @@ namespace Fvog
     TextureCreateInfo createInfo_{};
     VkImage image_{};
     std::optional<TextureView> textureView_;
+    std::array<std::optional<TextureView>, 14> singleMipViews_;
     VmaAllocation allocation_{};
     std::string name_;
   };

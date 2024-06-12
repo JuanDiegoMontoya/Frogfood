@@ -1,10 +1,13 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
 
+#define VISBUFFER_NO_PUSH_CONSTANTS
+#define VSM_NO_PUSH_CONSTANTS
+#include "CullMeshlets.h.glsl"
 #include "VisbufferCommon.h.glsl"
 #include "../Math.h.glsl"
 #include "../debug/DebugCommon.h.glsl"
-//#include "../shadows/vsm/VsmCommon.h.glsl"
+#include "../shadows/vsm/VsmCommon.h.glsl"
 
 //layout(std430, binding = 9) restrict buffer MeshletVisbilityBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletVisbilityBuffer)
@@ -183,13 +186,13 @@ bool CullTriangle(Meshlet meshlet, uint localId)
   
   if ((d_perFrameUniforms.flags & CULL_PRIMITIVE_VSM) != 0)
   {
-    // if (d_currentView.type == VIEW_TYPE_VIRTUAL)
-    // {
-    //   if (!CullQuadVsm(bboxNdcMin * 0.5 + 0.5, bboxNdcMax * 0.5 + 0.5, d_currentView.virtualTableIndex))
-    //   {
-    //     return false;
-    //   }
-    // }
+     if (d_currentView.type == VIEW_TYPE_VIRTUAL)
+     {
+       if (!CullQuadVsm(bboxNdcMin * 0.5 + 0.5, bboxNdcMax * 0.5 + 0.5, d_currentView.virtualTableIndex))
+       {
+         return false;
+       }
+     }
   }
 
   return true;

@@ -1,7 +1,11 @@
 #pragma once
-#include <Fwog/Buffer.h>
-#include <Fwog/Pipeline.h>
-#include <Fwog/Texture.h>
+#include "Fvog/Buffer2.h"
+#include "Fvog/Pipeline2.h"
+#include "Fvog/Texture2.h"
+
+#include "shaders/shadows/vsm/VsmCommon.h.glsl"
+
+#include <vulkan/vulkan_core.h>
 
 #include <array>
 #include <cmath>
@@ -10,6 +14,11 @@
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
+
+namespace Fvog
+{
+  class Device;
+}
 
 namespace Techniques::VirtualShadowMaps
 {
@@ -33,11 +42,11 @@ namespace Techniques::VirtualShadowMaps
     struct CreateInfo
     {
       uint32_t maxVsms{};
-      Fwog::Extent2D pageSize{};
+      Fvog::Extent2D pageSize{};
       uint32_t numPages{};
     };
 
-    explicit Context(const CreateInfo& createInfo);
+    explicit Context(Fvog::Device& device, const CreateInfo& createInfo);
 
     struct VsmGlobalUniforms
     {
@@ -46,22 +55,26 @@ namespace Techniques::VirtualShadowMaps
       char _padding[8]{};
     };
 
-    void UpdateUniforms(const VsmGlobalUniforms& uniforms);
+    void UpdateUniforms(VkCommandBuffer cmd, const VsmGlobalUniforms& uniforms);
 
     /// TABLE MAPPINGS
     // If there is a free layer, returns its index, otherwise returns nothing
     [[nodiscard]] std::optional<uint32_t> AllocateLayer();
     void FreeLayer(uint32_t layerIndex);
-    void ResetPageVisibility();
+    void ResetPageVisibility(VkCommandBuffer cmd);
 
-    void FreeNonVisiblePages();
+    void FreeNonVisiblePages(VkCommandBuffer cmd);
 
     /// ALLOCATOR
-    void AllocateRequestedPages();
+    void AllocateRequestedPages(VkCommandBuffer cmd);
 
-    void ClearDirtyPages();
+    void ClearDirtyPages(VkCommandBuffer cmd);
 
-    void BindResourcesForCulling();
+    //void BindResourcesForCulling(VkCommandBuffer cmd);
+
+    VsmPushConstants GetPushConstants();
+
+    Fvog::Device* device_{};
 
   private:
     friend class DirectionalVirtualShadowMap;
@@ -80,27 +93,27 @@ namespace Techniques::VirtualShadowMaps
     // Bits 3-15: reserved
     // Bits 16-31: page address from 0 to 2^16-1
   public:
-    Fwog::Texture pageTables_;
+    Fvog::Texture pageTables_;
   private:
 
   public:
-    Fwog::Texture vsmBitmaskHzb_;
+    Fvog::Texture vsmBitmaskHzb_;
     // Physical memory used to back various VSMs
-    Fwog::Texture physicalPages_;
-    Fwog::TextureView physicalPagesUint_; // For doing atomic ops
+    Fvog::Texture physicalPages_;
+    Fvog::TextureView physicalPagesUint_; // For doing atomic ops
   private:
 
     // Bitmask indicating whether each page is visible this frame
     // Only non-visible pages should be evicted
-    Fwog::Buffer visiblePagesBitmask_;
+    Fvog::Buffer visiblePagesBitmask_;
 
     // Min-2-tree with the time (frame number) that each page was last seen
     // TODO: upgrade to a subgroup-optimized tree to speed up traversal, if needed
-    Fwog::Buffer pageVisibleTimeTree_;
+    Fvog::Buffer pageVisibleTimeTree_;
 
     /// BUFFERS
   public:
-    Fwog::TypedBuffer<VsmGlobalUniforms> uniformBuffer_;
+    Fvog::TypedBuffer<VsmGlobalUniforms> uniformBuffer_;
   private:
 
     struct PageAllocRequest
@@ -111,21 +124,21 @@ namespace Techniques::VirtualShadowMaps
       // Unused until local lights are supported
       uint32_t pageTableLevel;
     };
-    Fwog::Buffer pageAllocRequests_;
+    Fvog::Buffer pageAllocRequests_;
 
-    Fwog::Buffer pagesToClear_;
-    Fwog::TypedBuffer<Fwog::DispatchIndirectCommand> pageClearDispatchParams_;
+    Fvog::Buffer pagesToClear_;
+    Fvog::TypedBuffer<Fvog::DispatchIndirectCommand> pageClearDispatchParams_;
 
     /// PIPELINES
-    Fwog::ComputePipeline resetPageVisibility_;
-    Fwog::ComputePipeline allocatePages_;
-    Fwog::ComputePipeline markVisiblePages_;
-    Fwog::ComputePipeline listDirtyPages_;
-    Fwog::ComputePipeline clearDirtyPages_;
-    Fwog::ComputePipeline freeNonVisiblePages_;
+    Fvog::ComputePipeline resetPageVisibility_;
+    Fvog::ComputePipeline allocatePages_;
+    Fvog::ComputePipeline markVisiblePages_;
+    Fvog::ComputePipeline listDirtyPages_;
+    Fvog::ComputePipeline clearDirtyPages_;
+    Fvog::ComputePipeline freeNonVisiblePages_;
     //Fwog::ComputePipeline reducePhysicalPages_;
     //Fwog::ComputePipeline reduceVirtualPages_;
-    Fwog::ComputePipeline reduceVsmHzb_;
+    Fvog::ComputePipeline reduceVsmHzb_;
   };
 
   class DirectionalVirtualShadowMap
@@ -149,18 +162,18 @@ namespace Techniques::VirtualShadowMaps
     // void EnqueueDirtyPages();
 
     // Analyze the g-buffer depth to determine which pages of the VSMs are visible
-    void MarkVisiblePages(const Fwog::Texture& gDepth, const Fwog::Buffer& globalUniforms);
+    void MarkVisiblePages(VkCommandBuffer cmd, Fvog::Texture& gDepth, Fvog::Buffer& globalUniforms);
 
     // Invalidates ALL pages in the referenced VSMs.
     // Call only when the light itself changes, since this invalidates ALL pages
-    void UpdateExpensive(glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth, float projectionZLength);
+    void UpdateExpensive(VkCommandBuffer cmd, glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth, float projectionZLength);
 
     // Cheap, call every frame
-    void UpdateOffset(glm::vec3 worldOffset);
+    void UpdateOffset(VkCommandBuffer cmd, glm::vec3 worldOffset);
 
-    void BindResourcesForDrawing();
+    //void BindResourcesForDrawing();
 
-    void GenerateBitmaskHzb();
+    void GenerateBitmaskHzb(VkCommandBuffer cmd);
 
     [[nodiscard]] std::span<const glm::mat4> GetProjections() const noexcept
     {
@@ -177,7 +190,7 @@ namespace Techniques::VirtualShadowMaps
       return {uniforms_.clipmapTableIndices.data(), numClipmaps_};
     }
 
-    [[nodiscard]] Fwog::Extent2D GetExtent() const noexcept
+    [[nodiscard]] Fvog::Extent2D GetExtent() const noexcept
     {
       return {virtualExtent_, virtualExtent_};
     }
@@ -218,6 +231,7 @@ namespace Techniques::VirtualShadowMaps
     // Subsequent projections are 2x larger than the previous on X and Y
     std::array<glm::mat4, MAX_CLIPMAPS> stableProjections{};
 
-    Fwog::TypedBuffer<MarkVisiblePagesDirectionalUniforms> uniformBuffer_;
+  public:
+    Fvog::TypedBuffer<MarkVisiblePagesDirectionalUniforms> uniformBuffer_;
   };
 } // namespace Techniques::VirtualShadowMaps

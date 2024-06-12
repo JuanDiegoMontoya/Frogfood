@@ -14,16 +14,20 @@ struct VsmPageAllocRequest
   uint pageTableLevel;
 };
 
-layout(binding = 0, std430) restrict buffer VsmPageAllocRequests
+FVOG_DECLARE_STORAGE_BUFFERS(VsmPageAllocRequests)
 {
   uint count;
   VsmPageAllocRequest data[];
-}allocRequests;
+}allocRequestsBuffers[];
 
-layout(binding = 1, std430) restrict buffer VsmVisiblePagesBitmask
+#define allocRequests allocRequestsBuffers[allocRequestsIndex]
+
+FVOG_DECLARE_STORAGE_BUFFERS(VsmVisiblePagesBitmask)
 {
   uint data[];
-}visiblePagesBitmask;
+}visiblePagesBitmaskBuffers[];
+
+#define visiblePagesBitmask visiblePagesBitmaskBuffers[visiblePagesBitmaskIndex]
 
 // layout(binding = 2, std430) restrict buffer VsmVisibleTimeTree
 // {

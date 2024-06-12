@@ -131,6 +131,7 @@ target_link_libraries(frogRender
     vk-bootstrap::vk-bootstrap
     VulkanMemoryAllocator
     glslang
+    glslang-default-resource-limits
     SPIRV
 )
 add_dependencies(frogRender copy_shaders copy_models copy_textures copy_config)

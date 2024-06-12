@@ -1,4 +1,4 @@
-//? #version 450
+// #version 450
 #ifndef VISBUFFER_COMMON_H
 #define VISBUFFER_COMMON_H
 
@@ -85,6 +85,7 @@ struct GpuMaterial
   uint[2] _padding;
 };
 
+#ifndef VISBUFFER_NO_PUSH_CONSTANTS
 FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
 {
   // Common
@@ -127,6 +128,7 @@ FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
   FVOG_UINT32 debugAabbBufferIndex;
   FVOG_UINT32 debugRectBufferIndex;
 };
+#endif
 
 #define d_perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
 

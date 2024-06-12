@@ -1,29 +1,26 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : enable
-#extension GL_ARB_bindless_texture : require
 
+#define VISBUFFER_NO_PUSH_CONSTANTS
 #include "../../visbuffer/VisbufferCommon.h.glsl"
 #include "VsmCommon.h.glsl"
 
-layout(binding = 1, r32ui) uniform restrict uimage2D i_physicalPagesUint;
+layout(set = 0, binding = FVOG_STORAGE_IMAGE_BINDING, r32ui) uniform uimage2D physicalPagesUintImages[];
+#define i_physicalPagesUint physicalPagesUintImages[physicalPagesUintIndex]
 
-layout(binding = 1, std140) uniform VsmShadowUniforms
-{
-  uint clipmapLod;
-};
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 layout(location = 0) in vec2 v_uv;
-layout(location = 1) in flat uint v_meshletId;
+layout(location = 1) in flat uint v_materialId;
 
 void main()
 {
-  const Meshlet meshlet = meshlets[v_meshletId];
-  const GpuMaterial material = materials[NonUniformIndex(meshlet.materialId)];
+  const GpuMaterial material = d_materials[NonUniformIndex(v_materialId)];
 
   vec2 dxuv = dFdx(v_uv);
   vec2 dyuv = dFdy(v_uv);
 
-  if (material.baseColorTextureHandle != uvec2(0) && material.alphaCutoff > 0)
+  if (material.baseColorTextureIndex != 0 && material.alphaCutoff > 0)
   {
     // Apply a mip/lod bias to the sampled value
     if (perFrameUniforms.bindlessSamplerLodBias != 0)
@@ -34,7 +31,7 @@ void main()
     float alpha = material.baseColorFactor.a;
     if (bool(material.flags & MATERIAL_HAS_BASE_COLOR))
     {
-      alpha *= textureGrad(sampler2D(material.baseColorTextureHandle), v_uv, dxuv, dyuv).a;
+      alpha *= textureGrad(Fvog_sampler2D(material.baseColorTextureIndex, materialSamplerIndex), v_uv, dxuv, dyuv).a;
     }
     
     if (alpha < material.alphaCutoff)

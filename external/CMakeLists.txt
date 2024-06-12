@@ -26,7 +26,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui
-    GIT_TAG        dc3e531ff28450bff73fde0163b1d076b6bb5605
+    GIT_TAG        fdc084f532189fda8474079f79e74fa5e3541c9f
 )
 
 FetchContent_Declare(

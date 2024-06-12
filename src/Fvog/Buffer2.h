@@ -107,7 +107,7 @@ namespace Fvog
     explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo = {}, std::string name = {})
       : Buffer(device, {.size = createInfo.count * sizeof(T), .flag = createInfo.flag}, std::move(name))
     {
-      assert(createInfo.count > 0);
+      //assert(createInfo.count > 0);
     }
 
     // Number of elements of T that this buffer could hold

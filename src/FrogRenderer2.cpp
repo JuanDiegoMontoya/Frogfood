@@ -9,6 +9,7 @@
 using namespace Fvog::detail;
 
 #include "shaders/Config.shared.h"
+#include "shaders/visbuffer/CullMeshlets.h.glsl"
 
 #include "MathUtilities.h"
 
@@ -17,6 +18,7 @@ using namespace Fvog::detail;
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <implot.h>
+#include <imgui_impl_vulkan.h>
 
 #include <tracy/Tracy.hpp>
 
@@ -29,8 +31,8 @@ static glm::vec2 GetJitterOffset([[maybe_unused]] uint32_t frameIndex,
 //#ifdef FROGRENDER_FSR2_ENABLE
 //  float jitterX{};
 //  float jitterY{};
-//  ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderWidth, windowWidth));
-//  return {2.0f * jitterX / static_cast<float>(renderWidth), 2.0f * jitterY / static_cast<float>(renderHeight)};
+//  ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
+//  return {2.0f * jitterX / static_cast<float>(renderInternalWidth), 2.0f * jitterY / static_cast<float>(renderInternalHeight)};
 //#else
   return {0, 0};
 //#endif
@@ -83,6 +85,18 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
     autoExposure(*device_),
     exposureBuffer(*device_, {}, "Exposure"),
+    vsmContext(*device_, {
+      .maxVsms = 64,
+      .pageSize = {Techniques::VirtualShadowMaps::pageSize, Techniques::VirtualShadowMaps::pageSize},
+      .numPages = 1024,
+    }),
+    vsmSun({
+      .context = vsmContext,
+      .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
+      .numClipmaps = 10,
+    }),
+    vsmShadowPipeline(Pipelines2::ShadowVsm(*device_, {})),
+    vsmShadowUniformBuffer(*device_),
     nearestSampler(*device_, {
       .magFilter = VK_FILTER_NEAREST,
       .minFilter = VK_FILTER_NEAREST,
@@ -126,13 +140,16 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   });
   stbi_image_free(noise);
 
+  InitGui();
+
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}));
+  Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
-  Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
 
   meshletIndirectCommand = Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>(*device_, {}, "Meshlet Indirect Command");
   cullTrianglesDispatchParams = Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>(*device_, {}, "Cull Triangles Dispatch Params");
@@ -153,7 +170,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       MakeStaticSceneBuffers(commandBuffer);
     });
 
-  OnWindowResize(windowWidth, windowHeight);
+  OnFramebufferResize(windowFramebufferWidth, windowFramebufferHeight);
   // The main loop might invoke the resize callback (which in turn causes a redraw) on the first frame, and OnUpdate produces
   // some resources necessary for rendering (but can be resused). This is a minor hack to make sure those resources are
   // available before the windowing system could issue a redraw.
@@ -163,11 +180,9 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 FrogRenderer2::~FrogRenderer2()
 {
   vkDeviceWaitIdle(device_->device_);
-  
-  vkDestroyDescriptorPool(device_->device_, imguiDescriptorPool_, nullptr);
 }
 
-void FrogRenderer2::OnWindowResize([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight)
+void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight)
 {
   ZoneScoped;
 
@@ -181,12 +196,12 @@ void FrogRenderer2::OnWindowResize([[maybe_unused]] uint32_t newWidth, [[maybe_u
 //    }
 //    frameIndex = 0;
 //    fsr2FirstInit = false;
-//    renderWidth = static_cast<uint32_t>(newWidth / fsr2Ratio);
-//    renderHeight = static_cast<uint32_t>(newHeight / fsr2Ratio);
+//    renderInternalWidth = static_cast<uint32_t>(newWidth / fsr2Ratio);
+//    renderInternalHeight = static_cast<uint32_t>(newHeight / fsr2Ratio);
 //    FfxFsr2ContextDescription contextDesc{
 //      .flags = FFX_FSR2_ENABLE_DEBUG_CHECKING | FFX_FSR2_ENABLE_AUTO_EXPOSURE | FFX_FSR2_ENABLE_HIGH_DYNAMIC_RANGE |
 //               FFX_FSR2_ALLOW_NULL_DEVICE_AND_COMMAND_LIST | FFX_FSR2_ENABLE_DEPTH_INFINITE | FFX_FSR2_ENABLE_DEPTH_INVERTED,
-//      .maxRenderSize = {renderWidth, renderHeight},
+//      .maxRenderSize = {renderInternalWidth, renderInternalHeight},
 //      .displaySize = {newWidth, newHeight},
 //      .fpMessage =
 //        [](FfxFsr2MsgType type, const wchar_t* message)
@@ -203,45 +218,55 @@ void FrogRenderer2::OnWindowResize([[maybe_unused]] uint32_t newWidth, [[maybe_u
 //    ffxFsr2GetInterfaceGL(&contextDesc.callbacks, fsr2ScratchMemory.get(), ffxFsr2GetScratchMemorySizeGL(), glfwGetProcAddress);
 //    ffxFsr2ContextCreate(&fsr2Context, &contextDesc);
 //
-//    frame.gReactiveMask = Fwog::CreateTexture2D({renderWidth, renderHeight}, Fwog::Format::R8_UNORM, "Reactive Mask");
+//    frame.gReactiveMask = Fwog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Fwog::Format::R8_UNORM, "Reactive Mask");
 //  }
 //  else
 //#endif
   {
-    renderWidth = newWidth;
-    renderHeight = newHeight;
+    renderOutputWidth = newWidth;
+    renderOutputHeight = newHeight;
+    renderInternalWidth = newWidth;
+    renderInternalHeight = newHeight;
   }
 
-  aspectRatio = (float)renderWidth / renderHeight;
+  aspectRatio = (float)renderInternalWidth / renderInternalHeight;
 
   //constexpr auto usageColorFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
   //constexpr auto usageDepthFlags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
   constexpr auto usage = Fvog::TextureUsage::ATTACHMENT_READ_ONLY;
 
   // Visibility buffer textures
-  frame.visbuffer = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::visbufferFormat, usage, "visbuffer");
-  frame.materialDepth = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::materialDepthFormat, usage, "materialDepth");
+  frame.visbuffer = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::visbufferFormat, usage, "visbuffer");
+  frame.materialDepth = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::materialDepthFormat, usage, "materialDepth");
   {
-    const uint32_t hzbWidth = Math::PreviousPower2(renderWidth);
-    const uint32_t hzbHeight = Math::PreviousPower2(renderHeight);
+    const uint32_t hzbWidth = Math::PreviousPower2(renderInternalWidth);
+    const uint32_t hzbHeight = Math::PreviousPower2(renderInternalHeight);
     const uint32_t hzbMips = 1 + static_cast<uint32_t>(glm::floor(glm::log2(static_cast<float>(glm::max(hzbWidth, hzbHeight)))));
     frame.hzb = Fvog::CreateTexture2DMip(*device_, {hzbWidth, hzbHeight}, Frame::hzbFormat, hzbMips, Fvog::TextureUsage::GENERAL, "HZB");
   }
 
   // Create gbuffer textures and render info
-  frame.gAlbedo = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gAlbedoFormat, usage, "gAlbedo");
-  frame.gMetallicRoughnessAo = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gMetallicRoughnessAoFormat, usage, "gMetallicRoughnessAo");
-  frame.gNormalAndFaceNormal = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormalAndFaceNormal");
-  frame.gSmoothVertexNormal = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gSmoothVertexNormalFormat, usage, "gSmoothVertexNormal");
-  frame.gEmission = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gEmissionFormat, usage, "gEmission");
-  frame.gDepth = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gDepthFormat, usage, "gDepth");
-  frame.gMotion = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gMotionFormat, usage, "gMotion");
-  frame.gNormaAndFaceNormallPrev = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormaAndFaceNormallPrev");
-  frame.gDepthPrev = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::gDepthPrevFormat, usage, "gDepthPrev");
-  frame.colorHdrRenderRes = Fvog::CreateTexture2D(*device_, {renderWidth, renderHeight}, Frame::colorHdrRenderResFormat, usage, "colorHdrRenderRes");
+  frame.gAlbedo = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gAlbedoFormat, usage, "gAlbedo");
+  frame.gMetallicRoughnessAo = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gMetallicRoughnessAoFormat, usage, "gMetallicRoughnessAo");
+  frame.gNormalAndFaceNormal = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormalAndFaceNormal");
+  frame.gSmoothVertexNormal = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gSmoothVertexNormalFormat, usage, "gSmoothVertexNormal");
+  frame.gEmission = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gEmissionFormat, usage, "gEmission");
+  frame.gDepth = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gDepthFormat, usage, "gDepth");
+  frame.gMotion = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gMotionFormat, usage, "gMotion");
+  frame.gNormaAndFaceNormallPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormaAndFaceNormallPrev");
+  frame.gDepthPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gDepthPrevFormat, usage, "gDepthPrev");
+  frame.colorHdrRenderRes = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::colorHdrRenderResFormat, usage, "colorHdrRenderRes");
   frame.colorHdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorHdrWindowResFormat, usage, "colorHdrWindowRes");
   frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip(*device_, {newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, usage, "colorHdrBloomScratchBuffer");
   frame.colorLdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorLdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorLdrWindowRes");
+
+  if (frame.colorLdrWindowResImGuiSet)
+  {
+    // This is UB and triggers a validation error because the set is still in use.
+    // I ignore it because eventually the ImGui backend will be upgraded to use bindless textures, which will make this a lot easier to handle.
+    ImGui_ImplVulkan_RemoveTexture(frame.colorLdrWindowResImGuiSet);
+  }
+  frame.colorLdrWindowResImGuiSet = ImGui_ImplVulkan_AddTexture(nearestSampler.Handle(), frame.colorLdrWindowRes->ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
 
   //// Create debug views with alpha swizzle set to one so they can be seen in ImGui
   //frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = Fvog::ComponentSwizzle::ONE});
@@ -254,6 +279,10 @@ void FrogRenderer2::OnWindowResize([[maybe_unused]] uint32_t newWidth, [[maybe_u
 void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
 {
   ZoneScoped;
+  if (fakeLag > 0)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(fakeLag));
+  }
 
   sceneFlattened = scene.Flatten();
   shadingUniforms.numberOfLights = (uint32_t)sceneFlattened.lights.size();
@@ -287,6 +316,13 @@ void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
   {
     meshletInstancesBuffer = Fvog::NDeviceBuffer<Utility::MeshletInstance>(*device_, numMeshlets, "Meshlet Instances");
   }
+
+  // TODO: perhaps this logic belongs in Application
+  if (shouldResizeNextFrame)
+  {
+    OnFramebufferResize(renderOutputWidth, renderOutputHeight);
+    shouldResizeNextFrame = false;
+  }
 }
 
 void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, std::string_view name)
@@ -317,13 +353,23 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
   
   ctx.BindComputePipeline(cullMeshletsPipeline);
 
-  auto visbufferPushConstants = VisbufferPushConstants{
+  auto vsmPushConstants = vsmContext.GetPushConstants();
+
+  auto visbufferPushConstants = CullMeshletsPushConstants{
     .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
     .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
     .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
     .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
     .indirectDrawIndex = meshletIndirectCommand->GetResourceHandle().index,
     .viewIndex = viewBuffer->GetResourceHandle().index,
+
+    .pageTablesIndex = vsmPushConstants.pageTablesIndex,
+    .physicalPagesIndex = vsmPushConstants.physicalPagesIndex,
+    .vsmBitmaskHzbIndex = vsmPushConstants.vsmBitmaskHzbIndex,
+    .vsmUniformsBufferIndex = vsmPushConstants.vsmUniformsBufferIndex,
+    .clipmapUniformsBufferIndex = vsmSun.uniformBuffer_.GetResourceHandle().index,
+    .nearestSamplerIndex = nearestSampler.GetResourceHandle().index,
+
     .hzbIndex = frame.hzb->ImageView().GetSampledResourceHandle().index,
     .hzbSamplerIndex = hzbSampler.GetResourceHandle().index,
     .cullTrianglesDispatchIndex = cullTrianglesDispatchParams->GetResourceHandle().index,
@@ -379,6 +425,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 {
   ZoneScoped;
 
+
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormalAndFaceNormal, frame.gNormaAndFaceNormallPrev);
 
@@ -389,6 +436,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   {
     ZoneScopedN("Update GPU Buffers");
+    auto marker = ctx.MakeScopedDebugMarker("Update Buffers");
 
     tonemapUniformBuffer.UpdateData(commandBuffer, tonemapUniforms);
 
@@ -399,6 +447,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     lightBuffer->UpdateData(commandBuffer, sceneFlattened.lights);
     transformBuffer->UpdateData(commandBuffer, sceneFlattened.transforms);
     meshletInstancesBuffer->UpdateData(commandBuffer, sceneFlattened.meshletInstances);
+    vsmContext.UpdateUniforms(commandBuffer, vsmUniforms);
     ctx.Barrier();
   }
 
@@ -434,9 +483,9 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
 
   
-  const float fsr2LodBias = fsr2Enable ? log2(float(renderWidth) / float(windowWidth)) - 1.0f : 0.0f;
+  const float fsr2LodBias = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
   
-  const auto jitterOffset = fsr2Enable ? GetJitterOffset((uint32_t)device_->frameNumber, renderWidth, renderHeight, windowWidth) : glm::vec2{};
+  const auto jitterOffset = fsr2Enable ? GetJitterOffset((uint32_t)device_->frameNumber, renderInternalWidth, renderInternalHeight, renderOutputWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
   //const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
   const auto projUnjittered = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
@@ -446,6 +495,15 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   const uint32_t meshletCount = (uint32_t)sceneFlattened.meshletInstances.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
+
+  if (device_->frameNumber == 1)
+  {
+    vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, glm::vec3{-shadingUniforms.sunDir}, vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+  }
+  else
+  {
+    vsmSun.UpdateOffset(commandBuffer, mainCamera.position);
+  }
 
   // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
   if (executeMeshletGeneration)
@@ -460,7 +518,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //.viewProj = viewProjUnjittered,
     .viewProj = viewProj,
     .cameraPos = glm::vec4(mainCamera.position, 0.0),
-    .viewport = {0.0f, 0.0f, static_cast<float>(renderWidth), static_cast<float>(renderHeight)},
+    .viewport = {0.0f, 0.0f, static_cast<float>(renderInternalWidth), static_cast<float>(renderInternalHeight)},
   };
 
   if (updateCullingFrustum)
@@ -519,7 +577,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   ctx.BeginRendering({
     .name = "Main Visbuffer Pass",
-    //.viewport = {VkViewport{.drawRect = {{0, 0}, {renderWidth, renderHeight}}}},
+    //.viewport = {VkViewport{.drawRect = {{0, 0}, {renderInternalWidth, renderInternalHeight}}}},
     .colorAttachments = {&visbufferAttachment, 1},
     .depthAttachment = visbufferDepthAttachment,
   });
@@ -544,86 +602,100 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   }
   ctx.EndRendering();
 
-  //// VSMs
-  //{
-  //  const auto debugMarker = Fwog::ScopedDebugMarker("Virtual Shadow Maps");
-  //  //TIME_SCOPE_GPU(StatGroup::eMainGpu, eVsm);
+  // VSMs
+  {
+    const auto debugMarker = ctx.MakeScopedDebugMarker("Virtual Shadow Maps");
+    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eVsm);
 
-  //  {
-  //    //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmResetPageVisibility);
-  //    vsmContext.ResetPageVisibility();
-  //  }
-  //  {
-  //    //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmMarkVisiblePages);
-  //    vsmSun.MarkVisiblePages(frame.gDepth.value(), globalUniformsBuffer);
-  //  }
-  //  {
-  //    //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmFreeNonVisiblePages);
-  //    vsmContext.FreeNonVisiblePages();
-  //  }
-  //  {
-  //    //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmAllocatePages);
-  //    vsmContext.AllocateRequestedPages();
-  //  }
-  //  {
-  //    //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmGenerateHpb);
-  //    vsmSun.GenerateBitmaskHzb();
-  //  }
-  //  {
-  //    //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmClearDirtyPages);
-  //    vsmContext.ClearDirtyPages();
-  //  }
+    {
+      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmResetPageVisibility);
+      vsmContext.ResetPageVisibility(commandBuffer);
+    }
+    {
+      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmMarkVisiblePages);
+      vsmSun.MarkVisiblePages(commandBuffer, frame.gDepth.value(), globalUniformsBuffer.GetDeviceBuffer());
+    }
+    {
+      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmFreeNonVisiblePages);
+      vsmContext.FreeNonVisiblePages(commandBuffer);
+    }
+    {
+      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmAllocatePages);
+      vsmContext.AllocateRequestedPages(commandBuffer);
+    }
+    {
+      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmGenerateHpb);
+      vsmSun.GenerateBitmaskHzb(commandBuffer);
+    }
+    {
+      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmClearDirtyPages);
+      vsmContext.ClearDirtyPages(commandBuffer);
+    }
 
-  //  //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmRenderDirtyPages);
+    //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmRenderDirtyPages);
 
-  //  // Sun VSMs
-  //  for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
-  //  {
-  //    auto sunCurrentClipmapView = View{
-  //      .oldViewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
-  //      .proj = vsmSun.GetProjections()[i],
-  //      .view = vsmSun.GetViewMatrices()[i],
-  //      .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
-  //      .viewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
-  //      .cameraPos = {}, // unused
-  //      .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
-  //      .type = ViewType::VIRTUAL,
-  //      .virtualTableIndex = vsmSun.GetClipmapTableIndices()[i],
-  //    };
-  //    Math::MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
+    // Sun VSMs
+    for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
+    {
+      auto sunCurrentClipmapView = ViewParams{
+        .oldViewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
+        .proj = vsmSun.GetProjections()[i],
+        .view = vsmSun.GetViewMatrices()[i],
+        .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
+        .viewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
+        .cameraPos = {}, // unused
+        .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
+        .type = ViewType::VIRTUAL,
+        .virtualTableIndex = vsmSun.GetClipmapTableIndices()[i],
+      };
+      Math::MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
 
-  //    CullMeshletsForView(sunCurrentClipmapView, "Cull Sun VSM Meshlets, View " + std::to_string(i));
+      CullMeshletsForView(commandBuffer, sunCurrentClipmapView, "Cull Sun VSM Meshlets, View " + std::to_string(i));
 
-  //    const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
-  //    Fwog::RenderNoAttachments(
-  //      {
-  //        .name = "Render Clipmap",
-  //        .viewport = {{{0, 0}, vsmExtent}},
-  //        .framebufferSize = {vsmExtent.width, vsmExtent.height, 1},
-  //        .framebufferSamples = Fwog::SampleCount::SAMPLES_1,
-  //      },
-  //      [&]
-  //      {
-  //        Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
-  //        Fwog::Cmd::BindGraphicsPipeline(vsmShadowPipeline);
-  //        Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-  //        Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
-  //        Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
-  //        Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
-  //        Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
-  //        Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
-  //        Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
-  //        Fwog::Cmd::BindStorageBuffer("MaterialBuffer", materialStorageBuffer.value());
-  //        vsmSun.BindResourcesForDrawing();
-  //        Fwog::Cmd::BindImage(1, vsmContext.physicalPagesUint_, 0);
-  //        Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
-  //        Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
+      const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+      ctx.Barrier();
+      ctx.BeginRendering({
+        .name = "Render Clipmap",
+        .viewport = VkViewport{0, 0, (float)vsmExtent.width, (float)vsmExtent.height},
+      });
 
-  //        vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
-  //        Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
-  //      });
-  //  }
-  //}
+      //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+      ctx.BindGraphicsPipeline(vsmShadowPipeline);
+
+      auto pushConstants = vsmContext.GetPushConstants();
+      pushConstants.meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index;
+      pushConstants.meshletDataIndex = meshletBuffer->GetResourceHandle().index;
+      pushConstants.meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index;
+      pushConstants.meshletVerticesIndex = vertexBuffer->GetResourceHandle().index;
+      pushConstants.meshletIndicesIndex = indexBuffer->GetResourceHandle().index;
+      pushConstants.transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index;
+      pushConstants.globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index;
+      pushConstants.viewIndex = viewBuffer->GetResourceHandle().index;
+      pushConstants.materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index;
+      pushConstants.materialSamplerIndex = linearMipmapSampler.GetResourceHandle().index;
+      pushConstants.clipmapLod = vsmSun.GetClipmapTableIndices()[i];
+      pushConstants.clipmapUniformsBufferIndex = vsmSun.uniformBuffer_.GetResourceHandle().index;
+      //Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
+      //Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
+      //Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
+      //Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
+      //Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
+      //Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
+      //Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
+      //Fwog::Cmd::BindStorageBuffer("MaterialBuffer", materialStorageBuffer.value());
+      //vsmSun.BindResourcesForDrawing();
+      //Fwog::Cmd::BindImage(1, vsmContext.physicalPagesUint_, 0);
+      //Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
+
+      //Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
+      ctx.BindIndexBuffer(*instancedMeshletBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+      //vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
+      ctx.SetPushConstants(pushConstants);
+      ctx.DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
+      ctx.EndRendering();
+    }
+  }
 
   // TODO: remove when descriptor indexing sync validation does not give false positives
   ctx.Barrier();
@@ -660,8 +732,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       {
         //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
         ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL);
-        auto prevHzbView = frame.hzb->CreateSingleMipView(level - 1, "prevHzbMip");
-        auto curHzbView = frame.hzb->CreateSingleMipView(level, "curHzbMip");
+        auto& prevHzbView = frame.hzb->CreateSingleMipView(level - 1, "prevHzbMip");
+        auto& curHzbView = frame.hzb->CreateSingleMipView(level, "curHzbMip");
 
         ctx.SetPushConstants(HzbReducePushConstants{
           .prevHzbIndex = prevHzbView.GetStorageResourceHandle().index,
@@ -704,7 +776,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //.viewport =
     //  {
     //    Fwog::Viewport{
-    //      .drawRect = {{0, 0}, {renderWidth, renderHeight}},
+    //      .drawRect = {{0, 0}, {renderInternalWidth, renderInternalHeight}},
     //    },
     //  },
     .depthAttachment = materialDepthAttachment,
@@ -765,7 +837,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //.viewport =
     //  {
     //    Fwog::Viewport{
-    //      .drawRect = {{0, 0}, {renderWidth, renderHeight}},
+    //      .drawRect = {{0, 0}, {renderInternalWidth, renderInternalHeight}},
     //    },
     //  },
     .colorAttachments = gBufferAttachments,
@@ -875,6 +947,9 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   {
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eShadeOpaque);
     //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+
+    // Certain VSM push constants are used by the shading pass
+    auto vsmPushConstants = vsmContext.GetPushConstants();
     ctx.BindGraphicsPipeline(shadingPipeline);
     ctx.SetPushConstants(ShadingPushConstants{
       .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
@@ -888,6 +963,14 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .gSmoothVertexNormalIndex = frame.gSmoothVertexNormal->ImageView().GetSampledResourceHandle().index,
       .gEmissionIndex = frame.gEmission->ImageView().GetSampledResourceHandle().index,
       .gMetallicRoughnessAoIndex = frame.gMetallicRoughnessAo->ImageView().GetSampledResourceHandle().index,
+
+      .pageTablesIndex = vsmPushConstants.pageTablesIndex,
+      .physicalPagesIndex = vsmPushConstants.physicalPagesIndex,
+      .vsmBitmaskHzbIndex = vsmPushConstants.vsmBitmaskHzbIndex,
+      .vsmUniformsBufferIndex = vsmPushConstants.vsmUniformsBufferIndex,
+      .dirtyPageListBufferIndex = vsmPushConstants.dirtyPageListBufferIndex,
+      .clipmapUniformsBufferIndex = vsmSun.uniformBuffer_.GetResourceHandle().index,
+      .nearestSamplerIndex = vsmPushConstants.nearestSamplerIndex,
     });
     //Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
     //Fwog::Cmd::BindSampledImage(1, *frame.gNormalAndFaceNormal, nearestSampler);
@@ -993,19 +1076,19 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 //
 //        float jitterX{};
 //        float jitterY{};
-//        ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderWidth, windowWidth));
+//        ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
 //
 //        FfxFsr2DispatchDescription dispatchDesc{
-//          .color = ffxGetTextureResourceGL(frame.colorHdrRenderRes->Handle(), renderWidth, renderHeight, Fwog::detail::FormatToGL(frame.colorHdrRenderRes->GetCreateInfo().format)),
-//          .depth = ffxGetTextureResourceGL(frame.gDepth->Handle(), renderWidth, renderHeight, Fwog::detail::FormatToGL(frame.gDepth->GetCreateInfo().format)),
-//          .motionVectors = ffxGetTextureResourceGL(frame.gMotion->Handle(), renderWidth, renderHeight, Fwog::detail::FormatToGL(frame.gMotion->GetCreateInfo().format)),
+//          .color = ffxGetTextureResourceGL(frame.colorHdrRenderRes->Handle(), renderInternalWidth, renderInternalHeight, Fwog::detail::FormatToGL(frame.colorHdrRenderRes->GetCreateInfo().format)),
+//          .depth = ffxGetTextureResourceGL(frame.gDepth->Handle(), renderInternalWidth, renderInternalHeight, Fwog::detail::FormatToGL(frame.gDepth->GetCreateInfo().format)),
+//          .motionVectors = ffxGetTextureResourceGL(frame.gMotion->Handle(), renderInternalWidth, renderInternalHeight, Fwog::detail::FormatToGL(frame.gMotion->GetCreateInfo().format)),
 //          .exposure = {},
-//          .reactive = ffxGetTextureResourceGL(frame.gReactiveMask->Handle(), renderWidth, renderHeight, Fwog::detail::FormatToGL(frame.gReactiveMask->GetCreateInfo().format)),
+//          .reactive = ffxGetTextureResourceGL(frame.gReactiveMask->Handle(), renderInternalWidth, renderInternalHeight, Fwog::detail::FormatToGL(frame.gReactiveMask->GetCreateInfo().format)),
 //          .transparencyAndComposition = {},
-//          .output = ffxGetTextureResourceGL(frame.colorHdrWindowRes->Handle(), windowWidth, windowHeight, Fwog::detail::FormatToGL(frame.colorHdrWindowRes->GetCreateInfo().format)),
+//          .output = ffxGetTextureResourceGL(frame.colorHdrWindowRes->Handle(), renderOutputWidth, renderOutputHeight, Fwog::detail::FormatToGL(frame.colorHdrWindowRes->GetCreateInfo().format)),
 //          .jitterOffset = {jitterX, jitterY},
-//          .motionVectorScale = {float(renderWidth), float(renderHeight)},
-//          .renderSize = {renderWidth, renderHeight},
+//          .motionVectorScale = {float(renderInternalWidth), float(renderInternalHeight)},
+//          .renderSize = {renderInternalWidth, renderInternalHeight},
 //          .enableSharpening = fsr2Sharpness != 0,
 //          .sharpness = fsr2Sharpness,
 //          .frameTimeDelta = static_cast<float>(dt * 1000.0),
@@ -1079,7 +1162,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //    .name = "Copy to swapchain",
     //    .viewport =
     //      Fwog::Viewport{
-    //        .drawRect{.offset = {0, 0}, .extent = {windowWidth, windowHeight}},
+    //        .drawRect{.offset = {0, 0}, .extent = {renderOutputWidth, renderOutputHeight}},
     //        .minDepth = 0.0f,
     //        .maxDepth = 1.0f,
     //      },
@@ -1098,7 +1181,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     auto marker = ctx.MakeScopedDebugMarker("Copy to swapchain");
 
-    const auto renderArea = VkRect2D{.offset = {}, .extent = {windowWidth, windowHeight}};
+    const auto renderArea = VkRect2D{.offset = {}, .extent = {renderOutputWidth, renderOutputHeight}};
     vkCmdBeginRendering(commandBuffer, Address(VkRenderingInfo{
       .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
       .renderArea = renderArea,
@@ -1113,7 +1196,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       }),
     }));
 
-    vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, (float)windowWidth, (float)windowHeight, 0, 1}));
+    vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, (float)renderOutputWidth, (float)renderOutputHeight, 0, 1}));
     vkCmdSetScissor(commandBuffer, 0, 1, &renderArea);
     ctx.BindGraphicsPipeline(debugTexturePipeline);
     ctx.SetPushConstants(DebugTextureArguments{
@@ -1146,13 +1229,14 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 
-void FrogRenderer2::OnGui([[maybe_unused]] double dt)
-{
-  ImGui::Begin("test");
-  ImGui::Text("FPS:  %.1f Hz", 1.0 / dt);
-  ImGui::Text("AFPS: %.1f Rad/s", glm::two_pi<double>() / dt); // Angular frames per second for the mechanically-minded
-  ImGui::End();
-}
+//void FrogRenderer2::OnGui([[maybe_unused]] double dt)
+//{
+//  ImGui::Begin("test");
+//  ImGui::Image();
+//  ImGui::Text("FPS:  %.1f Hz", 1.0 / dt);
+//  ImGui::Text("AFPS: %.1f Rad/s", glm::two_pi<double>() / dt); // Angular frames per second for the mechanically-minded
+//  ImGui::End();
+//}
 
 void FrogRenderer2::MakeStaticSceneBuffers(VkCommandBuffer commandBuffer)
 {

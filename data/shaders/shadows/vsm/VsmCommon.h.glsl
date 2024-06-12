@@ -1,8 +1,53 @@
-//? #version 450 core
+// #version 450 core
 // #extension GL_GOOGLE_include_directive : enable
 #ifndef VSM_COMMON_H
 #define VSM_COMMON_H
 
+#include "../../Resources.h.glsl"
+
+////////////// Globals
+
+#ifndef VSM_NO_PUSH_CONSTANTS
+FVOG_DECLARE_ARGUMENTS(VsmPushConstants)
+{
+  FVOG_UINT32 globalUniformsIndex;
+  FVOG_UINT32 pageTablesIndex;
+  FVOG_UINT32 physicalPagesIndex;
+  FVOG_UINT32 vsmBitmaskHzbIndex;
+  FVOG_UINT32 vsmUniformsBufferIndex;
+  FVOG_UINT32 dirtyPageListBufferIndex;
+  FVOG_UINT32 clipmapUniformsBufferIndex;
+  FVOG_UINT32 nearestSamplerIndex;
+  FVOG_UINT32 pageClearDispatchIndex;
+
+  // VsmMarkVisiblePages
+  FVOG_UINT32 gDepthIndex;
+
+  //VsmReduceBitmaskHzb
+  FVOG_UINT32 srcVsmBitmaskHzbIndex;
+  FVOG_UINT32 dstVsmBitmaskHzbIndex;
+  FVOG_INT32 currentPass;
+
+  // VsmShadow + ShadowMain
+  FVOG_UINT32 meshletInstancesIndex;
+  FVOG_UINT32 meshletDataIndex;
+  FVOG_UINT32 meshletPrimitivesIndex;
+  FVOG_UINT32 meshletVerticesIndex;
+  FVOG_UINT32 meshletIndicesIndex;
+  FVOG_UINT32 transformsIndex;
+  FVOG_UINT32 materialsIndex;
+  FVOG_UINT32 materialSamplerIndex;
+  FVOG_UINT32 clipmapLod; // Not a resource
+  FVOG_UINT32 viewIndex;
+
+  // VsmAllocRequests.h (VsmMarkVisiblePages and VsmAllocatePages)
+  FVOG_UINT32 allocRequestsIndex;
+  FVOG_UINT32 visiblePagesBitmaskIndex;
+  FVOG_UINT32 physicalPagesUintIndex;
+};
+#endif
+
+#ifndef __cplusplus
 #include "../../Math.h.glsl"
 #include "../../GlobalUniforms.h.glsl"
 
@@ -14,11 +59,25 @@
 #define PAGE_BACKED_BIT (4u)
 
 ////////////// Resources
-layout(binding = 0, r32ui) uniform restrict uimage2DArray i_pageTables; // Level 0
-layout(binding = 1, r32f) uniform restrict image2D i_physicalPages;   // Level 0
-layout(binding = 10) uniform usampler2DArray s_vsmBitmaskHzb;
+//layout(binding = 0, r32ui) uniform restrict uimage2DArray i_pageTables; // Level 0
+//layout(binding = 1, r32f) uniform restrict image2D i_physicalPages;   // Level 0
+//layout(binding = 10) uniform usampler2DArray s_vsmBitmaskHzb;
+//FVOG_DECLARE_STORAGE_IMAGES(uimage2DArray);
+layout(set = 0, binding = FVOG_STORAGE_IMAGE_BINDING, r32ui) uniform uimage2DArray pageTablesImages[];
+layout(set = 0, binding = FVOG_STORAGE_IMAGE_BINDING, r32f) uniform image2D physicalPagesImages[];
+FVOG_DECLARE_SAMPLED_IMAGES(utexture2DArray);
+FVOG_DECLARE_SAMPLERS;
 
-layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUniforms
+#define i_pageTables pageTablesImages[pageTablesIndex]
+#define i_physicalPages physicalPagesImages[physicalPagesIndex]
+#define s_vsmBitmaskHzb Fvog_usampler2DArray(vsmBitmaskHzbIndex, nearestSamplerIndex)
+#define perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
+
+#define clipmapUniforms clipmapUniformsBuffers[clipmapUniformsBufferIndex]
+#define vsmUniforms vsmUniformsBuffers[vsmUniformsBufferIndex]
+#define dirtyPageList dirtyPageListBuffers[dirtyPageListBufferIndex]
+
+FVOG_DECLARE_STORAGE_BUFFERS(VsmMarkPagesDirectionalUniforms)
 {
   mat4 clipmapViewProjections[MAX_CLIPMAPS];
   uint clipmapTableIndices[MAX_CLIPMAPS];
@@ -28,22 +87,22 @@ layout(binding = 5, std430) restrict readonly buffer VsmMarkPagesDirectionalUnif
   // The length, in world space, of a side of single (square) texel in the first clipmap
   float firstClipmapTexelLength;
   float projectionZLength;
-}clipmapUniforms;
+}clipmapUniformsBuffers[];
 
 #define VSM_HZB_FORCE_SUCCESS (1 << 0)
 #define VSM_FORCE_DIRTY_VISIBLE_PAGES (1 << 1)
 
-layout(binding = 6, std140) uniform VsmGlobalUniforms
+FVOG_DECLARE_STORAGE_BUFFERS(VsmGlobalUniforms)
 {
   float lodBias;
   uint debugFlags;
-}vsmUniforms;
+}vsmUniformsBuffers[];
 
-layout(binding = 3, std430) restrict buffer VsmDirtyPageList
+FVOG_DECLARE_STORAGE_BUFFERS(VsmDirtyPageList)
 {
   uint count;
   uint data[];
-}dirtyPageList;
+}dirtyPageListBuffers[];
 
 ////////////// Helpers
 bool GetIsPageVisible(uint pageData)
@@ -201,4 +260,5 @@ PageAddressInfo GetClipmapPageFromDepth(float depth, ivec2 gid, ivec2 depthBuffe
   return addr;
 }
 
+#endif // __cplusplus
 #endif // VSM_COMMON_H

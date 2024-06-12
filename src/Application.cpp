@@ -159,12 +159,12 @@ public:
   static void FramebufferResizeCallback(GLFWwindow* window, int newWidth, int newHeight)
   {
     auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
-    app->windowWidth = static_cast<uint32_t>(newWidth);
-    app->windowHeight = static_cast<uint32_t>(newHeight);
+    app->windowFramebufferWidth = newWidth;
+    app->windowFramebufferHeight = newHeight;
 
     if (newWidth > 0 && newHeight > 0)
     {
-      app->ResizeCallbackThingy(app->windowWidth, app->windowHeight);
+      app->RemakeSwapchain(newWidth, newHeight);
       //app->shouldResizeNextFrame = true;
       //app->Draw(0.016);
     }
@@ -226,7 +226,7 @@ static auto MakeVkbSwapchain(const vkb::Device& device,
 }
 
 Application::Application(const CreateInfo& createInfo)
-  : vsyncEnabled(createInfo.vsync)
+  : presentMode(createInfo.presentMode)
 {
   ZoneScoped;
   // Initialiize GLFW
@@ -258,14 +258,14 @@ Application::Application(const CreateInfo& createInfo)
   int xSize{};
   int ySize{};
   glfwGetFramebufferSize(window, &xSize, &ySize);
-  windowWidth = static_cast<uint32_t>(xSize);
-  windowHeight = static_cast<uint32_t>(ySize);
+  windowFramebufferWidth = static_cast<uint32_t>(xSize);
+  windowFramebufferHeight = static_cast<uint32_t>(ySize);
 
   int monitorLeft{};
   int monitorTop{};
   glfwGetMonitorPos(monitor, &monitorLeft, &monitorTop);
 
-  glfwSetWindowPos(window, videoMode->width / 2 - windowWidth / 2 + monitorLeft, videoMode->height / 2 - windowHeight / 2 + monitorTop);
+  glfwSetWindowPos(window, videoMode->width / 2 - windowFramebufferWidth / 2 + monitorLeft, videoMode->height / 2 - windowFramebufferHeight / 2 + monitorTop);
 
   glfwSetWindowUserPointer(window, this);
   //glfwMakeContextCurrent(window);
@@ -317,9 +317,9 @@ Application::Application(const CreateInfo& createInfo)
   
   // swapchain
   swapchain_ = MakeVkbSwapchain(device_->device_,
-                                windowWidth,
-                                windowHeight,
-                                vsyncEnabled ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR,
+                                windowFramebufferWidth,
+                                windowFramebufferHeight,
+                                presentMode,
                                 VK_NULL_HANDLE,
                                 swapchainSrgbFormat,
                                 swapchainUnormFormat);
@@ -367,7 +367,7 @@ Application::Application(const CreateInfo& createInfo)
     .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
     .maxSets = 1234, // TODO: make this constant a variable
     .poolSizeCount = 1,
-    .pPoolSizes = Fvog::detail::Address(VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1}),
+    .pPoolSizes = Fvog::detail::Address(VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 2}),
   }), nullptr, &imguiDescriptorPool_);
 
   auto imguiVulkanInitInfo = ImGui_ImplVulkan_InitInfo{
@@ -380,23 +380,34 @@ Application::Application(const CreateInfo& createInfo)
     .MinImageCount = swapchain_.image_count,
     .ImageCount = swapchain_.image_count,
     .UseDynamicRendering = true,
-    .ColorAttachmentFormat = swapchainUnormFormat,
+    //.ColorAttachmentFormat = swapchainUnormFormat,
+    .PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+      .colorAttachmentCount = 1,
+      .pColorAttachmentFormats = &swapchainUnormFormat,
+    },
     .CheckVkResultFn = Fvog::detail::CheckVkResult,
   };
 
   ImGui_ImplVulkan_LoadFunctions([](const char *functionName, void *vulkanInstance) {
     return vkGetInstanceProcAddr(*static_cast<VkInstance*>(vulkanInstance), functionName);
   }, &instance_.instance);
-  ImGui_ImplVulkan_Init(&imguiVulkanInitInfo, VK_NULL_HANDLE);
+  ImGui_ImplVulkan_Init(&imguiVulkanInitInfo);
   ImGui::StyleColorsDark();
   ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-  device_->ImmediateSubmit([](VkCommandBuffer commandBuffer) { ImGui_ImplVulkan_CreateFontsTexture(commandBuffer); });
+  ImGui_ImplVulkan_CreateFontsTexture();
+  //device_->ImmediateSubmit([](VkCommandBuffer commandBuffer) { ImGui_ImplVulkan_CreateFontsTexture(commandBuffer); });
 }
 
 Application::~Application()
 {
   ZoneScoped;
+
+  // Must happen before device is destroyed, thus cannot go in the destroy list
+  ImGui_ImplVulkan_Shutdown();
+
+  vkDestroyDescriptorPool(device_->device_, imguiDescriptorPool_, nullptr);
 
   // Destroying a command pool implicitly frees command buffers allocated from it
   vkDestroyCommandPool(device_->device_, tracyCommandPool_, nullptr);
@@ -412,9 +423,6 @@ Application::~Application()
   {
     vkDestroyImageView(device_->device_, view, nullptr);
   }
-
-  // Must happen before device is destroyed, thus cannot go in the destroy list
-  ImGui_ImplVulkan_Shutdown();
 }
 
 void Application::Draw()
@@ -490,7 +498,7 @@ void Application::Draw()
   }
 
   OnRender(dtDraw, commandBuffer, swapchainImageIndex);
-  OnGui(dtDraw);
+  OnGui(dtDraw, commandBuffer);
   
   // Render ImGui
   // A frame marker is inserted to distinguish ImGui rendering from the application's in a debugger.
@@ -502,7 +510,7 @@ void Application::Draw()
     {
       vkCmdBeginRendering(commandBuffer, Fvog::detail::Address(VkRenderingInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .renderArea = {{}, {windowWidth, windowHeight}},
+        .renderArea = {{}, {windowFramebufferWidth, windowFramebufferHeight}},
         .layerCount = 1,
         .colorAttachmentCount = 1,
         .pColorAttachments = Fvog::detail::Address(VkRenderingAttachmentInfo{
@@ -617,6 +625,12 @@ void Application::Run()
       continue;
     }
 
+    if (shouldRemakeSwapchainNextFrame)
+    {
+      RemakeSwapchain(windowFramebufferWidth, windowFramebufferHeight);
+      shouldRemakeSwapchainNextFrame = false;
+    }
+
     // Close the app if the user presses Escape.
     if (glfwGetKey(window, GLFW_KEY_ESCAPE))
     {
@@ -679,14 +693,14 @@ void Application::Run()
     // Call the application's overriden functions each frame.
     OnUpdate(dt);
 
-    if (windowWidth > 0 && windowHeight > 0)
+    if (windowFramebufferWidth > 0 && windowFramebufferHeight > 0)
     {
       Draw();
     }
   }
 }
 
-void Application::ResizeCallbackThingy([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight)
+void Application::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight)
 {
   ZoneScoped;
 
@@ -702,9 +716,9 @@ void Application::ResizeCallbackThingy([[maybe_unused]] uint32_t newWidth, [[may
   {
     ZoneScopedN("Create New Swapchain");
     swapchain_ = MakeVkbSwapchain(device_->device_,
-                                  windowWidth,
-                                  windowHeight,
-                                  vsyncEnabled ? VK_PRESENT_MODE_MAILBOX_KHR : VK_PRESENT_MODE_IMMEDIATE_KHR,
+                                  windowFramebufferWidth,
+                                  windowFramebufferHeight,
+                                  presentMode,
                                   oldSwapchain,
                                   swapchainSrgbFormat,
                                   swapchainUnormFormat);
@@ -733,7 +747,7 @@ void Application::ResizeCallbackThingy([[maybe_unused]] uint32_t newWidth, [[may
 
   swapchainOk = true;
 
-  OnWindowResize(newWidth, newHeight);
+  OnFramebufferResize(newWidth, newHeight);
 
   // Redraw the window
   Draw();

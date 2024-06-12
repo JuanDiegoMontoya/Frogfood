@@ -6,7 +6,9 @@
 #include "VsmCommon.h.glsl"
 #include "VsmAllocRequest.h.glsl"
 
-layout(binding = 0) uniform sampler2D s_gDepth;
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
+
+#define s_gDepth FvogGetSampledImage(texture2D, gDepthIndex)
 
 layout(local_size_x = 8, local_size_y = 8) in;
 void main()

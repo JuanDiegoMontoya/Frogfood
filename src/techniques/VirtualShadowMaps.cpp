@@ -139,6 +139,10 @@ namespace Techniques::VirtualShadowMaps
     });
   }
 
+  /*
+   *  OUT:
+   *    uniformBuffer_
+   */
   void Context::UpdateUniforms(VkCommandBuffer cmd, const VsmGlobalUniforms& uniforms)
   {
     auto ctx = Fvog::Context(*device_, cmd);
@@ -168,6 +172,10 @@ namespace Techniques::VirtualShadowMaps
     freeLayersBitmask_[i] |= 1 << bit;
   }
 
+  /*
+   *  INOUT:
+   *    pageTables_
+   */
   // TODO: this should be per-VSM, since not every VSM is updated (and therefore requires a visibility reset) every frame
   // Should make it take a list of VSM indices to reset
   void Context::ResetPageVisibility(VkCommandBuffer cmd)
@@ -175,8 +183,10 @@ namespace Techniques::VirtualShadowMaps
     auto ctx = Fvog::Context(*device_, cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Reset Page Visibility");
 
-    ctx.BindComputePipeline(resetPageVisibility_);
+    ctx.Barrier(); // Appease sync val
     ctx.ImageBarrier(pageTables_, VK_IMAGE_LAYOUT_GENERAL);
+
+    ctx.BindComputePipeline(resetPageVisibility_);
 
     auto pushConstants = GetPushConstants();
 
@@ -190,14 +200,20 @@ namespace Techniques::VirtualShadowMaps
     }
   }
 
+  /*
+   *  INOUT:
+   *    pageTables_
+   */
   // TODO: See TODO for ResetPageVisibility (should allow batching updates instead of operating on whole VSM every time)
   void Context::FreeNonVisiblePages(VkCommandBuffer cmd)
   {
     auto ctx = Fvog::Context(*device_, cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Free Non-Visible Pages");
 
-    ctx.BindComputePipeline(freeNonVisiblePages_);
+    ctx.Barrier(); // Appease sync val
     ctx.ImageBarrier(pageTables_, VK_IMAGE_LAYOUT_GENERAL);
+
+    ctx.BindComputePipeline(freeNonVisiblePages_);
 
     auto pushConstants = GetPushConstants();
 
@@ -211,6 +227,14 @@ namespace Techniques::VirtualShadowMaps
     }
   }
 
+  /*
+   *  IN:
+   *    pageTables_
+   *
+   *  INOUT:
+   *    pageAllocRequests_
+   *    visiblePagesBitmask_
+   */
   void Context::AllocateRequestedPages(VkCommandBuffer cmd)
   {
     auto ctx = Fvog::Context(*device_, cmd);
@@ -228,17 +252,51 @@ namespace Techniques::VirtualShadowMaps
     ctx.Dispatch(1, 1, 1); // Only 1-32 threads will allocate
   }
 
+  /*
+   *  ListDirtyPages
+   *  IN:
+   *    pageTables_
+   *
+   *  OUT:
+   *    pageClearDispatchParams_
+   *    pagesToClear_ (dirty pages)
+   *
+   *
+   *  ClearDirtyPages
+   *  IN:
+   *    pageClearDispatchParams_
+   *    pagesToClear_ (dirty pages)
+   *
+   *  INOUT:
+   *    physicalPages_
+   */
   void Context::ClearDirtyPages(VkCommandBuffer cmd)
   {
     auto ctx = Fvog::Context(*device_, cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Enqueue and Clear Dirty Pages");
+
+    ctx.Barrier();
+    ctx.ImageBarrier(pageTables_, VK_IMAGE_LAYOUT_GENERAL);
+    ctx.ImageBarrier(physicalPages_, VK_IMAGE_LAYOUT_GENERAL);
+
+    // Experimental
+    //ctx.Barriers({{
+    //  Fvog::GlobalBarrier{},
+    //  Fvog::ImageBarrier{
+    //    .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+    //    .image = &pageTables_,
+    //  },
+    //  Fvog::ImageBarrier{
+    //    .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+    //    .image = &physicalPages_,
+    //  }
+    //}});
 
     auto pushConstants = GetPushConstants();
     ctx.SetPushConstants(pushConstants);
 
     // TODO: make the first half of this (create dirty page list) more efficient by only considering updated VSMs
     ctx.BindComputePipeline(listDirtyPages_);
-    ctx.Barrier();
     //Fvog::MemoryBarrier(Barrier::SHADER_STORAGE_BIT | Barrier::IMAGE_ACCESS_BIT);
     //Fvog::Cmd::BindImage("i_pageTables", pageTables_, 0);
     //Fvog::Cmd::BindStorageBuffer("VsmDirtyPageList", pagesToClear_);
@@ -257,22 +315,6 @@ namespace Techniques::VirtualShadowMaps
     pagesToClear_.FillData(cmd, {.offset = 0, .size = sizeof(uint32_t)});
   }
 
-  //void Context::BindResourcesForCulling(VkCommandBuffer cmd)
-  //{
-  //  Fvog::Cmd::BindImage(0, pageTables_, 0);
-
-  //  const auto sampler = Fvog::Sampler(Fvog::SamplerCreateInfo{
-  //    .minFilter = Fvog::Filter::NEAREST,
-  //    .magFilter = Fvog::Filter::NEAREST,
-  //    .mipmapFilter = Fvog::Filter::NEAREST,
-  //    .addressModeU = Fvog::AddressMode::REPEAT,
-  //    .addressModeV = Fvog::AddressMode::REPEAT,
-  //  });
-
-  //  Fvog::Cmd::BindSampledImage(8, physicalPages_, sampler);
-  //  Fvog::Cmd::BindSampledImage(10, vsmBitmaskHzb_, sampler);
-  //}
-
   VsmPushConstants Context::GetPushConstants()
   {
     return {
@@ -282,7 +324,7 @@ namespace Techniques::VirtualShadowMaps
       .vsmBitmaskHzbIndex = vsmBitmaskHzb_.ImageView().GetSampledResourceHandle().index,
       .vsmUniformsBufferIndex = uniformBuffer_.GetResourceHandle().index,
       .dirtyPageListBufferIndex = pagesToClear_.GetResourceHandle().index,
-      .clipmapUniformsBufferIndex = 0, // DirectionalVirtualShadowMap::uniformBuffer_
+      .clipmapUniformsBufferIndex = 0, // DirectionalVirtualShadowMap::clipmapUniformsBuffer_
       .nearestSamplerIndex = 0, // Set by caller
       .pageClearDispatchIndex = pageClearDispatchParams_.GetResourceHandle().index,
       .gDepthIndex = 0, // Set by caller
@@ -303,7 +345,7 @@ namespace Techniques::VirtualShadowMaps
     : context_(createInfo.context),
       numClipmaps_(createInfo.numClipmaps),
       virtualExtent_(createInfo.virtualExtent),
-      uniformBuffer_(*createInfo.context.device_, {}, "Directional VSM Uniforms")
+      clipmapUniformsBuffer_(*createInfo.context.device_, {}, "Directional VSM Uniforms")
   {
     uniforms_.numClipmaps = createInfo.numClipmaps;
 
@@ -321,35 +363,55 @@ namespace Techniques::VirtualShadowMaps
     }
   }
 
+  /*
+   *  IN:
+   *    g-buffer depth
+   *    global uniforms
+   *    VSM uniforms
+   *    clipmap uniforms
+   *
+   *  INOUT:
+   *    visiblePagesBitmask_
+   *    pageTables_
+   *    pageAllocRequests_
+   */
   void DirectionalVirtualShadowMap::MarkVisiblePages(VkCommandBuffer cmd, Fvog::Texture& gDepth, Fvog::Buffer& globalUniforms)
   {
     auto ctx = Fvog::Context(*context_.device_, cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Mark Visible Pages");
 
-    auto pushConstants = context_.GetPushConstants();
-    
-    ctx.BindComputePipeline(context_.markVisiblePages_);
     ctx.Barrier();
-    //Fvog::MemoryBarrier(Barrier::SHADER_STORAGE_BIT | Barrier::IMAGE_ACCESS_BIT | Barrier::TEXTURE_FETCH_BIT | Barrier::BUFFER_UPDATE_BIT);
+
     context_.visiblePagesBitmask_.FillData(cmd);
+
+    ctx.Barrier();
+    ctx.ImageBarrier(gDepth, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+    ctx.ImageBarrier(context_.pageTables_, VK_IMAGE_LAYOUT_GENERAL);
+
+    ctx.BindComputePipeline(context_.markVisiblePages_);
+
+    auto pushConstants = context_.GetPushConstants();
     pushConstants.gDepthIndex = gDepth.ImageView().GetSampledResourceHandle().index;
     pushConstants.globalUniformsIndex = globalUniforms.GetResourceHandle().index;
-    pushConstants.clipmapUniformsBufferIndex = uniformBuffer_.GetResourceHandle().index;
+    pushConstants.clipmapUniformsBufferIndex = clipmapUniformsBuffer_.GetResourceHandle().index;
     ctx.SetPushConstants(pushConstants);
-
-    //Fvog::Cmd::BindSampledImage(0, gDepth, Fvog::Sampler(Fvog::SamplerState{}));
-    //Fvog::Cmd::BindImage(0, context_.pageTables_, 0);
-    //Fvog::Cmd::BindStorageBuffer("VsmVisiblePagesBitmask", context_.visiblePagesBitmask_);
-    //Fvog::Cmd::BindStorageBuffer("VsmPageAllocRequests", context_.pageAllocRequests_);
-    //Fvog::Cmd::BindStorageBuffer("VsmMarkPagesDirectionalUniforms", uniformBuffer_);
-    //Fvog::Cmd::BindUniformBuffer("VsmGlobalUniforms", context_.uniformBuffer_);
-    //Fvog::Cmd::BindUniformBuffer(0, globalUniforms);
+    
     ctx.DispatchInvocations(gDepth.GetCreateInfo().extent);
   }
 
+
+  /*
+   *  Base dependencies: UpdateOffset
+   *
+   *  OUT:
+   *    pageTables_
+   */
   void DirectionalVirtualShadowMap::UpdateExpensive(VkCommandBuffer cmd, glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth, float projectionZLength)
   {
     auto ctx = Fvog::Context(*context_.device_, cmd);
+
+    ctx.Barrier();
+
     const auto sideLength = firstClipmapWidth / virtualExtent_;
     uniforms_.firstClipmapTexelLength = sideLength;
     uniforms_.projectionZLength = projectionZLength;
@@ -362,6 +424,7 @@ namespace Techniques::VirtualShadowMaps
     
     stableViewMatrix = glm::lookAt(direction, glm::vec3(0), up);
 
+    // Invalidate all clipmaps (clearing to 0 marks pages as not backed, not dirty, and not visible)
     ctx.ClearTexture(context_.pageTables_, {});
 
     for (uint32_t i = 0; i < uniforms_.numClipmaps; i++)
@@ -369,19 +432,21 @@ namespace Techniques::VirtualShadowMaps
       const auto width = firstClipmapWidth * (1 << i) / 2.0f;
       // TODO: increase Z range for higher clipmaps (or for all?)
       stableProjections[i] = glm::orthoZO(-width, width, -width, width, -projectionZLength / 2.0f, projectionZLength / 2.0f);
-
-      // Invalidate all clipmaps (clearing to 0 marks pages as not backed, not dirty, and not visible)
-      //auto extent = context_.pageTables_.GetCreateInfo().extent;
-      //extent.depth = 1;
-      //context_.pageTables_.ClearImage(cmd, {.offset = {0, 0, uniforms_.clipmapTableIndices[i]}, .extent = extent});
     }
 
     this->UpdateOffset(cmd, worldOffset);
   }
 
+  /*
+   *  OUT:
+   *    clipmapUniformsBuffer_
+   */
   void DirectionalVirtualShadowMap::UpdateOffset(VkCommandBuffer cmd, glm::vec3 worldOffset)
   {
     auto ctx = Fvog::Context(*context_.device_, cmd);
+
+    ctx.Barrier();
+
     for (uint32_t i = 0; i < uniforms_.numClipmaps; i++)
     {
       // Find the offset from the un-translated view matrix
@@ -403,31 +468,26 @@ namespace Techniques::VirtualShadowMaps
       //uniforms_.clipmapOrigins[i] = {};
       //viewMatrices[i] = stableViewMatrix;
     }
-
-    //uniformBuffer_.UpdateData(uniforms_);
-    ctx.TeenyBufferUpdate(uniformBuffer_, uniforms_);
+    
+    ctx.TeenyBufferUpdate(clipmapUniformsBuffer_, uniforms_);
   }
 
-  //void DirectionalVirtualShadowMap::BindResourcesForDrawing()
-  //{
-  //  Fvog::Cmd::BindStorageBuffer(5, uniformBuffer_);
-  //  Fvog::Cmd::BindUniformBuffer(6, context_.uniformBuffer_);
-  //  Fvog::Cmd::BindImage(0, context_.pageTables_, 0);
-  //  Fvog::Cmd::BindImage(1, context_.physicalPages_, 0);
-  //}
-  
+  /*
+   *  IN:
+   *    pageTables_ (first pass)
+   *
+   *  OUT:
+   *    vsmBitmaskHzb_
+   */
   void DirectionalVirtualShadowMap::GenerateBitmaskHzb(VkCommandBuffer cmd)
   {
     auto ctx = Fvog::Context(*context_.device_, cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Generate Bitmap HZB");
 
+    ctx.ImageBarrier(context_.pageTables_, VK_IMAGE_LAYOUT_GENERAL);
+
     // TODO: only reduce necessary VSMs
     ctx.BindComputePipeline(context_.reduceVsmHzb_);
-    //ctx.Barrier();
-    //Fvog::MemoryBarrier(Barrier::TEXTURE_FETCH_BIT);
-
-    //auto uniforms = Fvog::TypedBuffer<int32_t>(Fvog::BufferStorageFlag::DYNAMIC_STORAGE);
-    //Fvog::Cmd::BindImage(0, context_.pageTables_, 0);
 
     auto pushConstants = context_.GetPushConstants();
 
@@ -437,11 +497,9 @@ namespace Techniques::VirtualShadowMaps
       //Fvog::MemoryBarrier(Barrier::IMAGE_ACCESS_BIT);
       if (currentPass > 0)
       {
-        //Fvog::Cmd::BindImage("i_srcVsmBitmaskHzb", context_.vsmBitmaskHzb_, currentPass - 1);
         pushConstants.srcVsmBitmaskHzbIndex = context_.vsmBitmaskHzb_.CreateSingleMipView(currentPass - 1).GetStorageResourceHandle().index;
       }
-
-      //Fvog::Cmd::BindImage("i_dstVsmBitmaskHzb", context_.vsmBitmaskHzb_, currentPass);
+      
       pushConstants.dstVsmBitmaskHzbIndex = context_.vsmBitmaskHzb_.CreateSingleMipView(currentPass).GetStorageResourceHandle().index;
 
       pushConstants.currentPass = currentPass;

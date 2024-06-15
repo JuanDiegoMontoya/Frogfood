@@ -105,8 +105,8 @@ namespace Fvog
 
   TextureView Texture::CreateFormatView(Format format, std::string name) const
   {
-    using namespace detail;
     ZoneScoped;
+    using namespace detail;
     auto aspectFlags = VkImageAspectFlags{};
     aspectFlags |= FormatIsDepth(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
     aspectFlags |= FormatIsStencil(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
@@ -153,6 +153,30 @@ namespace Fvog
         .layerCount = VK_REMAINING_ARRAY_LAYERS,
       },
     }, name + std::string(" mip ") + std::to_string(level));
+  }
+
+  TextureView Texture::CreateSwizzleView(VkComponentMapping components, std::string name)
+  {
+    ZoneScoped;
+    using namespace detail;
+    auto format = createInfo_.format;
+    auto aspectFlags = VkImageAspectFlags{};
+    aspectFlags |= FormatIsDepth(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0;
+    aspectFlags |= FormatIsStencil(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
+    aspectFlags |= FormatIsColor(format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
+
+    return TextureView(*device_, *this, {
+      .viewType = createInfo_.viewType,
+      .format = format,
+      .components = components,
+      .subresourceRange = VkImageSubresourceRange{
+        .aspectMask = aspectFlags,
+        .baseMipLevel = 0,
+        .levelCount = VK_REMAINING_MIP_LEVELS,
+        .baseArrayLayer = 0,
+        .layerCount = VK_REMAINING_ARRAY_LAYERS,
+      },
+    }, std::move(name));
   }
 
   void Texture::UpdateImageSLOW(const TextureUpdateInfo& info)

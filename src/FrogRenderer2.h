@@ -347,14 +347,12 @@ private:
     std::optional<Fvog::Texture> colorLdrWindowRes;
     constexpr static Fvog::Format colorLdrWindowResFormat = Fvog::Format::R8G8B8A8_UNORM;
 
-    //// For debug drawing with ImGui
-    //std::optional<Fvog::TextureView> gAlbedoSwizzled;
-    //std::optional<Fvog::TextureView> gRoughnessMetallicAoSwizzled;
-    //std::optional<Fvog::TextureView> gEmissionSwizzled;
-    //std::optional<Fvog::TextureView> gNormalSwizzled;
-    //std::optional<Fvog::TextureView> gDepthSwizzled;
-
-    VkDescriptorSet colorLdrWindowResImGuiSet{};
+    // For debug drawing with ImGui
+    std::optional<Fvog::TextureView> gAlbedoSwizzled;
+    std::optional<Fvog::TextureView> gRoughnessMetallicAoSwizzled;
+    std::optional<Fvog::TextureView> gEmissionSwizzled;
+    std::optional<Fvog::TextureView> gNormalSwizzled;
+    std::optional<Fvog::TextureView> gDepthSwizzled;
   };
   Frame frame{};
 

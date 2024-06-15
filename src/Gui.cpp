@@ -5,7 +5,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <implot.h>
-#include <imgui_impl_vulkan.h>
+#include "ImGui/imgui_impl_fvog.h"
 
 #include "vulkan/vulkan_core.h"
 #include <GLFW/glfw3.h>
@@ -199,13 +199,13 @@ void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 
     magnifierLastCursorPos = mp;
 
     // Y flip (+Y is up for textures)
-    mp.y = viewportContentSize.y - mp.y;
+    //mp.y = viewportContentSize.y - mp.y;
 
     // Mouse position in UV space
     mp /= glm::vec2(viewportContentSize.x, viewportContentSize.y);
     glm::vec2 magnifierHalfExtentUv = {
       magnifierExtent.x / 2.f / viewportContentSize.x,
-      -magnifierExtent.y / 2.f / viewportContentSize.y,
+      magnifierExtent.y / 2.f / viewportContentSize.y,
     };
 
     // Calculate the min and max UV of the magnifier window
@@ -214,10 +214,10 @@ void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 
 
     // TODO
     //glTextureParameteri(frame.colorLdrWindowRes.value().Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.colorLdrWindowRes.value().Handle())),
-    //             magnifierSize,
-    //             ImVec2(uv0.x, uv0.y),
-    //             ImVec2(uv1.x, uv1.y));
+    ImGui::Image(ImTextureSampler(frame.colorLdrWindowRes.value().ImageView().GetSampledResourceHandle().index, nearestSampler.GetResourceHandle().index),
+                 magnifierSize,
+                 ImVec2(uv0.x, uv0.y),
+                 ImVec2(uv1.x, uv1.y));
   }
   ImGui::End();
 }
@@ -830,18 +830,17 @@ void FrogRenderer2::OnGui(double dt, VkCommandBuffer commandBuffer)
   ImGui::BeginTabBar("tabbed");
   if (ImGui::BeginTabItem("G-Buffers"))
   {
-    // TODO
-    //float aspect = float(renderInternalWidth) / renderInternalHeight;
+    float aspect = float(renderInternalWidth) / renderInternalHeight;
 
-    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gAlbedoSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
-    //ImGui::SameLine();
-    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gNormalSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    ImGui::Image(frame.gAlbedoSwizzled.value().GetSampledResourceHandle().index, {100 * aspect, 100});
+    ImGui::SameLine();
+    ImGui::Image(frame.gNormalSwizzled.value().GetSampledResourceHandle().index, {100 * aspect, 100});
 
-    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gRoughnessMetallicAoSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
-    //ImGui::SameLine();
-    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gEmissionSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    ImGui::Image(frame.gRoughnessMetallicAoSwizzled.value().GetSampledResourceHandle().index, {100 * aspect, 100});
+    ImGui::SameLine();
+    ImGui::Image(frame.gEmissionSwizzled.value().GetSampledResourceHandle().index, {100 * aspect, 100});
 
-    //ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(frame.gDepthSwizzled.value().Handle())), {100 * aspect, 100}, {0, 1}, {1, 0});
+    ImGui::Image(frame.gDepthSwizzled.value().GetSampledResourceHandle().index, {100 * aspect, 100});
 
     ImGui::EndTabItem();
   }
@@ -876,8 +875,8 @@ void FrogRenderer2::OnGui(double dt, VkCommandBuffer commandBuffer)
   }();
 
   aspectRatio = viewportContentSize.x / viewportContentSize.y;
-
-  ImGui::Image((ImTextureID)frame.colorLdrWindowResImGuiSet, viewportContentSize);
+  
+  ImGui::Image(frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index, viewportContentSize);
 
   const bool viewportIsHovered = ImGui::IsItemHovered();
 

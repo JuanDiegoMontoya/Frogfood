@@ -18,7 +18,7 @@ using namespace Fvog::detail;
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <implot.h>
-#include <imgui_impl_vulkan.h>
+#include "ImGui/imgui_impl_fvog.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -260,20 +260,12 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip(*device_, {newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, usage, "colorHdrBloomScratchBuffer");
   frame.colorLdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorLdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorLdrWindowRes");
 
-  if (frame.colorLdrWindowResImGuiSet)
-  {
-    // This is UB and triggers a validation error because the set is still in use.
-    // I ignore it because eventually the ImGui backend will be upgraded to use bindless textures, which will make this a lot easier to handle.
-    ImGui_ImplVulkan_RemoveTexture(frame.colorLdrWindowResImGuiSet);
-  }
-  frame.colorLdrWindowResImGuiSet = ImGui_ImplVulkan_AddTexture(nearestSampler.Handle(), frame.colorLdrWindowRes->ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
-
-  //// Create debug views with alpha swizzle set to one so they can be seen in ImGui
-  //frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = Fvog::ComponentSwizzle::ONE});
-  //frame.gRoughnessMetallicAoSwizzled = frame.gMetallicRoughnessAo->CreateSwizzleView({.a = Fvog::ComponentSwizzle::ONE});
-  //frame.gEmissionSwizzled = frame.gEmission->CreateSwizzleView({.a = Fvog::ComponentSwizzle::ONE});
-  //frame.gNormalSwizzled = frame.gNormalAndFaceNormal->CreateSwizzleView({.a = Fvog::ComponentSwizzle::ONE});
-  //frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = Fvog::ComponentSwizzle::ONE});
+  // Create debug views with alpha swizzle set to one so they can be seen in ImGui
+  frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
+  frame.gRoughnessMetallicAoSwizzled = frame.gMetallicRoughnessAo->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
+  frame.gEmissionSwizzled = frame.gEmission->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
+  frame.gNormalSwizzled = frame.gNormalAndFaceNormal->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
+  frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
 }
 
 void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
@@ -367,7 +359,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
     .physicalPagesIndex = vsmPushConstants.physicalPagesIndex,
     .vsmBitmaskHzbIndex = vsmPushConstants.vsmBitmaskHzbIndex,
     .vsmUniformsBufferIndex = vsmPushConstants.vsmUniformsBufferIndex,
-    .clipmapUniformsBufferIndex = vsmSun.uniformBuffer_.GetResourceHandle().index,
+    .clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index,
     .nearestSamplerIndex = nearestSampler.GetResourceHandle().index,
 
     .hzbIndex = frame.hzb->ImageView().GetSampledResourceHandle().index,
@@ -388,7 +380,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
   //Fwog::Cmd::BindStorageBuffer("CullTrianglesDispatchParams", cullTrianglesDispatchParams.value());
   //Fwog::Cmd::BindStorageBuffer(11, debugGpuAabbsBuffer.value());
   //Fwog::Cmd::BindStorageBuffer(12, debugGpuRectsBuffer.value());
-  ////Fwog::Cmd::BindUniformBuffer(6, vsmContext.uniformBuffer_);
+  ////Fwog::Cmd::BindUniformBuffer(6, vsmContext.clipmapUniformsBuffer_);
   //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
   //Fwog::Cmd::BindSampledImage("s_hzb", *frame.hzb, hzbSampler);
   //vsmContext.BindResourcesForCulling();
@@ -674,7 +666,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       pushConstants.materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index;
       pushConstants.materialSamplerIndex = linearMipmapSampler.GetResourceHandle().index;
       pushConstants.clipmapLod = vsmSun.GetClipmapTableIndices()[i];
-      pushConstants.clipmapUniformsBufferIndex = vsmSun.uniformBuffer_.GetResourceHandle().index;
+      pushConstants.clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index;
       //Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
       //Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
       //Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
@@ -969,7 +961,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .vsmBitmaskHzbIndex = vsmPushConstants.vsmBitmaskHzbIndex,
       .vsmUniformsBufferIndex = vsmPushConstants.vsmUniformsBufferIndex,
       .dirtyPageListBufferIndex = vsmPushConstants.dirtyPageListBufferIndex,
-      .clipmapUniformsBufferIndex = vsmSun.uniformBuffer_.GetResourceHandle().index,
+      .clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index,
       .nearestSamplerIndex = vsmPushConstants.nearestSamplerIndex,
     });
     //Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
@@ -1151,7 +1143,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
   }
 
-
+  ctx.Barrier(); // Appease sync val
   ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
   // GUI is not rendered, draw directly to screen instead
@@ -1266,5 +1258,13 @@ void FrogRenderer2::MakeStaticSceneBuffers(VkCommandBuffer commandBuffer)
 
 void FrogRenderer2::OnPathDrop([[maybe_unused]] std::span<const char*> paths)
 {
-  
+  for (const auto& path : paths)
+  {
+    Utility::LoadModelFromFileMeshlet(*device_, scene, path, glm::identity<glm::mat4>());
+  }
+
+  device_->ImmediateSubmit(
+    [&](VkCommandBuffer cmd) {
+      MakeStaticSceneBuffers(cmd);
+    });
 }

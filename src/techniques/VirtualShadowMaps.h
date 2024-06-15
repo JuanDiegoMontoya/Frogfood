@@ -206,7 +206,7 @@ namespace Techniques::VirtualShadowMaps
     }
 
   private:
-    struct MarkVisiblePagesDirectionalUniforms
+    struct ClipmapUniforms
     {
       std::array<glm::mat4, MAX_CLIPMAPS> clipmapStableViewProjections;
       std::array<uint32_t, MAX_CLIPMAPS> clipmapTableIndices;
@@ -219,7 +219,7 @@ namespace Techniques::VirtualShadowMaps
     Context& context_;
     uint32_t numClipmaps_;
     uint32_t virtualExtent_;
-    MarkVisiblePagesDirectionalUniforms uniforms_{};
+    ClipmapUniforms uniforms_{};
 
     // View matrix with rotation, but no translation component
     glm::mat4 stableViewMatrix{};
@@ -232,6 +232,6 @@ namespace Techniques::VirtualShadowMaps
     std::array<glm::mat4, MAX_CLIPMAPS> stableProjections{};
 
   public:
-    Fvog::TypedBuffer<MarkVisiblePagesDirectionalUniforms> uniformBuffer_;
+    Fvog::TypedBuffer<ClipmapUniforms> clipmapUniformsBuffer_;
   };
 } // namespace Techniques::VirtualShadowMaps

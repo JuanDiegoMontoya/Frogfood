@@ -11,10 +11,11 @@
 #include "Fvog/Texture2.h"
 #include "Fvog/Rendering2.h"
 #include "Fvog/detail/Common.h"
+#include "Fvog/detail/ApiToEnum2.h"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
-#include <imgui_impl_vulkan.h>
+#include "ImGui/imgui_impl_fvog.h"
 #include <implot.h>
 
 #include <glm/gtc/constants.hpp>
@@ -373,18 +374,14 @@ Application::Application(const CreateInfo& createInfo)
   auto imguiVulkanInitInfo = ImGui_ImplVulkan_InitInfo{
     .Instance = instance_,
     .PhysicalDevice = device_->physicalDevice_,
-    .Device = device_->device_,
+    .Device = &device_.value(),
     .QueueFamily = device_->graphicsQueueFamilyIndex_,
     .Queue = device_->graphicsQueue_,
     .DescriptorPool = imguiDescriptorPool_,
     .MinImageCount = swapchain_.image_count,
     .ImageCount = swapchain_.image_count,
-    .UseDynamicRendering = true,
-    //.ColorAttachmentFormat = swapchainUnormFormat,
-    .PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-      .colorAttachmentCount = 1,
-      .pColorAttachmentFormats = &swapchainUnormFormat,
+    .formats = {
+      .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat)}},
     },
     .CheckVkResultFn = Fvog::detail::CheckVkResult,
   };

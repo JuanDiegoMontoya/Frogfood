@@ -77,7 +77,7 @@ FVOG_DECLARE_SAMPLERS;
 #define vsmUniforms vsmUniformsBuffers[vsmUniformsBufferIndex]
 #define dirtyPageList dirtyPageListBuffers[dirtyPageListBufferIndex]
 
-FVOG_DECLARE_STORAGE_BUFFERS(VsmMarkPagesDirectionalUniforms)
+FVOG_DECLARE_STORAGE_BUFFERS(ClipmapUniforms)
 {
   mat4 clipmapViewProjections[MAX_CLIPMAPS];
   uint clipmapTableIndices[MAX_CLIPMAPS];

@@ -195,6 +195,8 @@ namespace Fvog
     // Returns a cached view of a single mip
     [[nodiscard]] TextureView& CreateSingleMipView(uint32_t level, std::string name = {});
 
+    [[nodiscard]] TextureView CreateSwizzleView(VkComponentMapping components, std::string name = {});
+
     /// @brief Updates a subresource of the image
     /// @param info The subresource and data to upload
     /// @note info.data must be in a compatible image format

@@ -1,9 +1,8 @@
 #pragma once
 
+#include <vulkan/vulkan_core.h>
 #include "BasicTypes2.h"
 #include "TriviallyCopyableByteSpan.h"
-
-#include <vulkan/vulkan_core.h>
 
 #include <array>
 #include <optional>
@@ -20,6 +19,7 @@ namespace Fvog
   class GraphicsPipeline;
   class ComputePipeline;
   class Device;
+  struct TextureUpdateInfo;
 
   // Minimal reference wrapper type. Didn't want to pull in <functional> just for this
   template<class T>
@@ -129,6 +129,32 @@ namespace Fvog
     VkCommandBuffer commandBuffer_;
   };
 
+  struct GlobalBarrier
+  {
+    VkPipelineStageFlags2 srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    VkAccessFlags2 srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+    VkPipelineStageFlags2 dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    VkAccessFlags2 dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+  };
+
+  struct ImageBarrier
+  {
+    VkPipelineStageFlags2 srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    VkAccessFlags2 srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+    VkPipelineStageFlags2 dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    VkAccessFlags2 dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+    std::optional<VkImageLayout> oldLayout = std::nullopt;
+    VkImageLayout newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    std::variant<VkImage, Texture*> image;
+  };
+
+  struct CopyBufferInfo
+  {
+    VkDeviceSize srcOffset = 0;
+    VkDeviceSize dstOffset = 0;
+    VkDeviceSize size = 0;
+  };
+
   class Context
   {
   public:
@@ -138,6 +164,7 @@ namespace Fvog
     void EndRendering() const;
     void ImageBarrier(const Texture& texture, VkImageLayout newLayout) const;
     void ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT) const;
+    void Barriers(std::span<const std::variant<GlobalBarrier, struct ImageBarrier>> barriers);
     // Image barrier from UNDEFINED (discard image contents)
     void ImageBarrierDiscard(const Texture& texture, VkImageLayout newLayout) const;
     void BufferBarrier(const Buffer& buffer) const;
@@ -146,6 +173,10 @@ namespace Fvog
     void Barrier() const;
 
     void ClearTexture(const Texture& texture, const TextureClearInfo& clearInfo) const;
+
+    // Texture layout must be TRANSFER_DST_OPTIMAL or GENERAL
+    void CopyBufferToTexture(const Buffer& src, Texture& dst, const TextureUpdateInfo& info);
+    void CopyBuffer(const Buffer& src, Buffer& dst, const CopyBufferInfo& copyInfo);
 
     template<typename T>
       requires std::is_trivially_copyable_v<T>

@@ -131,7 +131,7 @@ if(NOT imgui_POPULATED)
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_SOURCE_DIR}/imgui_tables.cpp
         #${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+        #${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp)
 
     target_include_directories(lib_imgui PUBLIC 
@@ -140,7 +140,7 @@ if(NOT imgui_POPULATED)
         ${Vulkan_INCLUDE_DIRS}
         ${glfw_SOURCE_DIR}/include)
 
-    target_compile_definitions(lib_imgui PRIVATE VK_NO_PROTOTYPES)
+    target_compile_definitions(lib_imgui PRIVATE VK_NO_PROTOTYPES ImTextureID=ImU64)
     target_link_libraries(lib_imgui PRIVATE glfw volk::volk)
 endif()
 
@@ -158,6 +158,8 @@ if(NOT implot_POPULATED)
         ${implot_SOURCE_DIR}
         ${imgui_SOURCE_DIR} # ImPlot must see ImGui headers
     )
+    
+    target_compile_definitions(lib_implot PRIVATE ImTextureID=ImU64)
 endif()
 
 set(IMPLOT_SOURCE ${implot_SOURCE_DIR} PARENT_SCOPE)

@@ -56,6 +56,8 @@ add_executable(frogRender
     src/Pipelines2.h
     src/Pipelines2.cpp
     src/Fvog/TriviallyCopyableByteSpan.h
+    src/ImGui/imgui_impl_fvog.cpp
+    src/ImGui/imgui_impl_fvog.h
 )
 
 target_compile_options(frogRender
@@ -136,7 +138,7 @@ target_link_libraries(frogRender
 )
 add_dependencies(frogRender copy_shaders copy_models copy_textures copy_config)
 
-target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE)
+target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE ImTextureID=ImU64)
 
 if (MSVC)
     target_compile_definitions(frogRender PUBLIC STBI_MSC_SECURE_CRT)

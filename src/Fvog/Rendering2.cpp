@@ -6,11 +6,6 @@
 #include "detail/Common.h"
 #include "detail/ApiToEnum2.h"
 
-// TODO: disgusting, remove (using extern declared in user code)
-#include "../Pipelines2.h"
-
-#include <volk.h>
-
 #include <tracy/Tracy.hpp>
 
 #include <algorithm>
@@ -269,6 +264,53 @@ namespace Fvog
                            .baseArrayLayer = clearInfo.baseArrayLayer,
                            .layerCount = clearInfo.layerCount,
                          }));
+  }
+
+  void Context::CopyBufferToTexture(const Buffer& src, Texture& dst, const TextureUpdateInfo& info)
+  {
+    ZoneScoped;
+
+    // Convenience- so the user doesn't have to explicitly specify 1 for height or depth when writing 1D or 2D images
+    auto extent = info.extent;
+    extent.height = std::max(extent.height, 1u);
+    extent.depth = std::max(extent.depth, 1u);
+
+    vkCmdCopyBufferToImage2(commandBuffer_, detail::Address(VkCopyBufferToImageInfo2{
+      .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
+      .srcBuffer = src.Handle(),
+      .dstImage = dst.Image(),
+      .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      .regionCount = 1,
+      .pRegions = detail::Address(VkBufferImageCopy2{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+        .bufferOffset = 0,
+        .bufferRowLength = info.rowLength,
+        .bufferImageHeight = info.imageHeight,
+        .imageSubresource = VkImageSubresourceLayers{
+          .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+          .mipLevel = info.level,
+          .layerCount = 1,
+        },
+        .imageOffset = info.offset,
+        .imageExtent = extent,
+      }),
+    }));
+  }
+
+  void Context::CopyBuffer(const Buffer& src, Buffer& dst, const CopyBufferInfo& copyInfo)
+  {
+    vkCmdCopyBuffer2(commandBuffer_, Address(VkCopyBufferInfo2{
+      .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+      .srcBuffer = src.Handle(),
+      .dstBuffer = dst.Handle(),
+      .regionCount = 1,
+      .pRegions = Address(VkBufferCopy2{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+        .srcOffset = copyInfo.srcOffset,
+        .dstOffset = copyInfo.dstOffset,
+        .size = copyInfo.size,
+      }),
+    }));
   }
 
   void Context::TeenyBufferUpdate(Buffer& buffer, TriviallyCopyableByteSpan data, size_t offset) const

@@ -745,6 +745,15 @@ void FrogRenderer2::OnGui(double dt, VkCommandBuffer commandBuffer)
   if (ImGui::GetKeyPressedAmount(ImGuiKey_F1, 10000, 1))
   {
     showGui = !showGui;
+
+    if (!showGui)
+    {
+      int x, y;
+      glfwGetFramebufferSize(window, &x, &y);
+      renderOutputWidth = static_cast<uint32_t>(x);
+      renderOutputHeight = static_cast<uint32_t>(y);
+      shouldResizeNextFrame = true;
+    }
   }
 
   if (!showGui)

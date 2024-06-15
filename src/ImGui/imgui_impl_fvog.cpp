@@ -554,7 +554,6 @@ void ImGui_ImplVulkan_CreateFontsTexture()
 {
   ImGuiIO& io = ImGui::GetIO();
   ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
-  //ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
 
   unsigned char* pixels;
   int width, height;
@@ -582,7 +581,6 @@ void ImGui_ImplVulkan_DestroyFontsTexture()
 {
   ImGuiIO& io = ImGui::GetIO();
   ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
-  //ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
   
   io.Fonts->SetTexID(0);
   if (bd->FontImage)

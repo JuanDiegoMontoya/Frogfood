@@ -390,11 +390,7 @@ Application::Application(const CreateInfo& createInfo)
     return vkGetInstanceProcAddr(*static_cast<VkInstance*>(vulkanInstance), functionName);
   }, &instance_.instance);
   ImGui_ImplVulkan_Init(&imguiVulkanInitInfo);
-  ImGui::StyleColorsDark();
   ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-  ImGui_ImplVulkan_CreateFontsTexture();
-  //device_->ImmediateSubmit([](VkCommandBuffer commandBuffer) { ImGui_ImplVulkan_CreateFontsTexture(commandBuffer); });
 }
 
 Application::~Application()

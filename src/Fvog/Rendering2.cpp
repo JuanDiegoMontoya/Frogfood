@@ -49,7 +49,7 @@ namespace Fvog
     ZoneScoped;
     vkCmdBeginDebugUtilsLabelEXT(commandBuffer_, Address(VkDebugUtilsLabelEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
-      .pLabelName = renderInfo.name,
+      .pLabelName = renderInfo.name ? renderInfo.name : "Render Pass",
       .color = {0.67f, 0.2f, 0.2f, 1.0f},
     }));
 

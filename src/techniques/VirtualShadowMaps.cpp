@@ -276,6 +276,12 @@ namespace Techniques::VirtualShadowMaps
     auto marker = ctx.MakeScopedDebugMarker("VSM Enqueue and Clear Dirty Pages");
 
     ctx.Barrier();
+
+    pageClearDispatchParams_.FillData(cmd, {.offset = offsetof(Fvog::DispatchIndirectCommand, groupCountZ), .size = sizeof(uint32_t)});
+    pagesToClear_.FillData(cmd, {.offset = 0, .size = sizeof(uint32_t)});
+
+    ctx.Barrier();
+
     ctx.ImageBarrier(pageTables_, VK_IMAGE_LAYOUT_GENERAL);
     ctx.ImageBarrier(physicalPages_, VK_IMAGE_LAYOUT_GENERAL);
 
@@ -308,11 +314,6 @@ namespace Techniques::VirtualShadowMaps
     //Fvog::MemoryBarrier(Barrier::COMMAND_BUFFER_BIT | Barrier::SHADER_STORAGE_BIT);
     //Fvog::Cmd::BindImage("i_physicalPages", physicalPages_, 0);
     ctx.DispatchIndirect(pageClearDispatchParams_);
-
-    ctx.Barrier();
-    //Fvog::MemoryBarrier(Barrier::BUFFER_UPDATE_BIT);
-    pageClearDispatchParams_.FillData(cmd, {.offset = offsetof(Fvog::DispatchIndirectCommand, groupCountZ), .size = sizeof(uint32_t)});
-    pagesToClear_.FillData(cmd, {.offset = 0, .size = sizeof(uint32_t)});
   }
 
   VsmPushConstants Context::GetPushConstants()

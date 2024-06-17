@@ -54,7 +54,7 @@ namespace Fvog
       }
       file.write(reinterpret_cast<const char*>(bytes.data()), bytes.size_bytes());
     }
-
+    
     // Hackity hack
     size_t NumberOfPathComponents(std::filesystem::path path)
     {
@@ -136,13 +136,12 @@ namespace Fvog
       int length = static_cast<int>(source.size());
       const char* data = source.data();
       shader.setStringsWithLengths(&data, &length, 1);
-      shader.setEnvInput(glslang::EShSource::EShSourceGlsl, glslangStage, glslang::EShClient::EShClientVulkan, 460);
+      shader.setEnvInput(glslang::EShSource::EShSourceGlsl, glslangStage, glslang::EShClient::EShClientVulkan, 100);
       shader.setEnvClient(glslang::EShClient::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_3);
       shader.setEnvTarget(glslang::EShTargetLanguage::EShTargetSpv, glslang::EShTargetLanguageVersion::EShTargetSpv_1_6);
       shader.setPreamble("#extension GL_GOOGLE_include_directive : enable\n");
-
-      constexpr bool generateDebugInfo = true;
-      shader.setDebugInfo(generateDebugInfo);
+      
+      shader.setDebugInfo(true);
 
       bool parseResult;
       if (includer)
@@ -182,12 +181,14 @@ namespace Fvog
         info.workgroupSize_.depth = program.getLocalSize(2);
       }
 
+      // Equivalent to -gVS, which should be sufficient for RenderDoc to debug our shaders.
+      // https://github.com/KhronosGroup/glslang/blob/vulkan-sdk-1.3.283.0/StandAlone/StandAlone.cpp#L998-L1016
       auto options = glslang::SpvOptions{
-        .generateDebugInfo = generateDebugInfo,
-        .disableOptimizer = generateDebugInfo,
-        //.validate = true,
-        .emitNonSemanticShaderDebugInfo = generateDebugInfo,
-        .emitNonSemanticShaderDebugSource = generateDebugInfo,
+        .generateDebugInfo = true,
+        .stripDebugInfo = false,
+        .disableOptimizer = true,
+        .emitNonSemanticShaderDebugInfo = true,
+        .emitNonSemanticShaderDebugSource = true,
       };
       glslang::GlslangToSpv(*program.getIntermediate(glslangStage), info.binarySpv, &options);
 

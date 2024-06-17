@@ -3,15 +3,18 @@
 
 #include "../../Math.h.glsl"
 #include "../../GlobalUniforms.h.glsl"
-#include "../../shadows/vsm/VsmCommon.h.glsl"
+#include "../../Resources.h.glsl"
 
-layout(binding = 0) uniform ViewerUniforms
+FVOG_DECLARE_ARGUMENTS(ViewerUniforms)
 {
+  uint textureIndex;
+  uint samplerIndex;
   int texLayer;
   int texLevel;
-}uniforms;
+}pc;
 
-layout(binding = 0) uniform sampler2D s_texture;
+FVOG_DECLARE_SAMPLERS;
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 layout(location = 0) in vec2 v_uv;
 
@@ -19,7 +22,7 @@ layout(location = 0) out vec4 o_color;
 
 void main()
 {
-  const float depth = textureLod(s_texture, v_uv, uniforms.texLevel).x;
+  const float depth = textureLod(Fvog_sampler2D(pc.textureIndex, pc.samplerIndex), v_uv, pc.texLevel).x;
 
   o_color = vec4(vec3(depth), 1);
 }

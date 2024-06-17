@@ -51,8 +51,10 @@
 #extension GL_EXT_buffer_reference : require              // BDA
 #extension GL_EXT_shader_image_load_formatted : require   // readable images without explicit format
 #extension GL_EXT_samplerless_texture_functions : require // texelFetch on sampled images
+#extension GL_EXT_debug_printf : enable                   // printf
 
 #define NonUniformIndex nonuniformEXT
+#define printf debugPrintfEXT
 
 #define FVOG_STORAGE_BUFFER_BINDING 0
 #define FVOG_STORAGE_IMAGE_BINDING 2

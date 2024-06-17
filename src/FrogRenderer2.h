@@ -460,20 +460,22 @@ private:
   float vsmFirstClipmapWidth = 10.0f;
   float vsmDirectionalProjectionZLength = 100.0f;
 
-  //// Texture viewer
-  //struct ViewerUniforms
-  //{
-  //  int32_t texLayer = 0;
-  //  int32_t texLevel = 0;
-  //};
+  // Texture viewer
+  struct ViewerUniforms
+  {
+    FVOG_UINT32 textureIndex{};
+    FVOG_UINT32 samplerIndex{};
+    FVOG_INT32 texLayer = 0;
+    FVOG_INT32 texLevel = 0;
+  };
 
-  //ViewerUniforms viewerUniforms{};
-  //Fwog::TypedBuffer<ViewerUniforms> viewerUniformsBuffer;
-  //const Fwog::Texture* viewerCurrentTexture = nullptr;
-  //Fwog::GraphicsPipeline viewerVsmPageTablesPipeline;
-  //Fwog::GraphicsPipeline viewerVsmPhysicalPagesPipeline;
-  //Fwog::GraphicsPipeline viewerVsmBitmaskHzbPipeline;
-  //std::optional<Fwog::Texture> viewerOutputTexture;
+  ViewerUniforms viewerUniforms{};
+  Fvog::Texture* viewerCurrentTexture = nullptr;
+  Fvog::GraphicsPipeline viewerVsmPageTablesPipeline;
+  Fvog::GraphicsPipeline viewerVsmPhysicalPagesPipeline;
+  Fvog::GraphicsPipeline viewerVsmBitmaskHzbPipeline;
+  std::optional<Fvog::Texture> viewerOutputTexture;
+  constexpr static Fvog::Format viewerOutputTextureFormat = Fvog::Format::R8G8B8A8_UNORM;
 
   Fvog::Sampler nearestSampler;
   Fvog::Sampler linearMipmapSampler;

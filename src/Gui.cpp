@@ -475,90 +475,86 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
   ImGui::End();
 }
 
-void FrogRenderer2::GuiDrawViewer(VkCommandBuffer)
+void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
 {
   // TODO: pick icon for this window (eye?)
   if (ImGui::Begin("Texture Viewer##viewer_window"))
   {
-    // TODO
-    //bool selectedTex = false;
+    bool selectedTex = false;
 
-    //struct TexInfo
-    //{
-    //  bool operator==(const TexInfo&) const noexcept = default;
-    //  std::string name;
-    //  Fwog::GraphicsPipeline* pipeline;
-    //};
-    //auto map = std::unordered_map<const Fwog::Texture*, TexInfo>();
-    //map[nullptr] = {"None", nullptr};
-    //map[&vsmContext.pageTables_] = {"VSM Page Tables", &viewerVsmPageTablesPipeline};
-    //map[&vsmContext.physicalPages_] = {"VSM Physical Pages", &viewerVsmPhysicalPagesPipeline};
-    //map[&vsmContext.vsmBitmaskHzb_] = {"VSM Bitmask HZB", &viewerVsmBitmaskHzbPipeline};
+    struct TexInfo
+    {
+      bool operator==(const TexInfo&) const noexcept = default;
+      std::string name;
+      Fvog::GraphicsPipeline* pipeline{};
+    };
+    auto map = std::unordered_map<const Fvog::Texture*, TexInfo>();
+    map[nullptr] = {"None", nullptr};
+    map[&vsmContext.pageTables_] = {"VSM Page Tables", &viewerVsmPageTablesPipeline};
+    map[&vsmContext.physicalPages_] = {"VSM Physical Pages", &viewerVsmPhysicalPagesPipeline};
+    map[&vsmContext.vsmBitmaskHzb_] = {"VSM Bitmask HZB", &viewerVsmBitmaskHzbPipeline};
 
-    //if (ImGui::BeginCombo("Texture", map.find(viewerCurrentTexture)->second.name.c_str()))
-    //{
-    //  if (ImGui::Selectable(map[nullptr].name.c_str()))
-    //  {
-    //    viewerCurrentTexture = nullptr;
-    //  }
-    //  if (ImGui::Selectable(map[&vsmContext.pageTables_].name.c_str()))
-    //  {
-    //    viewerCurrentTexture = &vsmContext.pageTables_;
-    //    selectedTex = true;
-    //  }
-    //  if (ImGui::Selectable(map[&vsmContext.physicalPages_].name.c_str()))
-    //  {
-    //    viewerCurrentTexture = &vsmContext.physicalPages_;
-    //    selectedTex = true;
-    //  }
-    //  if (ImGui::Selectable(map[&vsmContext.vsmBitmaskHzb_].name.c_str()))
-    //  {
-    //    viewerCurrentTexture = &vsmContext.vsmBitmaskHzb_;
-    //    selectedTex = true;
-    //  }
+    if (ImGui::BeginCombo("Texture", map.find(viewerCurrentTexture)->second.name.c_str()))
+    {
+      if (ImGui::Selectable(map[nullptr].name.c_str()))
+      {
+        viewerCurrentTexture = nullptr;
+      }
+      if (ImGui::Selectable(map[&vsmContext.pageTables_].name.c_str()))
+      {
+        viewerCurrentTexture = &vsmContext.pageTables_;
+        selectedTex = true;
+      }
+      if (ImGui::Selectable(map[&vsmContext.physicalPages_].name.c_str()))
+      {
+        viewerCurrentTexture = &vsmContext.physicalPages_;
+        selectedTex = true;
+      }
+      if (ImGui::Selectable(map[&vsmContext.vsmBitmaskHzb_].name.c_str()))
+      {
+        viewerCurrentTexture = &vsmContext.vsmBitmaskHzb_;
+        selectedTex = true;
+      }
 
-    //  ImGui::EndCombo();
-    //}
+      ImGui::EndCombo();
+    }
 
-    //if (selectedTex)
-    //{
-    //  viewerOutputTexture = Fwog::CreateTexture2D({viewerCurrentTexture->Extent().width, viewerCurrentTexture->Extent().height}, Fwog::Format::R8G8B8A8_UNORM);
-    //  glTextureParameteri(viewerOutputTexture->Handle(), GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    //  glTextureParameteri(viewerOutputTexture->Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    //}
-    //
-    //if (viewerOutputTexture && viewerCurrentTexture)
-    //{
-    //  ImGui::SliderInt("Layer", &viewerUniforms.texLayer, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().arrayLayers - 1));
-    //  ImGui::SliderInt("Level", &viewerUniforms.texLevel, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().mipLevels - 1));
+    if (selectedTex)
+    {
+      viewerOutputTexture = Fvog::CreateTexture2D(*device_,
+                                                  {viewerCurrentTexture->GetCreateInfo().extent.width, viewerCurrentTexture->GetCreateInfo().extent.height},
+                                                  Fvog::Format::R8G8B8A8_UNORM,
+                                                  Fvog::TextureUsage::ATTACHMENT_READ_ONLY);
+    }
+    
+    if (viewerOutputTexture && viewerCurrentTexture)
+    {
+      ImGui::SliderInt("Layer", &viewerUniforms.texLayer, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().arrayLayers - 1));
+      ImGui::SliderInt("Level", &viewerUniforms.texLevel, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().mipLevels - 1));
+      viewerUniforms.textureIndex = viewerCurrentTexture->ImageView().GetSampledResourceHandle().index;
+      viewerUniforms.samplerIndex = nearestSampler.GetResourceHandle().index;
 
-    //  viewerUniformsBuffer.UpdateData(viewerUniforms);
+      auto ctx = Fvog::Context(*device_, commandBuffer);
 
-    //  auto attachment = Fwog::RenderColorAttachment{
-    //    .texture = viewerOutputTexture.value(),
-    //    .loadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-    //  };
-    //  Fwog::Render(
-    //    {
-    //      .name = "Texture Viewer",
-    //      .colorAttachments = {&attachment, 1},
-    //    },
-    //    [&]
-    //    {
-    //      Fwog::Cmd::BindGraphicsPipeline(*map.find(viewerCurrentTexture)->second.pipeline);
-    //      Fwog::Cmd::BindSampledImage(0,
-    //                                  *viewerCurrentTexture,
-    //                                  Fwog::Sampler(Fwog::SamplerState{
-    //                                    .minFilter = Fwog::Filter::NEAREST,
-    //                                    .magFilter = Fwog::Filter::NEAREST,
-    //                                    .mipmapFilter = Fwog::Filter::NEAREST,
-    //                                  }));
-    //      Fwog::Cmd::BindUniformBuffer(0, viewerUniformsBuffer);
-    //      Fwog::Cmd::Draw(3, 1, 0, 0);
-    //    });
+      ctx.ImageBarrier(*viewerCurrentTexture, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+      ctx.ImageBarrierDiscard(*viewerOutputTexture, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
-    //  ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(viewerOutputTexture.value().Handle())), ImGui::GetContentRegionAvail(), {0, 1}, {1, 0});
-    //}
+      auto attachment = Fvog::RenderColorAttachment{
+        .texture = viewerOutputTexture.value().ImageView(),
+        .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+      };
+
+      ctx.BeginRendering({.colorAttachments = {{attachment}}});
+      ctx.BindGraphicsPipeline(*map.find(viewerCurrentTexture)->second.pipeline);
+      ctx.SetPushConstants(viewerUniforms);
+      ctx.Draw(3, 1, 0, 0);
+      ctx.EndRendering();
+
+      ctx.ImageBarrier(*viewerOutputTexture, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+
+      ImGui::Image(ImTextureSampler(viewerOutputTexture.value().ImageView().GetSampledResourceHandle().index, nearestSampler.GetResourceHandle().index),
+                   ImGui::GetContentRegionAvail());
+    }
   }
   ImGui::End();
 }

@@ -1,12 +1,17 @@
 #version 460 core
 
-layout(binding = 0) uniform ViewerUniforms
+#include "../../Resources.h.glsl"
+
+FVOG_DECLARE_ARGUMENTS(ViewerUniforms)
 {
+  uint textureIndex;
+  uint samplerIndex;
   int texLayer;
   int texLevel;
-}uniforms;
+}pc;
 
-layout(binding = 0) uniform usampler2DArray s_texture;
+FVOG_DECLARE_SAMPLERS;
+FVOG_DECLARE_SAMPLED_IMAGES(utexture2DArray);
 
 layout(location = 0) in vec2 v_uv;
 
@@ -14,7 +19,7 @@ layout(location = 0) out vec4 o_color;
 
 void main()
 {
-  const float val = (textureLod(s_texture, vec3(v_uv, uniforms.texLayer), uniforms.texLevel).x);
+  const float val = (textureLod(Fvog_usampler2DArray(pc.textureIndex, pc.samplerIndex), vec3(v_uv, pc.texLayer), pc.texLevel).x);
 
   o_color = vec4(vec3(val), 1);
 }

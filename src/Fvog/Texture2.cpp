@@ -43,6 +43,8 @@ namespace Fvog
                      storageUsage |
                      colorOrDepthStencilUsage;
 
+    auto vmaAllocationFlags = VmaAllocationCreateFlags{};
+
     if (createInfo.usage == TextureUsage::READ_ONLY)
     {
       usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
@@ -55,6 +57,9 @@ namespace Fvog
       usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
               VK_IMAGE_USAGE_SAMPLED_BIT |
               colorOrDepthStencilUsage;
+
+      // IHVs recommend putting render targets in dedicated allocations.
+      vmaAllocationFlags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
     }
 
     CheckVkResult(vmaCreateImage(
@@ -74,6 +79,7 @@ namespace Fvog
         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
       }),
       Address(VmaAllocationCreateInfo{
+        .flags = vmaAllocationFlags,
         .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
       }),
       &image_,

@@ -137,7 +137,7 @@ namespace Utility
     //std::vector<Meshlet> meshlets;
 
     // A list of meshlets (minus their transform ID), which are stored in the scene
-    std::vector<MeshletInstance> meshletIndices;
+    std::vector<MeshletInstance> meshletInstances;
     std::optional<GpuLight> light; // TODO: hold a light without position/direction type safety
   };
 

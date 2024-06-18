@@ -88,10 +88,10 @@
   i_storageImages_##name[index]
 
 #define Fvog_sampler2D(textureIndex, samplerIndex) \
-  sampler2D(FvogGetSampledImage(texture2D, textureIndex), FvogGetSampler(samplerIndex))
+  NonUniformIndex(sampler2D(FvogGetSampledImage(texture2D, textureIndex), FvogGetSampler(samplerIndex)))
 
 #define Fvog_usampler2DArray(textureIndex, samplerIndex) \
-  usampler2DArray(FvogGetSampledImage(utexture2DArray, textureIndex), FvogGetSampler(samplerIndex))
+  NonUniformIndex(usampler2DArray(FvogGetSampledImage(utexture2DArray, textureIndex), FvogGetSampler(samplerIndex)))
 
 #define Fvog_image2D(imageIndex) \
   FvogGetStorageImage(image2D, imageIndex)

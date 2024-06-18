@@ -713,7 +713,26 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
     {
       TraverseLight(node->light);
     }
-    
+
+    if (!node->meshletInstances.empty())
+    {
+      // Show list of meshlet instances on this node.
+      const bool isInstancesNodeOpen = ImGui::TreeNode("Meshlet instances: ");
+      ImGui::SameLine();
+      ImGui::Text("%d", (int)node->meshletInstances.size());
+      if (isInstancesNodeOpen)
+      {
+        // Omit instanceId since it isn't populated until scene traversal.
+        ImGui::Text("#: (meshlet, material)");
+        for (size_t i = 0; i < node->meshletInstances.size(); i++)
+        {
+          const auto& meshletInstance = node->meshletInstances[i];
+          ImGui::Text("%d: (%u, %u)", (int)i, meshletInstance.meshletId, meshletInstance.materialId);
+        }
+        ImGui::TreePop();
+      }
+    }
+
     for (auto* childNode : node->children)
     {
       GuiDrawSceneGraphHelper(childNode);

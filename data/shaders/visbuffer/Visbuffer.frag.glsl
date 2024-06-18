@@ -5,7 +5,7 @@
 #include "../Math.h.glsl"
 #include "../Hash.h.glsl"
 
-layout (location = 0) in flat uint i_meshletId;
+layout (location = 0) in flat uint i_meshletInstanceId;
 layout (location = 1) in flat uint i_primitiveId;
 layout (location = 2) in vec2 i_uv;
 layout (location = 3) in vec3 i_objectSpacePos;
@@ -67,5 +67,5 @@ void main()
     }
   }
 
-  o_pixel = (i_meshletId << MESHLET_PRIMITIVE_BITS) | (i_primitiveId & MESHLET_PRIMITIVE_MASK);
+  o_pixel = (i_meshletInstanceId << MESHLET_PRIMITIVE_BITS) | (i_primitiveId & MESHLET_PRIMITIVE_MASK);
 }

@@ -221,6 +221,7 @@ void main()
   if (localId < meshlet.primitiveCount)
   {
     primitivePassed = CullTriangle(meshlet, localId);
+    
     if (primitivePassed)
     {
       activePrimitiveId = atomicAdd(sh_primitivesPassed, 1);
@@ -239,8 +240,8 @@ void main()
   if (primitivePassed)
   {
     const uint indexOffset = sh_baseIndex + activePrimitiveId * 3;
-    d_indexBuffer.data[indexOffset + 0] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 0) & MESHLET_PRIMITIVE_MASK);
-    d_indexBuffer.data[indexOffset + 1] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 1) & MESHLET_PRIMITIVE_MASK);
-    d_indexBuffer.data[indexOffset + 2] = (meshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 2) & MESHLET_PRIMITIVE_MASK);
+    d_indexBuffer.data[indexOffset + 0] = (meshletInstanceId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 0) & MESHLET_PRIMITIVE_MASK);
+    d_indexBuffer.data[indexOffset + 1] = (meshletInstanceId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 1) & MESHLET_PRIMITIVE_MASK);
+    d_indexBuffer.data[indexOffset + 2] = (meshletInstanceId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 2) & MESHLET_PRIMITIVE_MASK);
   }
 }

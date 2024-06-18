@@ -49,7 +49,7 @@ void DebugDrawMeshletAabb(in uint meshletInstanceId)
   const vec3 extent = (worldAabbMax - worldAabbMin);
   
   const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
-  vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(meshletId) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
+  vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(meshletInstanceId) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
   TryPushDebugAabb(debugAabbBufferIndex, DebugAabb(Vec3ToPacked(aabbCenter), Vec3ToPacked(extent), Vec4ToPacked(color)));
 }
 #endif // ENABLE_DEBUG_DRAWING
@@ -234,7 +234,6 @@ void main()
   }
 
   const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
-  const uint meshletId = meshletInstance.meshletId;
 
   if ((d_perFrameUniforms.flags & CULL_MESHLET_FRUSTUM) == 0 || CullMeshletFrustum(meshletInstanceId, d_currentView))
   {
@@ -282,22 +281,22 @@ void main()
         isVisible = CullQuadVsm(minXY, maxXY, d_currentView.virtualTableIndex);
       }
     }
-
+    
     if (isVisible)
     {
       const uint idx = atomicAdd(d_cullTrianglesDispatch.groupCountX, 1);
-      d_visibleMeshlets.indices[idx] = meshletId;
+      d_visibleMeshlets.indices[idx] = meshletInstanceId;
 
  #ifdef ENABLE_DEBUG_DRAWING
       if (d_currentView.type == VIEW_TYPE_MAIN)
       {
-        DebugDrawMeshletAabb(meshletId);
+        DebugDrawMeshletAabb(meshletInstanceId);
         // Uncommenting this causes a segfault in NV drivers (a crash, not a compilation error!)
         // DebugRect rect;
         // rect.minOffset = Vec2ToPacked(minXY);
         // rect.maxOffset = Vec2ToPacked(maxXY);
         // const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
-        // vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(meshletId) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
+        // vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(meshletInstanceId) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
         // rect.color = Vec4ToPacked(color);
         // rect.depth = nearestZ;
         //TryPushDebugRect(rect);

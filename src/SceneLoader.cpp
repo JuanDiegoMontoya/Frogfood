@@ -120,12 +120,12 @@ namespace Utility
     {
       switch (minFilter)
       {
-      case GL_LINEAR_MIPMAP_LINEAR: //[[fallthrough]]
+      case GL_LINEAR_MIPMAP_LINEAR: [[fallthrough]];
       case GL_NEAREST_MIPMAP_LINEAR: return VK_SAMPLER_MIPMAP_MODE_LINEAR;
-      case GL_LINEAR_MIPMAP_NEAREST: //[[fallthrough]]
+      case GL_LINEAR_MIPMAP_NEAREST: [[fallthrough]];
       case GL_NEAREST_MIPMAP_NEAREST: return VK_SAMPLER_MIPMAP_MODE_NEAREST;
-      case GL_LINEAR: //[[fallthrough]]
-      case GL_NEAREST:
+      case GL_LINEAR: [[fallthrough]];
+      case GL_NEAREST: [[fallthrough]];
       default: assert(false); return VK_SAMPLER_MIPMAP_MODE_LINEAR;
       }
     }
@@ -624,6 +624,7 @@ namespace Utility
     return materials;
   }
 
+  // Corresponds to a glTF primitive. In other words, it's the mesh data that corresponds to a draw call.
   struct RawMesh
   {
     std::vector<Vertex> vertices;
@@ -942,7 +943,7 @@ namespace Utility
     uint32_t indexOffset = (uint32_t)baseIndexOffset;
     uint32_t primitiveOffset = (uint32_t)basePrimitiveOffset;
 
-    struct MeshletInfo
+    struct MeshletIntermediateInfo
     {
       const RawMesh* rawMeshPtr{};
       std::span<const Vertex> vertices;
@@ -952,20 +953,21 @@ namespace Utility
       //glm::mat4 transform;
     };
 
-    std::vector<MeshletInfo> meshletInfos(loadedScene->rawMeshes.size());
+    std::vector<MeshletIntermediateInfo> meshletInfos(loadedScene->rawMeshes.size());
 
+    // 
     std::transform(
       std::execution::par,
       loadedScene->rawMeshes.begin(),
       loadedScene->rawMeshes.end(),
       meshletInfos.begin(),
-      [] (const RawMesh& mesh) -> MeshletInfo
+      [] (const RawMesh& mesh) -> MeshletIntermediateInfo
       {
         ZoneScopedN("Create meshlets for mesh");
 
         const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxMeshletIndices, maxMeshletPrimitives);
 
-        MeshletInfo meshletInfo;
+        MeshletIntermediateInfo meshletInfo;
         auto& [rawMeshPtr, vertices, meshletIndices, meshletPrimitives, rawMeshlets] = meshletInfo;
 
         rawMeshPtr = &mesh;
@@ -1049,7 +1051,7 @@ namespace Utility
           //node->meshlets.emplace_back(meshlet);
 
           // Instance index is determined each frame
-          node->meshletIndices.emplace_back(meshletIndex, 0, (uint32_t)materialId);
+          node->meshletInstances.emplace_back(meshletIndex, 0, (uint32_t)materialId);
         }
       }
     }
@@ -1097,12 +1099,12 @@ namespace Utility
         nodeStack.emplace(childNode, globalTransform);
       }
 
-      if (!node->meshletIndices.empty())
+      if (!node->meshletInstances.empty())
       {
         const auto instanceId = static_cast<uint32_t>(sceneFlattened.transforms.size());
         // TODO: get previous transform from node
         sceneFlattened.transforms.emplace_back(globalTransform, globalTransform);
-        for (auto [meshletIndex, _, materialId] : node->meshletIndices)
+        for (auto [meshletIndex, _, materialId] : node->meshletInstances)
         {
           //meshlet.instanceId = static_cast<uint32_t>(instanceId);
           //sceneFlattened.meshlets.emplace_back(meshlet);

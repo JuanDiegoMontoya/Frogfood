@@ -66,7 +66,7 @@ namespace Fvog
       device_->allocator_,
       Address(VkImageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        .flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT,
+        .flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT, // TODO: blindly applying this to every image is against IHV recommendations.
         .imageType = ViewTypeToImageType(createInfo.viewType),
         .format = detail::FormatToVk(createInfo.format),
         .extent = createInfo.extent,

@@ -9,9 +9,9 @@ layout(location = 1) out uint v_materialId;
 
 void main()
 {
-  const uint meshletId = (uint(gl_VertexIndex) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
+  const uint meshletInstanceId = (uint(gl_VertexIndex) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
   const uint primitiveId = uint(gl_VertexIndex) & MESHLET_PRIMITIVE_MASK;
-  const MeshletInstance meshletInstance = d_meshletInstances[meshletId];
+  const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
   const Meshlet meshlet = d_meshlets[meshletInstance.meshletId];
   const uint vertexOffset = meshlet.vertexOffset;
   const uint indexOffset = meshlet.indexOffset;

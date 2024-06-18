@@ -2,10 +2,6 @@
 #include "Fvog/Device.h"
 #include <VkBootstrap.h>
 
-//#include <volk.h>
-//#include <tracy/Tracy.hpp>
-//#include <tracy/TracyVulkan.hpp>
-
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -21,6 +17,11 @@
 #include <glm/vec2.hpp>
 
 struct GLFWwindow;
+
+namespace tracy
+{
+  class VkCtx;
+}
 
 // Represents the camera's position and orientation.
 struct View
@@ -98,8 +99,6 @@ protected:
   vkb::Instance instance_{};
   std::optional<Fvog::Device> device_;
   VkSurfaceKHR surface_{};
-  VkCommandPool tracyCommandPool_{};
-  VkCommandBuffer tracyCommandBuffer_{};
   VkDescriptorPool imguiDescriptorPool_{};
   vkb::Swapchain swapchain_{};
   std::vector<VkImage> swapchainImages_;
@@ -107,7 +106,7 @@ protected:
   std::vector<VkImageView> swapchainImageViewsUnorm_;
   static constexpr auto swapchainSrgbFormat = VK_FORMAT_B8G8R8A8_SRGB;
   static constexpr auto swapchainUnormFormat = VK_FORMAT_B8G8R8A8_UNORM;
-  //tracy::VkCtx* tracyVkContext_{};
+  tracy::VkCtx* tracyVkContext_{};
   GLFWwindow* window;
   View mainCamera{};
   float cursorSensitivity = 0.0025f;

@@ -21,7 +21,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include <tracy/Tracy.hpp>
-//#include <tracy/TracyVulkan.hpp>
+#include <tracy/TracyVulkan.hpp>
 
 #include <bit>
 #include <exception>
@@ -197,6 +197,7 @@ static auto MakeVkbSwapchain(const vkb::Device& device,
                              uint32_t width,
                              uint32_t height,
                              [[maybe_unused]] VkPresentModeKHR presentMode,
+                             uint32_t imageCount,
                              VkSwapchainKHR oldSwapchain,
                              VkFormat srgbFormat,
                              VkFormat unormFormat)
@@ -206,7 +207,7 @@ static auto MakeVkbSwapchain(const vkb::Device& device,
     unormFormat,
   };
   return vkb::SwapchainBuilder{device}
-    .set_desired_min_image_count(2)
+    .set_desired_min_image_count(imageCount)
     .set_old_swapchain(oldSwapchain)
     .set_desired_present_mode(presentMode)
     .add_fallback_present_mode(VK_PRESENT_MODE_MAILBOX_KHR)
@@ -321,6 +322,7 @@ Application::Application(const CreateInfo& createInfo)
                                 windowFramebufferWidth,
                                 windowFramebufferHeight,
                                 presentMode,
+                                device_->frameOverlap,
                                 VK_NULL_HANDLE,
                                 swapchainSrgbFormat,
                                 swapchainUnormFormat);
@@ -328,30 +330,15 @@ Application::Application(const CreateInfo& createInfo)
   swapchainImageViewsSrgb_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainSrgbFormat);
   swapchainImageViewsUnorm_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainUnormFormat);
 
-  const auto commandPoolInfo = VkCommandPoolCreateInfo{
-    .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-    .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, // Required for Tracy
-  };
-  if (vkCreateCommandPool(device_->device_, &commandPoolInfo, nullptr, &tracyCommandPool_) != VK_SUCCESS)
-  {
-    throw std::runtime_error("rip");
-  }
-
-  const auto commandBufferInfo = VkCommandBufferAllocateInfo{
-    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-    .commandPool = tracyCommandPool_,
-    .commandBufferCount = 1,
-  };
-  if (vkAllocateCommandBuffers(device_->device_, &commandBufferInfo, &tracyCommandBuffer_) != VK_SUCCESS)
-  {
-    throw std::runtime_error("rip");
-  }
-
   glslang::InitializeProcess();
   destroyList_.Push([] { glslang::FinalizeProcess(); });
 
   // Initialize Tracy
-  //tracyVkContext_ = TracyVkContext(device_.physicalDevice_, device_.device_, device_.graphicsQueue_, tracyCommandBuffer_)
+  tracyVkContext_ = TracyVkContextHostCalibrated(device_->physicalDevice_,
+                                                 device_->device_,
+                                                 vkResetQueryPool,
+                                                 vkGetPhysicalDeviceCalibrateableTimeDomainsEXT,
+                                                 vkGetCalibratedTimestampsEXT);
 
   // Initialize ImGui and a backend for it.
   // Because we allow the GLFW backend to install callbacks, it will automatically call our own that we provided.
@@ -402,8 +389,7 @@ Application::~Application()
 
   vkDestroyDescriptorPool(device_->device_, imguiDescriptorPool_, nullptr);
 
-  // Destroying a command pool implicitly frees command buffers allocated from it
-  vkDestroyCommandPool(device_->device_, tracyCommandPool_, nullptr);
+  DestroyVkContext(tracyVkContext_);
 
   vkb::destroy_swapchain(swapchain_);
 
@@ -490,9 +476,17 @@ void Application::Draw()
     ImGui::NewFrame();
   }
 
-  OnRender(dtDraw, commandBuffer, swapchainImageIndex);
-  OnGui(dtDraw, commandBuffer);
-  
+  {
+    {
+      TracyVkZone(tracyVkContext_, commandBuffer, "OnRender");
+      OnRender(dtDraw, commandBuffer, swapchainImageIndex);
+    }
+    {
+      TracyVkZone(tracyVkContext_, commandBuffer, "OnGui");
+      OnGui(dtDraw, commandBuffer);
+    }
+  }
+
   // Render ImGui
   // A frame marker is inserted to distinguish ImGui rendering from the application's in a debugger.
   {
@@ -523,6 +517,8 @@ void Application::Draw()
   }
 
   {
+    TracyVkCollect(tracyVkContext_, commandBuffer);
+
     {
       ZoneScopedN("End Recording");
       Fvog::detail::CheckVkResult(vkEndCommandBuffer(commandBuffer));
@@ -712,6 +708,7 @@ void Application::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_un
                                   windowFramebufferWidth,
                                   windowFramebufferHeight,
                                   presentMode,
+                                  device_->frameOverlap,
                                   oldSwapchain,
                                   swapchainSrgbFormat,
                                   swapchainUnormFormat);

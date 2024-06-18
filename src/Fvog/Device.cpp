@@ -51,10 +51,10 @@ namespace Fvog
     // physical device
     physicalDevice_ = selector
       .set_minimum_version(1, 3)
-      .prefer_gpu_device_type(vkb::PreferredDeviceType::discrete)
       .require_present()
       .set_surface(surface_)
       .add_required_extension(VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)
+      .add_required_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) // TODO: enable for profiling builds only
       .set_required_features({
         .multiDrawIndirect = true,
         .samplerAnisotropy = true,
@@ -110,8 +110,8 @@ namespace Fvog
         .imagelessFramebuffer = true,
         .uniformBufferStandardLayout = true,
         .shaderSubgroupExtendedTypes = true,
-        .separateDepthStencilLayouts = true,
-        .hostQueryReset = true,
+        //.separateDepthStencilLayouts = true,
+        .hostQueryReset = true, // TODO: enable for profiling builds only
         .timelineSemaphore = true,
         .bufferDeviceAddress = true,
         .vulkanMemoryModel = true,
@@ -126,25 +126,8 @@ namespace Fvog
         .shaderIntegerDotProduct = true,
         .maintenance4 = true,
       })
-      .add_required_extension("VK_KHR_dynamic_rendering") // Needed for Dear ImGui's default Vulkan backend
       .select()
       .value();
-
-    auto usedFormats = std::array{VK_FORMAT_R32_SFLOAT};
-
-    for (auto format : usedFormats)
-    {
-      auto formatProperties3 = VkFormatProperties3{
-        .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3
-      };
-      auto formatProperties2 = VkFormatProperties2{
-        .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2,
-        .pNext = &formatProperties3,
-      };
-      vkGetPhysicalDeviceFormatProperties2(physicalDevice_, format, &formatProperties2);
-      printf("Formatless read: %d\n", (formatProperties3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT) != 0);
-      printf("Formatless write: %d\n", (formatProperties3.optimalTilingFeatures & VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT) != 0);
-    }
     
     device_ = vkb::DeviceBuilder{physicalDevice_}.build().value();
     graphicsQueue_ = device_.get_queue(vkb::QueueType::graphics).value();

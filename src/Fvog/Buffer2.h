@@ -143,13 +143,12 @@ namespace Fvog
   {
   public:
     explicit NDeviceBuffer(Device& device, uint32_t count = 1, std::string name = {})
-    : hostStagingBuffers_{
-        // TODO: create a helper for initializing this array so it doesn't fail to compile when Device::frameOverlap changes
-        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name + std::string(" (host)"))},
-        {TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name + std::string(" (host)"))},
-      },
-      deviceBuffer_(device, TypedBufferCreateInfo{.count = count}, std::move(name))
+    : deviceBuffer_(device, TypedBufferCreateInfo{.count = count}, std::move(name))
     {
+      for (auto& buffer : hostStagingBuffers_)
+      {
+        buffer = TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name + std::string(" (host)"));
+      }
     }
 
     // Number of elements of T that this buffer could hold
@@ -181,11 +180,12 @@ namespace Fvog
       {
         return;
       }
-      auto& stagingBuffer = hostStagingBuffers_[deviceBuffer_.device_->frameNumber % Device::frameOverlap];
+      auto& stagingBuffer = *hostStagingBuffers_[deviceBuffer_.device_->frameNumber % Device::frameOverlap];
       stagingBuffer.UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, deviceBuffer_);
     }
 
-    TypedBuffer<T> hostStagingBuffers_[Device::frameOverlap];
+    // Use optional as a hacky way to allow for deferred initialization.
+    std::optional<TypedBuffer<T>> hostStagingBuffers_[Device::frameOverlap];
     TypedBuffer<T> deviceBuffer_;
   };
 }

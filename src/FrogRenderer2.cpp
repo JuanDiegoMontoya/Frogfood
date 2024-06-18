@@ -21,6 +21,7 @@ using namespace Fvog::detail;
 #include "ImGui/imgui_impl_fvog.h"
 
 #include <tracy/Tracy.hpp>
+#include <tracy/TracyVulkan.hpp>
 
 
 static glm::vec2 GetJitterOffset([[maybe_unused]] uint32_t frameIndex,
@@ -324,25 +325,23 @@ void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
 void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, std::string_view name)
 {
   ZoneScoped;
-  //viewBuffer->UpdateData(view);
+  TracyVkZoneTransient(tracyVkContext_, tracyProfileVar, commandBuffer, name.data(), true);
   auto ctx = Fvog::Context(*device_, commandBuffer);
   auto marker = ctx.MakeScopedDebugMarker(name.data(), {.5f, .5f, 1.0f, 1.0f});
-  ctx.Barrier();
-  viewBuffer->UpdateDataExpensive(commandBuffer, view);
 
-  // Clear all the fields to zero, then set the instance count to one (this way should be more efficient than a CPU-side buffer update)
   ctx.Barrier();
-  constexpr auto drawCommand = Fvog::DrawIndexedIndirectCommand{
-    .indexCount = 0,
-    .instanceCount = 1,
-    .firstIndex = 0,
-    .vertexOffset = 0,
-    .firstInstance = 0,
-  };
-  meshletIndirectCommand->UpdateDataExpensive(commandBuffer, drawCommand);
+  ctx.TeenyBufferUpdate(*viewBuffer, view);
+  
+  ctx.TeenyBufferUpdate(*meshletIndirectCommand,
+                        Fvog::DrawIndexedIndirectCommand{
+                          .indexCount = 0,
+                          .instanceCount = 1,
+                          .firstIndex = 0,
+                          .vertexOffset = 0,
+                          .firstInstance = 0,
+                        });
 
   // Clear groupCountX
-  ctx.Barrier();
   cullTrianglesDispatchParams->FillData(commandBuffer, {.size = sizeof(uint32_t)});
 
   ctx.Barrier();
@@ -540,15 +539,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
-  //if (device_->frameNumber == 1)
-  //{
-  //  vsmSun.UpdateExpensive(mainCamera.position, glm::vec3{-shadingUniforms.sunDir}, vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
-  //}
-  //else
-  //{
-  //  vsmSun.UpdateOffset(mainCamera.position);
-  //}
-
   ctx.Barrier();
 
   if (executeMeshletGeneration)
@@ -601,30 +591,37 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   // VSMs
   {
     const auto debugMarker = ctx.MakeScopedDebugMarker("Virtual Shadow Maps");
+    TracyVkZone(tracyVkContext_, commandBuffer, "Virtual Shadow Maps")
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eVsm);
 
     {
       //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmResetPageVisibility);
+      TracyVkZone(tracyVkContext_, commandBuffer, "Reset Page Visibility")
       vsmContext.ResetPageVisibility(commandBuffer);
     }
     {
       //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmMarkVisiblePages);
+      TracyVkZone(tracyVkContext_, commandBuffer, "Mark Visible Pages")
       vsmSun.MarkVisiblePages(commandBuffer, frame.gDepth.value(), globalUniformsBuffer.GetDeviceBuffer());
     }
     {
       //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmFreeNonVisiblePages);
+      TracyVkZone(tracyVkContext_, commandBuffer, "Free Non-Visible Pages")
       vsmContext.FreeNonVisiblePages(commandBuffer);
     }
     {
       //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmAllocatePages);
+      TracyVkZone(tracyVkContext_, commandBuffer, "Allocate Requested Pages")
       vsmContext.AllocateRequestedPages(commandBuffer);
     }
     {
       //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmGenerateHpb);
+      TracyVkZone(tracyVkContext_, commandBuffer, "Generate HPB")
       vsmSun.GenerateBitmaskHzb(commandBuffer);
     }
     {
       //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmClearDirtyPages);
+      TracyVkZone(tracyVkContext_, commandBuffer, "Clear Dirty Pages")
       vsmContext.ClearDirtyPages(commandBuffer);
     }
 
@@ -633,6 +630,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     // Sun VSMs
     for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
     {
+      TracyVkZone(tracyVkContext_, commandBuffer, "Render Clipmap")
       auto sunCurrentClipmapView = ViewParams{
         .oldViewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
         .proj = vsmSun.GetProjections()[i],

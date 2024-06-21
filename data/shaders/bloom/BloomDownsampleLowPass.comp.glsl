@@ -6,7 +6,6 @@
 #define LOCAL_SIZE_Y 16
 #include "BloomDownsampleCommon.h.glsl"
 
-#include "BloomCommon.h.glsl"
 #include "../Utility.h.glsl"
 
 // Reduce the dynamic range of the input samples

@@ -1,5 +1,8 @@
+//#version 450
 #ifndef BLOOM_DOWNSAMPLE_COMMON_H
 #define BLOOM_DOWNSAMPLE_COMMON_H
+
+#include "BloomCommon.h.glsl"
 
 // FP16 support
 #if 0
@@ -12,9 +15,6 @@
 #else
   #define f16vec3 vec3
 #endif
-
-layout(binding = 0) uniform sampler2D s_source;
-layout(binding = 0) uniform writeonly image2D i_target;
 
 // Should be safe to have up to 32x32 (1024) threads (minimum guaranteed).
 // 32x32 threads will use slightly less than 32KB shared memory (minimum guaranteed) with full precision vectors (worst case).

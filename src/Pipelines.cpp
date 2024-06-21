@@ -3,7 +3,6 @@
 #include "RendererUtilities.h"
 
 // TODO: remove
-#include "FrogRenderer.h"
 #include "SceneLoader.h"
 
 #include "shaders/Config.shared.h"
@@ -159,41 +158,41 @@ namespace Pipelines
     });
   }
 
-  Fwog::GraphicsPipeline DebugLines()
-  {
-    auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/Debug.vert.glsl");
-    auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
+  //Fwog::GraphicsPipeline DebugLines()
+  //{
+  //  auto vs = LoadShaderWithIncludes(Fwog::PipelineStage::VERTEX_SHADER, "shaders/debug/Debug.vert.glsl");
+  //  auto fs = LoadShaderWithIncludes(Fwog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
 
-    auto positionBinding = Fwog::VertexInputBindingDescription{
-      .location = 0,
-      .binding = 0,
-      .format = Fwog::Format::R32G32B32_FLOAT,
-      .offset = offsetof(Debug::Line, aPosition),
-    };
+  //  auto positionBinding = Fwog::VertexInputBindingDescription{
+  //    .location = 0,
+  //    .binding = 0,
+  //    .format = Fwog::Format::R32G32B32_FLOAT,
+  //    .offset = offsetof(Debug::Line, aPosition),
+  //  };
 
-    auto colorBinding = Fwog::VertexInputBindingDescription{
-      .location = 1,
-      .binding = 0,
-      .format = Fwog::Format::R32G32B32A32_FLOAT,
-      .offset = offsetof(Debug::Line, aColor),
-    };
+  //  auto colorBinding = Fwog::VertexInputBindingDescription{
+  //    .location = 1,
+  //    .binding = 0,
+  //    .format = Fwog::Format::R32G32B32A32_FLOAT,
+  //    .offset = offsetof(Debug::Line, aColor),
+  //  };
 
-    auto bindings = {positionBinding, colorBinding};
+  //  auto bindings = {positionBinding, colorBinding};
 
-    return Fwog::GraphicsPipeline({
-      .vertexShader = &vs,
-      .fragmentShader = &fs,
-      .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::LINE_LIST},
-      .vertexInputState = bindings,
-      .rasterizationState = {.cullMode = Fwog::CullMode::NONE, .lineWidth = 2},
-      .depthState =
-        {
-          .depthTestEnable = true,
-          .depthWriteEnable = false,
-          .depthCompareOp = FWOG_COMPARE_OP_NEARER,
-        },
-    });
-  }
+  //  return Fwog::GraphicsPipeline({
+  //    .vertexShader = &vs,
+  //    .fragmentShader = &fs,
+  //    .inputAssemblyState = {.topology = Fwog::PrimitiveTopology::LINE_LIST},
+  //    .vertexInputState = bindings,
+  //    .rasterizationState = {.cullMode = Fwog::CullMode::NONE, .lineWidth = 2},
+  //    .depthState =
+  //      {
+  //        .depthTestEnable = true,
+  //        .depthWriteEnable = false,
+  //        .depthCompareOp = FWOG_COMPARE_OP_NEARER,
+  //      },
+  //  });
+  //}
 
   Fwog::GraphicsPipeline DebugAabbs()
   {

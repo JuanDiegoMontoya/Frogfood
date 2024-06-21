@@ -430,13 +430,13 @@ private:
   float magnifierZoom = 4;
   glm::vec2 magnifierLastCursorPos = {400, 400};
 
-  //// Bloom
-  //Techniques::Bloom bloom;
-  //bool bloomEnable = true;
-  //uint32_t bloomPasses = 6;
-  //float bloomStrength = 1.0f / 32.0f;
-  //float bloomWidth = 1.0f;
-  //bool bloomUseLowPassFilter = true;
+  // Bloom
+  Techniques::Bloom bloom;
+  bool bloomEnable = true;
+  uint32_t bloomPasses = 6;
+  float bloomStrength = 1.0f / 32.0f;
+  float bloomWidth = 1.0f;
+  bool bloomUseLowPassFilter = true;
 
   // Auto-exposure
   Techniques::AutoExposure autoExposure;

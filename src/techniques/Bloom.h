@@ -1,25 +1,32 @@
 #pragma once
-#include <Fwog/Pipeline.h>
-#include <Fwog/Texture.h>
-#include <Fwog/Buffer.h>
+#include <Fvog/Pipeline2.h>
+#include <Fvog/Texture2.h>
+#include <Fvog/Buffer2.h>
 
 #include <glm/vec2.hpp>
+
+#include <vulkan/vulkan_core.h>
+
+namespace Fvog
+{
+  class Device;
+}
 
 namespace Techniques
 {
   class Bloom
   {
   public:
-    explicit Bloom();
+    explicit Bloom(Fvog::Device& device);
 
     struct ApplyParams
     {
       // The input and output texture.
-      Fwog::Texture& target;
+      Fvog::Texture& target;
 
       // A scratch texture to be used for intermediate storage.
       // Its dimensions should be _half_ those of the target.
-      Fwog::Texture& scratchTexture;
+      Fvog::Texture& scratchTexture;
 
       // Maximum number of times to downsample before upsampling.
       // A larger value means a wider blur.
@@ -38,26 +45,13 @@ namespace Techniques
       bool useLowPassFilterOnFirstPass;
     };
 
-    void Apply(const ApplyParams& params);
+    void Apply(VkCommandBuffer commandBuffer, const ApplyParams& params);
 
   private:
-    struct BloomUniforms
-    {
-      glm::ivec2 sourceDim;
-      glm::ivec2 targetDim;
-      float width;
-      float strength;
-      float sourceLod;
-      float targetLod;
-      uint32_t numPasses;
-      uint32_t isFinalPass;
-      uint32_t _padding[2];
-    };
+    Fvog::Device* device_;
 
-    Fwog::TypedBuffer<BloomUniforms> uniformBuffer;
-
-    Fwog::ComputePipeline downsampleLowPassPipeline;
-    Fwog::ComputePipeline downsamplePipeline;
-    Fwog::ComputePipeline upsamplePipeline;
+    Fvog::ComputePipeline downsampleLowPassPipeline;
+    Fvog::ComputePipeline downsamplePipeline;
+    Fvog::ComputePipeline upsamplePipeline;
   };
 } // namespace Techniques

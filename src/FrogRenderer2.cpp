@@ -84,6 +84,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat)}},
       })),
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
+    bloom(*device_),
     autoExposure(*device_),
     exposureBuffer(*device_, {}, "Exposure"),
     vsmContext(*device_, {
@@ -260,9 +261,10 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   frame.gMotion = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gMotionFormat, usage, "gMotion");
   frame.gNormaAndFaceNormallPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormaAndFaceNormallPrev");
   frame.gDepthPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gDepthPrevFormat, usage, "gDepthPrev");
-  frame.colorHdrRenderRes = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::colorHdrRenderResFormat, usage, "colorHdrRenderRes");
-  frame.colorHdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorHdrWindowResFormat, usage, "colorHdrWindowRes");
-  frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip(*device_, {newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, usage, "colorHdrBloomScratchBuffer");
+  // The next four are general so they can be written to in postprocessing passes via compute
+  frame.colorHdrRenderRes = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::colorHdrRenderResFormat, Fvog::TextureUsage::GENERAL, "colorHdrRenderRes");
+  frame.colorHdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorHdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorHdrWindowRes");
+  frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip(*device_, {newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, Fvog::TextureUsage::GENERAL, "colorHdrBloomScratchBuffer");
   frame.colorLdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorLdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorLdrWindowRes");
 
   // Create debug views with alpha swizzle set to one so they can be seen in ImGui
@@ -693,6 +695,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   // TODO: remove when descriptor indexing sync validation does not give false positives
   ctx.Barrier();
+
+  // FIXME: this barrier somehow causes gDepth to become discarded in RenderDoc.
   ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
 
   if (generateHizBuffer)
@@ -1104,18 +1108,18 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 //  }
 //#endif
 
-  //if (bloomEnable)
-  //{
-  //  //TIME_SCOPE_GPU(StatGroup::eMainGpu, eBloom);
-  //  bloom.Apply({
-  //    .target = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
-  //    .scratchTexture = frame.colorHdrBloomScratchBuffer.value(),
-  //    .passes = bloomPasses,
-  //    .strength = bloomStrength,
-  //    .width = bloomWidth,
-  //    .useLowPassFilterOnFirstPass = bloomUseLowPassFilter,
-  //  });
-  //}
+  if (bloomEnable)
+  {
+    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eBloom);
+    bloom.Apply(commandBuffer, {
+      .target = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
+      .scratchTexture = frame.colorHdrBloomScratchBuffer.value(),
+      .passes = bloomPasses,
+      .strength = bloomStrength,
+      .width = bloomWidth,
+      .useLowPassFilterOnFirstPass = bloomUseLowPassFilter,
+    });
+  }
 
   //Fwog::Compute("Postprocessing",
   //  [&]

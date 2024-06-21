@@ -4,10 +4,6 @@
 
 #include "BloomCommon.h.glsl"
 
-layout(binding = 0) uniform sampler2D s_source;
-layout(binding = 1) uniform sampler2D s_target;
-layout(binding = 0) uniform writeonly image2D i_target;
-
 layout(local_size_x = 16, local_size_y = 16) in;
 void main()
 {

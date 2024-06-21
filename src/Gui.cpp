@@ -395,25 +395,24 @@ void FrogRenderer2::GuiDrawBloomWindow(VkCommandBuffer)
 {
   if (ImGui::Begin(ICON_MD_CAMERA " Bloom###bloom_window"))
   {
-    // TODO
-    //ImGui::Checkbox("Enable", &bloomEnable);
+    ImGui::Checkbox("Enable", &bloomEnable);
 
-    //if (!bloomEnable)
-    //{
-    //  ImGui::BeginDisabled();
-    //}
+    if (!bloomEnable)
+    {
+      ImGui::BeginDisabled();
+    }
 
-    //constexpr uint32_t zero = 0;
-    //constexpr uint32_t eight = 8;
-    //ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
-    //ImGui::SliderFloat("Strength", &bloomStrength, 0, 1, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-    //ImGui::SliderFloat("Upscale Width", &bloomWidth, 0, 2);
-    //ImGui::Checkbox("Use Low-Pass Filter", &bloomUseLowPassFilter);
+    constexpr uint32_t zero = 0;
+    constexpr uint32_t eight = 8;
+    ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
+    ImGui::SliderFloat("Strength", &bloomStrength, 0, 1, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+    ImGui::SliderFloat("Upscale Width", &bloomWidth, 0, 2);
+    ImGui::Checkbox("Use Low-Pass Filter", &bloomUseLowPassFilter);
 
-    //if (!bloomEnable)
-    //{
-    //  ImGui::EndDisabled();
-    //}
+    if (!bloomEnable)
+    {
+      ImGui::EndDisabled();
+    }
   }
   ImGui::End();
 }
@@ -617,7 +616,7 @@ void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
 
 void TraverseLight(std::optional<Utility::GpuLight>& lightOpt)
 {
-  FWOG_ASSERT(lightOpt.has_value());
+  assert(lightOpt.has_value());
   auto& light = *lightOpt;
 
   const char* typePreview = "";

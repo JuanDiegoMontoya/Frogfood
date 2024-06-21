@@ -1,157 +1,163 @@
 #include "Bloom.h"
 
-#include "Fwog/Rendering.h"
-#include "Fwog/Shader.h"
+#include "shaders/bloom/BloomCommon.h.glsl"
+
+#include "Fvog/Rendering2.h"
+#include "Fvog/Shader2.h"
 
 #include "../RendererUtilities.h"
 
 namespace Techniques
 {
-  static Fwog::ComputePipeline CreateBloomDownsampleLowPassPipeline()
+  static Fvog::ComputePipeline CreateBloomDownsampleLowPassPipeline(Fvog::Device& device)
   {
-    auto cs = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsampleLowPass.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsampleLowPass.comp.glsl");
 
-    return Fwog::ComputePipeline({
+    return Fvog::ComputePipeline(device, {
       .name = "Bloom Downsample (low-pass)",
       .shader = &cs,
     });
   }
 
-  static Fwog::ComputePipeline CreateBloomDownsamplePipeline()
+  static Fvog::ComputePipeline CreateBloomDownsamplePipeline(Fvog::Device& device)
   {
-    auto cs = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsample.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsample.comp.glsl");
 
-    return Fwog::ComputePipeline({
+    return Fvog::ComputePipeline(device, {
       .name = "Bloom Downsample",
       .shader = &cs,
     });
   }
 
-  static Fwog::ComputePipeline CreateBloomUpsamplePipeline()
+  static Fvog::ComputePipeline CreateBloomUpsamplePipeline(Fvog::Device& device)
   {
-    auto cs = LoadShaderWithIncludes(Fwog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomUpsample.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomUpsample.comp.glsl");
 
-    return Fwog::ComputePipeline({
+    return Fvog::ComputePipeline(device, {
       .name = "Bloom Upsample",
       .shader = &cs,
     });
   }
 
-  Bloom::Bloom()
-    : uniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
-      downsampleLowPassPipeline(CreateBloomDownsampleLowPassPipeline()),
-      downsamplePipeline(CreateBloomDownsamplePipeline()),
-      upsamplePipeline(CreateBloomUpsamplePipeline())
+  Bloom::Bloom(Fvog::Device& device)
+    : device_(&device),
+      downsampleLowPassPipeline(CreateBloomDownsampleLowPassPipeline(device)),
+      downsamplePipeline(CreateBloomDownsamplePipeline(device)),
+      upsamplePipeline(CreateBloomUpsamplePipeline(device))
   {
   }
 
-  void Bloom::Apply(const ApplyParams& params)
+  void Bloom::Apply(VkCommandBuffer commandBuffer, const ApplyParams& params)
   {
-    FWOG_ASSERT(params.passes <= params.scratchTexture.GetCreateInfo().mipLevels && "Bloom target is too small for the number of passes");
+    assert(params.passes <= params.scratchTexture.GetCreateInfo().mipLevels && "Bloom target is too small for the number of passes");
     
-    auto linearSampler = Fwog::Sampler({
-      .minFilter = Fwog::Filter::LINEAR,
-      .magFilter = Fwog::Filter::LINEAR,
-      .mipmapFilter = Fwog::Filter::NEAREST,
-      .addressModeU = Fwog::AddressMode::MIRRORED_REPEAT,
-      .addressModeV = Fwog::AddressMode::MIRRORED_REPEAT,
-    });
+    auto linearSampler = Fvog::Sampler(*device_, {
+      .magFilter = VK_FILTER_LINEAR,
+      .minFilter = VK_FILTER_LINEAR,
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+      .addressModeU = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+      .addressModeV = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
+    }, "Linear Mirror Sampler");
 
-    Fwog::Compute(
-      "Bloom",
-      [&]
+    auto ctx = Fvog::Context(*device_, commandBuffer);
+    auto marker = ctx.MakeScopedDebugMarker("Bloom");
+
+    ctx.ImageBarrier(params.target, VK_IMAGE_LAYOUT_GENERAL);
+    ctx.ImageBarrierDiscard(params.scratchTexture, VK_IMAGE_LAYOUT_GENERAL);
+
+    {
+      auto marker2 = ctx.MakeScopedDebugMarker("Downsample");
+      for (uint32_t i = 0; i < params.passes; i++)
       {
-        Fwog::Cmd::BindUniformBuffer(0, uniformBuffer);
-        for (uint32_t i = 0; i < params.passes; i++)
-        {
-          Fwog::Extent2D sourceDim{};
-          Fwog::Extent2D targetDim = params.target.Extent() >> (i + 1);
-          float sourceLod{};
+        ctx.Barrier();
 
-          const Fwog::Texture* sourceTex = nullptr;
-          
-          // We use a low-pass filter on the first downsample (mip0 -> mip1) to resolve flickering/temporal aliasing that occurs otherwise
-          if (i == 0)
+        Fvog::Extent2D sourceDim{};
+        Fvog::Extent2D targetDim = params.target.GetCreateInfo().extent >> (i + 1);
+        float sourceLod{};
+
+        Fvog::Texture* sourceTex = nullptr;
+      
+        // We use a low-pass filter on the first downsample (mip0 -> mip1) to resolve flickering/temporal aliasing that occurs otherwise
+        if (i == 0)
+        {
+          if (params.useLowPassFilterOnFirstPass)
           {
-            if (params.useLowPassFilterOnFirstPass)
-            {
-              Fwog::Cmd::BindComputePipeline(downsampleLowPassPipeline);
-            }
-            else
-            {
-              Fwog::Cmd::BindComputePipeline(downsamplePipeline);
-            }
-            
-            sourceLod = 0;
-            sourceTex = &params.target;
-            sourceDim = params.target.Extent();
+            ctx.BindComputePipeline(downsampleLowPassPipeline);
           }
           else
           {
-            Fwog::Cmd::BindComputePipeline(downsamplePipeline);
-
-            sourceLod = static_cast<float>(i - 1);
-            sourceTex = &params.scratchTexture;
-            sourceDim = params.target.Extent() >> i;
+            ctx.BindComputePipeline(downsamplePipeline);
           }
-
-          Fwog::Cmd::BindSampledImage(0, *sourceTex, linearSampler);
-          Fwog::Cmd::BindImage(0, params.scratchTexture, i);
-
-          auto uniforms = BloomUniforms{
-            .sourceDim = {sourceDim.width, sourceDim.height},
-            .targetDim = {targetDim.width, targetDim.height},
-            .sourceLod = sourceLod,
-          };
-          uniformBuffer.UpdateData(uniforms);
-
-          Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT | Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
-          Fwog::Cmd::DispatchInvocations(targetDim.width, targetDim.height, 1);
+        
+          sourceLod = 0;
+          sourceTex = &params.target;
+          sourceDim = params.target.GetCreateInfo().extent;
         }
-
-        Fwog::Cmd::BindComputePipeline(upsamplePipeline);
-        Fwog::Cmd::BindUniformBuffer(0, uniformBuffer);
-        for (int32_t i = params.passes - 1; i >= 0; i--)
+        else
         {
-          Fwog::Extent2D sourceDim = params.target.Extent() >> (i + 1);
-          Fwog::Extent2D targetDim{};
-          const Fwog::Texture* targetTex = nullptr;
-          uint32_t targetLod{};
+          ctx.BindComputePipeline(downsamplePipeline);
 
-          // final pass
-          if (i == 0)
-          {
-            targetLod = 0;
-            targetTex = &params.target;
-            targetDim = params.target.Extent();
-          }
-          else
-          {
-            targetLod = i - 1;
-            targetTex = &params.scratchTexture;
-            targetDim = params.target.Extent() >> i;
-          }
-
-          Fwog::Cmd::BindSampledImage(0, params.scratchTexture, linearSampler);
-          Fwog::Cmd::BindSampledImage(1, *targetTex, linearSampler);
-          Fwog::Cmd::BindImage(0, *targetTex, targetLod);
-
-          BloomUniforms uniforms{
-            .sourceDim = {sourceDim.width, sourceDim.height},
-            .targetDim = {targetDim.width, targetDim.height},
-            .width = params.width,
-            .strength = params.strength,
-            .sourceLod = static_cast<float>(i),
-            .targetLod = static_cast<float>(targetLod),
-            .numPasses = params.passes,
-            .isFinalPass = i == 0,
-          };
-          uniformBuffer.UpdateData(uniforms);
-          
-          Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT | Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
-          Fwog::Cmd::DispatchInvocations(targetDim.width, targetDim.height, 1);
+          sourceLod = static_cast<float>(i - 1);
+          sourceTex = &params.scratchTexture;
+          sourceDim = params.target.GetCreateInfo().extent >> i;
         }
-      });
+      
+        ctx.SetPushConstants(BloomUniforms{
+          .sourceSampledImageIdx = sourceTex->ImageView().GetSampledResourceHandle().index,
+          .targetStorageImageIdx = params.scratchTexture.CreateSingleMipView(i).GetStorageResourceHandle().index,
+          .linearSamplerIdx = linearSampler.GetResourceHandle().index,
+          .sourceDim = {sourceDim.width, sourceDim.height},
+          .targetDim = {targetDim.width, targetDim.height},
+          .sourceLod = sourceLod,
+        });
+      
+        ctx.DispatchInvocations(targetDim.width, targetDim.height, 1);
+      }
+    }
+
+    {
+      auto marker2 = ctx.MakeScopedDebugMarker("Upsample");
+      ctx.BindComputePipeline(upsamplePipeline);
+      for (int32_t i = params.passes - 1; i >= 0; i--)
+      {
+        ctx.Barrier();
+
+        Fvog::Extent2D sourceDim = params.target.GetCreateInfo().extent >> (i + 1);
+        Fvog::Extent2D targetDim{};
+        Fvog::Texture* targetTex = nullptr;
+        uint32_t targetLod{};
+
+        // final pass
+        if (i == 0)
+        {
+          targetLod = 0;
+          targetTex = &params.target;
+          targetDim = params.target.GetCreateInfo().extent;
+        }
+        else
+        {
+          targetLod = i - 1;
+          targetTex = &params.scratchTexture;
+          targetDim = params.target.GetCreateInfo().extent >> i;
+        }
+
+        ctx.SetPushConstants(BloomUniforms{
+          .sourceSampledImageIdx = params.scratchTexture.ImageView().GetSampledResourceHandle().index,
+          .targetSampledImageIdx = targetTex->ImageView().GetSampledResourceHandle().index,
+          .targetStorageImageIdx = targetTex->CreateSingleMipView(targetLod).GetStorageResourceHandle().index,
+          .linearSamplerIdx = linearSampler.GetResourceHandle().index,
+          .sourceDim = {sourceDim.width, sourceDim.height},
+          .targetDim = {targetDim.width, targetDim.height},
+          .width = params.width,
+          .strength = params.strength,
+          .sourceLod = static_cast<float>(i),
+          .targetLod = static_cast<float>(targetLod),
+          .numPasses = params.passes,
+          .isFinalPass = i == 0,
+        });
+      
+        ctx.DispatchInvocations(targetDim.width, targetDim.height, 1);
+      }
+    }
   }
-
 } // namespace Techniques

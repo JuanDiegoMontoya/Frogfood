@@ -633,5 +633,5 @@ private:
   //ScrollingBuffer<double> accumTimes;
   //double accumTime = 0;
 
-  bool showGui = false;
+  bool showGui = true;
 };

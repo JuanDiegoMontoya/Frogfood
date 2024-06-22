@@ -177,6 +177,15 @@ namespace Fvog
   void Context::ImageBarrier(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageAspectFlags aspectMask) const
   {
     ZoneScoped;
+    if (oldLayout == newLayout)
+    {
+      // Issue global memory barrier instead of same-layout transition.
+      // This is a workaround for an AMD driver bug that causes images to become trashed in RenderDoc.
+      // https://github.com/baldurk/renderdoc/issues/3360
+      Barrier();
+      return;
+    }
+
     vkCmdPipelineBarrier2(commandBuffer_, Address(VkDependencyInfo{
       .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
       .imageMemoryBarrierCount = 1,

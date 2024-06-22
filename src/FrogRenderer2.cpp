@@ -25,18 +25,18 @@ using namespace Fvog::detail;
 
 
 static glm::vec2 GetJitterOffset([[maybe_unused]] uint32_t frameIndex,
-                                 [[maybe_unused]] uint32_t renderWidth,
-                                 [[maybe_unused]] uint32_t renderHeight,
-                                 [[maybe_unused]] uint32_t windowWidth)
+                                 [[maybe_unused]] uint32_t renderInternalWidth,
+                                 [[maybe_unused]] uint32_t renderInternalHeight,
+                                 [[maybe_unused]] uint32_t renderOutputWidth)
 {
-//#ifdef FROGRENDER_FSR2_ENABLE
-//  float jitterX{};
-//  float jitterY{};
-//  ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
-//  return {2.0f * jitterX / static_cast<float>(renderInternalWidth), 2.0f * jitterY / static_cast<float>(renderInternalHeight)};
-//#else
+#ifdef FROGRENDER_FSR2_ENABLE
+  float jitterX{};
+  float jitterY{};
+  ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
+  return {2.0f * jitterX / static_cast<float>(renderInternalWidth), 2.0f * jitterY / static_cast<float>(renderInternalHeight)};
+#else
   return {0, 0};
-//#endif
+#endif
 }
 
 
@@ -204,6 +204,7 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   {
     if (!fsr2FirstInit)
     {
+      // TODO: get rid of this stinky
       vkDeviceWaitIdle(device_->device_);
       ffxFsr2ContextDestroy(&fsr2Context);
     }
@@ -1145,7 +1146,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .cameraFar = cameraNearPlane,
       .cameraFovAngleVertical = cameraFovyRadians,
       .viewSpaceToMetersFactor = 1,
-      .deviceDepthNegativeOneToOne = false,
     };
 
     if (auto err = ffxFsr2ContextDispatch(&fsr2Context, &dispatchDesc); err != FFX_OK)

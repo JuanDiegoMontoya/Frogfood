@@ -72,6 +72,7 @@ namespace Fvog
         .shaderCullDistance = true,
         .shaderFloat64 = true,
         .shaderInt64 = true,
+        .shaderInt16 = true,
       })
       .set_required_features_11({
         .storageBuffer16BitAccess = true,

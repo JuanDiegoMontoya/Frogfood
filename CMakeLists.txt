@@ -94,7 +94,7 @@ add_custom_target(copy_textures ALL COMMAND ${CMAKE_COMMAND} -E copy_directory $
 add_custom_target(copy_config ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/config ${CMAKE_CURRENT_BINARY_DIR}/config)
 
 if (FROGRENDER_FSR2_ENABLE)
-    set(FSR2_LIBS ffx_fsr2_api_x64 ffx_fsr2_api_gl_x64)
+    set(FSR2_LIBS ffx_fsr2_api_x64 ffx_fsr2_api_vk_x64)
     target_compile_definitions(frogRender PUBLIC FROGRENDER_FSR2_ENABLE)
 else()
     set(FSR2_LIBS "")

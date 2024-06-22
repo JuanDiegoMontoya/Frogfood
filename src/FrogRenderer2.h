@@ -8,7 +8,7 @@
 
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
-  //#include "src/ffx-fsr2-api/vk/ffx_fsr2_vk.h"
+  #include "src/ffx-fsr2-api/vk/ffx_fsr2_vk.h"
 #endif
 
 #include "Fvog/Texture2.h"
@@ -415,8 +415,7 @@ private:
 
 #ifdef FROGRENDER_FSR2_ENABLE
   // FSR 2
-  // TODO: temporarily set to false until FSR 2 is integrated
-  bool fsr2Enable = false;
+  bool fsr2Enable = true;
   bool fsr2FirstInit = true;
   float fsr2Sharpness = 0;
   float fsr2Ratio = 1.5f; // FFX_FSR2_QUALITY_MODE_QUALITY

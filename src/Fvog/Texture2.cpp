@@ -241,6 +241,7 @@ namespace Fvog
       createInfo_(std::exchange(old.createInfo_, {})),
       image_(std::exchange(old.image_, VK_NULL_HANDLE)),
       textureView_(std::move(old.textureView_)),
+      singleMipViews_(std::move(old.singleMipViews_)),
       allocation_(std::exchange(old.allocation_, nullptr)),
       name_(std::move(old.name_))
   {

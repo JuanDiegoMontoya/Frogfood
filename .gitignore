@@ -49,3 +49,4 @@ cmake-build-release/
 
 # IntelliJ
 .idea/
+/bin

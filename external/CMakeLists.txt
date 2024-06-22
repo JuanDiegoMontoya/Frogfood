@@ -94,14 +94,14 @@ FetchContent_Declare(
 if(FROGRENDER_FSR2_ENABLE)
     option(GFX_API_DX12 "" OFF)
     option(GFX_API_VK "" OFF)
-    option(GFX_API_GL "" ON)
+    option(GFX_API_GL "" OFF)
     option(FFX_FSR2_API_DX12 "" OFF)
-    option(FFX_FSR2_API_VK "" OFF)
-    option(FFX_FSR2_API_GL "" ON)
+    option(FFX_FSR2_API_VK "" ON)
+    option(FFX_FSR2_API_GL "" OFF)
     FetchContent_Declare(
         fsr2
         GIT_REPOSITORY https://github.com/JuanDiegoMontoya/FidelityFX-FSR2.git
-        GIT_TAG        e6259912ed19d247ed431e2bc212085b01f74fc9
+        GIT_TAG        de42d95ffed4be263629950a6b04ba6e71215931
         GIT_SUBMODULES ""
     )
     FetchContent_MakeAvailable(fsr2)

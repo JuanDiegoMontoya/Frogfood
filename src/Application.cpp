@@ -491,6 +491,7 @@ void Application::Draw()
   // A frame marker is inserted to distinguish ImGui rendering from the application's in a debugger.
   {
     ZoneScopedN("Draw UI");
+    auto marker = ctx.MakeScopedDebugMarker("ImGui");
     ImGui::Render();
     auto* drawData = ImGui::GetDrawData();
     if (drawData->CmdListsCount > 0)

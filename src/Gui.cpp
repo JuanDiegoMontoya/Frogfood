@@ -286,7 +286,7 @@ void FrogRenderer2::GuiDrawFsrWindow(VkCommandBuffer)
     }
     else
     {
-      ImGui::TextUnformatted("Performance: ---");
+      //ImGui::TextUnformatted("Performance: ---");
     }
 
     if (ImGui::Checkbox("Enable FSR 2", &fsr2Enable))

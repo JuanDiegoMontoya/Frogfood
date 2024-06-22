@@ -186,54 +186,74 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 FrogRenderer2::~FrogRenderer2()
 {
   vkDeviceWaitIdle(device_->device_);
+#if FROGRENDER_FSR2_ENABLE
+  if (!fsr2FirstInit)
+  {
+    ffxFsr2ContextDestroy(&fsr2Context);
+  }
+#endif
 }
 
 void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight)
 {
   ZoneScoped;
 
-//#ifdef FROGRENDER_FSR2_ENABLE
-//  // create FSR 2 context
-//  if (fsr2Enable)
-//  {
-//    if (!fsr2FirstInit)
-//    {
-//      ffxFsr2ContextDestroy(&fsr2Context);
-//    }
-//    frameIndex = 0;
-//    fsr2FirstInit = false;
-//    renderInternalWidth = static_cast<uint32_t>(newWidth / fsr2Ratio);
-//    renderInternalHeight = static_cast<uint32_t>(newHeight / fsr2Ratio);
-//    FfxFsr2ContextDescription contextDesc{
-//      .flags = FFX_FSR2_ENABLE_DEBUG_CHECKING | FFX_FSR2_ENABLE_AUTO_EXPOSURE | FFX_FSR2_ENABLE_HIGH_DYNAMIC_RANGE |
-//               FFX_FSR2_ALLOW_NULL_DEVICE_AND_COMMAND_LIST | FFX_FSR2_ENABLE_DEPTH_INFINITE | FFX_FSR2_ENABLE_DEPTH_INVERTED,
-//      .maxRenderSize = {renderInternalWidth, renderInternalHeight},
-//      .displaySize = {newWidth, newHeight},
-//      .fpMessage =
-//        [](FfxFsr2MsgType type, const wchar_t* message)
-//      {
-//        char cstr[256] = {};
-//        if (wcstombs_s(nullptr, cstr, sizeof(cstr), message, sizeof(cstr)) == 0)
-//        {
-//          cstr[255] = '\0';
-//          printf("FSR 2 message (type=%d): %s\n", type, cstr);
-//        }
-//      },
-//    };
-//    fsr2ScratchMemory = std::make_unique<char[]>(ffxFsr2GetScratchMemorySizeGL());
-//    ffxFsr2GetInterfaceGL(&contextDesc.callbacks, fsr2ScratchMemory.get(), ffxFsr2GetScratchMemorySizeGL(), glfwGetProcAddress);
-//    ffxFsr2ContextCreate(&fsr2Context, &contextDesc);
-//
-//    frame.gReactiveMask = Fwog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Fwog::Format::R8_UNORM, "Reactive Mask");
-//  }
-//  else
-//#endif
+#ifdef FROGRENDER_FSR2_ENABLE
+  // create FSR 2 context
+  if (fsr2Enable)
   {
-    renderOutputWidth = newWidth;
-    renderOutputHeight = newHeight;
+    if (!fsr2FirstInit)
+    {
+      vkDeviceWaitIdle(device_->device_);
+      ffxFsr2ContextDestroy(&fsr2Context);
+    }
+
+    fsr2FirstInit = false;
+    renderInternalWidth = static_cast<uint32_t>(newWidth / fsr2Ratio);
+    renderInternalHeight = static_cast<uint32_t>(newHeight / fsr2Ratio);
+    FfxFsr2ContextDescription contextDesc{
+      .flags = FFX_FSR2_ENABLE_DEBUG_CHECKING | FFX_FSR2_ENABLE_AUTO_EXPOSURE | FFX_FSR2_ENABLE_HIGH_DYNAMIC_RANGE | FFX_FSR2_ENABLE_DEPTH_INFINITE |
+               FFX_FSR2_ENABLE_DEPTH_INVERTED,
+      .maxRenderSize = {renderInternalWidth, renderInternalHeight},
+      .displaySize = {newWidth, newHeight},
+      .device = ffxGetDeviceVK(device_->device_),
+      .fpMessage =
+        [](FfxFsr2MsgType type, const wchar_t* message)
+      {
+        char cstr[256] = {};
+        if (wcstombs_s(nullptr, cstr, sizeof(cstr), message, sizeof(cstr)) == 0)
+        {
+          cstr[255] = '\0';
+          printf("FSR 2 message (type=%d): %s\n", type, cstr);
+        }
+      },
+    };
+
+    auto scratchMemorySize = ffxFsr2GetScratchMemorySizeVK(device_->physicalDevice_, vkEnumerateDeviceExtensionProperties);
+    fsr2ScratchMemory = std::make_unique<char[]>(scratchMemorySize);
+    ffxFsr2GetInterfaceVK(&contextDesc.callbacks,
+                          fsr2ScratchMemory.get(),
+                          scratchMemorySize,
+                          device_->physicalDevice_,
+                          vkGetDeviceProcAddr,
+                          vkGetPhysicalDeviceMemoryProperties,
+                          vkGetPhysicalDeviceProperties2,
+                          vkGetPhysicalDeviceFeatures2,
+                          vkEnumerateDeviceExtensionProperties,
+                          vkGetPhysicalDeviceProperties);
+    ffxFsr2ContextCreate(&fsr2Context, &contextDesc);
+
+    frame.gReactiveMask = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Fvog::Format::R8_UNORM, Fvog::TextureUsage::GENERAL, "Reactive Mask");
+  }
+  else
+#endif
+  {
     renderInternalWidth = newWidth;
     renderInternalHeight = newHeight;
   }
+
+  renderOutputWidth = newWidth;
+  renderOutputHeight = newHeight;
 
   aspectRatio = (float)renderInternalWidth / renderInternalHeight;
 
@@ -1052,61 +1072,93 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     });
   }
 
-//#ifdef FROGRENDER_FSR2_ENABLE
-//  if (fsr2Enable)
-//  {
-//    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eFsr2);
-//    Fwog::Compute(
-//      "FSR 2",
-//      [&]
-//      {
-//        static Fwog::TimerQueryAsync timer(5);
-//        if (auto t = timer.PopTimestamp())
-//        {
-//          fsr2Performance = *t / 10e5;
-//        }
-//        Fwog::TimerScoped scopedTimer(timer);
-//
-//        if (frameIndex == 1)
-//        {
-//          dt = 17.0 / 1000.0;
-//        }
-//
-//        float jitterX{};
-//        float jitterY{};
-//        ffxFsr2GetJitterOffset(&jitterX, &jitterY, frameIndex, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
-//
-//        FfxFsr2DispatchDescription dispatchDesc{
-//          .color = ffxGetTextureResourceGL(frame.colorHdrRenderRes->Handle(), renderInternalWidth, renderInternalHeight, Fwog::detail::FormatToGL(frame.colorHdrRenderRes->GetCreateInfo().format)),
-//          .depth = ffxGetTextureResourceGL(frame.gDepth->Handle(), renderInternalWidth, renderInternalHeight, Fwog::detail::FormatToGL(frame.gDepth->GetCreateInfo().format)),
-//          .motionVectors = ffxGetTextureResourceGL(frame.gMotion->Handle(), renderInternalWidth, renderInternalHeight, Fwog::detail::FormatToGL(frame.gMotion->GetCreateInfo().format)),
-//          .exposure = {},
-//          .reactive = ffxGetTextureResourceGL(frame.gReactiveMask->Handle(), renderInternalWidth, renderInternalHeight, Fwog::detail::FormatToGL(frame.gReactiveMask->GetCreateInfo().format)),
-//          .transparencyAndComposition = {},
-//          .output = ffxGetTextureResourceGL(frame.colorHdrWindowRes->Handle(), renderOutputWidth, renderOutputHeight, Fwog::detail::FormatToGL(frame.colorHdrWindowRes->GetCreateInfo().format)),
-//          .jitterOffset = {jitterX, jitterY},
-//          .motionVectorScale = {float(renderInternalWidth), float(renderInternalHeight)},
-//          .renderSize = {renderInternalWidth, renderInternalHeight},
-//          .enableSharpening = fsr2Sharpness != 0,
-//          .sharpness = fsr2Sharpness,
-//          .frameTimeDelta = static_cast<float>(dt * 1000.0),
-//          .preExposure = 1,
-//          .reset = false,
-//          .cameraNear = std::numeric_limits<float>::max(),
-//          .cameraFar = cameraNearPlane,
-//          .cameraFovAngleVertical = cameraFovyRadians,
-//          .viewSpaceToMetersFactor = 1,
-//          .deviceDepthNegativeOneToOne = false,
-//        };
-//
-//        if (auto err = ffxFsr2ContextDispatch(&fsr2Context, &dispatchDesc); err != FFX_OK)
-//        {
-//          printf("FSR 2 error: %d\n", err);
-//        }
-//      });
-//    Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
-//  }
-//#endif
+#ifdef FROGRENDER_FSR2_ENABLE
+  if (fsr2Enable)
+  {
+    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eFsr2);
+    //static Fwog::TimerQueryAsync timer(5);
+    //if (auto t = timer.PopTimestamp())
+    //{
+    //  fsr2Performance = *t / 10e5;
+    //}
+    //Fwog::TimerScoped scopedTimer(timer);
+
+    //if (frameIndex == 1)
+    //{
+    //  dt = 17.0 / 1000.0;
+    //}
+    auto marker = ctx.MakeScopedDebugMarker("FSR 2");
+
+    ctx.ImageBarrier(*frame.colorHdrRenderRes, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ctx.ImageBarrier(*frame.gMotion, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ctx.ImageBarrier(*frame.gReactiveMask, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ctx.ImageBarrierDiscard(*frame.colorHdrWindowRes, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    float jitterX{};
+    float jitterY{};
+    ffxFsr2GetJitterOffset(&jitterX, &jitterY, (int32_t)device_->frameNumber, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
+
+    FfxFsr2DispatchDescription dispatchDesc{
+      .commandList = ffxGetCommandListVK(commandBuffer),
+      .color = ffxGetTextureResourceVK(&fsr2Context,
+                                       frame.colorHdrRenderRes->Image(),
+                                       frame.colorHdrRenderRes->ImageView(),
+                                       renderInternalWidth,
+                                       renderInternalHeight,
+                                       Fvog::detail::FormatToVk(frame.colorHdrRenderRes->GetCreateInfo().format)),
+      .depth = ffxGetTextureResourceVK(&fsr2Context,
+                                       frame.gDepth->Image(),
+                                       frame.gDepth->ImageView(),
+                                       renderInternalWidth,
+                                       renderInternalHeight,
+                                       Fvog::detail::FormatToVk(frame.gDepth->GetCreateInfo().format)),
+      .motionVectors = ffxGetTextureResourceVK(&fsr2Context,
+                                               frame.gMotion->Image(),
+                                               frame.gMotion->ImageView(),
+                                               renderInternalWidth,
+                                               renderInternalHeight,
+                                               Fvog::detail::FormatToVk(frame.gMotion->GetCreateInfo().format)),
+      .exposure = {},
+      .reactive = ffxGetTextureResourceVK(&fsr2Context,
+                                          frame.gReactiveMask->Image(),
+                                          frame.gReactiveMask->ImageView(),
+                                          renderInternalWidth,
+                                          renderInternalHeight,
+                                          Fvog::detail::FormatToVk(frame.gReactiveMask->GetCreateInfo().format)),
+      .transparencyAndComposition = {},
+      .output = ffxGetTextureResourceVK(&fsr2Context,
+                                        frame.colorHdrWindowRes->Image(),
+                                        frame.colorHdrWindowRes->ImageView(),
+                                        renderOutputWidth,
+                                        renderOutputHeight,
+                                        Fvog::detail::FormatToVk(frame.colorHdrWindowRes->GetCreateInfo().format)),
+      .jitterOffset = {jitterX, jitterY},
+      .motionVectorScale = {float(renderInternalWidth), float(renderInternalHeight)},
+      .renderSize = {renderInternalWidth, renderInternalHeight},
+      .enableSharpening = fsr2Sharpness != 0,
+      .sharpness = fsr2Sharpness,
+      .frameTimeDelta = static_cast<float>(dt * 1000.0),
+      .preExposure = 1,
+      .reset = false,
+      .cameraNear = std::numeric_limits<float>::max(),
+      .cameraFar = cameraNearPlane,
+      .cameraFovAngleVertical = cameraFovyRadians,
+      .viewSpaceToMetersFactor = 1,
+      .deviceDepthNegativeOneToOne = false,
+    };
+
+    if (auto err = ffxFsr2ContextDispatch(&fsr2Context, &dispatchDesc); err != FFX_OK)
+    {
+      printf("FSR 2 error: %d\n", err);
+    }
+    //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+
+    // Re-apply states that application assumes
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, device_->defaultPipelineLayout, 0, 1, &device_->descriptorSet_, 0, nullptr);
+    *frame.colorHdrWindowRes->currentLayout = VK_IMAGE_LAYOUT_GENERAL;
+  }
+#endif
 
   if (bloomEnable)
   {

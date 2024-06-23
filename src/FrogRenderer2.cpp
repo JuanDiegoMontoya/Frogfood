@@ -43,7 +43,6 @@ static glm::vec2 GetJitterOffset([[maybe_unused]] uint32_t frameIndex,
 FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   : Application(createInfo),
     // Create constant-size buffers
-    // TODO: Don't abuse the comma operator here. This is awful
     globalUniformsBuffer(*device_, 1, "Global Uniforms"),
     shadingUniformsBuffer(*device_, 1, "Shading Uniforms"),
     shadowUniformsBuffer(*device_, 1, "Shadow Uniforms"),
@@ -146,6 +145,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   stbi_image_free(noise);
 
   InitGui();
+
+  mainCamera.position.y = 1;
 
   Utility::LoadModelFromFileMeshlet(*device_, scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
@@ -452,6 +453,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   auto ctx = Fvog::Context(*device_, commandBuffer);
 
+  const float fsr2LodBias = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
+
   {
     ZoneScopedN("Update GPU Buffers");
     auto marker = ctx.MakeScopedDebugMarker("Update Buffers");
@@ -465,7 +468,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     lightBuffer->UpdateData(commandBuffer, sceneFlattened.lights);
     transformBuffer->UpdateData(commandBuffer, sceneFlattened.transforms);
     meshletInstancesBuffer->UpdateData(commandBuffer, sceneFlattened.meshletInstances);
-    vsmContext.UpdateUniforms(commandBuffer, vsmUniforms);
+    // VSM lod bias corresponds to upscaling lod bias, otherwise shadows become blocky as the upscaling ratio increases.
+    auto actualVsmUniforms = vsmUniforms;
+    actualVsmUniforms.lodBias += fsr2LodBias;
+    vsmContext.UpdateUniforms(commandBuffer, actualVsmUniforms);
     ctx.Barrier();
   }
 
@@ -501,7 +507,16 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
 
   
-  const float fsr2LodBias = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
+  const auto materialSampler = Fvog::Sampler(*device_, {
+    .magFilter = VK_FILTER_LINEAR,
+    .minFilter = VK_FILTER_LINEAR,
+    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+    .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .mipLodBias = fsr2LodBias,
+    .maxAnisotropy = 16.0f,
+  });
   
   const auto jitterOffset = fsr2Enable ? GetJitterOffset((uint32_t)device_->frameNumber, renderInternalWidth, renderInternalHeight, renderOutputWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
@@ -689,7 +704,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       pushConstants.globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index;
       pushConstants.viewIndex = viewBuffer->GetResourceHandle().index;
       pushConstants.materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index;
-      pushConstants.materialSamplerIndex = linearMipmapSampler.GetResourceHandle().index;
+      pushConstants.materialSamplerIndex = materialSampler.GetResourceHandle().index;
       pushConstants.clipmapLod = vsmSun.GetClipmapTableIndices()[i];
       pushConstants.clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index;
       //Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
@@ -893,7 +908,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
         .meshletIndicesIndex = indexBuffer->GetResourceHandle().index,
         .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
         .materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index,
-        .materialSamplerIndex = linearMipmapSampler.GetResourceHandle().index,
+        .materialSamplerIndex = materialSampler.GetResourceHandle().index,
 
         .visbufferIndex = frame.visbuffer->ImageView().GetSampledResourceHandle().index,
       };
@@ -1017,8 +1032,20 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   colorAttachments.emplace_back(frame.colorHdrRenderRes->ImageView(), VK_ATTACHMENT_LOAD_OP_LOAD);
   if (fsr2Enable)
   {
+    ctx.ImageBarrierDiscard(*frame.gReactiveMask, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
     colorAttachments.emplace_back(frame.gReactiveMask->ImageView(), VK_ATTACHMENT_LOAD_OP_CLEAR, Fvog::ClearColorValue{0.0f});
   }
+
+  ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrier(*frame.colorHdrRenderRes, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+
+  ctx.BeginRendering({
+    .name = "Debug Geometry",
+    .colorAttachments = colorAttachments,
+    .depthAttachment = debugDepthAttachment,
+  });
+
+  ctx.EndRendering();
 
   //Fwog::Render(
   //  {
@@ -1249,10 +1276,12 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, (float)renderOutputWidth, (float)renderOutputHeight, 0, 1}));
     vkCmdSetScissor(commandBuffer, 0, 1, &renderArea);
     ctx.BindGraphicsPipeline(debugTexturePipeline);
-    ctx.SetPushConstants(DebugTextureArguments{
+    auto pushConstants = DebugTextureArguments{
       .textureIndex = frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index,
       .samplerIndex = nearestSampler.GetResourceHandle().index,
-    });
+    };
+
+    ctx.SetPushConstants(pushConstants);
     ctx.Draw(3, 1, 0, 0);
 
     vkCmdEndRendering(commandBuffer);
@@ -1271,22 +1300,12 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
 
 
+  
 
-
-
-
+  
   // TODO: swapchainImages_[swapchainImageIndex] needs to be COLOR_ATTACHMENT_OPTIMAL after this function returns
   ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
-
-//void FrogRenderer2::OnGui([[maybe_unused]] double dt)
-//{
-//  ImGui::Begin("test");
-//  ImGui::Image();
-//  ImGui::Text("FPS:  %.1f Hz", 1.0 / dt);
-//  ImGui::Text("AFPS: %.1f Rad/s", glm::two_pi<double>() / dt); // Angular frames per second for the mechanically-minded
-//  ImGui::End();
-//}
 
 void FrogRenderer2::MakeStaticSceneBuffers(VkCommandBuffer commandBuffer)
 {

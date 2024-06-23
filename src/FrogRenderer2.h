@@ -479,6 +479,7 @@ private:
   Fvog::Sampler nearestSampler;
   Fvog::Sampler linearMipmapSampler;
   Fvog::Sampler hzbSampler;
+  
 
 
 
@@ -498,8 +499,7 @@ private:
 
 
 
-
-
+  
   
   //template<typename T>
   //struct ScrollingBuffer

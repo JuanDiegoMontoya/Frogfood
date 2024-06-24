@@ -88,7 +88,7 @@ void FrogRenderer2::InitGui()
     ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_MD, iconFontSize, &icons_config, icons_ranges);
   }
 
-  ImGui_ImplVulkan_CreateFontsTexture();
+  ImGui_ImplFvog_CreateFontsTexture();
 
   ImGui::StyleColorsDark();
 

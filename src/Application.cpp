@@ -358,7 +358,7 @@ Application::Application(const CreateInfo& createInfo)
     .pPoolSizes = Fvog::detail::Address(VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 2}),
   }), nullptr, &imguiDescriptorPool_);
 
-  auto imguiVulkanInitInfo = ImGui_ImplVulkan_InitInfo{
+  auto imguiVulkanInitInfo = ImGui_ImplFvog_InitInfo{
     .Instance = instance_,
     .PhysicalDevice = device_->physicalDevice_,
     .Device = &device_.value(),
@@ -373,10 +373,10 @@ Application::Application(const CreateInfo& createInfo)
     .CheckVkResultFn = Fvog::detail::CheckVkResult,
   };
 
-  ImGui_ImplVulkan_LoadFunctions([](const char *functionName, void *vulkanInstance) {
+  ImGui_ImplFvog_LoadFunctions([](const char *functionName, void *vulkanInstance) {
     return vkGetInstanceProcAddr(*static_cast<VkInstance*>(vulkanInstance), functionName);
   }, &instance_.instance);
-  ImGui_ImplVulkan_Init(&imguiVulkanInitInfo);
+  ImGui_ImplFvog_Init(&imguiVulkanInitInfo);
   ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 }
 
@@ -385,7 +385,7 @@ Application::~Application()
   ZoneScoped;
 
   // Must happen before device is destroyed, thus cannot go in the destroy list
-  ImGui_ImplVulkan_Shutdown();
+  ImGui_ImplFvog_Shutdown();
 
   vkDestroyDescriptorPool(device_->device_, imguiDescriptorPool_, nullptr);
 
@@ -471,7 +471,7 @@ void Application::Draw()
 
   {
     ZoneScopedN("Begin ImGui frame");
-    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplFvog_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
   }
@@ -510,7 +510,7 @@ void Application::Draw()
         })
       }));
       //auto marker = Fwog::ScopedDebugMarker("Draw GUI");
-      ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
+      ImGui_ImplFvog_RenderDrawData(drawData, commandBuffer);
       vkCmdEndRendering(commandBuffer);
     }
 

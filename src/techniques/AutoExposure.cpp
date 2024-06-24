@@ -59,14 +59,10 @@ namespace Techniques
     };
     auto uploaded = AutoExposureBufferData{uniforms};
     dataBuffer_.UpdateData(cmd, {&uploaded, 1});
-
-    //Fvog::MemoryBarrier(Fvog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fvog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+    
     ctx.Barrier();
 
     // Generate histogram
-    //Fvog::Cmd::BindStorageBuffer(0, dataBuffer_);
-    //Fvog::Cmd::BindStorageBuffer(1, params.exposureBuffer);
-    //Fvog::Cmd::BindSampledImage(0, params.image, Fvog::Sampler(*device_, Fvog::SamplerCreateInfo{}));
     ctx.SetPushConstants(AutoExposurePushConstants{
       .autoExposureBufferIndex = dataBuffer_.GetDeviceBuffer().GetResourceHandle().index,
       .exposureBufferIndex = params.exposureBuffer.GetResourceHandle().index,
@@ -75,8 +71,7 @@ namespace Techniques
 
     ctx.BindComputePipeline(generateLuminanceHistogramPipeline_);
     ctx.DispatchInvocations(params.image.GetCreateInfo().extent);
-
-    //Fvog::MemoryBarrier(Fvog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+    
     ctx.Barrier();
 
     // Resolve histogram

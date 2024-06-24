@@ -52,31 +52,25 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     hzbCopyPipeline(Pipelines2::HzbCopy(*device_)),
     hzbReducePipeline(Pipelines2::HzbReduce(*device_)),
     visbufferPipeline(Pipelines2::Visbuffer(*device_,
-                                            {
-                                              .colorAttachmentFormats = {{Frame::visbufferFormat}},
-                                              .depthAttachmentFormat = Frame::gDepthFormat,
-                                            })),
-    materialDepthPipeline(Pipelines2::MaterialDepth(*device_,
-                                                    {
-                                                      .depthAttachmentFormat = Frame::materialDepthFormat,
-                                                    })),
+      {
+        .colorAttachmentFormats = {{Frame::visbufferFormat}},
+        .depthAttachmentFormat  = Frame::gDepthFormat,
+      })),
     visbufferResolvePipeline(Pipelines2::VisbufferResolve(*device_,
-                                                          {
-                                                            .colorAttachmentFormats = {
-                                                              {
-                                                                Frame::gAlbedoFormat,
-                                                                Frame::gMetallicRoughnessAoFormat,
-                                                                Frame::gNormalAndFaceNormalFormat,
-                                                                Frame::gSmoothVertexNormalFormat,
-                                                                Frame::gEmissionFormat,
-                                                                Frame::gMotionFormat,
-                                                              }},
-                                                            .depthAttachmentFormat = Frame::materialDepthFormat,
-                                                          })),
+      {
+        .colorAttachmentFormats = {{
+          Frame::gAlbedoFormat,
+          Frame::gMetallicRoughnessAoFormat,
+          Frame::gNormalAndFaceNormalFormat,
+          Frame::gSmoothVertexNormalFormat,
+          Frame::gEmissionFormat,
+          Frame::gMotionFormat,
+        }},
+      })),
     shadingPipeline(Pipelines2::Shading(*device_,
-                                        {
-                                          .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},
-                                        })),
+      {
+        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},
+      })),
     tonemapPipeline(Pipelines2::Tonemap(*device_)),
     debugTexturePipeline(Pipelines2::DebugTexture(*device_,
       {
@@ -265,7 +259,7 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
 
   // Visibility buffer textures
   frame.visbuffer = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::visbufferFormat, usage, "visbuffer");
-  frame.materialDepth = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::materialDepthFormat, usage, "materialDepth");
+
   {
     const uint32_t hzbWidth = Math::PreviousPower2(renderInternalWidth);
     const uint32_t hzbHeight = Math::PreviousPower2(renderInternalHeight);
@@ -397,23 +391,9 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
     .debugRectBufferIndex = debugGpuRectsBuffer->GetResourceHandle().index,
   };
   ctx.SetPushConstants(visbufferPushConstants);
-
-  //Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-  //Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
-  //Fwog::Cmd::BindStorageBuffer("IndirectDrawCommand", *meshletIndirectCommand);
-  //Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
-  //Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
-  //Fwog::Cmd::BindStorageBuffer("MeshletVisibilityBuffer", visibleMeshletIds.value());
-  //Fwog::Cmd::BindStorageBuffer("CullTrianglesDispatchParams", cullTrianglesDispatchParams.value());
-  //Fwog::Cmd::BindStorageBuffer(11, debugGpuAabbsBuffer.value());
-  //Fwog::Cmd::BindStorageBuffer(12, debugGpuRectsBuffer.value());
-  ////Fwog::Cmd::BindUniformBuffer(6, vsmContext.clipmapUniformsBuffer_);
-  //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::BUFFER_UPDATE_BIT);
-  //Fwog::Cmd::BindSampledImage("s_hzb", *frame.hzb, hzbSampler);
-  //vsmContext.BindResourcesForCulling();
+  
   ctx.DispatchInvocations((uint32_t)sceneFlattened.meshletInstances.size(), 1, 1);
-
-  //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
+  
   ctx.Barrier();
   
   ctx.BindComputePipeline(cullTrianglesPipeline);
@@ -422,18 +402,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
   visbufferPushConstants.meshletIndicesIndex = indexBuffer->GetResourceHandle().index;
   visbufferPushConstants.indexBufferIndex = instancedMeshletBuffer->GetResourceHandle().index;
   ctx.SetPushConstants(visbufferPushConstants);
-  //ctx.SetPushConstants(VisbufferPushConstants{
-  //  .meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index,
-  //  .meshletVerticesIndex = vertexBuffer->GetResourceHandle().index,
-  //  .meshletIndicesIndex = indexBuffer->GetResourceHandle().index,
-  //  .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
-  //  .indexBufferIndex = instancedMeshletBuffer->GetResourceHandle().index,
-  //});
 
-  //Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
-  //Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
-  //Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
-  //Fwog::Cmd::BindStorageBuffer("MeshletPackedBuffer", *instancedMeshletBuffer);
   ctx.DispatchIndirect(cullTrianglesDispatchParams.value());
 
   //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::INDEX_BUFFER_BIT | Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT);
@@ -601,7 +570,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   ctx.BeginRendering({
     .name = "Main Visbuffer Pass",
-    //.viewport = {VkViewport{.drawRect = {{0, 0}, {renderInternalWidth, renderInternalHeight}}}},
     .colorAttachments = {&visbufferAttachment, 1},
     .depthAttachment = visbufferDepthAttachment,
   });
@@ -690,8 +658,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
         .name = "Render Clipmap",
         .viewport = VkViewport{0, 0, (float)vsmExtent.width, (float)vsmExtent.height, 0, 1},
       });
-
-      //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+      
       ctx.BindGraphicsPipeline(vsmShadowPipeline);
 
       auto pushConstants = vsmContext.GetPushConstants();
@@ -707,22 +674,9 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       pushConstants.materialSamplerIndex = materialSampler.GetResourceHandle().index;
       pushConstants.clipmapLod = vsmSun.GetClipmapTableIndices()[i];
       pushConstants.clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index;
-      //Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-      //Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
-      //Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
-      //Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
-      //Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
-      //Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
-      //Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
-      //Fwog::Cmd::BindStorageBuffer("MaterialBuffer", materialStorageBuffer.value());
-      //vsmSun.BindResourcesForDrawing();
-      //Fwog::Cmd::BindImage(1, vsmContext.physicalPagesUint_, 0);
-      //Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
 
-      //Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
       ctx.BindIndexBuffer(*instancedMeshletBuffer, 0, VK_INDEX_TYPE_UINT32);
-
-      //vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
+      
       ctx.SetPushConstants(pushConstants);
       ctx.DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
       ctx.EndRendering();
@@ -731,16 +685,12 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   // TODO: remove when descriptor indexing sync validation does not give false positives
   ctx.Barrier();
-
-  // FIXME: this barrier somehow causes gDepth to become discarded in RenderDoc.
+  
   ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
 
   if (generateHizBuffer)
   {
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eHzb);
-    //Fwog::Compute(
-    //  "HZB Build Pass",
-    //  [&]
     {
       auto marker = ctx.MakeScopedDebugMarker("HZB Build Pass", {.5f, .5f, 1.0f, 1.0f});
       ctx.SetPushConstants(HzbCopyPushConstants{
@@ -748,14 +698,11 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
         .depthIndex = frame.gDepth->ImageView().GetSampledResourceHandle().index,
         .depthSamplerIndex = hzbSampler.GetResourceHandle().index,
       });
-      //Fwog::Cmd::BindImage(0, *frame.hzb, 0);
-      //Fwog::Cmd::BindSampledImage(1, *frame.gDepth, hzbSampler);
-      //Fwog::Cmd::BindComputePipeline(hzbCopyPipeline);
+
       ctx.BindComputePipeline(hzbCopyPipeline);
       uint32_t hzbCurrentWidth = frame.hzb->GetCreateInfo().extent.width;
       uint32_t hzbCurrentHeight = frame.hzb->GetCreateInfo().extent.height;
       const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
-      //ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
       ctx.Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
 
       // Sync val complains about WAR for colorLdrWindowRes in the next dispatch, even though it's definitely not accessed
@@ -764,7 +711,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       ctx.BindComputePipeline(hzbReducePipeline);
       for (uint32_t level = 1; level < hzbLevels; ++level)
       {
-        //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
         ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL);
         auto& prevHzbView = frame.hzb->CreateSingleMipView(level - 1, "prevHzbMip");
         auto& curHzbView = frame.hzb->CreateSingleMipView(level, "curHzbMip");
@@ -773,13 +719,11 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
           .prevHzbIndex = prevHzbView.GetStorageResourceHandle().index,
           .curHzbIndex = curHzbView.GetStorageResourceHandle().index,
         });
-        //Fwog::Cmd::BindImage(0, *frame.hzb, level - 1);
-        //Fwog::Cmd::BindImage(1, *frame.hzb, level);
+
         hzbCurrentWidth = std::max(1u, hzbCurrentWidth >> 1);
         hzbCurrentHeight = std::max(1u, hzbCurrentHeight >> 1);
         ctx.Dispatch((hzbCurrentWidth + 15) / 16, (hzbCurrentHeight + 15) / 16, 1);
       }
-      //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT);
       ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL);
     }
   }
@@ -790,46 +734,11 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     {
       constexpr float farDepth = FAR_DEPTH;
       
-      //frame.hzb->ClearImage({.level = level, .data = &farDepth});
       ctx.ClearTexture(*frame.hzb, {.color = {farDepth}, .baseMipLevel = level});
     }
   }
 
-  // TODO: remove when descriptor indexing sync validation does not give false positives
   ctx.Barrier();
-  ctx.ImageBarrierDiscard(*frame.materialDepth, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-
-  auto materialDepthAttachment = Fvog::RenderDepthStencilAttachment{
-    .texture = frame.materialDepth->ImageView(),
-    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-    .clearValue = {.depth = 1.0f},
-  };
-
-  ctx.BeginRendering({
-    .name = "Material Visbuffer Pass",
-    //.viewport =
-    //  {
-    //    Fwog::Viewport{
-    //      .drawRect = {{0, 0}, {renderInternalWidth, renderInternalHeight}},
-    //    },
-    //  },
-    .depthAttachment = materialDepthAttachment,
-  });
-  {
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eMakeMaterialDepthBuffer);
-    ctx.BindGraphicsPipeline(materialDepthPipeline);
-    ctx.SetPushConstants(VisbufferPushConstants{
-      .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
-      .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
-      .visbufferIndex = frame.visbuffer->ImageView().GetSampledResourceHandle().index,
-    });
-    //Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-    //Fwog::Cmd::BindImage("visbuffer", frame.visbuffer.value(), 0);
-    ctx.Draw(3, 1, 0, 0);
-  }
-  ctx.EndRendering();
-
-  ctx.Barrier(); // MaterialDepth: attachment->attachment
   ctx.ImageBarrierDiscard(*frame.gAlbedo,              VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   ctx.ImageBarrierDiscard(*frame.gNormalAndFaceNormal, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   ctx.ImageBarrier       (*frame.gDepth,               VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -868,96 +777,31 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   ctx.BeginRendering({
     .name = "Resolve Visbuffer Pass",
-    //.viewport =
-    //  {
-    //    Fwog::Viewport{
-    //      .drawRect = {{0, 0}, {renderInternalWidth, renderInternalHeight}},
-    //    },
-    //  },
     .colorAttachments = gBufferAttachments,
-    .depthAttachment =
-      Fvog::RenderDepthStencilAttachment{
-        .texture = frame.materialDepth->ImageView(),
-        .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
-      },
   });
+
   {
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveVisbuffer);
     ctx.BindGraphicsPipeline(visbufferResolvePipeline);
-    //Fwog::Cmd::BindGraphicsPipeline(visbufferResolvePipeline);
-    //Fwog::Cmd::BindImage("visbuffer", frame.visbuffer.value(), 0);
-    //Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
-    //Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
-    //Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
-    //Fwog::Cmd::BindStorageBuffer("MeshletIndexBuffer", *indexBuffer);
-    //Fwog::Cmd::BindStorageBuffer("TransformBuffer", *transformBuffer);
-    //Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
-    //Fwog::Cmd::BindStorageBuffer("MaterialBuffer", *materialStorageBuffer);
+    
+    auto pushConstants = VisbufferPushConstants{
+      .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+      .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
+      .meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index,
+      .meshletVerticesIndex = vertexBuffer->GetResourceHandle().index,
+      .meshletIndicesIndex = indexBuffer->GetResourceHandle().index,
+      .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .materialSamplerIndex = materialSampler.GetResourceHandle().index,
 
-    // Render a full-screen tri for each material, but only fragments with matching material (stored in depth) are shaded
-    for (uint32_t materialId = 0; materialId < scene.materials.size(); ++materialId)
-    {
-      auto& material = scene.materials[materialId];
+      .visbufferIndex = frame.visbuffer->ImageView().GetSampledResourceHandle().index,
+    };
 
-      auto pushConstants = VisbufferPushConstants{
-        .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-        .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
-        .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
-        .meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index,
-        .meshletVerticesIndex = vertexBuffer->GetResourceHandle().index,
-        .meshletIndicesIndex = indexBuffer->GetResourceHandle().index,
-        .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
-        .materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index,
-        .materialSamplerIndex = materialSampler.GetResourceHandle().index,
-
-        .visbufferIndex = frame.visbuffer->ImageView().GetSampledResourceHandle().index,
-      };
-
-
-      if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE)
-      {
-        pushConstants.baseColorIndex = material.albedoTextureSampler->texture.GetSampledResourceHandle().index;
-        //auto& [texture, sampler] = material.albedoTextureSampler.value();
-        //sampler.lodBias = fsr2LodBias;
-        //Fwog::Cmd::BindSampledImage("s_baseColor", texture, Fvog::Sampler(sampler));
-      }
-
-      if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE)
-      {
-        pushConstants.metallicRoughnessIndex = material.metallicRoughnessTextureSampler->texture.GetSampledResourceHandle().index;
-        //auto& [texture, sampler] = material.metallicRoughnessTextureSampler.value();
-        //sampler.lodBias = fsr2LodBias;
-        //Fwog::Cmd::BindSampledImage("s_metallicRoughness", texture, Fwog::Sampler(sampler));
-      }
-
-      if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_NORMAL_TEXTURE)
-      {
-        pushConstants.normalIndex = material.normalTextureSampler->texture.GetSampledResourceHandle().index;
-        //auto& [texture, sampler] = material.normalTextureSampler.value();
-        //sampler.lodBias = fsr2LodBias;
-        //Fwog::Cmd::BindSampledImage("s_normal", texture, Fwog::Sampler(sampler));
-      }
-
-      if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_OCCLUSION_TEXTURE)
-      {
-        pushConstants.occlusionIndex = material.occlusionTextureSampler->texture.GetSampledResourceHandle().index;
-        //auto& [texture, sampler] = material.occlusionTextureSampler.value();
-        //sampler.lodBias = fsr2LodBias;
-        //Fwog::Cmd::BindSampledImage("s_occlusion", texture, Fwog::Sampler(sampler));
-      }
-
-      if (material.gpuMaterial.flags & Utility::MaterialFlagBit::HAS_EMISSION_TEXTURE)
-      {
-        pushConstants.emissionIndex = material.emissiveTextureSampler->texture.GetSampledResourceHandle().index;
-        //auto& [texture, sampler] = material.emissiveTextureSampler.value();
-        //sampler.lodBias = fsr2LodBias;
-        //Fwog::Cmd::BindSampledImage("s_emission", texture, Fwog::Sampler(sampler));
-      }
-
-      ctx.SetPushConstants(pushConstants);
-      ctx.Draw(3, 1, 0, materialId);
-    }
+    ctx.SetPushConstants(pushConstants);
+    ctx.Draw(3, 1, 0, 0);
   }
+
   ctx.EndRendering();
 
   ctx.ImageBarrier(*frame.gAlbedo,                  VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
@@ -980,7 +824,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   });
   {
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eShadeOpaque);
-    //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
 
     // Certain VSM push constants are used by the shading pass
     auto vsmPushConstants = vsmContext.GetPushConstants();
@@ -1006,18 +849,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index,
       .nearestSamplerIndex = vsmPushConstants.nearestSamplerIndex,
     });
-    //Fwog::Cmd::BindSampledImage("s_gAlbedo", *frame.gAlbedo, nearestSampler);
-    //Fwog::Cmd::BindSampledImage(1, *frame.gNormalAndFaceNormal, nearestSampler);
-    //Fwog::Cmd::BindSampledImage("s_gDepth", *frame.gDepth, nearestSampler);
-    //Fwog::Cmd::BindSampledImage(3, *frame.gSmoothVertexNormal, nearestSampler);
-    //Fwog::Cmd::BindSampledImage("s_emission", *frame.gEmission, nearestSampler);
-    //Fwog::Cmd::BindSampledImage("s_metallicRoughnessAo", *frame.gMetallicRoughnessAo, nearestSampler);
-    //Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
-    //Fwog::Cmd::BindUniformBuffer("ShadingUniforms", shadingUniformsBuffer);
-    //Fwog::Cmd::BindUniformBuffer("ShadowUniforms", shadowUniformsBuffer);
-    //Fwog::Cmd::BindStorageBuffer("LightBuffer", *lightBuffer);
-    // TODO
-    //vsmSun.BindResourcesForDrawing();
+
     ctx.Draw(3, 1, 0, 0);
   }
   ctx.EndRendering();
@@ -1110,11 +942,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //  fsr2Performance = *t / 10e5;
     //}
     //Fwog::TimerScoped scopedTimer(timer);
-
-    //if (frameIndex == 1)
-    //{
-    //  dt = 17.0 / 1000.0;
-    //}
+    
     auto marker = ctx.MakeScopedDebugMarker("FSR 2");
 
     ctx.ImageBarrier(*frame.colorHdrRenderRes, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -1179,7 +1007,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     {
       printf("FSR 2 error: %d\n", err);
     }
-    //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
 
     // Re-apply states that application assumes
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, device_->defaultPipelineLayout, 0, 1, &device_->descriptorSet_, 0, nullptr);
@@ -1199,13 +1026,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .useLowPassFilterOnFirstPass = bloomUseLowPassFilter,
     });
   }
-
-  //Fwog::Compute("Postprocessing",
-  //  [&]
+  
   {
     auto marker = ctx.MakeScopedDebugMarker("Postprocessing", {.5f, .5f, 1.0f, 1.0f});
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage);
-    //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::UNIFORM_BUFFER_BIT);
     ctx.Barrier();
     ctx.ImageBarrierDiscard(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_GENERAL);
 
@@ -1218,13 +1042,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .tonemapUniformsIndex = tonemapUniformBuffer.GetDeviceBuffer().GetResourceHandle().index,
       .outputImageIndex = frame.colorLdrWindowRes->ImageView().GetStorageResourceHandle().index,
     });
-    //Fwog::Cmd::BindSampledImage(0, fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(), nearestSampler);
-    //Fwog::Cmd::BindSampledImage(1, noiseTexture.value(), nearestSampler);
-    //Fwog::Cmd::BindUniformBuffer(0, exposureBuffer);
-    //Fwog::Cmd::BindUniformBuffer(1, tonemapUniformBuffer);
-    //Fwog::Cmd::BindImage(0, frame.colorLdrWindowRes.value(), 0);
     ctx.DispatchInvocations(frame.colorLdrWindowRes.value().GetCreateInfo().extent);
-    //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT); // So future samples can see changes
     ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
   }
 
@@ -1234,28 +1052,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   // GUI is not rendered, draw directly to screen instead
   if (!showGui)
   {
-    //Fwog::RenderToSwapchain(
-    //  {
-    //    .name = "Copy to swapchain",
-    //    .viewport =
-    //      Fwog::Viewport{
-    //        .drawRect{.offset = {0, 0}, .extent = {renderOutputWidth, renderOutputHeight}},
-    //        .minDepth = 0.0f,
-    //        .maxDepth = 1.0f,
-    //      },
-    //    .colorLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-    //    .depthLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-    //    .stencilLoadOp = Fwog::AttachmentLoadOp::DONT_CARE,
-    //    .enableSrgb = false,
-    //  },
-    //  [&]
-    //  {
-    //    Fwog::Cmd::BindGraphicsPipeline(debugTexturePipeline);
-    //    ctx.BindGraphicsPipeline(debugTexturePipeline);
-    //    Fwog::Cmd::BindSampledImage(0, frame.colorLdrWindowRes.value(), nearestSampler);
-    //    ctx.Draw(3, 1, 0, 0);
-    //  });
-
     auto marker = ctx.MakeScopedDebugMarker("Copy to swapchain");
 
     const auto renderArea = VkRect2D{.offset = {}, .extent = {renderOutputWidth, renderOutputHeight}};
@@ -1303,7 +1099,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   
 
   
-  // TODO: swapchainImages_[swapchainImageIndex] needs to be COLOR_ATTACHMENT_OPTIMAL after this function returns
+  // swapchainImages_[swapchainImageIndex] needs to be COLOR_ATTACHMENT_OPTIMAL after this function returns
   ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 

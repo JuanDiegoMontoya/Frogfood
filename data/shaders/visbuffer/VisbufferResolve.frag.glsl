@@ -18,17 +18,9 @@ layout(location = 3) out vec2 o_smoothVertexNormal;
 layout(location = 4) out vec3 o_emission;
 layout(location = 5) out vec2 o_motion;
 
-// layout(binding = 0) uniform sampler2D s_baseColor;
-// layout(binding = 1) uniform sampler2D s_metallicRoughness;
-// layout(binding = 2) uniform sampler2D s_normal;
-// layout(binding = 3) uniform sampler2D s_occlusion;
-// layout(binding = 4) uniform sampler2D s_emission;
-
 FVOG_DECLARE_SAMPLERS;
 FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 FVOG_DECLARE_SAMPLED_IMAGES(utexture2D);
-
-//layout (r32ui, binding = 0) uniform restrict readonly uimage2D visbuffer;
 
 struct PartialDerivatives
 {
@@ -197,7 +189,7 @@ vec4 SampleBaseColor(in GpuMaterial material, in UvGradient uvGrad)
   }
   return
     material.baseColorFactor.rgba *
-    textureGrad(Fvog_sampler2D(baseColorIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgba;
+    textureGrad(Fvog_sampler2D(material.baseColorTextureIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgba;
 }
 
 vec2 SampleMetallicRoughness(in GpuMaterial material, in UvGradient uvGrad)
@@ -211,7 +203,7 @@ vec2 SampleMetallicRoughness(in GpuMaterial material, in UvGradient uvGrad)
   // Roughness is stored in the G channel
   return
     metallicRoughnessFactor *
-    textureGrad(Fvog_sampler2D(metallicRoughnessIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).bg;
+    textureGrad(Fvog_sampler2D(material.metallicRoughnessTextureIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).bg;
 }
 
 float SampleOcclusion(in GpuMaterial material, in UvGradient uvGrad)
@@ -220,7 +212,7 @@ float SampleOcclusion(in GpuMaterial material, in UvGradient uvGrad)
   {
     return 1.0;
   }
-  return textureGrad(Fvog_sampler2D(occlusionIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).r;
+  return textureGrad(Fvog_sampler2D(material.occlusionTextureIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).r;
 }
 
 vec3 SampleEmission(in GpuMaterial material, in UvGradient uvGrad)
@@ -231,7 +223,7 @@ vec3 SampleEmission(in GpuMaterial material, in UvGradient uvGrad)
   }
   return
     material.emissiveFactor * material.emissiveStrength *
-    textureGrad(Fvog_sampler2D(emissionIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
+    textureGrad(Fvog_sampler2D(material.emissionTextureIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rgb;
 }
 
 vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
@@ -242,7 +234,7 @@ vec3 SampleNormal(in GpuMaterial material, in UvGradient uvGrad)
   }
   // We assume the normal is encoded with just X and Y components, since we can trivially reconstruct the third.
   // This allows compatibility with both RG and RGB tangent space normal maps.
-  vec2 xy = textureGrad(Fvog_sampler2D(normalIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rg * 2.0 - 1.0;
+  vec2 xy = textureGrad(Fvog_sampler2D(material.normalTextureIndex, materialSamplerIndex), uvGrad.uv, uvGrad.ddx, uvGrad.ddy).rg * 2.0 - 1.0;
   float z = sqrt(max(1.0 - xy.x * xy.x - xy.y * xy.y, 0.0));
   return vec3(xy * material.normalXyScale, z);
 }

@@ -3,6 +3,8 @@
 #include "Fvog/Texture2.h"
 #include "Fvog/Device.h"
 
+#include "shaders/Resources.h.glsl"
+
 #include <glm/mat4x4.hpp>
 #include <glm/vec4.hpp>
 #include <glm/vec3.hpp>
@@ -52,16 +54,20 @@ namespace Utility
 
   struct GpuMaterial
   {
-    MaterialFlags flags{};
-    float alphaCutoff{};
-    float metallicFactor = 1.0f;
-    float roughnessFactor = 1.0f;
-    glm::vec4 baseColorFactor = {1, 1, 1, 1};
-    glm::vec3 emissiveFactor = {0, 0, 0};
-    float emissiveStrength = 1.0f;
-    uint32_t baseColorTextureIndex{};
-    float normalXyScale = 1.0f;
-    uint32_t _padding[2];
+    MaterialFlags flags;
+    FVOG_FLOAT alphaCutoff;
+    FVOG_FLOAT metallicFactor;
+    FVOG_FLOAT roughnessFactor;
+    FVOG_VEC4 baseColorFactor;
+    FVOG_VEC3 emissiveFactor;
+    FVOG_FLOAT emissiveStrength;
+    FVOG_FLOAT normalXyScale;
+    FVOG_UINT32 baseColorTextureIndex;
+    FVOG_UINT32 metallicRoughnessTextureIndex;
+    FVOG_UINT32 normalTextureIndex;
+    FVOG_UINT32 occlusionTextureIndex;
+    FVOG_UINT32 emissionTextureIndex;
+    FVOG_UINT32 _padding[2];
   };
 
   enum class LightType : uint32_t

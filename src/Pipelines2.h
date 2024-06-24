@@ -8,7 +8,6 @@ namespace Pipelines2
   [[nodiscard]] Fvog::ComputePipeline HzbCopy(Fvog::Device& device);
   [[nodiscard]] Fvog::ComputePipeline HzbReduce(Fvog::Device& device);
   [[nodiscard]] Fvog::GraphicsPipeline Visbuffer(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
-  [[nodiscard]] Fvog::GraphicsPipeline MaterialDepth(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::GraphicsPipeline VisbufferResolve(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::GraphicsPipeline Shading(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::ComputePipeline Tonemap(Fvog::Device& device);

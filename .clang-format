@@ -1,25 +1,36 @@
 ﻿---
-AlignAfterOpenBracket: Align
+AlignAfterOpenBracket: DontAlign
 AlignConsecutiveMacros: 'true'
+AlignConsecutiveAssignments: 'true'
 AlignEscapedNewlines: Left
 AlignOperands: 'true'
 AlignTrailingComments: 'true'
 AllowAllArgumentsOnNextLine: 'false'
+AllowAllParametersOfDeclarationOnNextLine: 'false'
+AllowShortBlocksOnASingleLine: 'true'
 AllowShortCaseLabelsOnASingleLine: 'true'
-AllowShortFunctionsOnASingleLine: 'Empty'
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: All
+AllowShortLoopsOnASingleLine: 'false'
+AlwaysBreakAfterReturnType: None
 AlwaysBreakTemplateDeclarations: 'Yes'
 BinPackArguments: 'false'
 BinPackParameters: 'false'
 BreakBeforeBraces: Allman
 BreakConstructorInitializers: BeforeColon
+BreakStringLiterals: 'false'
 ColumnLimit: '160'
+CompactNamespaces: 'false'
 ConstructorInitializerAllOnOneLineOrOnePerLine: 'true'
 ConstructorInitializerIndentWidth: '2'
 ContinuationIndentWidth: '2'
+Cpp11BracedListStyle: 'true'
 FixNamespaceComments: 'true'
 IndentCaseLabels: 'false'
 IndentPPDirectives: BeforeHash
 IndentWidth: '2'
+Language: Cpp
 NamespaceIndentation: All
 PenaltyBreakBeforeFirstCallParameter: '1'
 PenaltyExcessCharacter: '5'
@@ -33,10 +44,14 @@ SpaceBeforeCpp11BracedList: 'false'
 SpaceBeforeCtorInitializerColon: 'true'
 SpaceBeforeInheritanceColon: 'true'
 SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: 'true'
+SpaceInEmptyParentheses: 'false'
 SpacesInAngles: 'false'
 SpacesInCStyleCastParentheses: 'false'
+SpacesInContainerLiterals: 'false'
+SpacesInParentheses: 'false'
 SpacesInSquareBrackets: 'false'
-UseTab: Never
 TabWidth: '2'
+UseTab: Never
 
 ...

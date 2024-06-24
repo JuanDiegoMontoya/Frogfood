@@ -50,13 +50,6 @@ FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
   // VisbufferMaterialDepth.frag
   FVOG_UINT32 visbufferIndex;
 
-  // VisbufferResolve.frag
-  FVOG_UINT32 baseColorIndex;
-  FVOG_UINT32 metallicRoughnessIndex;
-  FVOG_UINT32 normalIndex;
-  FVOG_UINT32 occlusionIndex;
-  FVOG_UINT32 emissionIndex;
-
   // Debug
   FVOG_UINT32 debugAabbBufferIndex;
   FVOG_UINT32 debugRectBufferIndex;
@@ -302,8 +295,6 @@ private:
     // Main view visbuffer
     std::optional<Fvog::Texture> visbuffer;
     constexpr static Fvog::Format visbufferFormat = Fvog::Format::R32_UINT;
-    std::optional<Fvog::Texture> materialDepth;
-    constexpr static Fvog::Format materialDepthFormat = Fvog::Format::D32_SFLOAT;
     std::optional<Fvog::Texture> hzb;
     constexpr static Fvog::Format hzbFormat = Fvog::Format::R32_SFLOAT;
 
@@ -385,7 +376,6 @@ private:
   Fvog::ComputePipeline hzbCopyPipeline;
   Fvog::ComputePipeline hzbReducePipeline;
   Fvog::GraphicsPipeline visbufferPipeline;
-  Fvog::GraphicsPipeline materialDepthPipeline;
   Fvog::GraphicsPipeline visbufferResolvePipeline;
   Fvog::GraphicsPipeline shadingPipeline;
   Fvog::ComputePipeline tonemapPipeline;

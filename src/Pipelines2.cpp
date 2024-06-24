@@ -75,21 +75,6 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline MaterialDepth(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
-  {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/VisbufferMaterialDepth.frag.glsl");
-
-    return Fvog::GraphicsPipeline(device, {
-      .name = "Material Depth",
-      .vertexShader = &vs,
-      .fragmentShader = &fs,
-      .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
-      .depthState = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = VK_COMPARE_OP_ALWAYS},
-      .renderTargetFormats = renderTargetFormats,
-    });
-  }
-
   Fvog::GraphicsPipeline VisbufferResolve(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
   {
     auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/visbuffer/VisbufferResolve.vert.glsl");
@@ -100,7 +85,7 @@ namespace Pipelines2
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
-      .depthState = {.depthTestEnable = true, .depthWriteEnable = false, .depthCompareOp = VK_COMPARE_OP_EQUAL},
+      .depthState = {.depthTestEnable = false, .depthWriteEnable = false},
       .renderTargetFormats = renderTargetFormats,
     });
   }

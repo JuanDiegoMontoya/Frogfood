@@ -73,16 +73,20 @@ struct View
 
 struct GpuMaterial
 {
-  uint flags;
-  float alphaCutoff;
-  float metallicFactor;
-  float roughnessFactor;
-  vec4 baseColorFactor;
-  vec3 emissiveFactor;
-  float emissiveStrength;
-  uint baseColorTextureIndex;
-  float normalXyScale;
-  uint[2] _padding;
+  FVOG_UINT32 flags;
+  FVOG_FLOAT alphaCutoff;
+  FVOG_FLOAT metallicFactor;
+  FVOG_FLOAT roughnessFactor;
+  FVOG_VEC4 baseColorFactor;
+  FVOG_VEC3 emissiveFactor;
+  FVOG_FLOAT emissiveStrength;
+  FVOG_FLOAT normalXyScale;
+  FVOG_UINT32 baseColorTextureIndex;
+  FVOG_UINT32 metallicRoughnessTextureIndex;
+  FVOG_UINT32 normalTextureIndex;
+  FVOG_UINT32 occlusionTextureIndex;
+  FVOG_UINT32 emissionTextureIndex;
+  FVOG_UINT32 _padding[2];
 };
 
 #ifndef VISBUFFER_NO_PUSH_CONSTANTS
@@ -116,13 +120,6 @@ FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
   
   // VisbufferMaterialDepth.frag
   FVOG_UINT32 visbufferIndex;
-
-  // VisbufferResolve.frag
-  FVOG_UINT32 baseColorIndex;
-  FVOG_UINT32 metallicRoughnessIndex;
-  FVOG_UINT32 normalIndex;
-  FVOG_UINT32 occlusionIndex;
-  FVOG_UINT32 emissionIndex;
 
   // Debug
   FVOG_UINT32 debugAabbBufferIndex;

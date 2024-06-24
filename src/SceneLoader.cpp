@@ -541,6 +541,8 @@ namespace Utility
           //std::move(desc)
           //LoadSampler(model.samplers[occlusionTexture.samplerIndex.value()]),
         };
+
+        material.gpuMaterial.occlusionTextureIndex = material.occlusionTextureSampler->texture.GetSampledResourceHandle().index;
       }
 
       if (loaderMaterial.emissiveTexture.has_value())
@@ -557,6 +559,8 @@ namespace Utility
           //std::move(desc)
           //LoadSampler(model.samplers[emissiveTexture.samplerIndex.value()]),
         };
+
+        material.gpuMaterial.emissionTextureIndex = material.emissiveTextureSampler->texture.GetSampledResourceHandle().index;
       }
 
       if (loaderMaterial.normalTexture.has_value())
@@ -574,6 +578,8 @@ namespace Utility
           //LoadSampler(model.samplers[normalTexture.samplerIndex.value()]),
         };
         material.gpuMaterial.normalXyScale = loaderMaterial.normalTexture->scale;
+
+        material.gpuMaterial.normalTextureIndex = material.normalTextureSampler->texture.GetSampledResourceHandle().index;
       }
       
       if (loaderMaterial.pbrData.baseColorTexture.has_value())
@@ -591,7 +597,6 @@ namespace Utility
           //LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
         };
         
-        //material.gpuMaterial.baseColorTextureIndex = material.albedoTextureSampler->textureDescriptorInfo.GpuResource().index;
         material.gpuMaterial.baseColorTextureIndex = material.albedoTextureSampler->texture.GetSampledResourceHandle().index;
       }
 
@@ -609,6 +614,8 @@ namespace Utility
           //std::move(desc)
           //LoadSampler(model.samplers[metallicRoughnessTexture.samplerIndex.value()]),
         };
+
+        material.gpuMaterial.metallicRoughnessTextureIndex = material.metallicRoughnessTextureSampler->texture.GetSampledResourceHandle().index;
       }
 
       material.gpuMaterial.baseColorFactor = glm::make_vec4(loaderMaterial.pbrData.baseColorFactor.data());

@@ -245,10 +245,6 @@ namespace Techniques::VirtualShadowMaps
 
     ctx.BindComputePipeline(allocatePages_);
     ctx.Barrier();
-    //Fvog::MemoryBarrier(Barrier::SHADER_STORAGE_BIT | Barrier::IMAGE_ACCESS_BIT);
-    //Fvog::Cmd::BindImage("i_pageTables", pageTables_, 0);
-    //Fvog::Cmd::BindStorageBuffer("VsmVisiblePagesBitmask", visiblePagesBitmask_);
-    //Fvog::Cmd::BindStorageBuffer("VsmPageAllocRequests", pageAllocRequests_);
     ctx.Dispatch(1, 1, 1); // Only 1-32 threads will allocate
   }
 
@@ -303,16 +299,10 @@ namespace Techniques::VirtualShadowMaps
 
     // TODO: make the first half of this (create dirty page list) more efficient by only considering updated VSMs
     ctx.BindComputePipeline(listDirtyPages_);
-    //Fvog::MemoryBarrier(Barrier::SHADER_STORAGE_BIT | Barrier::IMAGE_ACCESS_BIT);
-    //Fvog::Cmd::BindImage("i_pageTables", pageTables_, 0);
-    //Fvog::Cmd::BindStorageBuffer("VsmDirtyPageList", pagesToClear_);
-    //Fvog::Cmd::BindStorageBuffer("VsmPageClearDispatchParams", pageClearDispatchParams_);
     ctx.DispatchInvocations(pageTables_.GetCreateInfo().extent.width, pageTables_.GetCreateInfo().extent.height, pageTables_.GetCreateInfo().arrayLayers);
     
     ctx.BindComputePipeline(clearDirtyPages_);
     ctx.Barrier();
-    //Fvog::MemoryBarrier(Barrier::COMMAND_BUFFER_BIT | Barrier::SHADER_STORAGE_BIT);
-    //Fvog::Cmd::BindImage("i_physicalPages", physicalPages_, 0);
     ctx.DispatchIndirect(pageClearDispatchParams_);
   }
 
@@ -495,7 +485,7 @@ namespace Techniques::VirtualShadowMaps
     for (uint32_t currentPass = 0; currentPass <= (uint32_t)std::log2(pageTableSize); currentPass++)
     {
       ctx.Barrier();
-      //Fvog::MemoryBarrier(Barrier::IMAGE_ACCESS_BIT);
+
       if (currentPass > 0)
       {
         pushConstants.srcVsmBitmaskHzbIndex = context_.vsmBitmaskHzb_.CreateSingleMipView(currentPass - 1).GetStorageResourceHandle().index;

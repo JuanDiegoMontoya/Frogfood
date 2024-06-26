@@ -25,7 +25,7 @@ void main()
   const vec3 position = PackedToVec3(vertex.position);
   const mat4 transform = d_transforms[instanceId].modelCurrent;
   const vec2 uv = PackedToVec2(vertex.uv);
-
+  
   o_meshletInstanceId = meshletInstanceId;
   o_primitiveId = primitiveId / 3;
   o_uv = uv;

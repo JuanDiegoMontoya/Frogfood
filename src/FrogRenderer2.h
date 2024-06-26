@@ -85,6 +85,23 @@ FVOG_DECLARE_ARGUMENTS(DebugTextureArguments)
   FVOG_UINT32 samplerIndex;
 };
 
+FVOG_DECLARE_ARGUMENTS(DebugAabbArguments)
+{
+  FVOG_UINT32 globalUniformsIndex;
+  FVOG_UINT32 debugAabbBufferIndex;
+};
+
+FVOG_DECLARE_ARGUMENTS(DebugLinesPushConstants)
+{
+  FVOG_UINT32 vertexBufferIndex;
+  FVOG_UINT32 globalUniformsIndex;
+};
+
+FVOG_DECLARE_ARGUMENTS(DebugRectArguments)
+{
+  FVOG_UINT32 debugRectBufferIndex;
+};
+
 inline glm::vec3 PolarToCartesian(float elevation, float azimuth)
 {
   return {std::sin(elevation) * std::cos(azimuth), std::cos(elevation), std::sin(elevation) * std::sin(azimuth)};
@@ -380,9 +397,11 @@ private:
   Fvog::GraphicsPipeline shadingPipeline;
   Fvog::ComputePipeline tonemapPipeline;
   Fvog::GraphicsPipeline debugTexturePipeline;
-  //Fvog::GraphicsPipeline debugLinesPipeline;
-  //Fvog::GraphicsPipeline debugAabbsPipeline;
-  //Fvog::GraphicsPipeline debugRectsPipeline;
+  Fvog::GraphicsPipeline debugLinesPipeline;
+  Fvog::GraphicsPipeline debugAabbsPipeline;
+  Fvog::GraphicsPipeline debugRectsPipeline;
+
+  std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
 
   // Scene
   Utility::SceneMeshlet scene;

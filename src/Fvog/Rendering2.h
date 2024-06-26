@@ -197,6 +197,7 @@ namespace Fvog
     void DispatchIndirect(const Fvog::Buffer& buffer, VkDeviceSize offset = 0) const;
 
     void Draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) const;
+    void DrawIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const;
     void DrawIndexedIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const;
 
     void BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const;

@@ -291,15 +291,14 @@ void main()
       if (d_currentView.type == VIEW_TYPE_MAIN)
       {
         DebugDrawMeshletAabb(meshletInstanceId);
-        // Uncommenting this causes a segfault in NV drivers (a crash, not a compilation error!)
-        // DebugRect rect;
-        // rect.minOffset = Vec2ToPacked(minXY);
-        // rect.maxOffset = Vec2ToPacked(maxXY);
-        // const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
-        // vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(meshletInstanceId) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
-        // rect.color = Vec4ToPacked(color);
-        // rect.depth = nearestZ;
-        //TryPushDebugRect(rect);
+        DebugRect rect;
+        rect.minOffset = Vec2ToPacked(minXY);
+        rect.maxOffset = Vec2ToPacked(maxXY);
+        const float GOLDEN_CONJ = 0.6180339887498948482045868343656;
+        vec4 color = vec4(2.0 * hsv_to_rgb(vec3(float(meshletInstanceId) * GOLDEN_CONJ, 0.875, 0.85)), 1.0);
+        rect.color = Vec4ToPacked(color);
+        rect.depth = nearestZ;
+        TryPushDebugRect(debugRectBufferIndex, rect);
       }
  #endif // ENABLE_DEBUG_DRAWING
     }

@@ -39,6 +39,41 @@ static glm::vec2 GetJitterOffset([[maybe_unused]] uint32_t frameIndex,
 #endif
 }
 
+static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near_, float far_)
+{
+  auto lines = std::vector<Debug::Line>{};
+
+  // Get frustum corners in world space
+  auto tln = Math::UnprojectUV_ZO(near_, {0, 1}, invViewProj);
+  auto trn = Math::UnprojectUV_ZO(near_, {1, 1}, invViewProj);
+  auto bln = Math::UnprojectUV_ZO(near_, {0, 0}, invViewProj);
+  auto brn = Math::UnprojectUV_ZO(near_, {1, 0}, invViewProj);
+
+  // Far corners are lerped slightly to near in case it is an infinite projection
+  auto tlf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {0, 1}, invViewProj);
+  auto trf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {1, 1}, invViewProj);
+  auto blf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {0, 0}, invViewProj);
+  auto brf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {1, 0}, invViewProj);
+
+  // Connect-the-dots
+  // Near and far "squares"
+  lines.emplace_back(tln, color, trn, color);
+  lines.emplace_back(bln, color, brn, color);
+  lines.emplace_back(tln, color, bln, color);
+  lines.emplace_back(trn, color, brn, color);
+  lines.emplace_back(tlf, color, trf, color);
+  lines.emplace_back(blf, color, brf, color);
+  lines.emplace_back(tlf, color, blf, color);
+  lines.emplace_back(trf, color, brf, color);
+
+  // Lines connecting near and far planes
+  lines.emplace_back(tln, color, tlf, color);
+  lines.emplace_back(trn, color, trf, color);
+  lines.emplace_back(bln, color, blf, color);
+  lines.emplace_back(brn, color, brf, color);
+
+  return lines;
+}
 
 FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   : Application(createInfo),
@@ -67,14 +102,20 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
           Frame::gMotionFormat,
         }},
       })),
-    shadingPipeline(Pipelines2::Shading(*device_,
-      {
-        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},
-      })),
+    shadingPipeline(Pipelines2::Shading(*device_, {.colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},})),
     tonemapPipeline(Pipelines2::Tonemap(*device_)),
-    debugTexturePipeline(Pipelines2::DebugTexture(*device_,
+    debugTexturePipeline(Pipelines2::DebugTexture(*device_, {.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat)}},})),
+    debugLinesPipeline(Pipelines2::DebugLines(*device_,
       {
-        .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat)}},
+        .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat), Frame::gReactiveMaskFormat}},
+      })),
+    debugAabbsPipeline(Pipelines2::DebugAabbs(*device_,
+      {
+        .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat), Frame::gReactiveMaskFormat}},
+      })),
+    debugRectsPipeline(Pipelines2::DebugRects(*device_,
+      {
+        .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat), Frame::gReactiveMaskFormat}},
       })),
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
     bloom(*device_),
@@ -120,10 +161,6 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
       .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
     }, "HZB")
-    //debugTexturePipeline(Pipelines2::DebugTexture(device_->device_)),
-    //debugLinesPipeline(Pipelines2::DebugLines(device_->device_)),
-    //debugAabbsPipeline(Pipelines2::DebugAabbs(device_->device_)),
-    //debugRectsPipeline(Pipelines2::DebugRects(device_->device_))
 {
   ZoneScoped;
 
@@ -163,9 +200,26 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   device_->ImmediateSubmit(
     [this](VkCommandBuffer commandBuffer)
     {
+      auto ctx = Fvog::Context(*device_, commandBuffer);
+
       // Reset the instance count of the debug draw buffers
-      debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
-      debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+      auto aabbCommand = Fvog::DrawIndirectCommand{
+        .vertexCount = 14,
+        .instanceCount = 0,
+        .firstVertex = 0,
+        .firstInstance = 0,
+      };
+      ctx.TeenyBufferUpdate(*debugGpuAabbsBuffer, aabbCommand);
+
+
+      auto rectCommand = Fvog::DrawIndirectCommand{
+        .vertexCount = 4,
+        .instanceCount = 0,
+        .firstVertex = 0,
+        .firstInstance = 0,
+      };
+      ctx.TeenyBufferUpdate(*debugGpuRectsBuffer, rectCommand);
+      
       exposureBuffer.FillData(commandBuffer, {.data = std::bit_cast<uint32_t>(1.0f)});
       cullTrianglesDispatchParams->UpdateDataExpensive(commandBuffer, Fvog::DispatchIndirectCommand{0, 1, 1});
       MakeStaticSceneBuffers(commandBuffer);
@@ -299,6 +353,20 @@ void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
     std::this_thread::sleep_for(std::chrono::milliseconds(fakeLag));
   }
 
+  debugLines.clear();
+
+  if (debugDisplayMainFrustum)
+  {
+    auto mainFrustumLines = GenerateFrustumWireframe(glm::inverse(debugMainViewProj), glm::vec4(10, 1, 10, 1), NEAR_DEPTH, FAR_DEPTH);
+    debugLines.insert(debugLines.end(), mainFrustumLines.begin(), mainFrustumLines.end());
+
+    for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
+    {
+      auto lines = GenerateFrustumWireframe(glm::inverse(vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i]), glm::vec4(1, 1, 10, 1), 0, 1);
+      debugLines.insert(debugLines.end(), lines.begin(), lines.end());
+    }
+  }
+
   sceneFlattened = scene.Flatten();
   shadingUniforms.numberOfLights = (uint32_t)sceneFlattened.lights.size();
 
@@ -351,13 +419,13 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
   ctx.TeenyBufferUpdate(*viewBuffer, view);
   
   ctx.TeenyBufferUpdate(*meshletIndirectCommand,
-                        Fvog::DrawIndexedIndirectCommand{
-                          .indexCount = 0,
-                          .instanceCount = 1,
-                          .firstIndex = 0,
-                          .vertexOffset = 0,
-                          .firstInstance = 0,
-                        });
+    Fvog::DrawIndexedIndirectCommand{
+      .indexCount    = 0,
+      .instanceCount = 1,
+      .firstIndex    = 0,
+      .vertexOffset  = 0,
+      .firstInstance = 0,
+    });
 
   // Clear groupCountX
   cullTrianglesDispatchParams->FillData(commandBuffer, {.size = sizeof(uint32_t)});
@@ -413,6 +481,15 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 {
   ZoneScoped;
 
+  if (clearDebugAabbsEachFrame)
+  {
+    debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+  }
+
+  if (clearDebugRectsEachFrame)
+  {
+    debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+  }
 
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormalAndFaceNormal, frame.gNormaAndFaceNormallPrev);
@@ -876,47 +953,50 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     .colorAttachments = colorAttachments,
     .depthAttachment = debugDepthAttachment,
   });
+  {
+    // TIME_SCOPE_GPU(StatGroup::eMainGpu, eDebugGeometry);
+    //  Lines
+    if (!debugLines.empty())
+    {
+      if (!lineVertexBuffer || lineVertexBuffer->Size() < debugLines.size() * sizeof(Debug::Line))
+      {
+        lineVertexBuffer.emplace(*device_, (uint32_t)debugLines.size(), "Debug Lines");
+      }
+      lineVertexBuffer->UpdateData(commandBuffer, debugLines);
 
+      ctx.BindGraphicsPipeline(debugLinesPipeline);
+      ctx.SetPushConstants(DebugLinesPushConstants{
+        .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,
+        .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+      });
+      ctx.Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
+    }
+
+    //// GPU-generated geometry past here
+    //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+
+    // AABBs
+    if (drawDebugAabbs)
+    {
+      ctx.BindGraphicsPipeline(debugAabbsPipeline);
+      ctx.SetPushConstants(DebugAabbArguments{
+        .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+        .debugAabbBufferIndex = debugGpuAabbsBuffer->GetResourceHandle().index,
+      });
+      ctx.DrawIndirect(debugGpuAabbsBuffer.value(), 0, 1, 0);
+    }
+
+    // Rects
+    if (drawDebugRects)
+    {
+      ctx.BindGraphicsPipeline(debugRectsPipeline);
+      ctx.SetPushConstants(DebugRectArguments{
+        .debugRectBufferIndex = debugGpuRectsBuffer->GetResourceHandle().index,
+      });
+      ctx.DrawIndirect(debugGpuRectsBuffer.value(), 0, 1, 0);
+    }
+  }
   ctx.EndRendering();
-
-  //Fwog::Render(
-  //  {
-  //    .name = "Debug Geometry",
-  //    .colorAttachments = colorAttachments,
-  //    .depthAttachment = debugDepthAttachment,
-  //  },
-  //  [&]
-  //  {
-  //    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eDebugGeometry);
-  //    Fwog::Cmd::BindUniformBuffer(0, globalUniformsBuffer);
-  //    // Lines
-  //    if (!debugLines.empty())
-  //    {
-  //      auto lineVertexBuffer = Fwog::TypedBuffer<Debug::Line>(debugLines);
-  //      Fwog::Cmd::BindGraphicsPipeline(debugLinesPipeline);
-  //      Fwog::Cmd::BindVertexBuffer(0, lineVertexBuffer, 0, sizeof(glm::vec3) + sizeof(glm::vec4));
-  //      Fwog::Cmd::Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
-  //    }
-
-  //    // GPU-generated geometry past here
-  //    Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
-
-  //    // AABBs
-  //    if (drawDebugAabbs)
-  //    {
-  //      Fwog::Cmd::BindGraphicsPipeline(debugAabbsPipeline);
-  //      Fwog::Cmd::BindStorageBuffer("DebugAabbBuffer", debugGpuAabbsBuffer.value());
-  //      Fwog::Cmd::DrawIndirect(debugGpuAabbsBuffer.value(), 0, 1, 0);
-  //    }
-
-  //    // Rects
-  //    if (drawDebugRects)
-  //    {
-  //      Fwog::Cmd::BindGraphicsPipeline(debugRectsPipeline);
-  //      Fwog::Cmd::BindStorageBuffer("DebugRectBuffer", debugGpuRectsBuffer.value());
-  //      Fwog::Cmd::DrawIndirect(debugGpuRectsBuffer.value(), 0, 1, 0);
-  //    }
-  //  });
 
   {
     //TIME_SCOPE_GPU(StatGroup::eMainGpu, eAutoExposure);

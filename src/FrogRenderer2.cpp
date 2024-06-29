@@ -225,6 +225,16 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       MakeStaticSceneBuffers(commandBuffer);
     });
 
+  stats.resize(std::size(statGroups));
+  for (size_t i = 0; i < std::size(statGroups); i++)
+  {
+    for (size_t j = 0; j < statGroups[i].statNames.size(); j++)
+    {
+      //stats[i].resize(statGroups[i].statNames.size(), StatInfo(*device_));
+      stats[i].emplace_back(*device_);
+    }
+  }
+
   OnFramebufferResize(windowFramebufferWidth, windowFramebufferHeight);
   // The main loop might invoke the resize callback (which in turn causes a redraw) on the first frame, and OnUpdate produces
   // some resources necessary for rendering (but can be resused). This is a minor hack to make sure those resources are
@@ -480,16 +490,13 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
 void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex)
 {
   ZoneScoped;
-
-  if (clearDebugAabbsEachFrame)
+  
+  if (device_->frameNumber == 1)
   {
-    debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+    dt = 0.016;
   }
-
-  if (clearDebugRectsEachFrame)
-  {
-    debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
-  }
+  accumTimes.Push(accumTime += dt);
+  stats[(int)StatGroup::eMainGpu][eFrame].timings.Push(dt * 1000);
 
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormalAndFaceNormal, frame.gNormaAndFaceNormallPrev);
@@ -519,6 +526,16 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     actualVsmUniforms.lodBias += fsr2LodBias;
     vsmContext.UpdateUniforms(commandBuffer, actualVsmUniforms);
     ctx.Barrier();
+  }
+
+  if (clearDebugAabbsEachFrame)
+  {
+    debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+  }
+
+  if (clearDebugRectsEachFrame)
+  {
+    debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   }
 
   vkCmdBindDescriptorSets(
@@ -627,7 +644,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   if (executeMeshletGeneration)
   {
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eCullMeshletsMain);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eCullMeshletsMain, commandBuffer);
     CullMeshletsForView(commandBuffer, mainView, "Cull Meshlets Main");
   }
 
@@ -675,40 +692,40 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   {
     const auto debugMarker = ctx.MakeScopedDebugMarker("Virtual Shadow Maps");
     TracyVkZone(tracyVkContext_, commandBuffer, "Virtual Shadow Maps")
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eVsm);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eVsm, commandBuffer);
 
     {
-      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmResetPageVisibility);
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmResetPageVisibility, commandBuffer);
       TracyVkZone(tracyVkContext_, commandBuffer, "Reset Page Visibility")
       vsmContext.ResetPageVisibility(commandBuffer);
     }
     {
-      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmMarkVisiblePages);
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmMarkVisiblePages, commandBuffer);
       TracyVkZone(tracyVkContext_, commandBuffer, "Mark Visible Pages")
       vsmSun.MarkVisiblePages(commandBuffer, frame.gDepth.value(), globalUniformsBuffer.GetDeviceBuffer());
     }
     {
-      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmFreeNonVisiblePages);
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmFreeNonVisiblePages, commandBuffer);
       TracyVkZone(tracyVkContext_, commandBuffer, "Free Non-Visible Pages")
       vsmContext.FreeNonVisiblePages(commandBuffer);
     }
     {
-      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmAllocatePages);
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmAllocatePages, commandBuffer);
       TracyVkZone(tracyVkContext_, commandBuffer, "Allocate Requested Pages")
       vsmContext.AllocateRequestedPages(commandBuffer);
     }
     {
-      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmGenerateHpb);
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmGenerateHpb, commandBuffer);
       TracyVkZone(tracyVkContext_, commandBuffer, "Generate HPB")
       vsmSun.GenerateBitmaskHzb(commandBuffer);
     }
     {
-      //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmClearDirtyPages);
+      TIME_SCOPE_GPU(StatGroup::eVsm, eVsmClearDirtyPages, commandBuffer);
       TracyVkZone(tracyVkContext_, commandBuffer, "Clear Dirty Pages")
       vsmContext.ClearDirtyPages(commandBuffer);
     }
 
-    //TIME_SCOPE_GPU(StatGroup::eVsm, eVsmRenderDirtyPages);
+    TIME_SCOPE_GPU(StatGroup::eVsm, eVsmRenderDirtyPages, commandBuffer);
 
     // Sun VSMs
     for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
@@ -767,7 +784,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   if (generateHizBuffer)
   {
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eHzb);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eHzb, commandBuffer);
     {
       auto marker = ctx.MakeScopedDebugMarker("HZB Build Pass", {.5f, .5f, 1.0f, 1.0f});
       ctx.SetPushConstants(HzbCopyPushConstants{
@@ -858,7 +875,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   });
 
   {
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveVisbuffer);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveVisbuffer, commandBuffer);
     ctx.BindGraphicsPipeline(visbufferResolvePipeline);
     
     auto pushConstants = VisbufferPushConstants{
@@ -900,7 +917,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     .colorAttachments = {&shadingColorAttachment, 1},
   });
   {
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eShadeOpaque);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eShadeOpaque, commandBuffer);
 
     // Certain VSM push constants are used by the shading pass
     auto vsmPushConstants = vsmContext.GetPushConstants();
@@ -954,7 +971,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     .depthAttachment = debugDepthAttachment,
   });
   {
-    // TIME_SCOPE_GPU(StatGroup::eMainGpu, eDebugGeometry);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eDebugGeometry, commandBuffer);
     //  Lines
     if (!debugLines.empty())
     {
@@ -999,8 +1016,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   ctx.EndRendering();
 
   {
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eAutoExposure);
     ctx.ImageBarrier(frame.colorHdrRenderRes.value(), VK_IMAGE_LAYOUT_GENERAL);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eAutoExposure, commandBuffer);
     autoExposure.Apply(commandBuffer, {
       .image = frame.colorHdrRenderRes.value(),
       .exposureBuffer = exposureBuffer,
@@ -1015,7 +1032,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 #ifdef FROGRENDER_FSR2_ENABLE
   if (fsr2Enable)
   {
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eFsr2);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eFsr2, commandBuffer);
     //static Fwog::TimerQueryAsync timer(5);
     //if (auto t = timer.PopTimestamp())
     //{
@@ -1096,7 +1113,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   if (bloomEnable)
   {
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eBloom);
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eBloom, commandBuffer);
     bloom.Apply(commandBuffer, {
       .target = fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value(),
       .scratchTexture = frame.colorHdrBloomScratchBuffer.value(),
@@ -1109,9 +1126,11 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   
   {
     auto marker = ctx.MakeScopedDebugMarker("Postprocessing", {.5f, .5f, 1.0f, 1.0f});
-    //TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage);
+
     ctx.Barrier();
     ctx.ImageBarrierDiscard(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_GENERAL);
+
+    TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage, commandBuffer);
 
     ctx.BindComputePipeline(tonemapPipeline);
     ctx.SetPushConstants(TonemapArguments{

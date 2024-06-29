@@ -108,10 +108,10 @@ namespace Fvog
   struct TextureClearInfo
   {
     ClearColorValue color{};
-    uint32_t baseMipLevel = 0;
-    uint32_t levelCount = 1;
+    uint32_t baseMipLevel   = 0;
+    uint32_t levelCount     = VK_REMAINING_MIP_LEVELS;
     uint32_t baseArrayLayer = 0;
-    uint32_t layerCount = 1;
+    uint32_t layerCount     = VK_REMAINING_ARRAY_LAYERS;
   };
 
   class [[nodiscard]] ScopedDebugMarker

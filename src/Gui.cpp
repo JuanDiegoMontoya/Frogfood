@@ -590,26 +590,26 @@ void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
   if (ImGui::Begin("Perf##perf_window", nullptr, 0))
   {
     // TODO
-    //for (size_t groupIdx = 0; const auto& statGroup : statGroups)
-    //{
-    //  if (ImPlot::BeginPlot(statGroup.groupName, ImVec2(-1, 250)))
-    //  {
-    //    ImPlot::SetupAxes(nullptr, nullptr, 0, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_RangeFit);
-    //    ImPlot::SetupAxisFormat(ImAxis_X1, "%g s");
-    //    ImPlot::SetupAxisFormat(ImAxis_Y1, "%g ms");
-    //    ImPlot::SetupAxisLimits(ImAxis_X1, accumTime - 5.0, accumTime, ImGuiCond_Always);
-    //    ImPlot::SetupLegend(ImPlotLocation_NorthWest, ImPlotLegendFlags_Outside);
+    for (size_t groupIdx = 0; const auto& statGroup : statGroups)
+    {
+      if (ImPlot::BeginPlot(statGroup.groupName, ImVec2(-1, 250)))
+      {
+        ImPlot::SetupAxes(nullptr, nullptr, 0, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_RangeFit);
+        ImPlot::SetupAxisFormat(ImAxis_X1, "%g s");
+        ImPlot::SetupAxisFormat(ImAxis_Y1, "%g ms");
+        ImPlot::SetupAxisLimits(ImAxis_X1, accumTime - 5.0, accumTime, ImGuiCond_Always);
+        ImPlot::SetupLegend(ImPlotLocation_NorthWest, ImPlotLegendFlags_Outside);
 
-    //    for (size_t statIdx = 0; const auto& stat : stats[groupIdx])
-    //    {
-    //      ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 1.0f);
-    //      ImPlot::PlotLine(statGroup.statNames[statIdx], accumTimes.data.get(), stat.timings.data.get(), (int)stat.timings.size, 0, (int)stat.timings.offset, sizeof(double));
-    //      statIdx++;
-    //    }
-    //    ImPlot::EndPlot();
-    //  }
-    //  groupIdx++;
-    //}
+        for (size_t statIdx = 0; const auto& stat : stats[groupIdx])
+        {
+          ImPlot::SetNextFillStyle(IMPLOT_AUTO_COL, 1.0f);
+          ImPlot::PlotLine(statGroup.statNames[statIdx], accumTimes.data.get(), stat.timings.data.get(), (int)stat.timings.size, 0, (int)stat.timings.offset, sizeof(double));
+          statIdx++;
+        }
+        ImPlot::EndPlot();
+      }
+      groupIdx++;
+    }
   }
   ImGui::End();
 }

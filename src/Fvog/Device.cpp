@@ -56,7 +56,10 @@ namespace Fvog
       .add_required_extension(VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)
       .add_required_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) // TODO: enable for profiling builds only
       .set_required_features({
+        .independentBlend = true,
         .multiDrawIndirect = true,
+        .fillModeNonSolid = true,
+        .wideLines = true,
         .samplerAnisotropy = true,
         .textureCompressionBC = true,
         .fragmentStoresAndAtomics = true,

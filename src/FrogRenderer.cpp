@@ -38,21 +38,22 @@
 
 #include "MathUtilities.h"
 
-static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near_, float far_)
+static std::vector<Debug::Line> GenerateSubfrustumWireframe(
+  const glm::mat4& invViewProj, const glm::vec4& color, float near, float far, float bottom, float top, float left, float right)
 {
   auto lines = std::vector<Debug::Line>{};
 
   // Get frustum corners in world space
-  auto tln = Math::UnprojectUV_ZO(near_, {0, 1}, invViewProj);
-  auto trn = Math::UnprojectUV_ZO(near_, {1, 1}, invViewProj);
-  auto bln = Math::UnprojectUV_ZO(near_, {0, 0}, invViewProj);
-  auto brn = Math::UnprojectUV_ZO(near_, {1, 0}, invViewProj);
+  auto tln = Math::UnprojectUV_ZO(near, {left, top}, invViewProj);
+  auto trn = Math::UnprojectUV_ZO(near, {right, top}, invViewProj);
+  auto bln = Math::UnprojectUV_ZO(near, {left, bottom}, invViewProj);
+  auto brn = Math::UnprojectUV_ZO(near, {right, bottom}, invViewProj);
 
   // Far corners are lerped slightly to near in case it is an infinite projection
-  auto tlf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {0, 1}, invViewProj);
-  auto trf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {1, 1}, invViewProj);
-  auto blf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {0, 0}, invViewProj);
-  auto brf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {1, 0}, invViewProj);
+  auto tlf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {left, top}, invViewProj);
+  auto trf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {right, top}, invViewProj);
+  auto blf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {left, bottom}, invViewProj);
+  auto brf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {right, bottom}, invViewProj);
 
   // Connect-the-dots
   // Near and far "squares"
@@ -72,6 +73,11 @@ static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invVie
   lines.emplace_back(brn, color, brf, color);
 
   return lines;
+}
+
+static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near, float far)
+{
+  return GenerateSubfrustumWireframe(invViewProj, color, near, far, 0, 1, 0, 1);
 }
 
 FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
@@ -105,14 +111,16 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
     vsmSun({
       .context = vsmContext,
       .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
-      .numClipmaps = 10,
+      .numClipmaps = 16,
     }),
     vsmShadowPipeline(Pipelines::ShadowVsm()),
+    vsmInitStencilPipeline(Pipelines::ShadowVsmInitStencil()),
     vsmShadowUniformBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     viewerUniformsBuffer(Fwog::BufferStorageFlag::DYNAMIC_STORAGE),
     viewerVsmPageTablesPipeline(Pipelines::ViewerVsm()),
     viewerVsmPhysicalPagesPipeline(Pipelines::ViewerVsmPhysicalPages()),
-    viewerVsmBitmaskHzbPipeline(Pipelines::ViewerVsmBitmaskHzb())
+    viewerVsmBitmaskHzbPipeline(Pipelines::ViewerVsmBitmaskHzb()),
+    viewerVsmPhysicalPagesOverdrawPipeline(Pipelines::ViewerVsmPhysicalPagesOverdraw())
 {
   ZoneScoped;
   int x = 0;
@@ -146,32 +154,32 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
   debugGpuRectsBuffer->FillData({.offset = offsetof(Fwog::DrawIndirectCommand, vertexCount), .size = sizeof(uint32_t), .data = 4});
 
   Utility::LoadModelFromFileMeshlet(scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}));
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}), false);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/light_test.glb", glm::scale(glm::vec3{.5}));
+  //Utility::LoadModelFromFileMeshlet(scene, "/run/media/master/Samsung S0/Dev/CLion/IrisVk/models/sponza/Sponza.gltf", glm::scale(glm::vec3{.125}));
 
   //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}));
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain.glb", glm::scale(glm::vec3{0.125f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::translate(glm::vec3(0, 5, 0)), glm::vec3{50.0f}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::vec3{1.0f}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/powerplant.glb", glm::scale(glm::vec3{1.0f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/silent_ash.glb", glm::scale(glm::vec3{1.0f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/character_ancient2.glb", glm::scale(glm::vec3{1.0f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube_1x1.glb", glm::scale(glm::vec3{1.0f}), true);
-  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/open_world_compressed.glb", glm::scale(glm::vec3{1.0f}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/modular_ruins_c_2.glb", glm::scale(glm::vec3{.5}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/building0.glb", glm::scale(glm::vec3{.05f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain.glb", glm::scale(glm::vec3{0.125f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::translate(glm::vec3(0, 5, 0)), glm::vec3{50.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/terrain2_compressed.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/powerplant.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/silent_ash.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/character_ancient2.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube_1x1.glb", glm::scale(glm::vec3{1.0f}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/open_world_compressed.glb", glm::scale(glm::vec3{1.0f}));
   //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/EuropeanHornbeam_compressed.glb", glm::scale(glm::vec3{1.0f}));
 
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}), false);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
 
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}), false);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
 
   //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
   //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1}));
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::scale(glm::vec3{1}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::scale(glm::vec3{1}), true);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/deccer_balls.gltf", glm::scale(glm::vec3{1}), false);
-    //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/MetalRoughSpheres/glTF-Binary/MetalRoughSpheres.glb", glm::scale(glm::vec3{1}), true);
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_ivy_compressed.glb", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_tree_compressed.glb", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/deccer_balls.gltf", glm::scale(glm::vec3{1}));
+  //Utility::LoadModelFromFileMeshlet(scene, "H:/Repositories/glTF-Sample-Models/2.0/MetalRoughSpheres/glTF-Binary/MetalRoughSpheres.glb", glm::scale(glm::vec3{1}));
   
   MakeStaticSceneBuffers();
 
@@ -187,6 +195,20 @@ FrogRenderer::FrogRenderer(const Application::CreateInfo& createInfo)
   {
     stats[i].resize(statGroups[i].statNames.size());
   }
+
+  constexpr auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+  constexpr auto vsmTempZSBufferFormat = [] {
+    if constexpr (VSM_USE_TEMP_ZBUFFER && VSM_USE_TEMP_SBUFFER)
+    {
+      return Fwog::Format::D32_FLOAT_S8_UINT;
+    }
+    if constexpr (VSM_USE_TEMP_SBUFFER)
+    {
+      return Fwog::Format::S8_UINT;
+    }
+    return Fwog::Format::D32_FLOAT;
+  }();
+  vsmTempDepthStencil = Fwog::CreateTexture2D(vsmExtent, vsmTempZSBufferFormat, "VSM Temp Depth Stencil");
 
   OnWindowResize(windowWidth, windowHeight);
 }
@@ -307,6 +329,23 @@ void FrogRenderer::OnUpdate([[maybe_unused]] double dt)
     auto mainFrustumLines = GenerateFrustumWireframe(glm::inverse(debugMainViewProj), glm::vec4(10, 1, 10, 1), NEAR_DEPTH, FAR_DEPTH);
     debugLines.insert(debugLines.end(), mainFrustumLines.begin(), mainFrustumLines.end());
 
+    // Debug visualization of "pixels" in frustum
+    //const int subdivX = 4;
+    //const int subdivY = 4;
+    //for (int x = 0; x < subdivX; x++)
+    //{
+    //  for (int y = 0; y < subdivY; y++)
+    //  {
+    //    const float bottom = (float)y / subdivY;
+    //    const float top = bottom + 1.0f / subdivY;
+    //    const float left = (float)x / subdivX;
+    //    const float right = left + 1.0f / subdivX;
+    //    auto mainFrustumLines = GenerateSubfrustumWireframe(glm::inverse(debugMainViewProj), glm::vec4(10, 1, 10, 1), NEAR_DEPTH, .1f,
+    //      bottom, top, left, right);
+    //    debugLines.insert(debugLines.end(), mainFrustumLines.begin(), mainFrustumLines.end());
+    //  }
+    //}
+
     for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
     {
       auto lines = GenerateFrustumWireframe(glm::inverse(vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i]), glm::vec4(1, 1, 10, 1), 0, 1);
@@ -383,6 +422,7 @@ static glm::vec2 GetJitterOffset(
 
 void FrogRenderer::CullMeshletsForView(const View& view, std::string_view name)
 {
+  Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::ALL_BITS);
   Fwog::SamplerState ss = {};
   ss.minFilter = Fwog::Filter::NEAREST;
   ss.magFilter = Fwog::Filter::NEAREST;
@@ -613,6 +653,34 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt, VkCommandBuffer, uint32_
 
       CullMeshletsForView(sunCurrentClipmapView, "Cull Sun VSM Meshlets, View " + std::to_string(i));
 
+      Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+
+#if VSM_USE_TEMP_ZBUFFER || VSM_USE_TEMP_SBUFFER
+  #if VSM_USE_TEMP_ZBUFFER
+      auto vsmDepthAttachment = Fwog::RenderDepthStencilAttachment{
+        .texture = vsmTempDepthStencil.value(),
+        .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+        .clearValue = {.depth = 1},
+      };
+  #endif
+  #if VSM_USE_TEMP_SBUFFER
+      auto vsmStencilAttachment = Fwog::RenderDepthStencilAttachment{
+        .texture = vsmTempDepthStencil.value(),
+        .loadOp = Fwog::AttachmentLoadOp::CLEAR,
+        .clearValue = {.stencil = 0},
+      };
+  #endif
+      Fwog::Render(
+        {
+          .name = "Render Clipmap",
+  #if VSM_USE_TEMP_ZBUFFER
+          .depthAttachment = vsmDepthAttachment,
+  #endif
+  #if VSM_USE_TEMP_SBUFFER
+          .stencilAttachment = vsmStencilAttachment,
+  #endif
+        },
+#else
       const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
       Fwog::RenderNoAttachments(
         {
@@ -621,10 +689,22 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt, VkCommandBuffer, uint32_
           .framebufferSize = {vsmExtent.width, vsmExtent.height, 1},
           .framebufferSamples = Fwog::SampleCount::SAMPLES_1,
         },
+#endif
         [&]
         {
-          Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::IMAGE_ACCESS_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT | Fwog::MemoryBarrierBit::TEXTURE_FETCH_BIT);
+          vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
+          vsmSun.BindResourcesForDrawing();
+
+#if VSM_USE_TEMP_SBUFFER
+          Fwog::Cmd::BindGraphicsPipeline(vsmInitStencilPipeline);
+          Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
+          Fwog::Cmd::Draw(3, 1, 0, 0);
+#endif
+
           Fwog::Cmd::BindGraphicsPipeline(vsmShadowPipeline);
+#if !VSM_USE_TEMP_SBUFFER
+          Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
+#endif
           Fwog::Cmd::BindStorageBuffer("MeshletDataBuffer", *meshletBuffer);
           Fwog::Cmd::BindStorageBuffer("MeshletPrimitiveBuffer", *primitiveBuffer);
           Fwog::Cmd::BindStorageBuffer("MeshletVertexBuffer", *vertexBuffer);
@@ -633,12 +713,9 @@ void FrogRenderer::OnRender([[maybe_unused]] double dt, VkCommandBuffer, uint32_
           Fwog::Cmd::BindUniformBuffer("PerFrameUniformsBuffer", globalUniformsBuffer);
           Fwog::Cmd::BindStorageBuffer("ViewBuffer", viewBuffer.value());
           Fwog::Cmd::BindStorageBuffer("MaterialBuffer", materialStorageBuffer.value());
-          vsmSun.BindResourcesForDrawing();
           Fwog::Cmd::BindImage(1, vsmContext.physicalPagesUint_, 0);
-          Fwog::Cmd::BindUniformBuffer("VsmShadowUniforms", vsmShadowUniformBuffer);
           Fwog::Cmd::BindIndexBuffer(*instancedMeshletBuffer, Fwog::IndexType::UNSIGNED_INT);
 
-          vsmShadowUniformBuffer.UpdateData(vsmSun.GetClipmapTableIndices()[i]);
           Fwog::Cmd::DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
         });
     }

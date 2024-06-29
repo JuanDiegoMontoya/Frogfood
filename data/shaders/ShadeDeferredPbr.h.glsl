@@ -23,6 +23,8 @@ FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
   FVOG_UINT32 dirtyPageListBufferIndex;
   FVOG_UINT32 clipmapUniformsBufferIndex;
   FVOG_UINT32 nearestSamplerIndex;
+  
+  FVOG_UINT32 physicalPagesOverdrawIndex;
 };
 
 #endif // SHADE_DEFERRED_PBR_H

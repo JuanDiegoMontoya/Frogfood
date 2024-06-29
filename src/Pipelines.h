@@ -15,10 +15,12 @@ namespace Pipelines
   Fwog::GraphicsPipeline DebugTexture();
   Fwog::GraphicsPipeline ShadowMain();
   Fwog::GraphicsPipeline ShadowVsm();
+  Fwog::GraphicsPipeline ShadowVsmInitStencil();
   Fwog::GraphicsPipeline DebugLines();
   Fwog::GraphicsPipeline DebugAabbs();
   Fwog::GraphicsPipeline DebugRects();
   Fwog::GraphicsPipeline ViewerVsm();
   Fwog::GraphicsPipeline ViewerVsmPhysicalPages();
   Fwog::GraphicsPipeline ViewerVsmBitmaskHzb();
+  Fwog::GraphicsPipeline ViewerVsmPhysicalPagesOverdraw();
 }

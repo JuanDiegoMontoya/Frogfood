@@ -89,6 +89,9 @@
 
 #define Fvog_sampler2D(textureIndex, samplerIndex) \
   NonUniformIndex(sampler2D(FvogGetSampledImage(texture2D, textureIndex), FvogGetSampler(samplerIndex)))
+  
+#define Fvog_usampler2D(textureIndex, samplerIndex) \
+  NonUniformIndex(usampler2D(FvogGetSampledImage(utexture2D, textureIndex), FvogGetSampler(samplerIndex)))
 
 #define Fvog_usampler2DArray(textureIndex, samplerIndex) \
   NonUniformIndex(usampler2DArray(FvogGetSampledImage(utexture2DArray, textureIndex), FvogGetSampler(samplerIndex)))

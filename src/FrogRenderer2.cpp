@@ -39,21 +39,28 @@ static glm::vec2 GetJitterOffset([[maybe_unused]] uint32_t frameIndex,
 #endif
 }
 
-static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near_, float far_)
+static std::vector<Debug::Line> GenerateSubfrustumWireframe(const glm::mat4& invViewProj,
+  const glm::vec4& color,
+  float near,
+  float far,
+  float bottom,
+  float top,
+  float left,
+  float right)
 {
   auto lines = std::vector<Debug::Line>{};
 
   // Get frustum corners in world space
-  auto tln = Math::UnprojectUV_ZO(near_, {0, 1}, invViewProj);
-  auto trn = Math::UnprojectUV_ZO(near_, {1, 1}, invViewProj);
-  auto bln = Math::UnprojectUV_ZO(near_, {0, 0}, invViewProj);
-  auto brn = Math::UnprojectUV_ZO(near_, {1, 0}, invViewProj);
+  auto tln = Math::UnprojectUV_ZO(near, {left, top}, invViewProj);
+  auto trn = Math::UnprojectUV_ZO(near, {right, top}, invViewProj);
+  auto bln = Math::UnprojectUV_ZO(near, {left, bottom}, invViewProj);
+  auto brn = Math::UnprojectUV_ZO(near, {right, bottom}, invViewProj);
 
   // Far corners are lerped slightly to near in case it is an infinite projection
-  auto tlf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {0, 1}, invViewProj);
-  auto trf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {1, 1}, invViewProj);
-  auto blf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {0, 0}, invViewProj);
-  auto brf = Math::UnprojectUV_ZO(glm::mix(far_, near_, 1e-5), {1, 0}, invViewProj);
+  auto tlf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {left, top}, invViewProj);
+  auto trf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {right, top}, invViewProj);
+  auto blf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {left, bottom}, invViewProj);
+  auto brf = Math::UnprojectUV_ZO(glm::mix(far, near, 1e-5), {right, bottom}, invViewProj);
 
   // Connect-the-dots
   // Near and far "squares"
@@ -73,6 +80,11 @@ static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invVie
   lines.emplace_back(brn, color, brf, color);
 
   return lines;
+}
+
+static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invViewProj, const glm::vec4& color, float near, float far)
+{
+  return GenerateSubfrustumWireframe(invViewProj, color, near, far, 0, 1, 0, 1);
 }
 
 FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
@@ -131,11 +143,17 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
       .numClipmaps = 10,
     }),
-    vsmShadowPipeline(Pipelines2::ShadowVsm(*device_, {})),
+    vsmShadowPipeline(Pipelines2::ShadowVsm(*device_,
+      {
+#if VSM_USE_TEMP_ZBUFFER
+        .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
+#endif
+      })),
     vsmShadowUniformBuffer(*device_),
     viewerVsmPageTablesPipeline(Pipelines2::ViewerVsm(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     viewerVsmBitmaskHzbPipeline(Pipelines2::ViewerVsmBitmaskHzb(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
+    viewerVsmPhysicalPagesOverdrawPipeline(Pipelines2::ViewerVsmPhysicalPagesOverdraw(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     nearestSampler(*device_, {
       .magFilter = VK_FILTER_NEAREST,
       .minFilter = VK_FILTER_NEAREST,
@@ -234,6 +252,9 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       stats[i].emplace_back(*device_);
     }
   }
+
+  constexpr auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+  vsmTempDepthStencil      = Fvog::CreateTexture2D(*device_, vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
 
   OnFramebufferResize(windowFramebufferWidth, windowFramebufferHeight);
   // The main loop might invoke the resize callback (which in turn causes a redraw) on the first frame, and OnUpdate produces
@@ -748,9 +769,21 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
       const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
       ctx.Barrier();
+
+  #if VSM_USE_TEMP_ZBUFFER
+      ctx.ImageBarrier(vsmTempDepthStencil.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+      auto vsmDepthAttachment = Fvog::RenderDepthStencilAttachment{
+        .texture    = vsmTempDepthStencil.value().ImageView(),
+        .loadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .clearValue = {.depth = 1},
+      };
+  #endif
       ctx.BeginRendering({
         .name = "Render Clipmap",
         .viewport = VkViewport{0, 0, (float)vsmExtent.width, (float)vsmExtent.height, 0, 1},
+#if VSM_USE_TEMP_ZBUFFER
+        .depthAttachment = vsmDepthAttachment,
+#endif
       });
       
       ctx.BindGraphicsPipeline(vsmShadowPipeline);
@@ -942,6 +975,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .dirtyPageListBufferIndex = vsmPushConstants.dirtyPageListBufferIndex,
       .clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index,
       .nearestSamplerIndex = vsmPushConstants.nearestSamplerIndex,
+
+      .physicalPagesOverdrawIndex = vsmPushConstants.physicalPagesOverdrawIndex,
     });
 
     ctx.Draw(3, 1, 0, 0);

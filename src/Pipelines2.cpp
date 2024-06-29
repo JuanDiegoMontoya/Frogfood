@@ -155,7 +155,15 @@ namespace Pipelines2
       .name = "Shadow VSM",
       .vertexShader = &vs,
       .fragmentShader = &fs,
-      .rasterizationState = {.cullMode = VK_CULL_MODE_BACK_BIT},
+      //.rasterizationState = {.cullMode = VK_CULL_MODE_BACK_BIT},
+      .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+#if VSM_USE_TEMP_ZBUFFER
+      .depthState =
+        {
+          .depthTestEnable  = true,
+          .depthWriteEnable = true,
+        },
+#endif
       .renderTargetFormats = renderTargetFormats,
     });
   }
@@ -316,6 +324,19 @@ namespace Pipelines2
     return Fvog::GraphicsPipeline(device, {
       .vertexShader = &vs,
       .fragmentShader = &fs,
+      .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+      .renderTargetFormats = renderTargetFormats,
+    });
+  }
+
+  Fvog::GraphicsPipeline ViewerVsmPhysicalPagesOverdraw(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  {
+    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmOverdrawHeatmap.frag.glsl");
+
+    return Fvog::GraphicsPipeline(device, {
+      .vertexShader       = &vs,
+      .fragmentShader     = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
       .renderTargetFormats = renderTargetFormats,
     });

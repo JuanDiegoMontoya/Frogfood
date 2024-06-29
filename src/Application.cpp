@@ -496,6 +496,7 @@ void Application::Draw()
     auto* drawData = ImGui::GetDrawData();
     if (drawData->CmdListsCount > 0)
     {
+      ctx.Barrier();
       vkCmdBeginRendering(commandBuffer, Fvog::detail::Address(VkRenderingInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
         .renderArea = {{}, {windowFramebufferWidth, windowFramebufferHeight}},

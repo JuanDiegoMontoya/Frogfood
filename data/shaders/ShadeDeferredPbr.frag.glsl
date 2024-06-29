@@ -31,6 +31,7 @@ layout(location = 0) out vec3 o_color;
 #define VSM_SHOW_SHADOW_DEPTH  (1 << 3)
 #define VSM_SHOW_DIRTY_PAGES   (1 << 4)
 #define BLEND_NORMALS          (1 << 5)
+#define VSM_SHOW_OVERDRAW      (1 << 6)
 
 //layout(binding = 1, std140) uniform ShadingUniforms
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadingUniforms)
@@ -106,6 +107,7 @@ struct ShadowVsmOut
   float shadowDepth;
   float projectedDepth;
   uint clipmapLevel;
+  uint overdraw;
 };
 
 ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
@@ -115,6 +117,7 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   ret.vsmUv = vec2(0);
   ret.shadowDepth = 0;
   ret.projectedDepth = 0;
+  ret.overdraw = 0;
 
   const ivec2 gid = ivec2(gl_FragCoord.xy);
   const float depthSample = texelFetch(FvogGetSampledImage(texture2D, gDepthIndex), gid, 0).x;
@@ -134,6 +137,10 @@ ShadowVsmOut ShadowVsm(vec3 fragWorldPos, vec3 normal)
   const ivec2 pageTexel = ivec2(addr.pageUv * PAGE_SIZE);
   const uint physicalAddress = GetPagePhysicalAddress(ret.pageData);
   ret.shadowDepth = LoadPageTexel(pageTexel, physicalAddress);
+
+#if VSM_RENDER_OVERDRAW
+  ret.overdraw = imageLoad(i_physicalPagesOverdrawHeatmap, GetPhysicalTexelAddress(pageTexel, physicalAddress)).x;
+#endif
 
   const float maxBias = exp2(ret.clipmapLevel) * 0.1;
   const float bias = min(maxBias, 0.01 + CalcVsmShadowBias(addr.clipmapLevel, normal)) / clipmapUniforms.projectionZLength;
@@ -346,9 +353,11 @@ void main()
 
 
 
-
+  // ShadowVsm is only used for debugging
   ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
   float shadowSun = shadowVsm.shadow;
+
+  // Filtered shadow
   shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal);
 
 
@@ -410,10 +419,18 @@ void main()
   // UV + shadow map depth view
   if ((shadingUniforms.debugFlags & VSM_SHOW_SHADOW_DEPTH) != 0)
   {
-    if (GetIsPageVisible(shadowVsm.pageData))
+    if (GetIsPageVisible(shadowVsm.pageData) && GetIsPageBacked(shadowVsm.pageData))
     {
-      if (GetIsPageBacked(shadowVsm.pageData))
-        o_color.rgb += 3.0 * shadowVsm.shadowDepth.rrr;
+      o_color.rgb += 3.0 * shadowVsm.shadowDepth.rrr;
+    }
+  }
+  
+  // Overdraw heatmap
+  if ((shadingUniforms.debugFlags & VSM_SHOW_OVERDRAW) != 0)
+  {
+    if (shadowVsm.overdraw > 0 && GetIsPageVisible(shadowVsm.pageData) && GetIsPageBacked(shadowVsm.pageData))
+    {
+      o_color.rgb += 3.0 * TurboColormap(shadowVsm.overdraw / VSM_MAX_OVERDRAW);
     }
   }
 

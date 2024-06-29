@@ -1,5 +1,7 @@
 #include "VirtualShadowMaps.h"
 
+#include "shaders/Config.shared.h"
+
 #include "../RendererUtilities.h"
 
 #include <Fvog/Buffer2.h>
@@ -110,8 +112,12 @@ namespace Techniques::VirtualShadowMaps
         },
         "VSM Physical Pages"),
       physicalPagesUint_(physicalPages_.CreateFormatView(Fvog::Format::R32_UINT)),
+      physicalPagesOverdrawHeatmap_(Fvog::CreateTexture2D(device,
+        {physicalPages_.GetCreateInfo().extent.width, physicalPages_.GetCreateInfo().extent.height},
+        Fvog::Format::R32_UINT,
+        Fvog::TextureUsage::GENERAL,
+        "VSM Physical Pages Heatmap")),
       visiblePagesBitmask_(device, {sizeof(uint32_t) * createInfo.numPages / 32}, "Visible Pages Bitmask"),
-      pageVisibleTimeTree_(device, {sizeof(uint32_t) * createInfo.numPages * 2}, "Page Visible Time Tree (remove)"),
       uniformBuffer_(device, {}, "VSM Uniforms"),
       pageAllocRequests_(device, {sizeof(PageAllocRequest) * (createInfo.numPages + 1)}, "Page Alloc Requests"),
       pagesToClear_(device, {sizeof(uint32_t) + sizeof(uint32_t) * createInfo.numPages}, "Pages to Clear"),
@@ -131,10 +137,10 @@ namespace Techniques::VirtualShadowMaps
       // Clear every page mapping to zero
       ctx.ImageBarrierDiscard(pageTables_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
       ctx.ImageBarrierDiscard(physicalPages_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      ctx.ImageBarrierDiscard(physicalPagesOverdrawHeatmap_, VK_IMAGE_LAYOUT_GENERAL);
       ctx.ClearTexture(pageTables_, {.levelCount = pageTableMipLevels});
       ctx.ClearTexture(physicalPages_, {});
       visiblePagesBitmask_.FillData(cmd);
-      pageVisibleTimeTree_.FillData(cmd);
       ctx.TeenyBufferUpdate(pageClearDispatchParams_, Fvog::DispatchIndirectCommand{pageSize / 8, pageSize / 8, 0});
     });
   }
@@ -173,6 +179,9 @@ namespace Techniques::VirtualShadowMaps
   }
 
   /*
+   *  OUT:
+   *    physicalPagesOverdrawHeatmap (if VSM_RENDER_OVERDRAW is enabled)
+   *
    *  INOUT:
    *    pageTables_
    */
@@ -185,6 +194,13 @@ namespace Techniques::VirtualShadowMaps
 
     ctx.Barrier(); // Appease sync val
     ctx.ImageBarrier(pageTables_, VK_IMAGE_LAYOUT_GENERAL);
+
+#if VSM_RENDER_OVERDRAW
+    // This just needs to happen sometime before the shadow maps are rendered
+    ctx.ImageBarrierDiscard(physicalPagesOverdrawHeatmap_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    ctx.ClearTexture(physicalPagesOverdrawHeatmap_, {});
+    ctx.ImageBarrier(physicalPagesOverdrawHeatmap_, VK_IMAGE_LAYOUT_GENERAL);
+#endif
 
     ctx.BindComputePipeline(resetPageVisibility_);
 
@@ -329,6 +345,7 @@ namespace Techniques::VirtualShadowMaps
       .allocRequestsIndex = pageAllocRequests_.GetResourceHandle().index,
       .visiblePagesBitmaskIndex = visiblePagesBitmask_.GetResourceHandle().index,
       .physicalPagesUintIndex = physicalPagesUint_.GetStorageResourceHandle().index,
+      .physicalPagesOverdrawIndex = physicalPagesOverdrawHeatmap_.ImageView().GetSampledResourceHandle().index,
     };
   }
 

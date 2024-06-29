@@ -36,6 +36,11 @@ namespace Techniques::VirtualShadowMaps
     VSM_FORCE_DIRTY_VISIBLE_PAGES = 1 << 1,
   };
 
+  struct Bitmap
+  {
+    uint8_t data[pageTableSize][pageTableSize];
+  };
+
   class Context
   {
   public:
@@ -101,15 +106,12 @@ namespace Techniques::VirtualShadowMaps
     // Physical memory used to back various VSMs
     Fvog::Texture physicalPages_;
     Fvog::TextureView physicalPagesUint_; // For doing atomic ops
+    Fvog::Texture physicalPagesOverdrawHeatmap_; // Integer texture, used for debugging
   private:
 
     // Bitmask indicating whether each page is visible this frame
     // Only non-visible pages should be evicted
     Fvog::Buffer visiblePagesBitmask_;
-
-    // Min-2-tree with the time (frame number) that each page was last seen
-    // TODO: upgrade to a subgroup-optimized tree to speed up traversal, if needed
-    Fvog::Buffer pageVisibleTimeTree_;
 
     /// BUFFERS
   public:

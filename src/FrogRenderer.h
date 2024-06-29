@@ -128,6 +128,7 @@ private:
     VSM_SHOW_SHADOW_DEPTH  = 1 << 3,
     VSM_SHOW_DIRTY_PAGES   = 1 << 4,
     BLEND_NORMALS          = 1 << 5,
+    VSM_SHOW_OVERDRAW      = 1 << 6,
   };
   //FWOG_DECLARE_FLAG_TYPE(ShadingDebugFlags, ShadingDebugFlag, uint32_t)
 
@@ -360,14 +361,16 @@ private:
   float autoExposureAdjustmentSpeed = 1.0f;
 
   // Camera
-  float cameraNearPlane = 0.1f;
+  float cameraNearPlane = 0.075f;
   float cameraFovyRadians = glm::radians(70.0f);
 
   // VSM
   Techniques::VirtualShadowMaps::Context vsmContext;
   Techniques::VirtualShadowMaps::DirectionalVirtualShadowMap vsmSun;
   Fwog::GraphicsPipeline vsmShadowPipeline;
+  Fwog::GraphicsPipeline vsmInitStencilPipeline;
   Fwog::TypedBuffer<uint32_t> vsmShadowUniformBuffer;
+  std::optional<Fwog::Texture> vsmTempDepthStencil;
   Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};
   float vsmFirstClipmapWidth = 10.0f;
   float vsmDirectionalProjectionZLength = 100.0f;
@@ -385,6 +388,7 @@ private:
   Fwog::GraphicsPipeline viewerVsmPageTablesPipeline;
   Fwog::GraphicsPipeline viewerVsmPhysicalPagesPipeline;
   Fwog::GraphicsPipeline viewerVsmBitmaskHzbPipeline;
+  Fwog::GraphicsPipeline viewerVsmPhysicalPagesOverdrawPipeline;
   std::optional<Fwog::Texture> viewerOutputTexture;
 
   template<typename T>
@@ -498,13 +502,22 @@ private:
   {
     // std::string name;
     ScrollingBuffer<double> timings;
+    double movingAverage = 0;
+    static constexpr double movingAverageWeight = 0.005;
     Fwog::TimerQueryAsync timer{5};
 
     void Measure()
     {
       if (auto t = timer.PopTimestamp())
       {
-        timings.Push(*t / 10e5); // ns to ms
+        auto t_ms = *t / 10e5; // ns to ms
+        timings.Push(t_ms);
+        double weight = movingAverageWeight;
+        if (timings.size < 100) // Quicker accumulation at the start
+        {
+          weight = 1.0 / timings.size;
+        }
+        movingAverage = movingAverage * (1.0 - weight) + t_ms * weight;
       }
       else
       {

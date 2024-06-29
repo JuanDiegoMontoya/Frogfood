@@ -31,13 +31,11 @@
 #endif
 
 #ifdef __cplusplus
-#include <Fwog/BasicTypes.h>
 #include <volk.h>
   #if REVERSE_Z
-    inline constexpr auto FWOG_COMPARE_OP_NEARER = Fwog::CompareOp::GREATER;
-    inline constexpr auto FVOG_COMPARE_OP_NEARER = VK_COMPARE_OP_GREATER;
+  inline constexpr auto FVOG_COMPARE_OP_NEARER = VK_COMPARE_OP_GREATER; //
   #else
-    inline constexpr auto FWOG_COMPARE_OP_NEARER = Fwog::CompareOp::LESS;
+  inline constexpr auto FVOG_COMPARE_OP_NEARER = VK_COMPARE_OP_LESS;
   #endif
 #endif
 

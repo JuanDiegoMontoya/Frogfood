@@ -30,12 +30,6 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
-    fwog
-    GIT_REPOSITORY https://github.com/JuanDiegoMontoya/Fwog.git
-    GIT_TAG        a26365764fbcca77dfdef0184f1aaff1825c605f
-)
-
-FetchContent_Declare(
     meshoptimizer
     GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
     GIT_TAG        v0.19
@@ -116,7 +110,7 @@ FetchContent_Declare(
 option(TRACY_ENABLE "Enable profiling" ON)
 option(TRACY_ONLY_IPV4 "IPv4 only" ON)
 
-FetchContent_MakeAvailable(glm fwog fastgltf ktx meshoptimizer tracy volk vkbootstrap vma glslang)
+FetchContent_MakeAvailable(glm fastgltf ktx meshoptimizer tracy volk vkbootstrap vma glslang)
 
 set(FSR2_SOURCE ${fsr2_SOURCE_DIR} PARENT_SCOPE)
 
@@ -130,8 +124,6 @@ if(NOT imgui_POPULATED)
         ${imgui_SOURCE_DIR}/imgui_draw.cpp
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_SOURCE_DIR}/imgui_tables.cpp
-        #${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-        #${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
         ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp)
 
     target_include_directories(lib_imgui PUBLIC 

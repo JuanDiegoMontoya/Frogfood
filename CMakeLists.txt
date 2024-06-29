@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD 20)
 
 option(FROGRENDER_FSR2_ENABLE "Enable FSR2 for examples that support it (currently 03_gltf_viewer). Windows only!" FALSE)
 
-find_package(OpenGL REQUIRED)
 find_package(Vulkan REQUIRED)
 
 add_executable(frogRender
@@ -17,8 +16,6 @@ add_executable(frogRender
     src/SceneLoader.h
     vendor/stb_image.cpp
     src/Gui.cpp
-    #src/FrogRenderer.h
-    #src/FrogRenderer.cpp
     src/PCG.h
     src/techniques/Bloom.h
     src/techniques/Bloom.cpp
@@ -28,8 +25,6 @@ add_executable(frogRender
     src/techniques/AutoExposure.cpp
     src/techniques/VirtualShadowMaps.h
     src/techniques/VirtualShadowMaps.cpp
-    src/Pipelines.h
-    src/Pipelines.cpp
     src/Fvog/Shader2.h
     src/Fvog/Shader2.cpp
     src/Fvog/detail/Common.h
@@ -102,8 +97,6 @@ else()
     set(FSR2_LIBS "")
 endif()
 
-target_compile_definitions(fwog PUBLIC FWOG_DEFAULT_CLIP_DEPTH_RANGE_ZERO_TO_ONE)
-
 target_compile_definitions(frogRender PUBLIC
     VMA_VULKAN_VERSION=1002000 # Allow VMA to use Vulkan 1.2 functions (BDA)
 )
@@ -121,8 +114,6 @@ target_include_directories(frogRender
 target_link_libraries(frogRender
     PRIVATE
     glfw
-    lib_glad
-    fwog
     glm
     lib_imgui
     ${FSR2_LIBS}

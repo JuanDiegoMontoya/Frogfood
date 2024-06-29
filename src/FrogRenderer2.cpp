@@ -23,6 +23,14 @@ using namespace Fvog::detail;
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyVulkan.hpp>
 
+#define CONCAT_HELPER(x, y) x##y
+#define CONCAT(x, y)        CONCAT_HELPER(x, y)
+
+#define TIME_SCOPE_GPU(statGroup, statEnum, commandBuffer) \
+  stats[(int)(statGroup)][statEnum].Measure();   \
+  const auto CONCAT(gpu_timer_, __LINE__) = stats[(int)(statGroup)][statEnum].MakeScopedTimer(commandBuffer); \
+  TracyVkZoneTransient(tracyVkContext_, CONCAT(asdf, __LINE__), commandBuffer, statGroups[(int)(statGroup)].statNames[statEnum], true) 
+
 
 static glm::vec2 GetJitterOffset([[maybe_unused]] uint32_t frameIndex,
                                  [[maybe_unused]] uint32_t renderInternalWidth,
@@ -712,37 +720,30 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   // VSMs
   {
     const auto debugMarker = ctx.MakeScopedDebugMarker("Virtual Shadow Maps");
-    TracyVkZone(tracyVkContext_, commandBuffer, "Virtual Shadow Maps")
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eVsm, commandBuffer);
 
     {
       TIME_SCOPE_GPU(StatGroup::eVsm, eVsmResetPageVisibility, commandBuffer);
-      TracyVkZone(tracyVkContext_, commandBuffer, "Reset Page Visibility")
       vsmContext.ResetPageVisibility(commandBuffer);
     }
     {
       TIME_SCOPE_GPU(StatGroup::eVsm, eVsmMarkVisiblePages, commandBuffer);
-      TracyVkZone(tracyVkContext_, commandBuffer, "Mark Visible Pages")
       vsmSun.MarkVisiblePages(commandBuffer, frame.gDepth.value(), globalUniformsBuffer.GetDeviceBuffer());
     }
     {
       TIME_SCOPE_GPU(StatGroup::eVsm, eVsmFreeNonVisiblePages, commandBuffer);
-      TracyVkZone(tracyVkContext_, commandBuffer, "Free Non-Visible Pages")
       vsmContext.FreeNonVisiblePages(commandBuffer);
     }
     {
       TIME_SCOPE_GPU(StatGroup::eVsm, eVsmAllocatePages, commandBuffer);
-      TracyVkZone(tracyVkContext_, commandBuffer, "Allocate Requested Pages")
       vsmContext.AllocateRequestedPages(commandBuffer);
     }
     {
       TIME_SCOPE_GPU(StatGroup::eVsm, eVsmGenerateHpb, commandBuffer);
-      TracyVkZone(tracyVkContext_, commandBuffer, "Generate HPB")
       vsmSun.GenerateBitmaskHzb(commandBuffer);
     }
     {
       TIME_SCOPE_GPU(StatGroup::eVsm, eVsmClearDirtyPages, commandBuffer);
-      TracyVkZone(tracyVkContext_, commandBuffer, "Clear Dirty Pages")
       vsmContext.ClearDirtyPages(commandBuffer);
     }
 
@@ -767,7 +768,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
       CullMeshletsForView(commandBuffer, sunCurrentClipmapView, "Cull Sun VSM Meshlets, View " + std::to_string(i));
 
-      const auto vsmExtent = Fwog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+      const auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
       ctx.Barrier();
 
   #if VSM_USE_TEMP_ZBUFFER

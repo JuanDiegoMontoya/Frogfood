@@ -660,9 +660,3 @@ private:
 
   bool showGui = true;
 };
-
-#define CONCAT_HELPER(x, y) x##y
-#define CONCAT(x, y)        CONCAT_HELPER(x, y)
-#define TIME_SCOPE_GPU(statGroup, statEnum, commandBuffer)  \
-  stats[(int)statGroup][statEnum].Measure(); \
-  const auto CONCAT(gpu_timer_, __LINE__) = stats[(int)statGroup][statEnum].MakeScopedTimer(commandBuffer)

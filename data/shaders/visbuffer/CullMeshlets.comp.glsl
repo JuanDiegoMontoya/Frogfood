@@ -58,15 +58,6 @@ void DebugDrawMeshletAabb(in uint meshletInstanceId)
 FVOG_DECLARE_SAMPLERS;
 FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
-//layout(std430, binding = 9) restrict buffer MeshletVisibilityBuffer
-FVOG_DECLARE_STORAGE_BUFFERS(restrict MeshletVisibilityBuffer)
-{
-  uint indices[];
-} visibleMeshletsBuffers[];
-
-#define d_visibleMeshlets visibleMeshletsBuffers[visibleMeshletsIndex]
-
-//layout(std430, binding = 10) restrict buffer CullTrianglesDispatchParams
 FVOG_DECLARE_STORAGE_BUFFERS(restrict CullTrianglesDispatchParams)
 {
   uint groupCountX;

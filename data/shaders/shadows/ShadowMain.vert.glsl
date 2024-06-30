@@ -10,7 +10,8 @@ layout(location = 2) out vec3 i_objectSpacePos;
 
 void main()
 {
-  const uint meshletInstanceId = (uint(gl_VertexIndex) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
+  const uint visibleMeshletId = (uint(gl_VertexIndex) >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
+  const uint meshletInstanceId = d_visibleMeshlets.indices[visibleMeshletId];
   const uint primitiveId = uint(gl_VertexIndex) & MESHLET_PRIMITIVE_MASK;
   const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
   const Meshlet meshlet = d_meshlets[meshletInstance.meshletId];

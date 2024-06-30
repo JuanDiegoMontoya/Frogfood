@@ -808,7 +808,8 @@ void FrogRenderer2::OnGui(double dt, VkCommandBuffer commandBuffer)
   ImGui::Text("Render Out: %d, %d", renderOutputWidth, renderOutputHeight);
   ImGui::Text("Window    : %d, %d", windowFramebufferWidth, windowFramebufferHeight);
 
-  ImGui::Text("Meshlets: %llu", sceneFlattened.meshletInstances.size());
+  ImGui::Text("Meshlets: %llu", scene.meshlets.size());
+  ImGui::Text("Meshlet Instances: %llu", sceneFlattened.meshletInstances.size());
   ImGui::Text("Indices: %llu", scene.indices.size());
   ImGui::Text("Vertices: %llu", scene.vertices.size());
   ImGui::Text("Primitives: %llu", scene.primitives.size());

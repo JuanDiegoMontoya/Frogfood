@@ -8,7 +8,7 @@
 
 layout(location = 0) out vec4 v_color;
 
-FVOG_DECLARE_ARGUMENTS(DebugAabbArguments)
+FVOG_DECLARE_ARGUMENTS(DebugRectArguments)
 {
   FVOG_UINT32 debugRectBufferIndex;
 };

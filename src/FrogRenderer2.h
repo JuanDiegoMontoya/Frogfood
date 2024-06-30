@@ -164,7 +164,7 @@ private:
   void GuiDrawSceneGraph(VkCommandBuffer commandBuffer);
   void GuiDrawSceneGraphHelper(Utility::Node* node);
 
-  void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, std::string_view name = "Cull Meshlet Pass");
+  void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
   void MakeStaticSceneBuffers(VkCommandBuffer commandBuffer);
 
   enum class GlobalFlags : uint32_t
@@ -388,7 +388,14 @@ private:
   std::optional<Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>> meshletIndirectCommand;
   std::optional<Fvog::TypedBuffer<uint32_t>> instancedMeshletBuffer;
   std::optional<Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>> cullTrianglesDispatchParams;
-  std::optional<Fvog::TypedBuffer<uint32_t>> visibleMeshletIds;
+
+  // These buffers serve two purposes:
+  // First, they store the IDs of meshlet instances that passed meshlet culling.
+  // Second, they allow us to remap the range 0-2^24 to meshlet instances that may
+  // have an index outside that range. That can allow us to render scenes with more than 2^24
+  // meshlet instances correctly, as long as 2^24 meshlet instances or fewer are visible.
+  std::optional<Fvog::TypedBuffer<uint32_t>> persistentVisibleMeshletIds; // For when the data needs to be retrieved later (i.e. it is stored in the visbuffer)
+  std::optional<Fvog::TypedBuffer<uint32_t>> transientVisibleMeshletIds;  // For shadows or forward passes
 
   Fvog::ComputePipeline cullMeshletsPipeline;
   Fvog::ComputePipeline cullTrianglesPipeline;

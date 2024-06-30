@@ -9,15 +9,6 @@
 #include "../debug/DebugCommon.h.glsl"
 #include "../shadows/vsm/VsmCommon.h.glsl"
 
-//layout(std430, binding = 9) restrict buffer MeshletVisbilityBuffer
-FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletVisbilityBuffer)
-{
-  uint indices[];
-} visibleMeshletsBuffers[];
-
-#define d_visibleMeshlets visibleMeshletsBuffers[visibleMeshletsIndex]
-
-//layout (std430, binding = 7) writeonly buffer MeshletPackedBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(writeonly MeshletPackedBuffer)
 {
   uint data[];
@@ -240,8 +231,11 @@ void main()
   if (primitivePassed)
   {
     const uint indexOffset = sh_baseIndex + activePrimitiveId * 3;
-    d_indexBuffer.data[indexOffset + 0] = (meshletInstanceId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 0) & MESHLET_PRIMITIVE_MASK);
-    d_indexBuffer.data[indexOffset + 1] = (meshletInstanceId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 1) & MESHLET_PRIMITIVE_MASK);
-    d_indexBuffer.data[indexOffset + 2] = (meshletInstanceId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 2) & MESHLET_PRIMITIVE_MASK);
+    if (indexOffset + 2 < d_indexBuffer.data.length())
+    {
+      d_indexBuffer.data[indexOffset + 0] = (gl_WorkGroupID.x << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 0) & MESHLET_PRIMITIVE_MASK);
+      d_indexBuffer.data[indexOffset + 1] = (gl_WorkGroupID.x << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 1) & MESHLET_PRIMITIVE_MASK);
+      d_indexBuffer.data[indexOffset + 2] = (gl_WorkGroupID.x << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 2) & MESHLET_PRIMITIVE_MASK);
+    }
   }
 }

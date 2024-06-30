@@ -109,7 +109,7 @@ FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
   FVOG_UINT32 hzbSamplerIndex;
   FVOG_UINT32 cullTrianglesDispatchIndex;
 
-  // CullMeshlets.comp and CullTriangles.comp
+  // CullMeshlets.comp, CullTriangles.comp, all vertex shaders
   FVOG_UINT32 visibleMeshletsIndex;
 
   // CullTriangles.comp
@@ -205,5 +205,12 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ViewBuffer)
 }ViewBuffers[];
 
 #define d_currentView ViewBuffers[viewIndex].currentView
+
+FVOG_DECLARE_STORAGE_BUFFERS(restrict MeshletVisbilityBuffer)
+{
+  uint indices[];
+} visibleMeshletsBuffers[];
+
+#define d_visibleMeshlets visibleMeshletsBuffers[visibleMeshletsIndex]
 
 #endif // VISBUFFER_COMMON_H

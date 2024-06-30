@@ -659,7 +659,7 @@ namespace Utility
     std::vector<Fvog::Texture> images;
   };
 
-  std::optional<LoadModelResult> LoadModelFromFileBase(Fvog::Device& device, std::filesystem::path path, glm::mat4 rootTransform, uint32_t baseMaterialIndex)
+  std::optional<LoadModelResult> LoadModelFromFileBase(Fvog::Device& device, std::filesystem::path path, glm::mat4 rootTransform, uint32_t baseMaterialIndex, bool skipMaterials)
   {
     ZoneScoped;
 
@@ -705,13 +705,18 @@ namespace Utility
     assert(asset.scenes.size() == 1);
 
     // Load images and boofers
-    auto images = LoadImages(device, asset);
+    auto images = std::vector<Fvog::Texture>();
+    auto materials = std::vector<Material>();
 
     LoadModelResult scene;
 
-    auto materials = LoadMaterials(device, asset, images);
-    std::ranges::move(materials, std::back_inserter(scene.materials));
-    std::ranges::move(images, std::back_inserter(scene.images));
+    if (!skipMaterials)
+    {
+      images = LoadImages(device, asset);
+      materials = LoadMaterials(device, asset, images);
+      std::ranges::move(materials, std::back_inserter(scene.materials));
+      std::ranges::move(images, std::back_inserter(scene.images));
+    }
 
     struct AccessorIndices
     {
@@ -840,7 +845,12 @@ namespace Utility
             rawMeshIndex = it->second;
           }
 
-          const auto materialId = primitive.materialIndex.has_value() ? baseMaterialIndex + uint32_t(primitive.materialIndex.value()) : 0;
+          auto materialId = primitive.materialIndex.has_value() ? baseMaterialIndex + uint32_t(primitive.materialIndex.value()) : 0;
+
+          if (skipMaterials)
+          {
+            materialId = 0;
+          }
 
           scene.tempData[tempDataIndex].indices.emplace_back(rawMeshIndex, materialId);
         }
@@ -925,7 +935,7 @@ namespace Utility
     return scene;
   }
 
-  bool LoadModelFromFileMeshlet(Fvog::Device& device, SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform)
+  bool LoadModelFromFileMeshlet(Fvog::Device& device, SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool skipMaterials)
   {
     ZoneScoped;
     ZoneText(fileName.string().c_str(), fileName.string().size());
@@ -934,6 +944,7 @@ namespace Utility
     {
       scene.materials.emplace_back(GpuMaterial{
         .metallicFactor = 0,
+        .baseColorFactor = {0.5f, 0.5f, 0.5f, 0.5f},
       });
     }
 
@@ -942,7 +953,7 @@ namespace Utility
     const auto baseIndexOffset = scene.indices.size();
     const auto basePrimitiveOffset = scene.primitives.size();
 
-    auto loadedScene = LoadModelFromFileBase(device, fileName, rootTransform, baseMaterialIndex);
+    auto loadedScene = LoadModelFromFileBase(device, fileName, rootTransform, baseMaterialIndex, skipMaterials);
     if (!loadedScene)
       return false;
 

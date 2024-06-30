@@ -144,13 +144,16 @@ namespace Fvog
       shader.setDebugInfo(true);
 
       bool parseResult;
-      if (includer)
       {
-        parseResult = shader.parse(GetDefaultResources(), 460, EProfile::ECoreProfile, false, false, compilerMessages, *includer);
-      }
-      else
-      {
-        parseResult = shader.parse(GetDefaultResources(), 460, EProfile::ECoreProfile, false, false, compilerMessages);
+        ZoneScopedN("Parse shader");
+        if (includer)
+        {
+          parseResult = shader.parse(GetDefaultResources(), 460, EProfile::ECoreProfile, false, false, compilerMessages, *includer);
+        }
+        else
+        {
+          parseResult = shader.parse(GetDefaultResources(), 460, EProfile::ECoreProfile, false, false, compilerMessages);
+        }
       }
 
       if (!parseResult)
@@ -162,12 +165,15 @@ namespace Fvog
 
       auto program = glslang::TProgram();
       program.addShader(&shader);
-      
-      if (!program.link(EShMessages::EShMsgDefault))
+
       {
-        printf("Info log: %s\nDebug log: %s\n", program.getInfoLog(), program.getInfoDebugLog());
-        // TODO: throw shader compile error
-        throw std::runtime_error("rip");
+        ZoneScopedN("Link program");
+        if (!program.link(EShMessages::EShMsgDefault))
+        {
+          printf("Info log: %s\nDebug log: %s\n", program.getInfoLog(), program.getInfoDebugLog());
+          // TODO: throw shader compile error
+          throw std::runtime_error("rip");
+        }
       }
       
       program.buildReflection();
@@ -190,7 +196,11 @@ namespace Fvog
         .emitNonSemanticShaderDebugInfo = true,
         .emitNonSemanticShaderDebugSource = true,
       };
-      glslang::GlslangToSpv(*program.getIntermediate(glslangStage), info.binarySpv, &options);
+
+      {
+        ZoneScopedN("GlslangToSpv");
+        glslang::GlslangToSpv(*program.getIntermediate(glslangStage), info.binarySpv, &options);
+      }
 
       // For debug-dumping SPIR-V to a file
       //WriteBinaryFile("TEST.spv", std::span(info.binarySpv));

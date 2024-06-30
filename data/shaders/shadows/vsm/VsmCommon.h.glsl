@@ -29,6 +29,7 @@ FVOG_DECLARE_ARGUMENTS(VsmPushConstants)
   FVOG_INT32 currentPass;
 
   // VsmShadow + ShadowMain
+  FVOG_UINT32 visibleMeshletsIndex;
   FVOG_UINT32 meshletInstancesIndex;
   FVOG_UINT32 meshletDataIndex;
   FVOG_UINT32 meshletPrimitivesIndex;

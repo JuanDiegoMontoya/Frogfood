@@ -9,7 +9,6 @@
 layout(early_fragment_tests) in;
 
 layout(location = 0) in vec2 i_uv;
-layout(location = 1) in flat uint i_materialId;
 
 layout(location = 0) out vec4 o_albedo;
 layout(location = 1) out vec3 o_metallicRoughnessAo;
@@ -243,7 +242,12 @@ void main()
 {
   const ivec2 position = ivec2(gl_FragCoord.xy);
   const uint payload = texelFetch(Fvog_utexture2D(visbufferIndex), position, 0).x;
-  const uint meshletInstanceId = (payload >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
+  if (payload == ~0u)
+  {
+    discard;
+  }
+  const uint visibleMeshletId = (payload >> MESHLET_PRIMITIVE_BITS) & MESHLET_ID_MASK;
+  const uint meshletInstanceId = d_visibleMeshlets.indices[visibleMeshletId];
   const uint primitiveId = payload & MESHLET_PRIMITIVE_MASK;
   const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
   const Meshlet meshlet = d_meshlets[meshletInstance.meshletId];

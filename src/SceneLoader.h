@@ -179,5 +179,5 @@ namespace Utility
   inline constexpr auto maxMeshletPrimitives = 64u;
   inline constexpr auto meshletConeWeight = 0.0f;
 
-  bool LoadModelFromFileMeshlet(Fvog::Device& device, SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform);
+  bool LoadModelFromFileMeshlet(Fvog::Device& device, SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool skipMaterials = false);
 }

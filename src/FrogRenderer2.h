@@ -19,6 +19,8 @@
 #include "shaders/Resources.h.glsl"
 #include "shaders/ShadeDeferredPbr.h.glsl"
 
+#include <variant>
+
 // TODO: these structs should come from shared headers rather than copying them
 FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
 {
@@ -154,15 +156,13 @@ private:
   void GuiDrawDockspace(VkCommandBuffer commandBuffer);
   void GuiDrawFsrWindow(VkCommandBuffer commandBuffer);
   void GuiDrawDebugWindow(VkCommandBuffer commandBuffer);
-  void GuiDrawBloomWindow(VkCommandBuffer commandBuffer);
-  void GuiDrawAutoExposureWindow(VkCommandBuffer commandBuffer);
-  void GuiDrawCameraWindow(VkCommandBuffer commandBuffer);
   void GuiDrawShadowWindow(VkCommandBuffer commandBuffer);
   void GuiDrawViewer(VkCommandBuffer commandBuffer);
   void GuiDrawMaterialsArray(VkCommandBuffer commandBuffer);
   void GuiDrawPerfWindow(VkCommandBuffer commandBuffer);
   void GuiDrawSceneGraph(VkCommandBuffer commandBuffer);
   void GuiDrawSceneGraphHelper(Utility::Node* node);
+  void GuiDrawComponentEditor(VkCommandBuffer commandBuffer);
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
   void MakeStaticSceneBuffers(VkCommandBuffer commandBuffer);
@@ -665,5 +665,12 @@ private:
   ScrollingBuffer<double> accumTimes;
   double accumTime = 0;
 
-  bool showGui = true;
+  // GUI
+  bool showGui       = true;
+  bool showFpsInfo   = true;
+  bool showSceneInfo = false;
+  struct CameraSelected{};
+  struct AtmosphereSelected{};
+  using SelectedThingyType = std::variant<std::monostate, CameraSelected, AtmosphereSelected, Utility::Node*>;
+  SelectedThingyType selectedThingy = std::monostate{};
 };

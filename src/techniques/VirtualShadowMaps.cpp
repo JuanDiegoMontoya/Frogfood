@@ -191,8 +191,7 @@ namespace Techniques::VirtualShadowMaps
   {
     auto ctx = Fvog::Context(*device_, cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Reset Page Visibility");
-
-    ctx.Barrier(); // Appease sync val
+    
     ctx.ImageBarrier(pageTables_, VK_IMAGE_LAYOUT_GENERAL);
 
 #if VSM_RENDER_OVERDRAW

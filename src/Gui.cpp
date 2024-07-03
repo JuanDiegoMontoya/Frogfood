@@ -50,6 +50,137 @@ namespace
       va_end(args);
     }
   }
+
+  namespace Gui
+  {
+    // Some of these helpers have been shamelessly "borrowed" from Oxylus.
+    // https://github.com/Hatrickek/OxylusEngine/blob/dev/Oxylus/src/UI/OxUI.cpp
+    bool BeginProperties(ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame, bool fixedWidth = false, float  widthIfFixed = 0.5f)
+    {
+      if (ImGui::BeginTable("table", 2, flags))
+      {
+        ImGui::TableSetupColumn("name", 0);
+        if (!fixedWidth)
+        {
+          ImGui::TableSetupColumn("property");
+        }
+        else
+        {
+          ImGui::TableSetupColumn("property", ImGuiTableColumnFlags_WidthFixed, ImGui::GetWindowWidth() * widthIfFixed);
+        }
+        return true;
+      }
+
+      return false;
+    }
+
+    void EndProperties()
+    {
+      ImGui::EndTable();
+    }
+
+    int propertyId = 0;
+
+    void PushPropertyId()
+    {
+      propertyId++;
+      ImGui::PushID(propertyId);
+    }
+
+    void PopPropertyId()
+    {
+      ImGui::PopID();
+      propertyId--;
+    }
+
+    bool BeginProperty(const char* label, const char* tooltip = nullptr, bool alignTextRight = true)
+    {
+      PushPropertyId();
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+
+      if (alignTextRight)
+      {
+        const auto posX = ImGui::GetCursorPosX() + ImGui::GetColumnWidth() - ImGui::CalcTextSize(label).x - ImGui::GetScrollX();
+        if (posX > ImGui::GetCursorPosX())
+        {
+          ImGui::SetCursorPosX(posX);
+        }
+      }
+
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted(label);
+      //ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{});
+      //ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{});
+      //ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{});
+      //ImGui::PushStyleColor(ImGuiCol_Border, ImVec4{});
+      //ImGui::PushStyleColor(ImGuiCol_BorderShadow, ImVec4{});
+      //const auto pressed = ImGui::Button(label);
+      //ImGui::PopStyleColor(5);
+
+      if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+        ImGui::SetTooltip("%s", tooltip);
+      }
+
+      ImGui::TableNextColumn();
+      ImGui::SetNextItemWidth(-1.0f);
+      return false;
+    }
+
+    void EndProperty()
+    {
+      ImGui::PopStyleVar();
+      PopPropertyId();
+    }
+
+    void Text(const char* label, const char* fmt, const char* tooltip = nullptr, ...)
+    {
+      BeginProperty(label, tooltip, false);
+      va_list args;
+      va_start(args, tooltip);
+      ImGui::TextV(fmt, args);
+      va_end(args);
+      EndProperty();
+    }
+
+    bool Checkbox(const char* label, bool* b, const char* tooltip = nullptr)
+    {
+      bool pressed0 = BeginProperty(label, tooltip, true);
+      bool pressed = ImGui::Checkbox((std::string("##") + label).c_str(), b);
+      EndProperty();
+      if (pressed0 == true)
+      {
+        *b = !*b;
+      }
+      return pressed || pressed0;
+    }
+
+    bool SliderFloat(const char* label, float* f, float min, float max, const char* tooltip = nullptr, const char* format = nullptr, ImGuiSliderFlags flags = 0)
+    {
+      BeginProperty(label, tooltip);
+      bool pressed = ImGui::SliderFloat(label, f, min, max, format, flags);
+      EndProperty();
+      return pressed;
+    }
+
+    bool SliderScalar(const char* label, ImGuiDataType type, void* s, const void* min, const void* max, const char* tooltip = nullptr, const char* format = nullptr, ImGuiSliderFlags flags = 0)
+    {
+      BeginProperty(label, tooltip);
+      bool pressed = ImGui::SliderScalar(label, type, s, min, max, format, flags);
+      EndProperty();
+      return pressed;
+    }
+
+    bool ColorEdit3(const char* label, float* f3, const char* tooltip, ImGuiColorEditFlags flags)
+    {
+      BeginProperty(label, tooltip);
+      bool pressed = ImGui::ColorEdit3(label, f3, flags);
+      EndProperty();
+      return pressed;
+    }
+  }
 }
 
 void FrogRenderer2::InitGui()
@@ -93,64 +224,65 @@ void FrogRenderer2::InitGui()
   ImGui::StyleColorsDark();
 
   auto& style = ImGui::GetStyle();
-  style.Colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-  style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-  style.Colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
-  style.Colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-  style.Colors[ImGuiCol_PopupBg] = ImVec4(0.19f, 0.19f, 0.19f, 0.95f);
-  style.Colors[ImGuiCol_Border] = ImVec4(0.19f, 0.19f, 0.19f, 0.29f);
-  style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.24f);
-  style.Colors[ImGuiCol_FrameBg] = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
-  style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.19f, 0.19f, 0.19f, 0.54f);
-  style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
-  style.Colors[ImGuiCol_TitleBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
-  style.Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-  style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
-  style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.34f, 0.34f, 0.34f, 0.54f);
-  style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.40f, 0.40f, 0.54f);
-  style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.56f, 0.56f, 0.56f, 0.54f);
-  style.Colors[ImGuiCol_CheckMark] = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
-  style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.34f, 0.34f, 0.34f, 0.54f);
-  style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.56f, 0.56f, 0.56f, 0.54f);
-  style.Colors[ImGuiCol_Button] = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
-  style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.19f, 0.19f, 0.19f, 0.54f);
-  style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
-  style.Colors[ImGuiCol_Header] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-  style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.00f, 0.00f, 0.00f, 0.36f);
-  style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.20f, 0.22f, 0.23f, 0.33f);
-  style.Colors[ImGuiCol_Separator] = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
-  style.Colors[ImGuiCol_SeparatorHovered] = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
-  style.Colors[ImGuiCol_SeparatorActive] = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
-  style.Colors[ImGuiCol_ResizeGrip] = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
-  style.Colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
-  style.Colors[ImGuiCol_ResizeGripActive] = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
-  style.Colors[ImGuiCol_Tab] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-  style.Colors[ImGuiCol_TabHovered] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-  style.Colors[ImGuiCol_TabActive] = ImVec4(0.20f, 0.20f, 0.20f, 0.36f);
-  style.Colors[ImGuiCol_TabUnfocused] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-  style.Colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-  style.Colors[ImGuiCol_DockingPreview] = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
-  style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_PlotLines] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_PlotHistogram] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_TableHeaderBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-  style.Colors[ImGuiCol_TableBorderStrong] = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
-  style.Colors[ImGuiCol_TableBorderLight] = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
-  style.Colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-  style.Colors[ImGuiCol_TableRowBgAlt] = ImVec4(1.00f, 1.00f, 1.00f, 0.06f);
-  style.Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
-  style.Colors[ImGuiCol_DragDropTarget] = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
-  style.Colors[ImGuiCol_NavHighlight] = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_Text]                  = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+  style.Colors[ImGuiCol_TextDisabled]          = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+  style.Colors[ImGuiCol_WindowBg]              = ImVec4(0.12f, 0.12f, 0.15f, 1.00f);
+  style.Colors[ImGuiCol_ChildBg]               = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+  style.Colors[ImGuiCol_PopupBg]               = ImVec4(0.19f, 0.19f, 0.19f, 0.95f);
+  style.Colors[ImGuiCol_Border]                = ImVec4(0.19f, 0.19f, 0.19f, 0.29f);
+  style.Colors[ImGuiCol_BorderShadow]          = ImVec4(0.00f, 0.00f, 0.00f, 0.24f);
+  style.Colors[ImGuiCol_FrameBg]               = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
+  style.Colors[ImGuiCol_FrameBgHovered]        = ImVec4(0.19f, 0.19f, 0.19f, 0.54f);
+  style.Colors[ImGuiCol_FrameBgActive]         = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
+  style.Colors[ImGuiCol_TitleBg]               = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_TitleBgActive]         = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
+  style.Colors[ImGuiCol_TitleBgCollapsed]      = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_MenuBarBg]             = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+  style.Colors[ImGuiCol_ScrollbarBg]           = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
+  style.Colors[ImGuiCol_ScrollbarGrab]         = ImVec4(0.34f, 0.34f, 0.34f, 0.54f);
+  style.Colors[ImGuiCol_ScrollbarGrabHovered]  = ImVec4(0.40f, 0.40f, 0.40f, 0.54f);
+  style.Colors[ImGuiCol_ScrollbarGrabActive]   = ImVec4(0.56f, 0.56f, 0.56f, 0.54f);
+  style.Colors[ImGuiCol_CheckMark]             = ImVec4(0.47f, 0.86f, 0.33f, 1.00f);
+  style.Colors[ImGuiCol_SliderGrab]            = ImVec4(0.34f, 0.34f, 0.34f, 0.54f);
+  style.Colors[ImGuiCol_SliderGrabActive]      = ImVec4(0.56f, 0.56f, 0.56f, 0.54f);
+  style.Colors[ImGuiCol_Button]                = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
+  style.Colors[ImGuiCol_ButtonHovered]         = ImVec4(0.19f, 0.19f, 0.19f, 0.54f);
+  style.Colors[ImGuiCol_ButtonActive]          = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
+  style.Colors[ImGuiCol_Header]                = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_HeaderHovered]         = ImVec4(0.00f, 0.00f, 0.00f, 0.56f);
+  style.Colors[ImGuiCol_HeaderActive]          = ImVec4(0.20f, 0.22f, 0.23f, 0.33f);
+  style.Colors[ImGuiCol_Separator]             = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
+  style.Colors[ImGuiCol_SeparatorHovered]      = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
+  style.Colors[ImGuiCol_SeparatorActive]       = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
+  style.Colors[ImGuiCol_ResizeGrip]            = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
+  style.Colors[ImGuiCol_ResizeGripHovered]     = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
+  style.Colors[ImGuiCol_ResizeGripActive]      = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
+  style.Colors[ImGuiCol_Tab]                   = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
+  style.Colors[ImGuiCol_TabHovered]            = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+  style.Colors[ImGuiCol_TabActive]             = ImVec4(0.20f, 0.20f, 0.20f, 0.36f);
+  style.Colors[ImGuiCol_TabUnfocused]          = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
+  style.Colors[ImGuiCol_TabUnfocusedActive]    = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+  style.Colors[ImGuiCol_DockingPreview]        = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
+  style.Colors[ImGuiCol_DockingEmptyBg]        = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_PlotLines]             = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_PlotLinesHovered]      = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_PlotHistogram]         = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_PlotHistogramHovered]  = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
+  style.Colors[ImGuiCol_TableHeaderBg]         = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
+  style.Colors[ImGuiCol_TableBorderStrong]     = ImVec4(0.00f, 0.00f, 0.00f, 0.52f);
+  style.Colors[ImGuiCol_TableBorderLight]      = ImVec4(0.28f, 0.28f, 0.28f, 0.43f);
+  style.Colors[ImGuiCol_TableRowBg]            = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+  style.Colors[ImGuiCol_TableRowBgAlt]         = ImVec4(1.00f, 1.00f, 1.00f, 0.06f);
+  style.Colors[ImGuiCol_TextSelectedBg]        = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
+  style.Colors[ImGuiCol_DragDropTarget]        = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
+  style.Colors[ImGuiCol_NavHighlight]          = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
   style.Colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 0.00f, 0.00f, 0.70f);
-  style.Colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
-  style.Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+  style.Colors[ImGuiCol_NavWindowingDimBg]     = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+  style.Colors[ImGuiCol_ModalWindowDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
 
   style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);
-  style.WindowMenuButtonPosition = ImGuiDir_None;
+  style.WindowMenuButtonPosition        = ImGuiDir_None;
+  style.IndentSpacing                   = 15;
 }
 
 void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
@@ -211,9 +343,7 @@ void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 
     // Calculate the min and max UV of the magnifier window
     glm::vec2 uv0{mp - magnifierHalfExtentUv};
     glm::vec2 uv1{mp + magnifierHalfExtentUv};
-
-    // TODO
-    //glTextureParameteri(frame.colorLdrWindowRes.value().Handle(), GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    
     ImGui::Image(ImTextureSampler(frame.colorLdrWindowRes.value().ImageView().GetSampledResourceHandle().index, nearestSampler.GetResourceHandle().index),
                  magnifierSize,
                  ImVec2(uv0.x, uv0.y),
@@ -392,63 +522,6 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
   ImGui::End();
 }
 
-void FrogRenderer2::GuiDrawBloomWindow(VkCommandBuffer)
-{
-  if (ImGui::Begin(ICON_MD_CAMERA " Bloom###bloom_window"))
-  {
-    ImGui::Checkbox("Enable", &bloomEnable);
-
-    if (!bloomEnable)
-    {
-      ImGui::BeginDisabled();
-    }
-
-    constexpr uint32_t zero = 0;
-    constexpr uint32_t eight = 8;
-    ImGui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, "%u");
-    ImGui::SliderFloat("Strength", &bloomStrength, 0, 1, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Upscale Width", &bloomWidth, 0, 2);
-    ImGui::Checkbox("Use Low-Pass Filter", &bloomUseLowPassFilter);
-
-    if (!bloomEnable)
-    {
-      ImGui::EndDisabled();
-    }
-  }
-  ImGui::End();
-}
-
-void FrogRenderer2::GuiDrawAutoExposureWindow(VkCommandBuffer)
-{
-  if (ImGui::Begin(ICON_MD_BRIGHTNESS_AUTO " Auto Exposure###auto_exposure_window"))
-  {
-    ImGui::SliderFloat("Min Exposure", &autoExposureLogMinLuminance, -15.0f, autoExposureLogMaxLuminance, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Max Exposure", &autoExposureLogMaxLuminance, autoExposureLogMinLuminance, 15.0f, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Target Luminance", &autoExposureTargetLuminance, 0.001f, 1, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 5, "%.4f", ImGuiSliderFlags_NoRoundToFormat);
-  }
-
-  ImGui::End();
-}
-
-void FrogRenderer2::GuiDrawCameraWindow(VkCommandBuffer)
-{
-  if (ImGui::Begin(ICON_FA_CAMERA " Camera###camera_window"))
-  {
-    ImGui::SliderFloat("Saturation", &tonemapUniforms.saturation, 0, 2, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("AgX Linear Section", &tonemapUniforms.agxDsLinearSection, 0, tonemapUniforms.peak, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-    ImGui::SliderFloat("Compression", &tonemapUniforms.compression, 0, 0.999f, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-    bool enableDither = tonemapUniforms.enableDithering;
-    ImGui::Checkbox("Enable Dither", &enableDither);
-    tonemapUniforms.enableDithering = enableDither;
-    if (ImGui::Button("Reset"))
-    {
-      tonemapUniforms = TonemapUniforms{};
-    }
-  }
-  ImGui::End();
-}
-
 void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
 {
   // TODO: pick icon for this window
@@ -471,6 +544,32 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
     ImGui_HoverTooltip("The HPB (hierarchical page buffer) is used to cull\nmeshlets and primitives that are not touching an active page.");
     ImGui_FlagCheckbox("Disable Page Caching", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES);
     ImGui_HoverTooltip("Page caching reduces the amount of per-frame work\nby only drawing to pages whose visibility changed this frame.");
+
+    auto SliderUint = [](const char* label, uint32_t* v, uint32_t v_min, uint32_t v_max) -> bool
+    { return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u"); };
+
+    int shadowMode = shadowUniforms.shadowMode;
+    ImGui::RadioButton("PCSS", &shadowMode, 0);
+    ImGui::SameLine();
+    ImGui::RadioButton("SMRT", &shadowMode, 1);
+    shadowUniforms.shadowMode = shadowMode;
+
+    if (shadowMode == 0)
+    {
+      SliderUint("PCF Samples", &shadowUniforms.pcfSamples, 1, 64);
+      ImGui::SliderFloat("Light Width", &shadowUniforms.lightWidth, 0, 0.1f, "%.4f");
+      ImGui::SliderFloat("Max PCF Radius", &shadowUniforms.maxPcfRadius, 0, 0.1f, "%.4f");
+      SliderUint("Blocker Search Samples", &shadowUniforms.blockerSearchSamples, 1, 64);
+      ImGui::SliderFloat("Blocker Search Radius", &shadowUniforms.blockerSearchRadius, 0, 0.1f, "%.4f");
+    }
+    else if (shadowMode == 1)
+    {
+      SliderUint("Shadow Rays", &shadowUniforms.shadowRays, 1, 10);
+      SliderUint("Steps Per Ray", &shadowUniforms.stepsPerRay, 1, 20);
+      ImGui::SliderFloat("Ray Step Size", &shadowUniforms.rayStepSize, 0.01f, 1.0f);
+      ImGui::SliderFloat("Heightmap Thickness", &shadowUniforms.heightmapThickness, 0.05f, 1.0f);
+      ImGui::SliderFloat("Light Spread", &shadowUniforms.sourceAngleRad, 0.001f, 0.3f);
+    }
   }
   ImGui::End();
 }
@@ -596,7 +695,6 @@ void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
 {
   if (ImGui::Begin("Perf##perf_window", nullptr, 0))
   {
-    // TODO
     for (size_t groupIdx = 0; const auto& statGroup : statGroups)
     {
       if (ImPlot::BeginPlot(statGroup.groupName, ImVec2(-1, 250)))
@@ -714,43 +812,27 @@ void TraverseLight(std::optional<Utility::GpuLight>& lightOpt)
 void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
 {
   ImGui::PushID(static_cast<int>(std::hash<const void*>{}(node)));
-  const bool isTreeNodeOpen = ImGui::TreeNode("", "%s", node->name.c_str());
-  ImGui::SameLine();
-  ImGui::TextColored({0, 1, 0, 1}, "hello");
+  
+  ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+  if (node->children.empty())
+  {
+    flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
+  }
+
+  if (auto* p = std::get_if<Utility::Node*>(&selectedThingy); p && *p == node)
+  {
+    flags |= ImGuiTreeNodeFlags_Selected;
+  }
+
+  const bool isTreeNodeOpen = ImGui::TreeNodeEx("", flags, "%s", node->name.c_str());
+
+  if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+  {
+    selectedThingy = node;
+  }
+
   if (isTreeNodeOpen)
   {
-    ImGui::DragFloat3("Position", glm::value_ptr(node->translation), 0.0625f);
-    auto euler = glm::eulerAngles(node->rotation);
-    if (ImGui::DragFloat3("Angles", glm::value_ptr(euler), 1.0f / 64))
-    {
-      node->rotation = glm::quat(euler);
-    }
-    ImGui::DragFloat3("Scale", glm::value_ptr(node->scale), 1.0f / 64, 1.0f / 32, 10000, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
-
-    if (node->light.has_value())
-    {
-      TraverseLight(node->light);
-    }
-
-    if (!node->meshletInstances.empty())
-    {
-      // Show list of meshlet instances on this node.
-      const bool isInstancesNodeOpen = ImGui::TreeNode("Meshlet instances: ");
-      ImGui::SameLine();
-      ImGui::Text("%d", (int)node->meshletInstances.size());
-      if (isInstancesNodeOpen)
-      {
-        // Omit instanceId since it isn't populated until scene traversal.
-        ImGui::Text("#: (meshlet, material)");
-        for (size_t i = 0; i < node->meshletInstances.size(); i++)
-        {
-          const auto& meshletInstance = node->meshletInstances[i];
-          ImGui::Text("%d: (%u, %u)", (int)i, meshletInstance.meshletId, meshletInstance.materialId);
-        }
-        ImGui::TreePop();
-      }
-    }
-
     for (auto* childNode : node->children)
     {
       GuiDrawSceneGraphHelper(childNode);
@@ -763,17 +845,167 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
 
 void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
 {
+  ImGui::SetNextWindowBgAlpha(0);
   if (ImGui::Begin("Scene Graph##scene_graph_window"))
   {
+    const auto as = std::get_if<AtmosphereSelected>(&selectedThingy);
+    if (ImGui::TreeNodeEx(ICON_MD_SUNNY " Atmosphere",
+          ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet | (as ? ImGuiTreeNodeFlags_Selected : 0)))
+    {
+      if (ImGui::IsItemClicked())
+      {
+        selectedThingy = AtmosphereSelected{};
+      }
+      ImGui::TreePop();
+    }
+
+    const auto cs = std::get_if<CameraSelected>(&selectedThingy);
+    if (ImGui::TreeNodeEx(ICON_FA_CAMERA " Camera",
+          ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet | (cs ? ImGuiTreeNodeFlags_Selected : 0)))
+    {
+      if (ImGui::IsItemClicked())
+      {
+        selectedThingy = CameraSelected{};
+      }
+      ImGui::TreePop();
+    }
+
     for (auto* node : scene.rootNodes)
     {
       GuiDrawSceneGraphHelper(node);
+    }
+
+    if (!ImGui::IsAnyItemHovered() && ImGui::IsWindowHovered() && ImGui::GetIO().MouseClicked[ImGuiMouseButton_Left])
+    {
+      selectedThingy = std::monostate{};
     }
   }
   ImGui::End();
 }
 
-void FrogRenderer2::OnGui(double dt, VkCommandBuffer commandBuffer)
+void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
+{
+  if (ImGui::Begin("Component Editor###component_editor_window"))
+  {
+    if (std::get_if<CameraSelected>(&selectedThingy))
+    {
+      if (ImGui::TreeNode("Postprocessing"))
+      {
+        Gui::BeginProperties();
+        Gui::SliderFloat("Saturation", &tonemapUniforms.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+        Gui::SliderFloat("AgX Linear Section", &tonemapUniforms.agxDsLinearSection, 0, tonemapUniforms.peak, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+        Gui::SliderFloat("Compression", &tonemapUniforms.compression, 0, 0.999f, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+        bool enableDither = tonemapUniforms.enableDithering;
+        Gui::Checkbox("Enable Dither", &enableDither);
+        Gui::EndProperties();
+
+        tonemapUniforms.enableDithering = enableDither;
+        if (ImGui::Button("Reset"))
+        {
+          tonemapUniforms = TonemapUniforms{};
+        }
+        ImGui::TreePop();
+      }
+
+      ImGui::Separator();
+
+      if (ImGui::TreeNode("Auto Exposure"))
+      {
+        Gui::BeginProperties();
+        Gui::SliderFloat("Min Exposure", &autoExposureLogMinLuminance, -15.0f, autoExposureLogMaxLuminance, nullptr, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
+        Gui::SliderFloat("Max Exposure", &autoExposureLogMaxLuminance, autoExposureLogMinLuminance, 15.0f, nullptr, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
+        Gui::SliderFloat("Target Luminance", &autoExposureTargetLuminance, 0.001f, 1, nullptr, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+        Gui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 5, nullptr, "%.4f", ImGuiSliderFlags_NoRoundToFormat);
+        Gui::EndProperties();
+        ImGui::TreePop();
+      }
+
+      ImGui::Separator();
+
+      // TODO: ICON_MD_CAMERA looks like a house due to a glyph conflict
+      if (ImGui::TreeNode(ICON_MD_CAMERA " Bloom###bloom_window"))
+      {
+        Gui::BeginProperties();
+        Gui::Checkbox("Enable", &bloomEnable);
+
+        if (!bloomEnable)
+        {
+          ImGui::BeginDisabled();
+        }
+
+        constexpr uint32_t zero  = 0;
+        constexpr uint32_t eight = 8;
+        Gui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, nullptr, "%u", ImGuiSliderFlags_AlwaysClamp);
+        Gui::SliderFloat("Strength", &bloomStrength, 0, 1, nullptr, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+        Gui::SliderFloat("Upscale Width", &bloomWidth, 0, 2);
+        Gui::Checkbox("Use Low-Pass Filter", &bloomUseLowPassFilter);
+
+        if (!bloomEnable)
+        {
+          ImGui::EndDisabled();
+        }
+        Gui::EndProperties();
+        ImGui::TreePop();
+      }
+    }
+
+    if (std::get_if<AtmosphereSelected>(&selectedThingy))
+    {
+      Gui::BeginProperties();
+      auto sunRotated = Gui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
+      sunRotated |= Gui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
+      if (sunRotated)
+      {
+        vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+      }
+
+      Gui::ColorEdit3("Sun Color", &sunColor[0], nullptr, ImGuiColorEditFlags_Float);
+      Gui::SliderFloat("Sun Strength", &sunStrength, 0, 500, nullptr, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+
+      Gui::EndProperties();
+    }
+
+    if (auto* p = std::get_if<Utility::Node*>(&selectedThingy))
+    {
+      auto node = *p;
+
+      ImGui::DragFloat3("Position", glm::value_ptr(node->translation), 0.0625f);
+      auto euler = glm::eulerAngles(node->rotation);
+      if (ImGui::DragFloat3("Angles", glm::value_ptr(euler), 1.0f / 64))
+      {
+        node->rotation = glm::quat(euler);
+      }
+      ImGui::DragFloat3("Scale", glm::value_ptr(node->scale), 1.0f / 64, 1.0f / 32, 10000, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
+
+      if (node->light.has_value())
+      {
+        TraverseLight(node->light);
+      }
+
+      if (!node->meshletInstances.empty())
+      {
+        // Show list of meshlet instances on this node.
+        const bool isInstancesNodeOpen = ImGui::TreeNode("Meshlet instances: ");
+        ImGui::SameLine();
+        ImGui::Text("%d", (int)node->meshletInstances.size());
+        if (isInstancesNodeOpen)
+        {
+          // Omit instanceId since it isn't populated until scene traversal.
+          ImGui::Text("#: (meshlet, material)");
+          for (size_t i = 0; i < node->meshletInstances.size(); i++)
+          {
+            const auto& meshletInstance = node->meshletInstances[i];
+            ImGui::Text("%d: (%u, %u)", (int)i, meshletInstance.meshletId, meshletInstance.materialId);
+          }
+          ImGui::TreePop();
+        }
+      }
+    }
+  }
+  ImGui::End();
+}
+
+void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuffer)
 {
   if (ImGui::GetKeyPressedAmount(ImGuiKey_F1, 10000, 1))
   {
@@ -796,83 +1028,35 @@ void FrogRenderer2::OnGui(double dt, VkCommandBuffer commandBuffer)
 
   GuiDrawDockspace(commandBuffer);
 
-  //ImGui::ShowDemoWindow();
+  ImGui::ShowDemoWindow();
   //ImPlot::ShowDemoWindow();
 
   GuiDrawFsrWindow(commandBuffer);
 
   ImGui::Begin("glTF Viewer");
-  ImGui::Text("Framerate: %.0f Hertz", 1 / dt);
-  ImGui::Text("AFPS: %.0f Rad/s", glm::two_pi<float>() / dt);
-  ImGui::Text("Render In : %d, %d", renderInternalWidth, renderInternalHeight);
-  ImGui::Text("Render Out: %d, %d", renderOutputWidth, renderOutputHeight);
-  ImGui::Text("Window    : %d, %d", windowFramebufferWidth, windowFramebufferHeight);
 
-  ImGui::Text("Meshlets: %llu", scene.meshlets.size());
-  ImGui::Text("Meshlet Instances: %llu", sceneFlattened.meshletInstances.size());
-  ImGui::Text("Indices: %llu", scene.indices.size());
-  ImGui::Text("Vertices: %llu", scene.vertices.size());
-  ImGui::Text("Primitives: %llu", scene.primitives.size());
-  ImGui::Text("Lights: %llu", sceneFlattened.lights.size());
-  ImGui::Text("Materials: %llu", scene.materials.size());
-  ImGui::Text("Camera: %.2f, %.2f, %.2f", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
+  Gui::BeginProperties();
 
-  if (ImGui::Checkbox("Use GUI viewport size", &useGuiViewportSizeForRendering))
+  Gui::Checkbox("Show FPS", &showFpsInfo);
+  Gui::Checkbox("Show Scene Info", &showSceneInfo);
+
+  if (Gui::Checkbox("Use GUI viewport size",
+        &useGuiViewportSizeForRendering,
+        "If set, the internal render resolution is equal to the viewport.\nOtherwise, it will be the window's framebuffer size,\nresulting in potentially non-square pixels in the viewport"))
   {
     if (useGuiViewportSizeForRendering == false)
     {
       int x, y;
       glfwGetFramebufferSize(window, &x, &y);
-      renderOutputWidth = static_cast<uint32_t>(x);
-      renderOutputHeight = static_cast<uint32_t>(y);
+      renderOutputWidth     = static_cast<uint32_t>(x);
+      renderOutputHeight    = static_cast<uint32_t>(y);
       shouldResizeNextFrame = true;
     }
   }
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-  {
-    ImGui::SetTooltip("If set, the internal render resolution is equal to the viewport.\nOtherwise, it will be the window's framebuffer size,\nresulting in "
-                      "potentially non-square pixels in the viewport");
-  }
 
-  auto sunRotated = ImGui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
-  sunRotated |= ImGui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
-  if (sunRotated)
-  {
-    vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
-  }
-
-  ImGui::ColorEdit3("Sun Color", &sunColor[0], ImGuiColorEditFlags_Float);
-  ImGui::SliderFloat("Sun Strength", &sunStrength, 0, 500, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+  Gui::EndProperties();
 
   ImGui::Separator();
-
-  ImGui::TextUnformatted("Shadow");
-
-  auto SliderUint = [](const char* label, uint32_t* v, uint32_t v_min, uint32_t v_max) -> bool
-  { return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u"); };
-
-  int shadowMode = shadowUniforms.shadowMode;
-  ImGui::RadioButton("PCSS", &shadowMode, 0);
-  ImGui::SameLine();
-  ImGui::RadioButton("SMRT", &shadowMode, 1);
-  shadowUniforms.shadowMode = shadowMode;
-
-  if (shadowMode == 0)
-  {
-    SliderUint("PCF Samples", &shadowUniforms.pcfSamples, 1, 64);
-    ImGui::SliderFloat("Light Width", &shadowUniforms.lightWidth, 0, 0.1f, "%.4f");
-    ImGui::SliderFloat("Max PCF Radius", &shadowUniforms.maxPcfRadius, 0, 0.1f, "%.4f");
-    SliderUint("Blocker Search Samples", &shadowUniforms.blockerSearchSamples, 1, 64);
-    ImGui::SliderFloat("Blocker Search Radius", &shadowUniforms.blockerSearchRadius, 0, 0.1f, "%.4f");
-  }
-  else if (shadowMode == 1)
-  {
-    SliderUint("Shadow Rays", &shadowUniforms.shadowRays, 1, 10);
-    SliderUint("Steps Per Ray", &shadowUniforms.stepsPerRay, 1, 20);
-    ImGui::SliderFloat("Ray Step Size", &shadowUniforms.rayStepSize, 0.01f, 1.0f);
-    ImGui::SliderFloat("Heightmap Thickness", &shadowUniforms.heightmapThickness, 0.05f, 1.0f);
-    ImGui::SliderFloat("Light Spread", &shadowUniforms.sourceAngleRad, 0.001f, 0.3f);
-  }
 
   ImGui::BeginTabBar("tabbed");
   if (ImGui::BeginTabItem("G-Buffers"))
@@ -895,49 +1079,93 @@ void FrogRenderer2::OnGui(double dt, VkCommandBuffer commandBuffer)
   ImGui::End();
 
   // Draw viewport
+  bool viewportIsHovered          = false;
+  glm::vec2 viewportContentOffset = {};
+  ImVec2 viewportContentSize      = {};
   constexpr auto viewportFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-  ImGui::Begin(ICON_MD_BRUSH " Viewport###viewport_window", nullptr, viewportFlags);
-
-  const auto viewportContentSize = ImGui::GetContentRegionAvail();
-  //ImGui::Text("stinky");
-
-  if (useGuiViewportSizeForRendering)
+  if (ImGui::Begin(ICON_MD_BRUSH " Viewport###viewport_window", nullptr, viewportFlags))
   {
-    if (viewportContentSize.x != renderOutputWidth || viewportContentSize.y != renderOutputHeight)
+    viewportContentSize = ImGui::GetContentRegionAvail();
+
+    if (useGuiViewportSizeForRendering)
     {
-      renderOutputWidth = (uint32_t)viewportContentSize.x;
-      renderOutputHeight = (uint32_t)viewportContentSize.y;
-      shouldResizeNextFrame = true;
+      if (viewportContentSize.x != renderOutputWidth || viewportContentSize.y != renderOutputHeight)
+      {
+        renderOutputWidth = (uint32_t)viewportContentSize.x;
+        renderOutputHeight = (uint32_t)viewportContentSize.y;
+        shouldResizeNextFrame = true;
+      }
+    }
+
+    viewportContentOffset = []() -> glm::vec2
+    {
+      auto vMin = ImGui::GetWindowContentRegionMin();
+      return {
+        vMin.x + ImGui::GetWindowPos().x,
+        vMin.y + ImGui::GetWindowPos().y,
+      };
+    }();
+
+    aspectRatio = viewportContentSize.x / viewportContentSize.y;
+  
+    ImGui::Image(frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index, viewportContentSize);
+
+    viewportIsHovered = ImGui::IsItemHovered();
+
+    // The FPS viewer is a child of the viewport
+    {
+      ImGui::PushStyleColor(ImGuiCol_TableBorderLight, ImVec4{});
+      ImGui::SetNextWindowPos({viewportContentOffset.x + 5, viewportContentOffset.y});
+      ImGui::Begin("FPS Window",
+        nullptr,
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration |
+          ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs);
+
+      Gui::BeginProperties();
+
+      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {0, 0});
+
+      if (showFpsInfo)
+      {
+        Gui::Text("Framerate", "%0.f Hertz", nullptr, 1 / dt);
+        Gui::Text("AFPS", "%.0f Rad/s", nullptr, glm::two_pi<double>() / dt);
+      }
+
+      if (showSceneInfo)
+      {
+        Gui::Text("Render In", "%d, %d", nullptr, renderInternalWidth, renderInternalHeight);
+        Gui::Text("Render Out", "%d, %d", nullptr, renderOutputWidth, renderOutputHeight);
+        Gui::Text("Window", "%d, %d", nullptr, windowFramebufferWidth, windowFramebufferHeight);
+
+        Gui::Text("Meshlets", "%llu", nullptr, scene.meshlets.size());
+        Gui::Text("Meshlet Instances", "%llu", nullptr, sceneFlattened.meshletInstances.size());
+        Gui::Text("Indices", "%llu", nullptr, scene.indices.size());
+        Gui::Text("Vertices", "%llu", nullptr, scene.vertices.size());
+        Gui::Text("Primitives", "%llu", nullptr, scene.primitives.size());
+        Gui::Text("Lights", "%llu", nullptr, sceneFlattened.lights.size());
+        Gui::Text("Materials", "%llu", nullptr, scene.materials.size());
+        Gui::Text("Camera Position", "%.2f, %.2f, %.2f", nullptr, mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
+        Gui::Text("Camera Rotation", "%.3f, %.3f", nullptr, mainCamera.pitch, mainCamera.yaw);
+      }
+
+      ImGui::PopStyleVar();
+
+      Gui::EndProperties();
+
+      ImGui::End();
+      ImGui::PopStyleColor();
     }
   }
-
-  const auto viewportContentOffset = []() -> glm::vec2
-  {
-    auto vMin = ImGui::GetWindowContentRegionMin();
-    return {
-      vMin.x + ImGui::GetWindowPos().x,
-      vMin.y + ImGui::GetWindowPos().y,
-    };
-  }();
-
-  aspectRatio = viewportContentSize.x / viewportContentSize.y;
-  
-  ImGui::Image(frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index, viewportContentSize);
-
-  const bool viewportIsHovered = ImGui::IsItemHovered();
-
   ImGui::End();
   ImGui::PopStyleVar();
 
   GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y}, viewportIsHovered);
   GuiDrawDebugWindow(commandBuffer);
-  GuiDrawBloomWindow(commandBuffer);
-  GuiDrawAutoExposureWindow(commandBuffer);
-  GuiDrawCameraWindow(commandBuffer);
   GuiDrawShadowWindow(commandBuffer);
   GuiDrawViewer(commandBuffer);
   GuiDrawMaterialsArray(commandBuffer);
   GuiDrawPerfWindow(commandBuffer);
   GuiDrawSceneGraph(commandBuffer);
+  GuiDrawComponentEditor(commandBuffer);
 }

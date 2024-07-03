@@ -222,7 +222,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   debugGpuAabbsBuffer = Fvog::Buffer(*device_, {sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Aabb) * 100'000}, "Debug GPU AABBs");
 
-  debugGpuRectsBuffer = Fvog::Buffer(*device_, {sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Rect) * 100'000}, "Deug GPU Rects");
+  debugGpuRectsBuffer = Fvog::Buffer(*device_, {sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Rect) * 100'000}, "Debug GPU Rects");
 
   device_->ImmediateSubmit(
     [this](VkCommandBuffer commandBuffer)
@@ -545,7 +545,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   auto ctx = Fvog::Context(*device_, commandBuffer);
 
-  const float fsr2LodBias = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
+  const auto baseBias = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
+  const float fsr2LodBias = std::round(baseBias * 100) / 100;
 
   {
     ZoneScopedN("Update GPU Buffers");
@@ -564,7 +565,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     // VSM lod bias corresponds to upscaling lod bias, otherwise shadows become blocky as the upscaling ratio increases.
     auto actualVsmUniforms = vsmUniforms;
-    actualVsmUniforms.lodBias += fsr2LodBias;
+    if (fsr2Enable)
+    {
+      actualVsmUniforms.lodBias += fsr2LodBias + 1.0f; // +1 to cancel "AA" factor and avoid too much negative bias (this should bring shadow detail to approx. pixel-scale)
+    }
     vsmContext.UpdateUniforms(commandBuffer, actualVsmUniforms);
     ctx.Barrier();
   }
@@ -729,6 +733,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     ctx.DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
   }
   ctx.EndRendering();
+
+  ctx.Barrier();
 
   // VSMs
   {

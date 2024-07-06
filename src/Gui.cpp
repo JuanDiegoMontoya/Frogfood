@@ -7,6 +7,8 @@
 #include <implot.h>
 #include "ImGui/imgui_impl_fvog.h"
 
+#include "RendererUtilities.h"
+
 #include "vulkan/vulkan_core.h"
 #include <GLFW/glfw3.h>
 
@@ -42,7 +44,7 @@ namespace
 
   void ImGui_HoverTooltip(const char* fmt, ...)
   {
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
     {
       va_list args;
       va_start(args, fmt);
@@ -55,11 +57,12 @@ namespace
   {
     // Some of these helpers have been shamelessly "borrowed" from Oxylus.
     // https://github.com/Hatrickek/OxylusEngine/blob/dev/Oxylus/src/UI/OxUI.cpp
-    bool BeginProperties(ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame, bool fixedWidth = false, float  widthIfFixed = 0.5f)
+    constexpr ImGuiTableFlags defaultPropertiesFlags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame;
+    bool BeginProperties(ImGuiTableFlags flags = defaultPropertiesFlags, bool fixedWidth = false, float widthIfFixed = 0.5f)
     {
       if (ImGui::BeginTable("table", 2, flags))
       {
-        ImGui::TableSetupColumn("name", 0);
+        ImGui::TableSetupColumn("name");
         if (!fixedWidth)
         {
           ImGui::TableSetupColumn("property");
@@ -129,6 +132,39 @@ namespace
       return false;
     }
 
+    bool BeginSelectableProperty(const char* label, const char* tooltip = nullptr, bool alignTextRight = true, bool selected = false, ImGuiSelectableFlags flags = {})
+    {
+      PushPropertyId();
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+
+      if (alignTextRight)
+      {
+        const auto posX = ImGui::GetCursorPosX() + ImGui::GetColumnWidth() - ImGui::CalcTextSize(label).x - ImGui::GetScrollX();
+        if (posX > ImGui::GetCursorPosX())
+        {
+          ImGui::SetCursorPosX(posX);
+        }
+      }
+
+      ImGui::AlignTextToFramePadding();
+      
+      ImGui::PushStyleColor(ImGuiCol_Border, ImVec4{});
+      ImGui::PushStyleColor(ImGuiCol_BorderShadow, ImVec4{});
+      const auto pressed = ImGui::Selectable(label, selected, flags);
+      ImGui::PopStyleColor(2);
+
+      if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+        ImGui::SetTooltip("%s", tooltip);
+      }
+
+      ImGui::TableNextColumn();
+      ImGui::SetNextItemWidth(-1.0f);
+      return pressed;
+    }
+
     void EndProperty()
     {
       ImGui::PopStyleVar();
@@ -147,7 +183,7 @@ namespace
 
     bool Checkbox(const char* label, bool* b, const char* tooltip = nullptr)
     {
-      bool pressed0 = BeginProperty(label, tooltip, true);
+      bool pressed0 = BeginSelectableProperty(label, tooltip, true, false, ImGuiSelectableFlags_SpanAllColumns);
       bool pressed = ImGui::Checkbox((std::string("##") + label).c_str(), b);
       EndProperty();
       if (pressed0 == true)
@@ -165,6 +201,14 @@ namespace
       return pressed;
     }
 
+    bool DragFloat(const char* label, float* f, float speed = 1, float min = 0, float max = 0, const char* tooltip = nullptr, const char* format = nullptr, ImGuiSliderFlags flags = 0)
+    {
+      BeginProperty(label, tooltip);
+      bool pressed = ImGui::DragFloat(label, f, speed, min, max, format, flags);
+      EndProperty();
+      return pressed;
+    }
+
     bool SliderScalar(const char* label, ImGuiDataType type, void* s, const void* min, const void* max, const char* tooltip = nullptr, const char* format = nullptr, ImGuiSliderFlags flags = 0)
     {
       BeginProperty(label, tooltip);
@@ -173,12 +217,36 @@ namespace
       return pressed;
     }
 
-    bool ColorEdit3(const char* label, float* f3, const char* tooltip, ImGuiColorEditFlags flags)
+    bool ColorEdit3(const char* label, float* f3, const char* tooltip = nullptr, ImGuiColorEditFlags flags = ImGuiColorEditFlags_Float)
     {
       BeginProperty(label, tooltip);
       bool pressed = ImGui::ColorEdit3(label, f3, flags);
       EndProperty();
       return pressed;
+    }
+
+    bool ColorEdit4(const char* label, float* f4, const char* tooltip = nullptr, ImGuiColorEditFlags flags = ImGuiColorEditFlags_Float)
+    {
+      BeginProperty(label, tooltip);
+      bool pressed = ImGui::ColorEdit4(label, f4, flags);
+      EndProperty();
+      return pressed;
+    }
+
+    // Thingy for putting 16x16 icons after the arrow in a tree node
+    constexpr ImGuiTreeNodeFlags defaultTreeNodeImageFlags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
+    bool TreeNodeWithImage16(const char* label, Fvog::Texture& texture, std::optional<Fvog::Sampler> sampler = {}, ImGuiTreeNodeFlags flags = defaultTreeNodeImageFlags)
+    {
+      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{});
+      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{});
+      const auto open = ImGui::TreeNodeEx((std::string("###") + label).c_str(), flags);
+      ImGui::SameLine();
+      ImGui::Image(ImTextureSampler(texture.ImageView().GetSampledResourceHandle().index, sampler ? sampler->GetResourceHandle().index : 0), {16, 16});
+      ImGui::SameLine();
+      ImGui::AlignTextToFramePadding();
+      ImGui::Text(" %s", label);
+      ImGui::PopStyleVar(2);
+      return open;
     }
   }
 }
@@ -283,6 +351,18 @@ void FrogRenderer2::InitGui()
   style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0, 0, 0, 0);
   style.WindowMenuButtonPosition        = ImGuiDir_None;
   style.IndentSpacing                   = 15;
+
+  guiIcons.emplace("icon_object", LoadTextureShrimple(*device_, "textures/icons/icon_object.png"));
+  //guiIcons.emplace("icon_object", LoadTextureShrimple(*device_, "textures/icons/icon_mesh_cube.png"));
+  guiIcons.emplace("icon_camera", LoadTextureShrimple(*device_, "textures/icons/icon_camera.png"));
+  guiIcons.emplace("icon_sun", LoadTextureShrimple(*device_, "textures/icons/icon_sun.png"));
+  guiIcons.emplace("chroma_scope", LoadTextureShrimple(*device_, "textures/icons/icon_chroma_scope.png"));
+  guiIcons.emplace("rgb", LoadTextureShrimple(*device_, "textures/icons/icon_rgb.png"));
+  guiIcons.emplace("camera_flash", LoadTextureShrimple(*device_, "textures/icons/icon_camera_flash.png"));
+  guiIcons.emplace("particles", LoadTextureShrimple(*device_, "textures/icons/particles.png"));
+  guiIcons.emplace("ease_in_out", LoadTextureShrimple(*device_, "textures/icons/ease_in_out.png"));
+  guiIcons.emplace("histogram", LoadTextureShrimple(*device_, "textures/icons/histogram.png"));
+  guiIcons.emplace("curve", LoadTextureShrimple(*device_, "textures/icons/curve.png"));
 }
 
 void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
@@ -409,16 +489,6 @@ void FrogRenderer2::GuiDrawFsrWindow(VkCommandBuffer)
   if (ImGui::Begin(ICON_MD_STAR " FSR 2###fsr2_window"))
   {
 #ifdef FROGRENDER_FSR2_ENABLE
-    if (fsr2Enable)
-    {
-      // TODO
-      //ImGui::Text("Performance: %f ms", fsr2Performance);
-    }
-    else
-    {
-      //ImGui::TextUnformatted("Performance: ---");
-    }
-
     if (ImGui::Checkbox("Enable FSR 2", &fsr2Enable))
     {
       shouldResizeNextFrame = true;
@@ -477,7 +547,7 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
     ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
     ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
     ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayNormal))
     {
       ImGui::SetTooltip("If unchecked, the hi-z buffer is cleared every frame, essentially forcing this test to pass");
     }
@@ -543,7 +613,7 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
     ImGui_FlagCheckbox("Disable HPB", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS);
     ImGui_HoverTooltip("The HPB (hierarchical page buffer) is used to cull\nmeshlets and primitives that are not touching an active page.");
     ImGui_FlagCheckbox("Disable Page Caching", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES);
-    ImGui_HoverTooltip("Page caching reduces the amount of per-frame work\nby only drawing to pages whose visibility changed this frame.");
+    ImGui_HoverTooltip("Page caching reduces the amount of per-frame work\nby only drawing the pages whose visibility changed this frame.");
 
     auto SliderUint = [](const char* label, uint32_t* v, uint32_t v_min, uint32_t v_max) -> bool
     { return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u"); };
@@ -668,25 +738,26 @@ void FrogRenderer2::GuiDrawMaterialsArray(VkCommandBuffer)
 {
   if (ImGui::Begin(" Materials##materials_window"))
   {
-    int id = 0;
-    for (auto& material : scene.materials)
+    ImGui::BeginTable("materials", 1, ImGuiTableFlags_RowBg);
+    ImGui::TableSetupColumn("mat");
+    for (size_t i = 0; i < scene.materials.size(); i++)
     {
-      //ImGui::Text("");
-      ImGui::PushID(id++);
-      if (ImGui::TreeNode("Material"))
+      ImGui::PushID((int)i);
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      bool selected = false;
+      if (auto* p = std::get_if<MaterialSelected>(&selectedThingy); p && p->index == i)
       {
-        auto& gpuMat = material.gpuMaterial;
-        ImGui::SliderFloat("Alpha Cutoff", &gpuMat.alphaCutoff, 0, 1);
-        ImGui::SliderFloat("Metallic Factor", &gpuMat.metallicFactor, 0, 1);
-        ImGui::SliderFloat("Roughness Factor", &gpuMat.roughnessFactor, 0, 1);
-        ImGui::ColorEdit4("Base Color Factor", &gpuMat.baseColorFactor[0]);
-        ImGui::ColorEdit3("Emissive Factor", &gpuMat.emissiveFactor[0]);
-        ImGui::DragFloat("Emissive Strength", &gpuMat.emissiveStrength, 0.25f, 0, 10000);
-        ImGui::SliderFloat("Normal Scale", &gpuMat.normalXyScale, 0, 1);
-        ImGui::TreePop();
+        selected = true;
+      }
+
+      if (ImGui::Selectable(("Material " + std::to_string(i)).c_str(), selected))
+      {
+        selectedThingy = MaterialSelected{i};
       }
       ImGui::PopID();
     }
+    ImGui::EndTable();
   }
   ImGui::End();
 }
@@ -812,9 +883,12 @@ void TraverseLight(std::optional<Utility::GpuLight>& lightOpt)
 void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
 {
   ImGui::PushID(static_cast<int>(std::hash<const void*>{}(node)));
+  ImGui::TableNextRow();
+  ImGui::TableNextColumn();
   
-  ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-  if (node->children.empty())
+  auto flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_AllowOverlap;
+
+  if (node->children.empty() && node->meshletInstances.empty())
   {
     flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
   }
@@ -824,18 +898,65 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
     flags |= ImGuiTreeNodeFlags_Selected;
   }
 
-  const bool isTreeNodeOpen = ImGui::TreeNodeEx("", flags, "%s", node->name.c_str());
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{});
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{});
+  const bool isTreeNodeOpen = ImGui::TreeNodeEx("", flags);
 
+  // Single-clicking anywhere should select the node
   if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
   {
     selectedThingy = node;
   }
+
+  ImGui::SameLine();
+  ImGui::Image(ImTextureSampler(guiIcons.at("icon_object").ImageView().GetSampledResourceHandle().index), {16, 16});
+  ImGui::SameLine();
+  ImGui::AlignTextToFramePadding();
+  ImGui::Text(" %s", node->name.c_str());
+  ImGui::PopStyleVar(2);
 
   if (isTreeNodeOpen)
   {
     for (auto* childNode : node->children)
     {
       GuiDrawSceneGraphHelper(childNode);
+    }
+
+    if (!node->meshletInstances.empty())
+    {
+      // Show list of meshlet instances on this node.
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      const bool isInstancesNodeOpen = ImGui::TreeNodeEx("Meshlet instances: ", ImGuiTreeNodeFlags_SpanAllColumns);
+      ImGui::SameLine();
+      ImGui::Text("%d", (int)node->meshletInstances.size());
+      if (isInstancesNodeOpen)
+      {
+        Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoHostExtendX);
+        // Omit instanceId since it isn't populated until scene traversal.
+        for (size_t i = 0; i < node->meshletInstances.size(); i++)
+        {
+          ImGui::PushID((int)i);
+          const auto& meshletInstance = node->meshletInstances[i];
+
+          bool selected = false;
+          if (auto* p = std::get_if<MaterialSelected>(&selectedThingy); p && p->index == meshletInstance.materialId)
+          {
+            selected = true;
+          }
+
+          Gui::BeginSelectableProperty((std::to_string(i) + ":" + " Meshlet " + std::to_string(meshletInstance.meshletId)).c_str());
+          if (ImGui::Selectable(("Material " + std::to_string(meshletInstance.materialId)).c_str(), selected))
+          {
+            selectedThingy = MaterialSelected{meshletInstance.materialId};
+          }
+          Gui::EndProperty();
+          ImGui::PopID();
+        }
+
+        Gui::EndProperties();
+        ImGui::TreePop();
+      }
     }
 
     ImGui::TreePop();
@@ -845,23 +966,36 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
 
 void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
 {
-  ImGui::SetNextWindowBgAlpha(0);
   if (ImGui::Begin("Scene Graph##scene_graph_window"))
   {
-    const auto as = std::get_if<AtmosphereSelected>(&selectedThingy);
-    if (ImGui::TreeNodeEx(ICON_MD_SUNNY " Atmosphere",
-          ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet | (as ? ImGuiTreeNodeFlags_Selected : 0)))
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{});
+    ImGui::BeginTable("scene hierarchy", 1, ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody);
+    ImGui::TableSetupColumn("name");
+
+    constexpr auto baseFlags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_AllowOverlap;
+
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    const auto as = std::get_if<SunSelected>(&selectedThingy);
+    if (ImGui::TreeNodeEx("###sun", baseFlags | (as ? ImGuiTreeNodeFlags_Selected : 0)))
     {
       if (ImGui::IsItemClicked())
       {
-        selectedThingy = AtmosphereSelected{};
+        selectedThingy = SunSelected{};
       }
       ImGui::TreePop();
     }
+    ImGui::SameLine();
+    ImGui::Image(ImTextureSampler(guiIcons.at("icon_sun").ImageView().GetSampledResourceHandle().index), {16, 16});
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(" Sun");
 
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
     const auto cs = std::get_if<CameraSelected>(&selectedThingy);
-    if (ImGui::TreeNodeEx(ICON_FA_CAMERA " Camera",
-          ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet | (cs ? ImGuiTreeNodeFlags_Selected : 0)))
+    if (ImGui::TreeNodeEx("###camera", baseFlags | (cs ? ImGuiTreeNodeFlags_Selected : 0)))
     {
       if (ImGui::IsItemClicked())
       {
@@ -869,6 +1003,12 @@ void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
       }
       ImGui::TreePop();
     }
+    ImGui::SameLine();
+    ImGui::Image(ImTextureSampler(guiIcons.at("icon_camera").ImageView().GetSampledResourceHandle().index), {16, 16});
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(" Camera");
+    ImGui::PopStyleVar(2);
 
     for (auto* node : scene.rootNodes)
     {
@@ -879,6 +1019,8 @@ void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
     {
       selectedThingy = std::monostate{};
     }
+
+    ImGui::EndTable();
   }
   ImGui::End();
 }
@@ -887,45 +1029,56 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
 {
   if (ImGui::Begin("Component Editor###component_editor_window"))
   {
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{});
+    ImGui::BeginTable("scene hierarchy", 1, ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody);
+    ImGui::PopStyleVar(2);
+    ImGui::TableSetupColumn("name");
+
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+
     if (std::get_if<CameraSelected>(&selectedThingy))
     {
-      if (ImGui::TreeNode("Postprocessing"))
+      if (Gui::TreeNodeWithImage16("Post Processing", guiIcons.at("rgb")))
       {
-        Gui::BeginProperties();
+        Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
         Gui::SliderFloat("Saturation", &tonemapUniforms.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-        Gui::SliderFloat("AgX Linear Section", &tonemapUniforms.agxDsLinearSection, 0, tonemapUniforms.peak, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+        Gui::SliderFloat("AgX Linear Part", &tonemapUniforms.agxDsLinearSection, 0, tonemapUniforms.peak, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
         Gui::SliderFloat("Compression", &tonemapUniforms.compression, 0, 0.999f, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
         bool enableDither = tonemapUniforms.enableDithering;
-        Gui::Checkbox("Enable Dither", &enableDither);
+        Gui::Checkbox("Dither", &enableDither);
         Gui::EndProperties();
 
         tonemapUniforms.enableDithering = enableDither;
-        if (ImGui::Button("Reset"))
+        if (ImGui::Button("Reset", {-1, 0}))
         {
           tonemapUniforms = TonemapUniforms{};
         }
         ImGui::TreePop();
       }
 
-      ImGui::Separator();
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
 
-      if (ImGui::TreeNode("Auto Exposure"))
+      if (Gui::TreeNodeWithImage16("Auto Exposure", guiIcons.at("histogram")))
       {
-        Gui::BeginProperties();
+        Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
         Gui::SliderFloat("Min Exposure", &autoExposureLogMinLuminance, -15.0f, autoExposureLogMaxLuminance, nullptr, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
         Gui::SliderFloat("Max Exposure", &autoExposureLogMaxLuminance, autoExposureLogMinLuminance, 15.0f, nullptr, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
         Gui::SliderFloat("Target Luminance", &autoExposureTargetLuminance, 0.001f, 1, nullptr, "%.3f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
-        Gui::SliderFloat("Adjustment Speed", &autoExposureAdjustmentSpeed, 0, 5, nullptr, "%.4f", ImGuiSliderFlags_NoRoundToFormat);
+        Gui::SliderFloat("Adjustment Rate", &autoExposureAdjustmentSpeed, 0, 5, nullptr, "%.4f", ImGuiSliderFlags_NoRoundToFormat);
         Gui::EndProperties();
         ImGui::TreePop();
       }
 
-      ImGui::Separator();
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
 
       // TODO: ICON_MD_CAMERA looks like a house due to a glyph conflict
-      if (ImGui::TreeNode(ICON_MD_CAMERA " Bloom###bloom_window"))
+      if (Gui::TreeNodeWithImage16("Bloom", guiIcons.at("particles")))
       {
-        Gui::BeginProperties();
+        Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
         Gui::Checkbox("Enable", &bloomEnable);
 
         if (!bloomEnable)
@@ -938,7 +1091,7 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
         Gui::SliderScalar("Passes", ImGuiDataType_U32, &bloomPasses, &zero, &eight, nullptr, "%u", ImGuiSliderFlags_AlwaysClamp);
         Gui::SliderFloat("Strength", &bloomStrength, 0, 1, nullptr, "%.4f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
         Gui::SliderFloat("Upscale Width", &bloomWidth, 0, 2);
-        Gui::Checkbox("Use Low-Pass Filter", &bloomUseLowPassFilter);
+        Gui::Checkbox("Low-Pass Filter", &bloomUseLowPassFilter);
 
         if (!bloomEnable)
         {
@@ -949,9 +1102,9 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       }
     }
 
-    if (std::get_if<AtmosphereSelected>(&selectedThingy))
+    if (std::get_if<SunSelected>(&selectedThingy))
     {
-      Gui::BeginProperties();
+      Gui::BeginProperties(Gui::defaultPropertiesFlags, true, 0.6f);
       auto sunRotated = Gui::SliderFloat("Sun Azimuth", &sunAzimuth, -3.1415f, 3.1415f);
       sunRotated |= Gui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
       if (sunRotated)
@@ -971,7 +1124,7 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
 
       ImGui::DragFloat3("Position", glm::value_ptr(node->translation), 0.0625f);
       auto euler = glm::eulerAngles(node->rotation);
-      if (ImGui::DragFloat3("Angles", glm::value_ptr(euler), 1.0f / 64))
+      if (ImGui::DragFloat3("Rotation", glm::value_ptr(euler), 1.0f / 64))
       {
         node->rotation = glm::quat(euler);
       }
@@ -981,26 +1134,26 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       {
         TraverseLight(node->light);
       }
-
-      if (!node->meshletInstances.empty())
-      {
-        // Show list of meshlet instances on this node.
-        const bool isInstancesNodeOpen = ImGui::TreeNode("Meshlet instances: ");
-        ImGui::SameLine();
-        ImGui::Text("%d", (int)node->meshletInstances.size());
-        if (isInstancesNodeOpen)
-        {
-          // Omit instanceId since it isn't populated until scene traversal.
-          ImGui::Text("#: (meshlet, material)");
-          for (size_t i = 0; i < node->meshletInstances.size(); i++)
-          {
-            const auto& meshletInstance = node->meshletInstances[i];
-            ImGui::Text("%d: (%u, %u)", (int)i, meshletInstance.meshletId, meshletInstance.materialId);
-          }
-          ImGui::TreePop();
-        }
-      }
     }
+
+    if (auto* p = std::get_if<MaterialSelected>(&selectedThingy))
+    {
+      auto i = p->index;
+
+      auto& gpuMat = scene.materials[i].gpuMaterial;
+
+      Gui::BeginProperties(Gui::defaultPropertiesFlags, true, 0.55f);
+      Gui::SliderFloat("Alpha Cutoff", &gpuMat.alphaCutoff, 0, 1);
+      Gui::SliderFloat("Metallic Factor", &gpuMat.metallicFactor, 0, 1);
+      Gui::SliderFloat("Roughness Factor", &gpuMat.roughnessFactor, 0, 1);
+      Gui::ColorEdit4("Base Color Factor", &gpuMat.baseColorFactor[0]);
+      Gui::ColorEdit3("Emissive Factor", &gpuMat.emissiveFactor[0]);
+      Gui::DragFloat("Emissive Strength", &gpuMat.emissiveStrength, 0.25f, 0, 10000);
+      Gui::SliderFloat("Normal Scale", &gpuMat.normalXyScale, 0, 1);
+      Gui::EndProperties();
+    }
+    
+    ImGui::EndTable();
   }
   ImGui::End();
 }
@@ -1113,16 +1266,12 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
 
     viewportIsHovered = ImGui::IsItemHovered();
 
-    // The FPS viewer is a child of the viewport
+    // FPS viewer
     {
-      ImGui::PushStyleColor(ImGuiCol_TableBorderLight, ImVec4{});
-      ImGui::SetNextWindowPos({viewportContentOffset.x + 5, viewportContentOffset.y});
-      ImGui::Begin("FPS Window",
-        nullptr,
-        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoDecoration |
-          ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs);
-
-      Gui::BeginProperties();
+      auto newCursorPos = ImGui::GetWindowContentRegionMin();
+      newCursorPos.x += 6;
+      ImGui::SetCursorPos(newCursorPos);
+      Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit);
 
       ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {0, 0});
 
@@ -1152,9 +1301,6 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
       ImGui::PopStyleVar();
 
       Gui::EndProperties();
-
-      ImGui::End();
-      ImGui::PopStyleColor();
     }
   }
   ImGui::End();

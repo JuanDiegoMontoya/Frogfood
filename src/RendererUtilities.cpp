@@ -1,9 +1,13 @@
 #include "RendererUtilities.h"
 
+#include "Fvog/Device.h"
+#include "Fvog/Shader2.h"
+#include "Fvog/Texture2.h"
+
 #define STB_INCLUDE_IMPLEMENTATION
 #define STB_INCLUDE_LINE_GLSL
 #include "stb_include.h"
-#include "Fvog/Device.h"
+#include "stb_image.h"
 
 // Experimental includer that uses glslang includer
 Fvog::Shader LoadShaderWithIncludes2(Fvog::Device& device, Fvog::PipelineStage stage, const std::filesystem::path& path)
@@ -13,6 +17,24 @@ Fvog::Shader LoadShaderWithIncludes2(Fvog::Device& device, Fvog::PipelineStage s
     throw std::runtime_error("Path does not refer to a file");
   }
   return Fvog::Shader(device.device_, stage, path, path.filename().string().c_str());
+}
+
+Fvog::Texture LoadTextureShrimple(Fvog::Device& device, const std::filesystem::path& path)
+{
+  int x{};
+  int y{};
+  auto* pixels = stbi_load(path.string().c_str(), &x, &y, nullptr, 4);
+  if (!pixels)
+  {
+    throw std::runtime_error("Texture not found");
+  }
+  auto texture = Fvog::CreateTexture2D(device, {(uint32_t)x, (uint32_t)y}, Fvog::Format::R8G8B8A8_SRGB, Fvog::TextureUsage::READ_ONLY, path.string());
+  texture.UpdateImageSLOW({
+    .extent = texture.GetCreateInfo().extent,
+    .data = pixels,
+  });
+  stbi_image_free(pixels);
+  return texture;
 }
 
 //Fvog::Shader LoadShaderWithIncludes2(Fvog::Device& device, Fvog::PipelineStage stage, const std::filesystem::path& path)

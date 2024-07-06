@@ -223,6 +223,11 @@ namespace Fvog
       return createInfo_;
     }
 
+    [[nodiscard]] bool operator==(const Texture& other) const noexcept
+    {
+      return image_ == other.image_;
+    }
+
     // TODO: Make layout per subresource and track it in the command buffer
     std::unique_ptr<VkImageLayout> currentLayout{};
 

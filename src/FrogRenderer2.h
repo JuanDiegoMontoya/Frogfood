@@ -20,6 +20,7 @@
 #include "shaders/ShadeDeferredPbr.h.glsl"
 
 #include <variant>
+#include <vector>
 
 // TODO: these structs should come from shared headers rather than copying them
 FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
@@ -670,7 +671,13 @@ private:
   bool showFpsInfo   = true;
   bool showSceneInfo = false;
   struct CameraSelected{};
-  struct AtmosphereSelected{};
-  using SelectedThingyType = std::variant<std::monostate, CameraSelected, AtmosphereSelected, Utility::Node*>;
+  struct SunSelected{};
+  struct MaterialSelected
+  {
+    size_t index;
+  };
+  using SelectedThingyType = std::variant<std::monostate, CameraSelected, SunSelected, Utility::Node*, MaterialSelected>;
   SelectedThingyType selectedThingy = std::monostate{};
+
+  std::unordered_map<std::string, Fvog::Texture> guiIcons;
 };

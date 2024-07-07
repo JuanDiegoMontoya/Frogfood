@@ -99,7 +99,7 @@ namespace
     bool BeginProperty(const char* label, const char* tooltip = nullptr, bool alignTextRight = true)
     {
       PushPropertyId();
-      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
 
@@ -135,7 +135,7 @@ namespace
     bool BeginSelectableProperty(const char* label, const char* tooltip = nullptr, bool alignTextRight = true, bool selected = false, ImGuiSelectableFlags flags = {})
     {
       PushPropertyId();
-      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
 
@@ -247,6 +247,62 @@ namespace
       ImGui::Text(" %s", label);
       ImGui::PopStyleVar(2);
       return open;
+    }
+
+    bool DragFloat3(const char* label, float* f3, float speed, float min = 0, float max = 0, const char* format = "%.3f", ImGuiSliderFlags flags = 0, const char* tooltip = nullptr)
+    {
+      const float frameHeight = ImGui::GetFrameHeight();
+      const ImVec2 buttonSize = {2.f, frameHeight};
+
+      const auto buttonFlags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoBorder | ImGuiColorEditFlags_NoPicker |
+                               ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoOptions | ImGuiColorEditFlags_NoTooltip;
+
+      BeginProperty(label, tooltip);
+
+      // The cursor falls a few pixels off the edge on the last element, causing it to be clipped and appear smaller than the other items.
+      // Presumably this is caused by the tiny color buttons and item spacing shenanigans we do.
+      // This magic somewhat mitigates the issue by allocating a bit less than a third of the available area to each big widget,
+      // giving some room for items to safely spill into (without being clipped).
+      // The downside to this approach is that the first time opening such a table causes it to slowly "expand" to fill its space.
+      constexpr auto magic = 3.25f;
+      const auto avail = ImGui::GetContentRegionAvail().x;
+
+      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
+      ImGui::PushID(0);
+
+      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{0, 0});
+      ImGui::ColorButton("##0", {1, 0, 0, 1}, buttonFlags, buttonSize);
+      ImGui::SameLine();
+      ImGui::PushItemWidth(avail / magic);
+      bool a = ImGui::DragFloat("##x", &f3[0], speed, min, max, format, flags);
+      ImGui::PopItemWidth();
+      ImGui::PopStyleVar();
+      
+      ImGui::SameLine();
+      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{0, 0});
+      ImGui::ColorButton("##1", {0, 1, 0, 1}, buttonFlags, buttonSize);
+      ImGui::SameLine();
+      ImGui::PushItemWidth(avail / magic);
+      bool b = ImGui::DragFloat("##y", &f3[1], speed, min, max, format, flags);
+      ImGui::PopItemWidth();
+      ImGui::PopStyleVar();
+
+      ImGui::SameLine();
+
+      ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{0, 0});
+      ImGui::ColorButton("##2", {0, 0, 1, 1}, buttonFlags, buttonSize);
+      ImGui::SameLine();
+      ImGui::PushItemWidth(avail / magic);
+      bool c = ImGui::DragFloat("##z", &f3[2], speed, min, max, format, flags);
+      ImGui::PopItemWidth();
+      ImGui::PopStyleVar();
+
+      ImGui::PopID();
+      ImGui::PopStyleVar();
+
+      EndProperty();
+
+      return a || b || c;
     }
   }
 }
@@ -363,6 +419,10 @@ void FrogRenderer2::InitGui()
   guiIcons.emplace("ease_in_out", LoadTextureShrimple(*device_, "textures/icons/ease_in_out.png"));
   guiIcons.emplace("histogram", LoadTextureShrimple(*device_, "textures/icons/histogram.png"));
   guiIcons.emplace("curve", LoadTextureShrimple(*device_, "textures/icons/curve.png"));
+  guiIcons.emplace("scene", LoadTextureShrimple(*device_, "textures/icons/scene.png"));
+  guiIcons.emplace("lattice", LoadTextureShrimple(*device_, "textures/icons/lattice.png"));
+  guiIcons.emplace("lamp_spot", LoadTextureShrimple(*device_, "textures/icons/lamp_spot.png"));
+  guiIcons.emplace("lamp_point", LoadTextureShrimple(*device_, "textures/icons/lamp_point.png"));
 }
 
 void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
@@ -909,7 +969,25 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
   }
 
   ImGui::SameLine();
-  ImGui::Image(ImTextureSampler(guiIcons.at("icon_object").ImageView().GetSampledResourceHandle().index), {16, 16});
+  if (!node->meshletInstances.empty())
+  {
+    ImGui::Image(ImTextureSampler(guiIcons.at("icon_object").ImageView().GetSampledResourceHandle().index), {16, 16});
+  }
+  else if (node->light)
+  {
+    if (node->light->type == Utility::LightType::POINT)
+    {
+      ImGui::Image(ImTextureSampler(guiIcons.at("lamp_point").ImageView().GetSampledResourceHandle().index), {16, 16});
+    }
+    else if (node->light->type == Utility::LightType::SPOT)
+    {
+      ImGui::Image(ImTextureSampler(guiIcons.at("lamp_spot").ImageView().GetSampledResourceHandle().index), {16, 16});
+    }
+  }
+  else
+  {
+    ImGui::Image(ImTextureSampler(guiIcons.at("scene").ImageView().GetSampledResourceHandle().index), {16, 16});
+  }
   ImGui::SameLine();
   ImGui::AlignTextToFramePadding();
   ImGui::Text(" %s", node->name.c_str());
@@ -927,7 +1005,8 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
       // Show list of meshlet instances on this node.
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
-      const bool isInstancesNodeOpen = ImGui::TreeNodeEx("Meshlet instances: ", ImGuiTreeNodeFlags_SpanAllColumns);
+      const bool isInstancesNodeOpen =
+        Gui::TreeNodeWithImage16("Meshlet instances: ", guiIcons.at("lattice"), {}, ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_AllowOverlap);
       ImGui::SameLine();
       ImGui::Text("%d", (int)node->meshletInstances.size());
       if (isInstancesNodeOpen)
@@ -1122,13 +1201,15 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
     {
       auto node = *p;
 
-      ImGui::DragFloat3("Position", glm::value_ptr(node->translation), 0.0625f);
+      Gui::BeginProperties(ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit);
+      Gui::DragFloat3("Position", glm::value_ptr(node->translation), 0.0625f);
       auto euler = glm::eulerAngles(node->rotation);
-      if (ImGui::DragFloat3("Rotation", glm::value_ptr(euler), 1.0f / 64))
+      if (Gui::DragFloat3("Rotation", glm::value_ptr(euler), 1.0f / 64))
       {
         node->rotation = glm::quat(euler);
       }
-      ImGui::DragFloat3("Scale", glm::value_ptr(node->scale), 1.0f / 64, 1.0f / 32, 10000, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
+      Gui::DragFloat3("Scale", glm::value_ptr(node->scale), 1.0f / 64, 1.0f / 32, 10000, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
+      Gui::EndProperties();
 
       if (node->light.has_value())
       {

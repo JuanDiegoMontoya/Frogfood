@@ -26,6 +26,8 @@
 
 #include "IconsFontAwesome6.h"
 
+#include "vk_mem_alloc.h"
+
 namespace
 {
   const char* g_defaultIniPath = "config/defaultLayout.ini";
@@ -1269,8 +1271,27 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
 
   ImGui::Begin("glTF Viewer");
 
+  ImGui::TextUnformatted(device_->device_.physical_device.properties.deviceName);
   Gui::BeginProperties();
 
+  auto budgets = std::make_unique<VmaBudget[]>(device_->physicalDevice_.memory_properties.memoryHeapCount);
+
+  // Search for the first heap with DEVICE_LOCAL_BIT.
+  // This could totally fail and report e.g. a host-visible BAR heap, but that's fine because this is just a silly lil' UI element.
+  // Existing systems seem to put the normal device-local heap first anyway.
+  uint32_t deviceHeapIndex = 0;
+  for (uint32_t i = 0; i < device_->physicalDevice_.memory_properties.memoryHeapCount; i++)
+  {
+    if (device_->physicalDevice_.memory_properties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+    {
+      deviceHeapIndex = i;
+      break;
+    }
+  }
+  vmaGetHeapBudgets(device_->allocator_, budgets.get());
+  const auto usageMb    = budgets[deviceHeapIndex].usage / 1'000'000;
+  const auto budgetMb   = budgets[deviceHeapIndex].budget / 1'000'000;
+  Gui::Text("VRAM Consumed", "%llu/%llu MB", "The total is a budget that is affected\nby factors external to this program.", usageMb, budgetMb);
   Gui::Checkbox("Show FPS", &showFpsInfo);
   Gui::Checkbox("Show Scene Info", &showSceneInfo);
 

@@ -104,7 +104,7 @@ endif()
 FetchContent_Declare(
     tracy
     GIT_REPOSITORY  https://github.com/wolfpld/tracy.git
-    GIT_TAG         v0.10
+    GIT_TAG         v0.11.0
 )
 
 option(TRACY_ENABLE "Enable profiling" ON)

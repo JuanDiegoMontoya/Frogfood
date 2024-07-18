@@ -293,6 +293,7 @@ namespace Fvog
   ContiguousManagedBuffer::Alloc ContiguousManagedBuffer::Allocate(size_t size)
   {
     assert(currentSize_ + size <= buffer_.SizeBytes());
+    assert(size > 0);
     const auto alloc = Alloc{currentSize_, size};
 
     currentSize_ += size;

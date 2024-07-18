@@ -165,8 +165,8 @@ public:
   [[nodiscard]] Render::MeshInstanceID RegisterMeshInstance(const Render::MeshInstanceInfo& meshInstance);
   void UnregisterMeshInstance(Render::MeshInstanceID meshInstance);
 
-  [[nodiscard]] Render::MeshID SpawnMesh(Render::MeshInstanceID meshInstance, VkCommandBuffer commandBuffer);
-  void DeleteMesh(Render::MeshID mesh, VkCommandBuffer commandBuffer);
+  [[nodiscard]] Render::MeshID SpawnMesh(Render::MeshInstanceID meshInstance);
+  void DeleteMesh(Render::MeshID mesh);
 
   [[nodiscard]] Render::LightID SpawnLight(const Render::GpuLight& lightData, VkCommandBuffer commandBuffer);
   void DeleteLight(Render::LightID light, VkCommandBuffer commandBuffer);
@@ -467,7 +467,8 @@ private:
   std::unordered_map<uint64_t, Render::ObjectUniforms> modifiedMeshUniforms;
   std::unordered_map<uint64_t, Render::GpuLight> modifiedLights;
   std::unordered_map<uint64_t, Render::GpuMaterial> modifiedMaterials;
-  std::vector<Render::MeshInstanceID> spawnedMeshes;
+  std::vector<std::pair<uint64_t, Render::MeshInstanceID>> spawnedMeshes;
+  std::vector<uint64_t> deletedMeshes;
 
   void FlushUpdatedSceneData(VkCommandBuffer commandBuffer);
   

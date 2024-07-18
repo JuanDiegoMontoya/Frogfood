@@ -86,14 +86,10 @@ namespace Scene
           .meshGeometry = meshGeometryIds[baseMeshGeometryIndex + meshIndex],
           .material     = materialIds[baseMaterialIndex + materialIndex],
         }));
-
-        // TODO: HACK
-        renderer.GetDevice().ImmediateSubmit([&](VkCommandBuffer cmd)
-        {
-          auto meshId = meshIds.emplace_back(renderer.SpawnMesh(meshInstanceId, cmd));
-          // TODO: make a new node instead of putting a bunch of meshes on one node (or not, honestly this is fine)
-          newNode->meshIds.push_back(meshId);
-        });
+        
+        auto meshId = meshIds.emplace_back(renderer.SpawnMesh(meshInstanceId));
+        // TODO: make a new node instead of putting a bunch of meshes on one node (or not, honestly this is fine)
+        newNode->meshIds.push_back(meshId);
       }
 
       if (node->light)

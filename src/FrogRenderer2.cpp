@@ -209,16 +209,16 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   mainCamera.position.y = 1;
 
   //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
-  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
+  scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}));
+  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
   //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1}));
-  scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
+  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
 
   meshletIndirectCommand = Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>(*device_, {}, "Meshlet Indirect Command");
   cullTrianglesDispatchParams = Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>(*device_, {}, "Cull Triangles Dispatch Params");
@@ -423,28 +423,6 @@ void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
 
   shadingUniforms.numberOfLights = NumLights();
 
-  // A few of these buffers are really slow (2-3ms) to create and destroy every frame (large ones hit vkAllocateMemory), so
-  // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
-  // The current scheme works fine when the scene is mostly static.
-
-  // Soft cap of 1 billion indices should prevent oversubscribing memory (on my system) when loading huge scenes.
-  // This limit should be OK as it only limits post-culling geometry.
-  const auto maxIndices = glm::min(1'000'000'000u, NumMeshletInstances() * Utility::maxMeshletPrimitives * 3);
-  if (!instancedMeshletBuffer || instancedMeshletBuffer->Size() < maxIndices)
-  {
-    instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>(*device_, {.count = maxIndices}, "Instanced Meshlets");
-  }
-
-  if (!persistentVisibleMeshletIds || persistentVisibleMeshletIds->Size() < NumMeshletInstances())
-  {
-    persistentVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = NumMeshletInstances()}, "Persistent Visible Meshlet IDs");
-  }
-
-  if (!transientVisibleMeshletIds || transientVisibleMeshletIds->Size() < NumMeshletInstances())
-  {
-    transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = NumMeshletInstances()}, "Transient Visible Meshlet IDs");
-  }
-
   // TODO: perhaps this logic belongs in Application
   if (shouldResizeNextFrame)
   {
@@ -561,6 +539,28 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   }
 
   FlushUpdatedSceneData(commandBuffer);
+
+  // A few of these buffers are really slow (2-3ms) to create and destroy every frame (large ones hit vkAllocateMemory), so
+  // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
+  // The current scheme works fine when the scene is mostly static.
+
+  // Soft cap of 1 billion indices should prevent oversubscribing memory (on my system) when loading huge scenes.
+  // This limit should be OK as it only limits post-culling geometry.
+  const auto maxIndices = glm::min(1'000'000'000u, NumMeshletInstances() * Utility::maxMeshletPrimitives * 3);
+  if (!instancedMeshletBuffer || instancedMeshletBuffer->Size() < maxIndices)
+  {
+    instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>(*device_, {.count = maxIndices}, "Instanced Meshlets");
+  }
+
+  if (!persistentVisibleMeshletIds || persistentVisibleMeshletIds->Size() < NumMeshletInstances())
+  {
+    persistentVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = std::max(1u, NumMeshletInstances())}, "Persistent Visible Meshlet IDs");
+  }
+
+  if (!transientVisibleMeshletIds || transientVisibleMeshletIds->Size() < NumMeshletInstances())
+  {
+    transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = std::max(1u, NumMeshletInstances())}, "Transient Visible Meshlet IDs");
+  }
 
   if (clearDebugAabbsEachFrame)
   {
@@ -1312,47 +1312,18 @@ void FrogRenderer2::UnregisterMeshInstance(Render::MeshInstanceID meshInstance)
   meshInstanceInfos.erase(meshInstance.id);
 }
 
-Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshInstanceID meshInstance, VkCommandBuffer commandBuffer)
+Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshInstanceID meshInstance)
 {
   ZoneScoped;
-  auto [meshGeometryId, materialId] = meshInstanceInfos.at(meshInstance.id);
-  auto& meshletsAlloc               = meshGeometryAllocations.at(meshGeometryId.id).meshletsAlloc;
-  auto& materialAlloc               = materialAllocations.at(materialId.id).materialAlloc;
-
-  const auto meshletInstanceCount = meshletsAlloc.GetSize() / sizeof(Render::Meshlet);
-  auto meshletInstances           = std::vector<Render::MeshletInstance>();
-  meshletInstances.reserve(meshletInstanceCount);
-
-  auto instanceAlloc = geometryBuffer.Allocate(sizeof(Render::ObjectUniforms), sizeof(Render::ObjectUniforms));
-
-  // Spawn a set of meshlet instances referring to the mesh's meshlets, with the correct offsets.
-  auto baseMeshletIndex = meshletsAlloc.GetOffset() / sizeof(Render::Meshlet);
-  auto instanceIndex    = instanceAlloc.GetOffset() / sizeof(Render::ObjectUniforms);
-  auto materialIndex    = materialAlloc.GetOffset() / sizeof(Render::GpuMaterial);
-  for (size_t i = 0; i < meshletInstanceCount; i++)
-  {
-    meshletInstances.emplace_back(uint32_t(baseMeshletIndex + i), (uint32_t)instanceIndex, (uint32_t)materialIndex);
-  }
-
-  const auto meshletInstancesAlloc = meshletInstancesBuffer.Allocate(std::span(meshletInstances).size_bytes());
-
-  meshletInstancesBuffer.GetBuffer().UpdateDataExpensive(commandBuffer, std::span(meshletInstances), meshletInstancesAlloc.offset);
-
   auto myId = nextId++;
-  meshAllocations.emplace(myId,
-    MeshAllocs{
-      .meshletInstancesAlloc = meshletInstancesAlloc,
-      .instanceAlloc         = std::move(instanceAlloc),
-    });
+  spawnedMeshes.emplace_back(myId, meshInstance);
   return {myId};
 }
 
-void FrogRenderer2::DeleteMesh(Render::MeshID mesh, VkCommandBuffer commandBuffer)
+void FrogRenderer2::DeleteMesh(Render::MeshID mesh)
 {
   ZoneScoped;
-  auto it = meshAllocations.find(mesh.id);
-  meshletInstancesBuffer.Free(it->second.meshletInstancesAlloc, commandBuffer);
-  meshAllocations.erase(it);
+  deletedMeshes.emplace_back(mesh.id);
 }
 
 // Having the data payload in the alloc function is kinda quirky and inconsistent, but I'll keep it for now.
@@ -1420,6 +1391,81 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
 
   auto marker = ctx.MakeScopedDebugMarker("Flush updated scene data");
 
+  // Deleted meshes
+  for (auto id : deletedMeshes)
+  {
+    auto it = meshAllocations.find(id);
+    meshletInstancesBuffer.Free(it->second.meshletInstancesAlloc, commandBuffer);
+    meshAllocations.erase(it);
+  }
+
+  struct MeshletInstancesUpload
+  {
+    size_t srcOffset;
+    size_t dstOffset;
+    size_t sizeBytes;
+  };
+
+  auto meshletInstancesUploads = std::vector<MeshletInstancesUpload>();
+  auto meshletInstances        = std::vector<Render::MeshletInstance>();
+  meshletInstancesUploads.reserve(spawnedMeshes.size());
+
+  // Spawned meshes
+  for (const auto& [id, meshInstance] : spawnedMeshes)
+  {
+    auto [meshGeometryId, materialId] = meshInstanceInfos.at(meshInstance.id);
+    const auto& meshletsAlloc         = meshGeometryAllocations.at(meshGeometryId.id).meshletsAlloc;
+    const auto& materialAlloc         = materialAllocations.at(materialId.id).materialAlloc;
+
+    const auto meshletInstanceCount = meshletsAlloc.GetSize() / sizeof(Render::Meshlet);
+
+    auto instanceAlloc = geometryBuffer.Allocate(sizeof(Render::ObjectUniforms), sizeof(Render::ObjectUniforms));
+
+    // Spawn a set of meshlet instances referring to the mesh's meshlets, with the correct offsets.
+    auto baseMeshletIndex = meshletsAlloc.GetOffset() / sizeof(Render::Meshlet);
+    auto instanceIndex    = instanceAlloc.GetOffset() / sizeof(Render::ObjectUniforms);
+    auto materialIndex    = materialAlloc.GetOffset() / sizeof(Render::GpuMaterial);
+    auto srcOffset        = meshletInstances.size() * sizeof(Render::MeshletInstance);
+    for (size_t i = 0; i < meshletInstanceCount; i++)
+    {
+      meshletInstances.emplace_back(uint32_t(baseMeshletIndex + i), (uint32_t)instanceIndex, (uint32_t)materialIndex);
+    }
+
+    const auto meshletInstancesAlloc = meshletInstancesBuffer.Allocate(meshletInstanceCount * sizeof(Render::MeshletInstance));
+    meshletInstancesUploads.emplace_back(srcOffset, meshletInstancesAlloc.offset, meshletInstancesAlloc.size);
+
+    //meshletInstancesBuffer.GetBuffer().UpdateDataExpensive(commandBuffer, std::span(meshletInstances), meshletInstancesAlloc.offset);
+
+    meshAllocations.emplace(id,
+      MeshAllocs{
+        .meshletInstancesAlloc = meshletInstancesAlloc,
+        .instanceAlloc         = std::move(instanceAlloc),
+      });
+  }
+  
+  // Upload meshlet instances of spawned meshes.
+  // TODO: This should be a scatter-write compute shader
+  if (!meshletInstancesUploads.empty())
+  {
+    auto uploadBuffer = Fvog::TypedBuffer<Render::MeshletInstance>(*device_,
+      {
+        .count = (uint32_t)meshletInstances.size(),
+        .flag  = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE | Fvog::BufferFlagThingy::NO_DESCRIPTOR,
+      },
+      "Meshlet Upload Staging Buffer");
+
+    std::memcpy(uploadBuffer.GetMappedMemory(), meshletInstances.data(), meshletInstances.size() * sizeof(Render::MeshletInstance));
+
+    for (auto [srcOffset, dstOffset, size] : meshletInstancesUploads)
+    {
+      ctx.CopyBuffer(uploadBuffer, meshletInstancesBuffer.GetBuffer(), {
+        .srcOffset = srcOffset,
+        .dstOffset = dstOffset,
+        .size = size,
+      });
+    }
+  }
+
   for (const auto& [id, uniforms] : modifiedMeshUniforms)
   {
     const auto offset = meshAllocations.at(id).instanceAlloc.GetOffset();
@@ -1445,4 +1491,6 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   modifiedMeshUniforms.clear();
   modifiedLights.clear();
   modifiedMaterials.clear();
+  deletedMeshes.clear();
+  spawnedMeshes.clear();
 }

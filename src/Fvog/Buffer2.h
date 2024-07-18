@@ -106,7 +106,7 @@ namespace Fvog
   struct TypedBufferCreateInfo
   {
     uint32_t count{1};
-    BufferFlagThingy flag{};
+    BufferFlags flag{};
   };
   
   template<typename T = std::byte>

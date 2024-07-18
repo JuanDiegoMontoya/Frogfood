@@ -81,7 +81,7 @@ option(ENABLE_OPT "" OFF)
 FetchContent_Declare(
     glslang
     GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
-    GIT_TAG        14.0.0
+    GIT_TAG        14.3.0
     #SYSTEM
 )
 

@@ -10,8 +10,12 @@
 #include <string>
 #include <memory>
 
+#include <vk_mem_alloc.h>
+
 typedef struct VmaAllocator_T* VmaAllocator;
 typedef struct VmaAllocation_T* VmaAllocation;
+VK_DEFINE_NON_DISPATCHABLE_HANDLE(VmaVirtualAllocation);
+VK_DEFINE_HANDLE(VmaVirtualBlock);
 
 namespace Fvog
 {
@@ -84,7 +88,7 @@ namespace Fvog
       std::stack<uint32_t> freeSlots_;
     };
 
-    constexpr static uint32_t maxResourceDescriptors = 10'000;
+    constexpr static uint32_t maxResourceDescriptors = 100'000;
     constexpr static uint32_t maxSamplerDescriptors = 100;
     constexpr static uint32_t storageBufferBinding = 0;
     constexpr static uint32_t combinedImageSamplerBinding = 1;
@@ -186,5 +190,7 @@ namespace Fvog
     std::deque<DescriptorDeleteInfo> descriptorDeletionQueue_;
 
     std::unique_ptr<detail::SamplerCache> samplerCache_;
+
+    std::deque<std::function<bool(uint64_t)>> genericDeletionQueue_;
   };
 }

@@ -55,7 +55,10 @@ add_executable(frogRender
     src/ImGui/imgui_impl_fvog.h
     src/Fvog/Timer2.h
     src/Fvog/Timer2.cpp
- )
+    src/Scene.h
+    src/Scene.cpp
+    src/Renderables.h
+)
 
 target_compile_options(frogRender
     PRIVATE

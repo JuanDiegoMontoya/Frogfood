@@ -425,11 +425,13 @@ void Application::Draw()
     }), UINT64_MAX);
   }
 
+  // Garbage collection
   device_->FreeUnusedResources();
   
   uint32_t swapchainImageIndex{};
 
   {
+    // https://gist.github.com/nanokatze/bb03a486571e13a7b6a8709368bd87cf#file-handling-window-resize-md
     ZoneScopedN("vkAcquireNextImage2KHR");
     if (auto acquireResult = vkAcquireNextImage2KHR(device_->device_, Fvog::detail::Address(VkAcquireNextImageInfoKHR{
       .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,

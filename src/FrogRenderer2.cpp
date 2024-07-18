@@ -1,5 +1,5 @@
 #include "FrogRenderer2.h"
-
+#include "SceneLoader.h"
 #include "Pipelines2.h"
 
 #include "Fvog/Rendering2.h"
@@ -101,6 +101,9 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     globalUniformsBuffer(*device_, 1, "Global Uniforms"),
     shadingUniformsBuffer(*device_, 1, "Shading Uniforms"),
     shadowUniformsBuffer(*device_, 1, "Shadow Uniforms"),
+    geometryBuffer(*device_, 1'000'000'000, "Geometry Buffer"),
+    meshletInstancesBuffer(*device_, 100'000'000 * sizeof(Render::MeshletInstance), "Meshlet Instances Buffer"),
+    lightsBuffer(*device_, 1'000 * sizeof(Render::GpuLight), "Light Buffer"),
     // Create the pipelines used in the application
     cullMeshletsPipeline(Pipelines2::CullMeshlets(*device_)),
     cullTrianglesPipeline(Pipelines2::CullTriangles(*device_)),
@@ -205,16 +208,17 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   mainCamera.position.y = 1;
 
-  Utility::LoadModelFromFileMeshlet(*device_, scene, "models/simple_scene.glb", glm::scale(glm::vec3{.5}));
+  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
+  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1}));
+  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1}));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1}));
+  scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
 
   meshletIndirectCommand = Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>(*device_, {}, "Meshlet Indirect Command");
   cullTrianglesDispatchParams = Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>(*device_, {}, "Cull Triangles Dispatch Params");
@@ -249,7 +253,6 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       
       exposureBuffer.FillData(commandBuffer, {.data = std::bit_cast<uint32_t>(1.0f)});
       cullTrianglesDispatchParams->UpdateDataExpensive(commandBuffer, Fvog::DispatchIndirectCommand{0, 1, 1});
-      MakeStaticSceneBuffers(commandBuffer);
     });
 
   stats.resize(std::size(statGroups));
@@ -275,6 +278,15 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 FrogRenderer2::~FrogRenderer2()
 {
   vkDeviceWaitIdle(device_->device_);
+
+  meshGeometryAllocations.clear();
+  meshInstanceInfos.clear();
+  meshAllocations.clear();
+  lightAllocations.clear();
+  materialAllocations.clear();
+
+  device_->FreeUnusedResources();
+
 #if FROGRENDER_FSR2_ENABLE
   if (!fsr2FirstInit)
   {
@@ -407,46 +419,30 @@ void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
     }
   }
 
-  // TODO: This is an expensive call! Seek to minimize the parts of the scene that need to be re-traversed to those that actually changed.
-  sceneFlattened = scene.Flatten();
-  shadingUniforms.numberOfLights = (uint32_t)sceneFlattened.lights.size();
+  scene.CalcUpdatedData(*this);
+
+  shadingUniforms.numberOfLights = NumLights();
 
   // A few of these buffers are really slow (2-3ms) to create and destroy every frame (large ones hit vkAllocateMemory), so
   // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
   // The current scheme works fine when the scene is mostly static.
-  const auto numMeshlets = static_cast<uint32_t>(sceneFlattened.meshletInstances.size());
 
   // Soft cap of 1 billion indices should prevent oversubscribing memory (on my system) when loading huge scenes.
   // This limit should be OK as it only limits post-culling geometry.
-  const auto maxIndices  = glm::min(1'000'000'000u, numMeshlets * Utility::maxMeshletPrimitives * 3);
+  const auto maxIndices = glm::min(1'000'000'000u, NumMeshletInstances() * Utility::maxMeshletPrimitives * 3);
   if (!instancedMeshletBuffer || instancedMeshletBuffer->Size() < maxIndices)
   {
     instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>(*device_, {.count = maxIndices}, "Instanced Meshlets");
   }
 
-  if (!lightBuffer || lightBuffer->Size() < sceneFlattened.lights.size())
+  if (!persistentVisibleMeshletIds || persistentVisibleMeshletIds->Size() < NumMeshletInstances())
   {
-    lightBuffer = Fvog::NDeviceBuffer<Utility::GpuLight>(*device_, (uint32_t)sceneFlattened.lights.size(), "Lights");
+    persistentVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = NumMeshletInstances()}, "Persistent Visible Meshlet IDs");
   }
 
-  if (!transformBuffer || transformBuffer->Size() < sceneFlattened.transforms.size())
+  if (!transientVisibleMeshletIds || transientVisibleMeshletIds->Size() < NumMeshletInstances())
   {
-    transformBuffer = Fvog::NDeviceBuffer<Utility::ObjectUniforms>(*device_, (uint32_t)sceneFlattened.transforms.size(), "Transforms");
-  }
-
-  if (!persistentVisibleMeshletIds || persistentVisibleMeshletIds->Size() < numMeshlets)
-  {
-    persistentVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = numMeshlets}, "Persistent Visible Meshlet IDs");
-  }
-
-  if (!transientVisibleMeshletIds || transientVisibleMeshletIds->Size() < numMeshlets)
-  {
-    transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = numMeshlets}, "Transient Visible Meshlet IDs");
-  }
-
-  if (!meshletInstancesBuffer || meshletInstancesBuffer->Size() < numMeshlets)
-  {
-    meshletInstancesBuffer = Fvog::NDeviceBuffer<Utility::MeshletInstance>(*device_, numMeshlets, "Meshlet Instances");
+    transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = NumMeshletInstances()}, "Transient Visible Meshlet IDs");
   }
 
   // TODO: perhaps this logic belongs in Application
@@ -486,38 +482,38 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
   auto vsmPushConstants = vsmContext.GetPushConstants();
 
   auto visbufferPushConstants = CullMeshletsPushConstants{
-    .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-    .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
-    .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
-    .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
-    .indirectDrawIndex = meshletIndirectCommand->GetResourceHandle().index,
-    .viewIndex = viewBuffer->GetResourceHandle().index,
+    .globalUniformsIndex   = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+    .meshletInstancesIndex = meshletInstancesBuffer.GetResourceHandle().index,
+    .meshletDataIndex      = geometryBuffer.GetResourceHandle().index,
+    .transformsIndex       = geometryBuffer.GetResourceHandle().index,
+    .indirectDrawIndex     = meshletIndirectCommand->GetResourceHandle().index,
+    .viewIndex             = viewBuffer->GetResourceHandle().index,
 
-    .pageTablesIndex = vsmPushConstants.pageTablesIndex,
-    .physicalPagesIndex = vsmPushConstants.physicalPagesIndex,
-    .vsmBitmaskHzbIndex = vsmPushConstants.vsmBitmaskHzbIndex,
-    .vsmUniformsBufferIndex = vsmPushConstants.vsmUniformsBufferIndex,
+    .pageTablesIndex            = vsmPushConstants.pageTablesIndex,
+    .physicalPagesIndex         = vsmPushConstants.physicalPagesIndex,
+    .vsmBitmaskHzbIndex         = vsmPushConstants.vsmBitmaskHzbIndex,
+    .vsmUniformsBufferIndex     = vsmPushConstants.vsmUniformsBufferIndex,
     .clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index,
-    .nearestSamplerIndex = nearestSampler.GetResourceHandle().index,
+    .nearestSamplerIndex        = nearestSampler.GetResourceHandle().index,
 
-    .hzbIndex = frame.hzb->ImageView().GetSampledResourceHandle().index,
-    .hzbSamplerIndex = hzbSampler.GetResourceHandle().index,
+    .hzbIndex                   = frame.hzb->ImageView().GetSampledResourceHandle().index,
+    .hzbSamplerIndex            = hzbSampler.GetResourceHandle().index,
     .cullTrianglesDispatchIndex = cullTrianglesDispatchParams->GetResourceHandle().index,
-    .visibleMeshletsIndex = visibleMeshletIds.GetResourceHandle().index,
-    .debugAabbBufferIndex = debugGpuAabbsBuffer->GetResourceHandle().index,
-    .debugRectBufferIndex = debugGpuRectsBuffer->GetResourceHandle().index,
+    .visibleMeshletsIndex       = visibleMeshletIds.GetResourceHandle().index,
+    .debugAabbBufferIndex       = debugGpuAabbsBuffer->GetResourceHandle().index,
+    .debugRectBufferIndex       = debugGpuRectsBuffer->GetResourceHandle().index,
   };
   ctx.SetPushConstants(visbufferPushConstants);
   
-  ctx.DispatchInvocations((uint32_t)sceneFlattened.meshletInstances.size(), 1, 1);
+  ctx.DispatchInvocations(NumMeshletInstances(), 1, 1);
   
   ctx.Barrier();
   
   ctx.BindComputePipeline(cullTrianglesPipeline);
-  visbufferPushConstants.meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index;
-  visbufferPushConstants.meshletVerticesIndex = vertexBuffer->GetResourceHandle().index;
-  visbufferPushConstants.meshletIndicesIndex = indexBuffer->GetResourceHandle().index;
-  visbufferPushConstants.indexBufferIndex = instancedMeshletBuffer->GetResourceHandle().index;
+  visbufferPushConstants.meshletPrimitivesIndex = geometryBuffer.GetResourceHandle().index;
+  visbufferPushConstants.meshletVerticesIndex   = geometryBuffer.GetResourceHandle().index;
+  visbufferPushConstants.meshletIndicesIndex    = geometryBuffer.GetResourceHandle().index;
+  visbufferPushConstants.indexBufferIndex       = instancedMeshletBuffer->GetResourceHandle().index;
   ctx.SetPushConstants(visbufferPushConstants);
 
   ctx.DispatchIndirect(cullTrianglesDispatchParams.value());
@@ -554,15 +550,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     tonemapUniformBuffer.UpdateData(commandBuffer, tonemapUniforms);
 
-    auto gpuMaterials = std::vector<Utility::GpuMaterial>(scene.materials.size());
-    std::ranges::transform(scene.materials, gpuMaterials.begin(), [](const auto& mat) { return mat.gpuMaterial; });
-
-    // TODO: These buffers should only be updated when changed (these uploads can be quite costly in larger scenes).
-    materialStorageBuffer->UpdateData(commandBuffer, gpuMaterials);
-    lightBuffer->UpdateData(commandBuffer, sceneFlattened.lights);
-    transformBuffer->UpdateData(commandBuffer, sceneFlattened.transforms);
-    meshletInstancesBuffer->UpdateData(commandBuffer, sceneFlattened.meshletInstances);
-
     // VSM lod bias corresponds to upscaling lod bias, otherwise shadows become blocky as the upscaling ratio increases.
     auto actualVsmUniforms = vsmUniforms;
     if (fsr2Enable)
@@ -572,6 +559,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     vsmContext.UpdateUniforms(commandBuffer, actualVsmUniforms);
     ctx.Barrier();
   }
+
+  FlushUpdatedSceneData(commandBuffer);
 
   if (clearDebugAabbsEachFrame)
   {
@@ -633,7 +622,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   const auto projJittered = jitterMatrix * projUnjittered;
   
   // Set global uniforms
-  const uint32_t meshletCount = (uint32_t)sceneFlattened.meshletInstances.size();
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 
@@ -670,13 +658,14 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     debugMainViewProj = viewProjUnjittered;
   }
   globalUniforms.viewProjUnjittered = viewProjUnjittered;
-  globalUniforms.viewProj = viewProj;
-  globalUniforms.invViewProj = glm::inverse(globalUniforms.viewProj);
-  globalUniforms.proj = projJittered;
-  globalUniforms.invProj = glm::inverse(globalUniforms.proj);
-  globalUniforms.cameraPos = glm::vec4(mainCamera.position, 0.0);
-  globalUniforms.meshletCount = meshletCount;
-  globalUniforms.maxIndices = static_cast<uint32_t>(scene.primitives.size() * 3);
+  globalUniforms.viewProj           = viewProj;
+  globalUniforms.invViewProj        = glm::inverse(globalUniforms.viewProj);
+  globalUniforms.proj               = projJittered;
+  globalUniforms.invProj            = glm::inverse(globalUniforms.proj);
+  globalUniforms.cameraPos          = glm::vec4(mainCamera.position, 0.0);
+  globalUniforms.meshletCount       = NumMeshletInstances();
+  // globalUniforms.maxIndices = static_cast<uint32_t>(scene.primitives.size() * 3);
+  globalUniforms.maxIndices             = 0; // TODO: This doesn't seem to be used for anything.
   globalUniforms.bindlessSamplerLodBias = fsr2LodBias;
 
   globalUniformsBuffer.UpdateData(commandBuffer, globalUniforms);
@@ -717,14 +706,14 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     ctx.BindGraphicsPipeline(visbufferPipeline);
     auto visbufferArguments = VisbufferPushConstants{
       .globalUniformsIndex    = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-      .meshletInstancesIndex  = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
-      .meshletDataIndex       = meshletBuffer->GetResourceHandle().index,
-      .meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index,
-      .meshletVerticesIndex   = vertexBuffer->GetResourceHandle().index,
-      .meshletIndicesIndex    = indexBuffer->GetResourceHandle().index,
-      .transformsIndex        = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .meshletInstancesIndex  = meshletInstancesBuffer.GetResourceHandle().index,
+      .meshletDataIndex       = geometryBuffer.GetResourceHandle().index,
+      .meshletPrimitivesIndex = geometryBuffer.GetResourceHandle().index,
+      .meshletVerticesIndex   = geometryBuffer.GetResourceHandle().index,
+      .meshletIndicesIndex    = geometryBuffer.GetResourceHandle().index,
+      .transformsIndex        = geometryBuffer.GetResourceHandle().index,
       .indirectDrawIndex      = meshletIndirectCommand->GetResourceHandle().index,
-      .materialsIndex         = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .materialsIndex         = geometryBuffer.GetResourceHandle().index,
       .viewIndex              = viewBuffer->GetResourceHandle().index,
       .visibleMeshletsIndex   = persistentVisibleMeshletIds->GetResourceHandle().index,
     };
@@ -808,20 +797,20 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       
       ctx.BindGraphicsPipeline(vsmShadowPipeline);
 
-      auto pushConstants = vsmContext.GetPushConstants();
-      pushConstants.meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index;
-      pushConstants.meshletDataIndex = meshletBuffer->GetResourceHandle().index;
-      pushConstants.meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index;
-      pushConstants.meshletVerticesIndex = vertexBuffer->GetResourceHandle().index;
-      pushConstants.meshletIndicesIndex = indexBuffer->GetResourceHandle().index;
-      pushConstants.transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index;
-      pushConstants.globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index;
-      pushConstants.viewIndex = viewBuffer->GetResourceHandle().index;
-      pushConstants.materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index;
-      pushConstants.materialSamplerIndex = materialSampler.GetResourceHandle().index;
-      pushConstants.clipmapLod = vsmSun.GetClipmapTableIndices()[i];
+      auto pushConstants                       = vsmContext.GetPushConstants();
+      pushConstants.meshletInstancesIndex      = meshletInstancesBuffer.GetResourceHandle().index;
+      pushConstants.meshletDataIndex           = geometryBuffer.GetResourceHandle().index;
+      pushConstants.meshletPrimitivesIndex     = geometryBuffer.GetResourceHandle().index;
+      pushConstants.meshletVerticesIndex       = geometryBuffer.GetResourceHandle().index;
+      pushConstants.meshletIndicesIndex        = geometryBuffer.GetResourceHandle().index;
+      pushConstants.transformsIndex            = geometryBuffer.GetResourceHandle().index;
+      pushConstants.globalUniformsIndex        = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index;
+      pushConstants.viewIndex                  = viewBuffer->GetResourceHandle().index;
+      pushConstants.materialsIndex             = geometryBuffer.GetResourceHandle().index;
+      pushConstants.materialSamplerIndex       = materialSampler.GetResourceHandle().index;
+      pushConstants.clipmapLod                 = vsmSun.GetClipmapTableIndices()[i];
       pushConstants.clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index;
-      pushConstants.visibleMeshletsIndex       = transientVisibleMeshletIds->GetResourceHandle().index,
+      pushConstants.visibleMeshletsIndex       = transientVisibleMeshletIds->GetResourceHandle().index;
 
       ctx.BindIndexBuffer(*instancedMeshletBuffer, 0, VK_INDEX_TYPE_UINT32);
       
@@ -933,16 +922,16 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     ctx.BindGraphicsPipeline(visbufferResolvePipeline);
     
     auto pushConstants = VisbufferPushConstants{
-      .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-      .meshletInstancesIndex = meshletInstancesBuffer->GetDeviceBuffer().GetResourceHandle().index,
-      .meshletDataIndex = meshletBuffer->GetResourceHandle().index,
-      .meshletPrimitivesIndex = primitiveBuffer->GetResourceHandle().index,
-      .meshletVerticesIndex = vertexBuffer->GetResourceHandle().index,
-      .meshletIndicesIndex = indexBuffer->GetResourceHandle().index,
-      .transformsIndex = transformBuffer->GetDeviceBuffer().GetResourceHandle().index,
-      .materialsIndex = materialStorageBuffer->GetDeviceBuffer().GetResourceHandle().index,
-      .visibleMeshletsIndex = persistentVisibleMeshletIds->GetResourceHandle().index,
-      .materialSamplerIndex = materialSampler.GetResourceHandle().index,
+      .globalUniformsIndex    = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+      .meshletInstancesIndex  = meshletInstancesBuffer.GetResourceHandle().index,
+      .meshletDataIndex       = geometryBuffer.GetResourceHandle().index,
+      .meshletPrimitivesIndex = geometryBuffer.GetResourceHandle().index,
+      .meshletVerticesIndex   = geometryBuffer.GetResourceHandle().index,
+      .meshletIndicesIndex    = geometryBuffer.GetResourceHandle().index,
+      .transformsIndex        = geometryBuffer.GetResourceHandle().index,
+      .materialsIndex         = geometryBuffer.GetResourceHandle().index,
+      .visibleMeshletsIndex   = persistentVisibleMeshletIds->GetResourceHandle().index,
+      .materialSamplerIndex   = materialSampler.GetResourceHandle().index,
 
       .visbufferIndex       = frame.visbuffer->ImageView().GetSampledResourceHandle().index,
     };
@@ -978,25 +967,25 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     auto vsmPushConstants = vsmContext.GetPushConstants();
     ctx.BindGraphicsPipeline(shadingPipeline);
     ctx.SetPushConstants(ShadingPushConstants{
-      .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+      .globalUniformsIndex  = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
       .shadingUniformsIndex = shadingUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-      .shadowUniformsIndex = shadowUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
-      .lightBufferIndex = lightBuffer->GetDeviceBuffer().GetResourceHandle().index,
+      .shadowUniformsIndex  = shadowUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+      .lightBufferIndex     = lightsBuffer.GetResourceHandle().index,
 
-      .gAlbedoIndex = frame.gAlbedo->ImageView().GetSampledResourceHandle().index,
+      .gAlbedoIndex              = frame.gAlbedo->ImageView().GetSampledResourceHandle().index,
       .gNormalAndFaceNormalIndex = frame.gNormalAndFaceNormal->ImageView().GetSampledResourceHandle().index,
-      .gDepthIndex = frame.gDepth->ImageView().GetSampledResourceHandle().index,
-      .gSmoothVertexNormalIndex = frame.gSmoothVertexNormal->ImageView().GetSampledResourceHandle().index,
-      .gEmissionIndex = frame.gEmission->ImageView().GetSampledResourceHandle().index,
+      .gDepthIndex               = frame.gDepth->ImageView().GetSampledResourceHandle().index,
+      .gSmoothVertexNormalIndex  = frame.gSmoothVertexNormal->ImageView().GetSampledResourceHandle().index,
+      .gEmissionIndex            = frame.gEmission->ImageView().GetSampledResourceHandle().index,
       .gMetallicRoughnessAoIndex = frame.gMetallicRoughnessAo->ImageView().GetSampledResourceHandle().index,
 
-      .pageTablesIndex = vsmPushConstants.pageTablesIndex,
-      .physicalPagesIndex = vsmPushConstants.physicalPagesIndex,
-      .vsmBitmaskHzbIndex = vsmPushConstants.vsmBitmaskHzbIndex,
-      .vsmUniformsBufferIndex = vsmPushConstants.vsmUniformsBufferIndex,
-      .dirtyPageListBufferIndex = vsmPushConstants.dirtyPageListBufferIndex,
+      .pageTablesIndex            = vsmPushConstants.pageTablesIndex,
+      .physicalPagesIndex         = vsmPushConstants.physicalPagesIndex,
+      .vsmBitmaskHzbIndex         = vsmPushConstants.vsmBitmaskHzbIndex,
+      .vsmUniformsBufferIndex     = vsmPushConstants.vsmUniformsBufferIndex,
+      .dirtyPageListBufferIndex   = vsmPushConstants.dirtyPageListBufferIndex,
       .clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index,
-      .nearestSamplerIndex = vsmPushConstants.nearestSamplerIndex,
+      .nearestSamplerIndex        = vsmPushConstants.nearestSamplerIndex,
 
       .physicalPagesOverdrawIndex = vsmPushConstants.physicalPagesOverdrawIndex,
     });
@@ -1259,41 +1248,201 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 
-void FrogRenderer2::MakeStaticSceneBuffers(VkCommandBuffer commandBuffer)
-{
-  auto ctx = Fvog::Context(*device_, commandBuffer);
-  
-  ctx.Barrier();
-
-  vertexBuffer = Fvog::TypedBuffer<Utility::Vertex>(*device_, {(uint32_t)scene.vertices.size()}, "Vertex Buffer");
-  vertexBuffer->UpdateDataExpensive(commandBuffer, scene.vertices);
-
-  indexBuffer = Fvog::TypedBuffer<uint32_t>(*device_, {(uint32_t)scene.indices.size()}, "Index Buffer");
-  indexBuffer->UpdateDataExpensive(commandBuffer, scene.indices);
-
-  primitiveBuffer = Fvog::TypedBuffer<uint8_t>(*device_, {(uint32_t)scene.primitives.size()}, "Primitive Buffer");
-  primitiveBuffer->UpdateDataExpensive(commandBuffer, scene.primitives);
-
-  meshletBuffer = Fvog::TypedBuffer<Utility::Meshlet>(*device_, {(uint32_t)scene.meshlets.size()}, "Meshlet Buffer");
-  meshletBuffer->UpdateDataExpensive(commandBuffer, scene.meshlets);
-
-  std::vector<Utility::GpuMaterial> materials(scene.materials.size());
-  std::transform(scene.materials.begin(), scene.materials.end(), materials.begin(), [](const auto& m) { return m.gpuMaterial; });
-  materialStorageBuffer = Fvog::NDeviceBuffer<Utility::GpuMaterial>(*device_, (uint32_t)materials.size(), "Material Buffer");
-  materialStorageBuffer->GetDeviceBuffer().UpdateDataExpensive(commandBuffer, std::span(materials));
-
-  ctx.Barrier();
-}
-
 void FrogRenderer2::OnPathDrop([[maybe_unused]] std::span<const char*> paths)
 {
+  ZoneScoped;
   for (const auto& path : paths)
   {
-    Utility::LoadModelFromFileMeshlet(*device_, scene, path, glm::identity<glm::mat4>());
+    scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, path, glm::identity<glm::mat4>()));
+  }
+}
+
+Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo meshGeometry)
+{
+  ZoneScoped;
+  auto verticesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.vertices).size_bytes(), sizeof(Render::Vertex));
+  auto indicesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.indices).size_bytes(), sizeof(Render::index_t));
+  auto primitivesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.primitives).size_bytes(), sizeof(Render::primitive_t));
+  auto meshletAlloc = geometryBuffer.Allocate(std::span(meshGeometry.meshlets).size_bytes(), sizeof(Render::Meshlet));
+
+  // Massage meshlets before uploading
+  const auto baseVertex = verticesAlloc.GetOffset() / sizeof(Render::Vertex);
+  const auto baseIndex = indicesAlloc.GetOffset() / sizeof(Render::index_t);
+  const auto basePrimitive = primitivesAlloc.GetOffset() / sizeof(Render::primitive_t);
+  for (auto& meshlet : meshGeometry.meshlets)
+  {
+    meshlet.vertexOffset += (uint32_t)baseVertex;
+    meshlet.indexOffset += (uint32_t)baseIndex;
+    meshlet.primitiveOffset += (uint32_t)basePrimitive;
   }
 
-  device_->ImmediateSubmit(
-    [&](VkCommandBuffer cmd) {
-      MakeStaticSceneBuffers(cmd);
+  std::memcpy(geometryBuffer.GetMappedMemory() + meshletAlloc.GetOffset(), meshGeometry.meshlets.data(), meshletAlloc.GetSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + verticesAlloc.GetOffset(), meshGeometry.vertices.data(), verticesAlloc.GetSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + indicesAlloc.GetOffset(), meshGeometry.indices.data(), indicesAlloc.GetSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetSize());
+
+  auto myId = nextId++;
+  meshGeometryAllocations.emplace(myId,
+    MeshGeometryAllocs{
+      .meshletsAlloc   = std::move(meshletAlloc),
+      .verticesAlloc   = std::move(verticesAlloc),
+      .indicesAlloc    = std::move(indicesAlloc),
+      .primitivesAlloc = std::move(primitivesAlloc),
+  });
+  return {myId};
+}
+
+void FrogRenderer2::UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry)
+{
+  ZoneScoped;
+  meshGeometryAllocations.erase(meshGeometry.id);
+}
+
+Render::MeshInstanceID FrogRenderer2::RegisterMeshInstance(const Render::MeshInstanceInfo& meshInstance)
+{
+  ZoneScoped;
+  auto myId = nextId++;
+  meshInstanceInfos.emplace(myId, meshInstance);
+  return {myId};
+}
+
+void FrogRenderer2::UnregisterMeshInstance(Render::MeshInstanceID meshInstance)
+{
+  ZoneScoped;
+  meshInstanceInfos.erase(meshInstance.id);
+}
+
+Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshInstanceID meshInstance, VkCommandBuffer commandBuffer)
+{
+  ZoneScoped;
+  auto [meshGeometryId, materialId] = meshInstanceInfos.at(meshInstance.id);
+  auto& meshletsAlloc               = meshGeometryAllocations.at(meshGeometryId.id).meshletsAlloc;
+  auto& materialAlloc               = materialAllocations.at(materialId.id).materialAlloc;
+
+  const auto meshletInstanceCount = meshletsAlloc.GetSize() / sizeof(Render::Meshlet);
+  auto meshletInstances           = std::vector<Render::MeshletInstance>();
+  meshletInstances.reserve(meshletInstanceCount);
+
+  auto instanceAlloc = geometryBuffer.Allocate(sizeof(Render::ObjectUniforms), sizeof(Render::ObjectUniforms));
+
+  // Spawn a set of meshlet instances referring to the mesh's meshlets, with the correct offsets.
+  auto baseMeshletIndex = meshletsAlloc.GetOffset() / sizeof(Render::Meshlet);
+  auto instanceIndex    = instanceAlloc.GetOffset() / sizeof(Render::ObjectUniforms);
+  auto materialIndex    = materialAlloc.GetOffset() / sizeof(Render::GpuMaterial);
+  for (size_t i = 0; i < meshletInstanceCount; i++)
+  {
+    meshletInstances.emplace_back(uint32_t(baseMeshletIndex + i), (uint32_t)instanceIndex, (uint32_t)materialIndex);
+  }
+
+  const auto meshletInstancesAlloc = meshletInstancesBuffer.Allocate(std::span(meshletInstances).size_bytes());
+
+  meshletInstancesBuffer.GetBuffer().UpdateDataExpensive(commandBuffer, std::span(meshletInstances), meshletInstancesAlloc.offset);
+
+  auto myId = nextId++;
+  meshAllocations.emplace(myId,
+    MeshAllocs{
+      .meshletInstancesAlloc = meshletInstancesAlloc,
+      .instanceAlloc         = std::move(instanceAlloc),
     });
+  return {myId};
+}
+
+void FrogRenderer2::DeleteMesh(Render::MeshID mesh, VkCommandBuffer commandBuffer)
+{
+  ZoneScoped;
+  auto it = meshAllocations.find(mesh.id);
+  meshletInstancesBuffer.Free(it->second.meshletInstancesAlloc, commandBuffer);
+  meshAllocations.erase(it);
+}
+
+// Having the data payload in the alloc function is kinda quirky and inconsistent, but I'll keep it for now.
+Render::LightID FrogRenderer2::SpawnLight(const Render::GpuLight& lightData, VkCommandBuffer commandBuffer)
+{
+  ZoneScoped;
+  const auto lightAlloc = lightsBuffer.Allocate(sizeof(Render::GpuLight));
+
+  lightsBuffer.GetBuffer().UpdateDataExpensive(commandBuffer, lightData, lightAlloc.offset);
+
+  auto myId = nextId++;
+  lightAllocations.emplace(myId, LightAlloc{.lightAlloc = lightAlloc});
+  return {myId};
+}
+
+void FrogRenderer2::DeleteLight(Render::LightID light, VkCommandBuffer commandBuffer)
+{
+  ZoneScoped;
+  auto it = lightAllocations.find(light.id);
+  lightsBuffer.Free(it->second.lightAlloc, commandBuffer);
+  lightAllocations.erase(it);
+}
+
+Render::MaterialID FrogRenderer2::RegisterMaterial(Render::Material&& material)
+{
+  ZoneScoped;
+  auto materialAlloc = geometryBuffer.Allocate(sizeof(Render::GpuMaterial), sizeof(Render::GpuMaterial));
+  std::memcpy(geometryBuffer.GetMappedMemory() + materialAlloc.GetOffset(), &material.gpuMaterial, sizeof(Render::GpuMaterial));
+
+  auto myId = nextId++;
+  materialAllocations.emplace(myId, MaterialAlloc{.materialAlloc = std::move(materialAlloc), .material = std::move(material)});
+  return {myId};
+}
+
+void FrogRenderer2::UnregisterMaterial(Render::MaterialID material)
+{
+  ZoneScoped;
+  materialAllocations.erase(material.id);
+}
+
+void FrogRenderer2::UpdateMesh(Render::MeshID mesh, const Render::ObjectUniforms& uniforms)
+{
+  ZoneScoped;
+  modifiedMeshUniforms[mesh.id] = uniforms;
+}
+
+void FrogRenderer2::UpdateLight(Render::LightID light, const Render::GpuLight& lightData)
+{
+  ZoneScoped;
+  modifiedLights[light.id] = lightData;
+}
+
+void FrogRenderer2::UpdateMaterial(Render::MaterialID material, const Render::GpuMaterial& materialData)
+{
+  ZoneScoped;
+  modifiedMaterials[material.id] = materialData;
+}
+
+void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
+{
+  ZoneScoped;
+  auto ctx = Fvog::Context(*device_, commandBuffer);
+
+  ctx.Barrier();
+
+  auto marker = ctx.MakeScopedDebugMarker("Flush updated scene data");
+
+  for (const auto& [id, uniforms] : modifiedMeshUniforms)
+  {
+    const auto offset = meshAllocations.at(id).instanceAlloc.GetOffset();
+    assert(offset % sizeof(uniforms) == 0);
+    ctx.TeenyBufferUpdate(geometryBuffer.GetBuffer(), uniforms, offset);
+  }
+
+  for (const auto& [id, light] : modifiedLights)
+  {
+    const auto offset = lightAllocations.at(id).lightAlloc.offset;
+    assert(offset % sizeof(light) == 0);
+    ctx.TeenyBufferUpdate(lightsBuffer.GetBuffer(), light, offset);
+  }
+
+  for (const auto& [id, material] : modifiedMaterials)
+  {
+    const auto offset = materialAllocations.at(id).materialAlloc.GetOffset();
+    assert(offset % sizeof(material) == 0);
+    ctx.TeenyBufferUpdate(geometryBuffer.GetBuffer(), material, offset);
+  }
+
+  ctx.Barrier();
+  modifiedMeshUniforms.clear();
+  modifiedLights.clear();
+  modifiedMaterials.clear();
 }

@@ -1,9 +1,31 @@
 #include "SceneLoader.h"
 #include "Application.h"
 
+#include "Renderables.h"
+
 #include "Fvog/detail/ApiToEnum2.h"
 
 #include <tracy/Tracy.hpp>
+
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtx/transform.hpp>
+
+#include "ktx.h"
+
+//#include FWOG_OPENGL_HEADER
+#include <volk.h>
+
+// #include <glm/gtx/string_cast.hpp>
+
+#include <stb_image.h>
+
+#include <fastgltf/glm_element_traits.hpp>
+#include <fastgltf/parser.hpp>
+#include <fastgltf/tools.hpp>
+#include <fastgltf/types.hpp>
+
+#include <meshoptimizer.h>
 
 #include <algorithm>
 #include <chrono>
@@ -17,38 +39,16 @@
 #include <stack>
 #include <utility>
 
-#include <glm/gtc/quaternion.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/transform.hpp>
-
-#include "ktx.h"
-
-//#include FWOG_OPENGL_HEADER
-#include <volk.h>
-
-//#include <Fwog/Context.h>
-
-#define GL_CLAMP_TO_EDGE   0x812F
-#define GL_MIRRORED_REPEAT 0x8370
-#define GL_REPEAT          0x2901
-#define GL_LINEAR                0x2601
-#define GL_LINEAR_MIPMAP_LINEAR  0x2703
+#define GL_CLAMP_TO_EDGE          0x812F
+#define GL_MIRRORED_REPEAT        0x8370
+#define GL_REPEAT                 0x2901
+#define GL_LINEAR                 0x2601
+#define GL_LINEAR_MIPMAP_LINEAR   0x2703
 #define GL_LINEAR_MIPMAP_NEAREST  0x2701
 #define GL_NEAREST                0x2600
 #define GL_NEAREST_MIPMAP_LINEAR  0x2702
 #define GL_NEAREST_MIPMAP_NEAREST 0x2700
 #define GL_UNSIGNED_BYTE          0x1401
-
-// #include <glm/gtx/string_cast.hpp>
-
-#include <stb_image.h>
-
-#include <fastgltf/glm_element_traits.hpp>
-#include <fastgltf/parser.hpp>
-#include <fastgltf/tools.hpp>
-#include <fastgltf/types.hpp>
-
-#include <meshoptimizer.h>
 
 namespace Utility
 {
@@ -440,7 +440,7 @@ namespace Utility
     }
   } // namespace
 
-  std::vector<Vertex> ConvertVertexBufferFormat(const fastgltf::Asset& model,
+  std::vector<Render::Vertex> ConvertVertexBufferFormat(const fastgltf::Asset& model,
                                                 std::size_t positionAccessorIndex,
                                                 std::size_t normalAccessorIndex,
                                                 std::optional<std::size_t> texcoordAccessorIndex)
@@ -473,7 +473,7 @@ namespace Utility
 
     assert(positions.size() == normals.size() && positions.size() == texcoords.size());
 
-    std::vector<Vertex> vertices;
+    std::vector<Render::Vertex> vertices;
     vertices.resize(positions.size());
 
     for (size_t i = 0; i < positions.size(); i++)
@@ -484,17 +484,17 @@ namespace Utility
     return vertices;
   }
 
-  std::vector<index_t> ConvertIndexBufferFormat(const fastgltf::Asset& model, std::size_t indicesAccessorIndex)
+  std::vector<Render::index_t> ConvertIndexBufferFormat(const fastgltf::Asset& model, std::size_t indicesAccessorIndex)
   {
     ZoneScoped;
-    auto indices = std::vector<index_t>();
+    auto indices   = std::vector<Render::index_t>();
     auto& accessor = model.accessors[indicesAccessorIndex];
     indices.resize(accessor.count);
-    fastgltf::iterateAccessorWithIndex<index_t>(model, accessor, [&](index_t index, size_t idx) { indices[idx] = index; });
+    fastgltf::iterateAccessorWithIndex<Render::index_t>(model, accessor, [&](Render::index_t index, size_t idx) { indices[idx] = index; });
     return indices;
   }
 
-  std::vector<Material> LoadMaterials([[maybe_unused]] Fvog::Device& device, const fastgltf::Asset& model, std::span<Fvog::Texture> images)
+  std::vector<Render::Material> LoadMaterials([[maybe_unused]] Fvog::Device& device, const fastgltf::Asset& model, std::span<Fvog::Texture> images)
   {
     ZoneScoped;
     auto LoadSampler = [](const fastgltf::Sampler& sampler)
@@ -521,24 +521,22 @@ namespace Utility
       return samplerState;
     };
 
-    std::vector<Material> materials;
+    std::vector<Render::Material> materials;
 
     for (const auto& loaderMaterial : model.materials)
     {
-      Material material;
+      Render::Material material;
 
       if (loaderMaterial.occlusionTexture.has_value())
       {
-        material.gpuMaterial.flags |= MaterialFlagBit::HAS_OCCLUSION_TEXTURE;
+        material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_OCCLUSION_TEXTURE;
         auto occlusionTextureIndex = loaderMaterial.occlusionTexture->textureIndex;
         const auto& occlusionTexture = model.textures[occlusionTextureIndex];
         auto& image = images[occlusionTexture.imageIndex.value()];
         auto name = occlusionTexture.name.empty() ? "Occlusion" : occlusionTexture.name;
         auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
-        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.occlusionTextureSampler = {
           std::move(view),
-          //std::move(desc)
           //LoadSampler(model.samplers[occlusionTexture.samplerIndex.value()]),
         };
 
@@ -547,16 +545,14 @@ namespace Utility
 
       if (loaderMaterial.emissiveTexture.has_value())
       {
-        material.gpuMaterial.flags |= MaterialFlagBit::HAS_EMISSION_TEXTURE;
+        material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_EMISSION_TEXTURE;
         auto emissiveTextureIndex = loaderMaterial.emissiveTexture->textureIndex;
         const auto& emissiveTexture = model.textures[emissiveTextureIndex];
         auto& image = images[emissiveTexture.imageIndex.value()];
         auto name = emissiveTexture.name.empty() ? "Emissive" : emissiveTexture.name;
         auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
-        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.emissiveTextureSampler = {
           std::move(view),
-          //std::move(desc)
           //LoadSampler(model.samplers[emissiveTexture.samplerIndex.value()]),
         };
 
@@ -565,16 +561,14 @@ namespace Utility
 
       if (loaderMaterial.normalTexture.has_value())
       {
-        material.gpuMaterial.flags |= MaterialFlagBit::HAS_NORMAL_TEXTURE;
+        material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_NORMAL_TEXTURE;
         auto normalTextureIndex = loaderMaterial.normalTexture->textureIndex;
         const auto& normalTexture = model.textures[normalTextureIndex];
         auto& image = images[normalTexture.imageIndex.value()];
         auto name = normalTexture.name.empty() ? "Normal Map" : normalTexture.name;
         auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
-        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.normalTextureSampler = {
           std::move(view),
-          //std::move(desc)
           //LoadSampler(model.samplers[normalTexture.samplerIndex.value()]),
         };
         material.gpuMaterial.normalXyScale = loaderMaterial.normalTexture->scale;
@@ -584,16 +578,14 @@ namespace Utility
       
       if (loaderMaterial.pbrData.baseColorTexture.has_value())
       {
-        material.gpuMaterial.flags |= MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
+        material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
         auto baseColorTextureIndex = loaderMaterial.pbrData.baseColorTexture->textureIndex;
         const auto& baseColorTexture = model.textures[baseColorTextureIndex];
         auto& image = images[baseColorTexture.imageIndex.value()];
         auto name = baseColorTexture.name.empty() ? "Base Color" : baseColorTexture.name;
         auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
-        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.albedoTextureSampler = {
           std::move(view),
-          //std::move(desc)
           //LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
         };
         
@@ -602,16 +594,14 @@ namespace Utility
 
       if (loaderMaterial.pbrData.metallicRoughnessTexture.has_value())
       {
-        material.gpuMaterial.flags |= MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE;
+        material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE;
         auto metallicRoughnessTextureIndex = loaderMaterial.pbrData.metallicRoughnessTexture->textureIndex;
         const auto& metallicRoughnessTexture = model.textures[metallicRoughnessTextureIndex];
         auto& image = images[metallicRoughnessTexture.imageIndex.value()];
         auto name = metallicRoughnessTexture.name.empty() ? "MetallicRoughness" : metallicRoughnessTexture.name;
         auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
-        //auto desc = device.AllocateSampledImageDescriptor(view.ImageView(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
         material.metallicRoughnessTextureSampler = {
           std::move(view),
-          //std::move(desc)
           //LoadSampler(model.samplers[metallicRoughnessTexture.samplerIndex.value()]),
         };
 
@@ -634,9 +624,9 @@ namespace Utility
   // Corresponds to a glTF primitive. In other words, it's the mesh data that corresponds to a draw call.
   struct RawMesh
   {
-    std::vector<Vertex> vertices;
-    std::vector<index_t> indices;
-    Box3D boundingBox;
+    std::vector<Render::Vertex> vertices;
+    std::vector<Render::index_t> indices;
+    Render::Box3D boundingBox;
   };
 
   struct NodeTempData
@@ -651,15 +641,15 @@ namespace Utility
 
   struct LoadModelResult
   {
-    std::vector<std::unique_ptr<Node>> nodes;
+    std::vector<std::unique_ptr<LoadModelNode>> nodes;
     // This is a semi-hacky way to extend `nodes` without changing the node type, so we can still splice our nodes onto the main scene's
-    std::vector<NodeTempData> tempData;
+    //std::vector<NodeTempData> tempData;
     std::vector<RawMesh> rawMeshes;
-    std::vector<Material> materials;
+    std::vector<Render::Material> materials;
     std::vector<Fvog::Texture> images;
   };
 
-  std::optional<LoadModelResult> LoadModelFromFileBase(Fvog::Device& device, std::filesystem::path path, glm::mat4 rootTransform, uint32_t baseMaterialIndex, bool skipMaterials)
+  std::optional<LoadModelResult> LoadModelFromFileBase(Fvog::Device& device, std::filesystem::path path, glm::mat4 rootTransform, bool skipMaterials)
   {
     ZoneScoped;
 
@@ -706,7 +696,7 @@ namespace Utility
 
     // Load images and boofers
     auto images = std::vector<Fvog::Texture>();
-    auto materials = std::vector<Material>();
+    auto materials = std::vector<Render::Material>();
 
     LoadModelResult scene;
 
@@ -733,9 +723,8 @@ namespace Utility
     // <node*, global transform>
     struct StackElement
     {
-      Node* sceneNode{};
+      LoadModelNode* sceneNode{};
       const fastgltf::Node* gltfNode{};
-      size_t tempDataIndex;
     };
     std::stack<StackElement> nodeStack;
 
@@ -750,24 +739,22 @@ namespace Utility
     const auto rootRotation = glm::quat{rootRotationArray[3], rootRotationArray[0], rootRotationArray[1], rootRotationArray[2]};
     const auto rootScale = glm::make_vec3(rootScaleArray.data());
 
-    Node* rootNode = scene.nodes.emplace_back(std::make_unique<Node>(path.stem().string(), rootTranslation, rootRotation, rootScale)).get();
-    scene.tempData.emplace_back();
+    LoadModelNode* rootNode = scene.nodes.emplace_back(std::make_unique<LoadModelNode>(path.stem().string(), rootTranslation, rootRotation, rootScale)).get();
 
     // All nodes referenced in the scene MUST be root nodes
     for (auto nodeIndex : asset.scenes[0].nodeIndices)
     {
       const auto& assetNode = asset.nodes[nodeIndex];
       const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
-      Node* sceneNode = scene.nodes.emplace_back(std::make_unique<Node>(name, rootTranslation, rootRotation, rootScale)).get();
+      LoadModelNode* sceneNode = scene.nodes.emplace_back(std::make_unique<LoadModelNode>(name, rootTranslation, rootRotation, rootScale)).get();
       rootNode->children.emplace_back(sceneNode);
-      nodeStack.emplace(sceneNode, &assetNode, scene.tempData.size());
-      scene.tempData.emplace_back();
+      nodeStack.emplace(sceneNode, &assetNode);
     }
 
     while (!nodeStack.empty())
     {
       decltype(nodeStack)::value_type top = nodeStack.top();
-      const auto& [node, gltfNode, tempDataIndex] = top;
+      const auto& [node, gltfNode] = top;
       nodeStack.pop();
 
       const glm::mat4 localTransform = NodeToMat4(*gltfNode);
@@ -787,10 +774,9 @@ namespace Utility
       {
         const auto& assetNode = asset.nodes[childNodeIndex];
         const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
-        auto& childSceneNode = scene.nodes.emplace_back(std::make_unique<Node>(name));
+        auto& childSceneNode   = scene.nodes.emplace_back(std::make_unique<LoadModelNode>(name));
         node->children.emplace_back(childSceneNode.get());
-        nodeStack.emplace(childSceneNode.get(), &assetNode, scene.tempData.size());
-        scene.tempData.emplace_back();
+        nodeStack.emplace(childSceneNode.get(), &assetNode);
       }
 
       if (gltfNode->meshIndex.has_value())
@@ -845,14 +831,14 @@ namespace Utility
             rawMeshIndex = it->second;
           }
 
-          auto materialId = primitive.materialIndex.has_value() ? baseMaterialIndex + uint32_t(primitive.materialIndex.value()) : 0;
+          auto materialId = primitive.materialIndex.has_value() ? uint32_t(primitive.materialIndex.value()) : 0;
 
           if (skipMaterials)
           {
             materialId = 0;
           }
 
-          scene.tempData[tempDataIndex].indices.emplace_back(rawMeshIndex, materialId);
+          node->meshes.emplace_back(rawMeshIndex, materialId);
         }
       }
 
@@ -861,19 +847,19 @@ namespace Utility
       {
         const auto& light = asset.lights[*gltfNode->lightIndex];
 
-        GpuLight gpuLight{};
+        Render::GpuLight gpuLight{};
 
         if (light.type == fastgltf::LightType::Directional)
         {
-          gpuLight.type = LightType::DIRECTIONAL;
+          gpuLight.type = Render::LightType::DIRECTIONAL;
         }
         else if (light.type == fastgltf::LightType::Spot)
         {
-          gpuLight.type = LightType::SPOT;
+          gpuLight.type = Render::LightType::SPOT;
         }
         else
         {
-          gpuLight.type = LightType::POINT;
+          gpuLight.type = Render::LightType::POINT;
         }
 
         gpuLight.color = glm::make_vec3(light.color.data());
@@ -935,239 +921,109 @@ namespace Utility
     return scene;
   }
 
-  bool LoadModelFromFileMeshlet(Fvog::Device& device, SceneMeshlet& scene, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool skipMaterials)
+  LoadModelResultA LoadModelFromFileMeshlet(Fvog::Device& device, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool skipMaterials)
   {
     ZoneScoped;
     ZoneText(fileName.string().c_str(), fileName.string().size());
-    // If the scene has no materials, give it a default material
-    if (scene.materials.empty())
-    {
-      scene.materials.emplace_back(GpuMaterial{
-        .metallicFactor = 0,
-        .baseColorFactor = {0.5f, 0.5f, 0.5f, 0.5f},
-      });
-    }
 
-    const auto baseMaterialIndex = static_cast<uint32_t>(scene.materials.size());
-    const auto baseVertexOffset = scene.vertices.size();
-    const auto baseIndexOffset = scene.indices.size();
-    const auto basePrimitiveOffset = scene.primitives.size();
+    auto result = LoadModelResultA{};
 
-    auto loadedScene = LoadModelFromFileBase(device, fileName, rootTransform, baseMaterialIndex, skipMaterials);
-    if (!loadedScene)
-      return false;
+    // First material is always default.
+    result.materials.emplace_back(Render::GpuMaterial{
+      .metallicFactor  = 0,
+      .baseColorFactor = {0.5f, 0.5f, 0.5f, 0.5f},
+    });
 
-    uint32_t vertexOffset = (uint32_t)baseVertexOffset;
-    uint32_t indexOffset = (uint32_t)baseIndexOffset;
-    uint32_t primitiveOffset = (uint32_t)basePrimitiveOffset;
+    auto loadedScene = LoadModelFromFileBase(device, fileName, rootTransform, skipMaterials);
 
-    struct MeshletIntermediateInfo
-    {
-      const RawMesh* rawMeshPtr{};
-      std::span<const Vertex> vertices;
-      std::vector<uint32_t> meshletIndices;
-      std::vector<uint8_t> meshletPrimitives;
-      std::vector<meshopt_Meshlet> rawMeshlets;
-      //glm::mat4 transform;
-    };
+    // Give each mesh a set of "default" meshlet instances.
+    auto meshletInstances     = std::vector<Render::MeshletInstance>(loadedScene->rawMeshes.size());
+    auto loadModelResult      = LoadModelResultA{};
+    loadModelResult.materials = std::move(loadedScene->materials);
+    loadModelResult.images    = std::move(loadedScene->images);
+    loadModelResult.meshGeometries.resize(loadedScene->rawMeshes.size());
 
-    std::vector<MeshletIntermediateInfo> meshletInfos(loadedScene->rawMeshes.size());
+    auto meshIndices = std::vector<size_t>(loadedScene->rawMeshes.size());
+    std::iota(meshIndices.begin(), meshIndices.end(), 0);
 
-    // 
-    std::transform(
+    std::for_each(
       std::execution::par,
-      loadedScene->rawMeshes.begin(),
-      loadedScene->rawMeshes.end(),
-      meshletInfos.begin(),
-      [] (const RawMesh& mesh) -> MeshletIntermediateInfo
+      meshIndices.begin(),
+      meshIndices.end(),
+      [&] (size_t meshIdx) -> void
       {
         ZoneScopedN("Create meshlets for mesh");
+        auto& mesh = loadedScene->rawMeshes[meshIdx];
 
         const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxMeshletIndices, maxMeshletPrimitives);
 
-        MeshletIntermediateInfo meshletInfo;
-        auto& [rawMeshPtr, vertices, meshletIndices, meshletPrimitives, rawMeshlets] = meshletInfo;
+        //MeshletIntermediateInfo meshletInfo;
+        //auto& [rawMeshPtr, vertices, meshletIndices, meshletPrimitives, rawMeshlets] = meshletInfo;
 
-        rawMeshPtr = &mesh;
-        vertices = mesh.vertices;
-        meshletIndices.resize(maxMeshlets * maxMeshletIndices);
-        meshletPrimitives.resize(maxMeshlets * maxMeshletPrimitives * 3);
-        rawMeshlets.resize(maxMeshlets);
+        auto meshGeometry = MeshGeometry{};
+
+        auto rawMeshlets = std::vector<meshopt_Meshlet>(maxMeshlets);
+        
+        meshGeometry.vertices = std::move(mesh.vertices);
+        meshGeometry.indices.resize(maxMeshlets * maxMeshletIndices);
+        meshGeometry.primitives.resize(maxMeshlets * maxMeshletPrimitives * 3);
         
         const auto meshletCount = [&]
         {
           ZoneScopedN("meshopt_buildMeshlets");
           return meshopt_buildMeshlets(rawMeshlets.data(),
-                                       meshletIndices.data(),
-                                       meshletPrimitives.data(),
-                                       mesh.indices.data(),
-                                       mesh.indices.size(),
-                                       reinterpret_cast<const float*>(mesh.vertices.data()),
-                                       mesh.vertices.size(),
-                                       sizeof(Vertex),
-                                       maxMeshletIndices,
-                                       maxMeshletPrimitives,
-                                       meshletConeWeight);
+            meshGeometry.indices.data(),
+            meshGeometry.primitives.data(),
+            mesh.indices.data(),
+            mesh.indices.size(),
+            reinterpret_cast<const float*>(meshGeometry.vertices.data()),
+            meshGeometry.vertices.size(),
+            sizeof(Render::Vertex),
+            maxMeshletIndices,
+            maxMeshletPrimitives,
+            meshletConeWeight);
         }();
 
-        auto& lastMeshlet = rawMeshlets[meshletCount - 1];
-        meshletIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
-        meshletPrimitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
+        // TODO: replace with rawMeshlets.back() AFTER moving rawMeshlets.resize() before this
+        const auto& lastMeshlet = rawMeshlets[meshletCount - 1];
+        meshGeometry.indices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
+        meshGeometry.primitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
         rawMeshlets.resize(meshletCount);
+        meshGeometry.meshlets.reserve(meshletCount);
 
-        return meshletInfo;
+        for (const auto& meshlet : rawMeshlets)
+        {
+          auto min = glm::vec3(std::numeric_limits<float>::max());
+          auto max = glm::vec3(std::numeric_limits<float>::lowest());
+          for (uint32_t i = 0; i < meshlet.triangle_count * 3; ++i)
+          {
+            const auto& vertex = meshGeometry.vertices[meshGeometry.indices[meshlet.vertex_offset + meshGeometry.primitives[meshlet.triangle_offset + i]]];
+            min                = glm::min(min, vertex.position);
+            max                = glm::max(max, vertex.position);
+          }
+          
+          meshGeometry.meshlets.emplace_back(Render::Meshlet{
+            .vertexOffset    = 0,
+            .indexOffset     = meshlet.vertex_offset,
+            .primitiveOffset = meshlet.triangle_offset,
+            .indexCount      = meshlet.vertex_count,
+            .primitiveCount  = meshlet.triangle_count,
+            .aabbMin         = {min.x, min.y, min.z},
+            .aabbMax         = {max.x, max.y, max.z},
+          });
+        }
+
+        loadModelResult.meshGeometries[meshIdx] = meshGeometry;
       });
+    
+    loadModelResult.rootNodes.emplace_back(loadedScene->nodes.front().get());
+    //std::ranges::move(loadedScene->nodes, std::back_inserter(loadModelResult.nodes));
+    loadModelResult.nodes = std::move(loadedScene->nodes);
 
-    auto perMeshMeshlets = std::vector<std::vector<uint32_t>>(meshletInfos.size());
-
-    // For each mesh, create "meshlet templates" (meshlets without per-instance data) and copy vertices, indices, and primitives to mega buffers
-    for (size_t meshIndex = 0; meshIndex < meshletInfos.size(); meshIndex++)
-    {
-      const auto& [rawMesh, vertices, meshletIndices, meshletPrimitives, rawMeshlets] = meshletInfos[meshIndex];
-      perMeshMeshlets[meshIndex].reserve(rawMeshlets.size());
-
-      for (const auto& meshlet : rawMeshlets)
-      {
-        auto min = glm::vec3(std::numeric_limits<float>::max());
-        auto max = glm::vec3(std::numeric_limits<float>::lowest());
-        for (uint32_t i = 0; i < meshlet.triangle_count * 3; ++i)
-        {
-          const auto& vertex = rawMesh->vertices[meshletIndices[meshlet.vertex_offset + meshletPrimitives[meshlet.triangle_offset + i]]];
-          min = glm::min(min, vertex.position);
-          max = glm::max(max, vertex.position);
-        }
-
-        auto meshletId = scene.meshlets.size();
-        perMeshMeshlets[meshIndex].emplace_back((uint32_t)meshletId);
-        scene.meshlets.emplace_back(Meshlet{
-          .vertexOffset = vertexOffset,
-          .indexOffset = indexOffset + meshlet.vertex_offset,
-          .primitiveOffset = primitiveOffset + meshlet.triangle_offset,
-          .indexCount = meshlet.vertex_count,
-          .primitiveCount = meshlet.triangle_count,
-          .aabbMin = {min.x, min.y, min.z},
-          .aabbMax = {max.x, max.y, max.z},
-        });
-      }
-      
-      vertexOffset += (uint32_t)vertices.size();
-      indexOffset += (uint32_t)meshletIndices.size();
-      primitiveOffset += (uint32_t)meshletPrimitives.size();
-
-      std::ranges::copy(vertices, std::back_inserter(scene.vertices));
-      std::ranges::copy(meshletIndices, std::back_inserter(scene.indices));
-      std::ranges::copy(meshletPrimitives, std::back_inserter(scene.primitives));
-    }
-
-    for (size_t i = 0; auto& node : loadedScene->nodes)
-    {
-      for (const auto& [rawMeshIndex, materialId] : loadedScene->tempData[i++].indices)
-      {
-        for (auto meshletIndex : perMeshMeshlets[rawMeshIndex])
-        {
-          //meshlet.materialId = (uint32_t)materialId;
-          //node->meshlets.emplace_back(meshlet);
-
-          // Instance index is determined each frame
-          node->meshletInstances.emplace_back(meshletIndex, 0, (uint32_t)materialId);
-        }
-      }
-    }
-
-    std::ranges::move(loadedScene->materials, std::back_inserter(scene.materials));
-    std::ranges::move(loadedScene->images, std::back_inserter(scene.images));
-    scene.rootNodes.emplace_back(loadedScene->nodes.front().get());
-    std::ranges::move(loadedScene->nodes, std::back_inserter(scene.nodes));
-
-    return true;
+    return loadModelResult;
   }
 
-  SceneFlattened SceneMeshlet::Flatten() const
-  {
-    ZoneScoped;
-    SceneFlattened sceneFlattened;
-
-    // Use vector sizes from previous scene flattening to reduce copies
-    sceneFlattened.meshletInstances.reserve(previousMeshletsSize);
-    sceneFlattened.transforms.reserve(previousTransformsSize);
-    sceneFlattened.lights.reserve(previousLightsSize);
-
-    struct StackElement
-    {
-      const Node* node;
-      glm::mat4 parentGlobalTransform;
-    };
-    std::stack<StackElement> nodeStack;
-
-    for (auto* rootNode : rootNodes)
-    {
-      nodeStack.emplace(rootNode, rootNode->CalcLocalTransform());
-    }
-
-    // Traverse the scene
-    while (!nodeStack.empty())
-    {
-      auto [node, parentGlobalTransform] = nodeStack.top();
-      nodeStack.pop();
-      
-      const auto globalTransform = parentGlobalTransform * node->CalcLocalTransform();
-
-      for (const auto* childNode : node->children)
-      {
-        nodeStack.emplace(childNode, globalTransform);
-      }
-
-      if (!node->meshletInstances.empty())
-      {
-        const auto instanceId = static_cast<uint32_t>(sceneFlattened.transforms.size());
-        // TODO: get previous transform from node
-        sceneFlattened.transforms.emplace_back(globalTransform, globalTransform);
-        for (auto [meshletIndex, _, materialId] : node->meshletInstances)
-        {
-          //meshlet.instanceId = static_cast<uint32_t>(instanceId);
-          //sceneFlattened.meshlets.emplace_back(meshlet);
-          sceneFlattened.meshletInstances.emplace_back(meshletIndex, instanceId, materialId);
-        }
-      }
-
-      if (node->light.has_value())
-      {
-        auto gpuLight = node->light.value();
-
-        std::array<float, 16> globalTransformArray{};
-        std::copy_n(&globalTransform[0][0], 16, globalTransformArray.data());
-        std::array<float, 3> scaleArray{};
-        std::array<float, 4> rotationArray{};
-        std::array<float, 3> translationArray{};
-        fastgltf::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
-
-        glm::quat rotation = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
-        glm::vec3 translation = glm::make_vec3(translationArray.data());
-        // We rotate (0, 0, -1) because that is the default, un-rotated direction of spot and directional lights according to the glTF spec
-        gpuLight.direction = glm::normalize(rotation) * glm::vec3(0, 0, -1);
-        gpuLight.position = translation;
-
-        sceneFlattened.lights.emplace_back(gpuLight);
-      }
-    }
-
-    // Update cached values
-    previousMeshletsSize = sceneFlattened.meshletInstances.size();
-    previousTransformsSize = sceneFlattened.transforms.size();
-    previousLightsSize = sceneFlattened.lights.size();
-
-    char buffer[128]{};
-    auto size = snprintf(buffer, std::size(buffer), "Nodes: %d\nMeshlet instances: %d\nTransforms: %d\nLights: %d",
-      (int)nodes.size(),
-      (int)previousMeshletsSize,
-      (int)previousTransformsSize,
-      (int)previousLightsSize);
-    ZoneText(buffer, size);
-
-    return sceneFlattened;
-  }
-
-  glm::mat4 Node::CalcLocalTransform() const noexcept
+  glm::mat4 LoadModelNode::CalcLocalTransform() const noexcept
   {
     return glm::scale(glm::translate(translation) * glm::mat4_cast(rotation), scale);
   }

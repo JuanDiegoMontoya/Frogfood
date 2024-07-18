@@ -1,6 +1,7 @@
 #pragma once
 #include "Application.h"
-#include "SceneLoader.h"
+#include "Renderables.h"
+#include "Scene.h"
 #include "PCG.h"
 #include "techniques/Bloom.h"
 #include "techniques/AutoExposure.h"
@@ -21,6 +22,7 @@
 
 #include <variant>
 #include <vector>
+#include <span>
 
 // TODO: these structs should come from shared headers rather than copying them
 FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
@@ -106,6 +108,11 @@ FVOG_DECLARE_ARGUMENTS(DebugRectArguments)
   FVOG_UINT32 debugRectBufferIndex;
 };
 
+namespace Scene
+{
+  struct Node;
+}
+
 inline glm::vec3 PolarToCartesian(float elevation, float azimuth)
 {
   return {std::sin(elevation) * std::cos(azimuth), std::cos(elevation), std::sin(elevation) * std::sin(azimuth)};
@@ -143,6 +150,41 @@ public:
   FrogRenderer2(const Application::CreateInfo& createInfo);
   ~FrogRenderer2() override;
 
+  struct MeshGeometryInfo
+  {
+    std::vector<Render::Meshlet> meshlets;
+    std::vector<Render::Vertex> vertices;
+    std::vector<Render::index_t> indices;
+    std::vector<Render::primitive_t> primitives;
+  };
+
+  // Life and death
+  [[nodiscard]] Render::MeshGeometryID RegisterMeshGeometry(MeshGeometryInfo meshGeometry);
+  void UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry);
+
+  [[nodiscard]] Render::MeshInstanceID RegisterMeshInstance(const Render::MeshInstanceInfo& meshInstance);
+  void UnregisterMeshInstance(Render::MeshInstanceID meshInstance);
+
+  [[nodiscard]] Render::MeshID SpawnMesh(Render::MeshInstanceID meshInstance, VkCommandBuffer commandBuffer);
+  void DeleteMesh(Render::MeshID mesh, VkCommandBuffer commandBuffer);
+
+  [[nodiscard]] Render::LightID SpawnLight(const Render::GpuLight& lightData, VkCommandBuffer commandBuffer);
+  void DeleteLight(Render::LightID light, VkCommandBuffer commandBuffer);
+
+  [[nodiscard]] Render::MaterialID RegisterMaterial(Render::Material&& material);
+  void UnregisterMaterial(Render::MaterialID material);
+
+  // Updating
+  void UpdateMesh(Render::MeshID mesh, const Render::ObjectUniforms& uniforms);
+  void UpdateLight(Render::LightID light, const Render::GpuLight& lightData);
+  void UpdateMaterial(Render::MaterialID material, const Render::GpuMaterial& materialData);
+
+  // Oh man oh jeez
+  Fvog::Device& GetDevice()
+  {
+    return *device_;
+  }
+
 private:
   struct ViewParams;
 
@@ -162,11 +204,10 @@ private:
   void GuiDrawMaterialsArray(VkCommandBuffer commandBuffer);
   void GuiDrawPerfWindow(VkCommandBuffer commandBuffer);
   void GuiDrawSceneGraph(VkCommandBuffer commandBuffer);
-  void GuiDrawSceneGraphHelper(Utility::Node* node);
+  void GuiDrawSceneGraphHelper(Scene::Node* node);
   void GuiDrawComponentEditor(VkCommandBuffer commandBuffer);
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
-  void MakeStaticSceneBuffers(VkCommandBuffer commandBuffer);
 
   enum class GlobalFlags : uint32_t
   {
@@ -375,15 +416,61 @@ private:
   Fvog::NDeviceBuffer<ShadingUniforms> shadingUniformsBuffer;
   Fvog::NDeviceBuffer<ShadowUniforms> shadowUniformsBuffer;
 
-  // Meshlet stuff
-  std::optional<Fvog::TypedBuffer<Utility::Vertex>> vertexBuffer;
-  std::optional<Fvog::TypedBuffer<uint32_t>> indexBuffer;
-  std::optional<Fvog::TypedBuffer<uint8_t>> primitiveBuffer;
-  std::optional<Fvog::NDeviceBuffer<Utility::ObjectUniforms>> transformBuffer;
-  std::optional<Fvog::NDeviceBuffer<Utility::GpuMaterial>> materialStorageBuffer;
-  std::optional<Fvog::TypedBuffer<Utility::Meshlet>> meshletBuffer;
-  std::optional<Fvog::NDeviceBuffer<Utility::MeshletInstance>> meshletInstancesBuffer;
-  //std::optional<Fvog::NDeviceBuffer<ViewParams>> viewBuffer;
+  struct MeshGeometryAllocs
+  {
+    Fvog::ManagedBuffer::Alloc meshletsAlloc;
+    Fvog::ManagedBuffer::Alloc verticesAlloc;
+    Fvog::ManagedBuffer::Alloc indicesAlloc;
+    Fvog::ManagedBuffer::Alloc primitivesAlloc;
+  };
+
+  struct MeshAllocs
+  {
+    Fvog::ContiguousManagedBuffer::Alloc meshletInstancesAlloc;
+    Fvog::ManagedBuffer::Alloc instanceAlloc;
+  };
+
+  struct LightAlloc
+  {
+    Fvog::ContiguousManagedBuffer::Alloc lightAlloc;
+  };
+
+  struct MaterialAlloc
+  {
+    Fvog::ManagedBuffer::Alloc materialAlloc;
+    Render::Material material;
+  };
+
+  // Big buffer that holds scene data, materials, transforms, etc. for the GPU
+  Fvog::ManagedBuffer geometryBuffer;
+  Fvog::ContiguousManagedBuffer meshletInstancesBuffer;
+  Fvog::ContiguousManagedBuffer lightsBuffer;
+
+  uint32_t NumMeshletInstances() const noexcept
+  {
+    return (uint32_t)meshletInstancesBuffer.GetCurrentSize() / sizeof(Render::MeshletInstance);
+  }
+
+  uint32_t NumLights() const noexcept
+  {
+    return (uint32_t)lightsBuffer.GetCurrentSize() / sizeof(Render::GpuLight);
+  }
+
+  uint64_t nextId = 1; // 0 is reserved for "null" IDs
+  std::unordered_map<uint64_t, MeshGeometryAllocs> meshGeometryAllocations;
+  std::unordered_map<uint64_t, Render::MeshInstanceInfo> meshInstanceInfos;
+  std::unordered_map<uint64_t, MeshAllocs> meshAllocations;
+  std::unordered_map<uint64_t, LightAlloc> lightAllocations;
+  std::unordered_map<uint64_t, MaterialAlloc> materialAllocations;
+
+  // Will be batch uploaded
+  std::unordered_map<uint64_t, Render::ObjectUniforms> modifiedMeshUniforms;
+  std::unordered_map<uint64_t, Render::GpuLight> modifiedLights;
+  std::unordered_map<uint64_t, Render::GpuMaterial> modifiedMaterials;
+  std::vector<Render::MeshInstanceID> spawnedMeshes;
+
+  void FlushUpdatedSceneData(VkCommandBuffer commandBuffer);
+  
   std::optional<Fvog::TypedBuffer<ViewParams>> viewBuffer;
   // Output
   std::optional<Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>> meshletIndirectCommand;
@@ -414,12 +501,7 @@ private:
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
 
   // Scene
-  Utility::SceneMeshlet scene;
-
-  // Punctual lights
-  std::optional<Fvog::NDeviceBuffer<Utility::GpuLight>> lightBuffer;
-
-  Utility::SceneFlattened sceneFlattened;
+  Scene::SceneMeshlet scene;
 
   // Post processing
   std::optional<Fvog::Texture> noiseTexture;
@@ -676,7 +758,7 @@ private:
   {
     size_t index;
   };
-  using SelectedThingyType = std::variant<std::monostate, CameraSelected, SunSelected, Utility::Node*, MaterialSelected>;
+  using SelectedThingyType = std::variant<std::monostate, CameraSelected, SunSelected, Scene::Node*, MaterialSelected>;
   SelectedThingyType selectedThingy = std::monostate{};
 
   std::unordered_map<std::string, Fvog::Texture> guiIcons;

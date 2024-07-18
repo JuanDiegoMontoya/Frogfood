@@ -371,90 +371,84 @@ namespace Fvog
     {
       ZoneScopedN("Free unused buffers");
       std::erase_if(bufferDeletionQueue_,
-                   [this, value](const BufferDeleteInfo& bufferAlloc)
-                   {
-                     if (value >= bufferAlloc.frameOfLastUse)
-                     {
-                       ZoneScopedN("Destroy VMA buffer");
-                       VmaAllocationInfo info{};
-                       vmaGetAllocationInfo(allocator_, bufferAlloc.allocation, &info);
-                       auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
-                       char buffer[128]{};
-                       auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
-                       ZoneText(buffer, size);
-                       ZoneName(bufferAlloc.name.c_str(), bufferAlloc.name.size());
-                       vmaDestroyBuffer(allocator_, bufferAlloc.buffer, bufferAlloc.allocation);
-                       return true;
-                     }
-                     return false;
-                   });
+        [this, value](const BufferDeleteInfo& bufferAlloc)
+        {
+          if (value >= bufferAlloc.frameOfLastUse)
+          {
+            ZoneScopedN("Destroy VMA buffer");
+            VmaAllocationInfo info{};
+            vmaGetAllocationInfo(allocator_, bufferAlloc.allocation, &info);
+            auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
+            char buffer[128]{};
+            auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
+            ZoneText(buffer, size);
+            ZoneName(bufferAlloc.name.c_str(), bufferAlloc.name.size());
+            vmaDestroyBuffer(allocator_, bufferAlloc.buffer, bufferAlloc.allocation);
+            return true;
+          }
+          return false;
+        });
     }
     {
       ZoneScopedN("Free unused images");
       std::erase_if(imageDeletionQueue_,
-                    [this, value](const ImageDeleteInfo& imageAlloc)
-                    {
-                      if (value >= imageAlloc.frameOfLastUse)
-                      {
-                        ZoneScopedN("vmaDestroyImage");
-                        VmaAllocationInfo info{};
-                        vmaGetAllocationInfo(allocator_, imageAlloc.allocation, &info);
-                        auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
-                        char buffer[128]{};
-                        auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
-                        ZoneText(buffer, size);
-                        ZoneName(imageAlloc.name.c_str(), imageAlloc.name.size());
-                        vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
-                        return true;
-                      }
-                      return false;
-                    });
+        [this, value](const ImageDeleteInfo& imageAlloc)
+        {
+          if (value >= imageAlloc.frameOfLastUse)
+          {
+            ZoneScopedN("vmaDestroyImage");
+            VmaAllocationInfo info{};
+            vmaGetAllocationInfo(allocator_, imageAlloc.allocation, &info);
+            auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
+            char buffer[128]{};
+            auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
+            ZoneText(buffer, size);
+            ZoneName(imageAlloc.name.c_str(), imageAlloc.name.size());
+            vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
+            return true;
+          }
+          return false;
+        });
     }
     {
       ZoneScopedN("Free unused image views");
       std::erase_if(imageViewDeletionQueue_,
-                    [this, value](const ImageViewDeleteInfo& imageAlloc)
-                    {
-                      if (value >= imageAlloc.frameOfLastUse)
-                      {
-                        ZoneScopedN("vkDestroyImageView");
-                        ZoneName(imageAlloc.name.data(), imageAlloc.name.size());
-                        vkDestroyImageView(device_, imageAlloc.imageView, nullptr);
-                        return true;
-                      }
-                      return false;
-                    });
+        [this, value](const ImageViewDeleteInfo& imageAlloc)
+        {
+          if (value >= imageAlloc.frameOfLastUse)
+          {
+            ZoneScopedN("vkDestroyImageView");
+            ZoneName(imageAlloc.name.data(), imageAlloc.name.size());
+            vkDestroyImageView(device_, imageAlloc.imageView, nullptr);
+            return true;
+          }
+          return false;
+        });
     }
     {
       ZoneScopedN("Free unused descriptor indices");
       std::erase_if(descriptorDeletionQueue_,
-                    [this, value](const DescriptorDeleteInfo& descriptorAlloc)
-                    {
-                      if (value >= descriptorAlloc.frameOfLastUse)
-                      {
-                        switch (descriptorAlloc.handle.type)
-                        {
-                        case ResourceType::STORAGE_BUFFER:
-                          storageBufferDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                          return true;
-                        case ResourceType::COMBINED_IMAGE_SAMPLER:
-                          combinedImageSamplerDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                          return true;
-                        case ResourceType::STORAGE_IMAGE:
-                          storageImageDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                          return true;
-                        case ResourceType::SAMPLED_IMAGE:
-                          sampledImageDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                          return true;
-                        case ResourceType::SAMPLER:
-                          samplerDescriptorAllocator.Free(descriptorAlloc.handle.index);
-                          return true;
-                        case ResourceType::INVALID:
-                        default: assert(0); return true;
-                        }
-                      }
-                      return false;
-                    });
+        [this, value](const DescriptorDeleteInfo& descriptorAlloc)
+        {
+          if (value >= descriptorAlloc.frameOfLastUse)
+          {
+            switch (descriptorAlloc.handle.type)
+            {
+            case ResourceType::STORAGE_BUFFER: storageBufferDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
+            case ResourceType::COMBINED_IMAGE_SAMPLER: combinedImageSamplerDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
+            case ResourceType::STORAGE_IMAGE: storageImageDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
+            case ResourceType::SAMPLED_IMAGE: sampledImageDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
+            case ResourceType::SAMPLER: samplerDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
+            case ResourceType::INVALID:
+            default: assert(0); return true;
+            }
+          }
+          return false;
+        });
+    }
+    {
+      ZoneScopedN("Free generic");
+      std::erase_if(genericDeletionQueue_, [this, value](auto& fn) { return fn(value); });
     }
   }
 

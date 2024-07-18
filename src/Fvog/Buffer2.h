@@ -1,28 +1,33 @@
 #pragma once
-
 #include "Device.h"
 #include "TriviallyCopyableByteSpan.h"
+#include "detail/Flags.h"
 
 #include <vulkan/vulkan_core.h>
 
 #include <string>
 #include <string_view>
 #include <optional>
+#include <cstddef>
 
 namespace Fvog
 {
+  // TODO: make this have less footgunny semantics
   enum class BufferFlagThingy
   {
-    NONE,
-    MAP_SEQUENTIAL_WRITE,
-    MAP_RANDOM_ACCESS,
+    NONE                        = 0,
+    MAP_SEQUENTIAL_WRITE        = 1,
+    MAP_RANDOM_ACCESS           = 2,
+    MAP_SEQUENTIAL_WRITE_DEVICE = 4,
+    NO_DESCRIPTOR               = 8
   };
+  FVOG_DECLARE_FLAG_TYPE(BufferFlags, BufferFlagThingy, uint32_t);
 
   struct BufferCreateInfo
   {
     // Size in bytes
     VkDeviceSize size{};
-    BufferFlagThingy flag{};
+    BufferFlags flag{};
   };
 
   struct BufferFillInfo
@@ -75,6 +80,11 @@ namespace Fvog
     Device::DescriptorInfo::ResourceHandle GetResourceHandle()
     {
       return descriptorInfo_.value().GpuResource();
+    }
+
+    const std::string& GetName() const
+    {
+      return name_;
     }
 
   protected:
@@ -187,5 +197,105 @@ namespace Fvog
     // Use optional as a hacky way to allow for deferred initialization.
     std::optional<TypedBuffer<T>> hostStagingBuffers_[Device::frameOverlap];
     TypedBuffer<T> deviceBuffer_;
+  };
+
+  // A buffer from which chunks can be allocated and then safely freed on the GPU timeline.
+  class ManagedBuffer
+  {
+  public:
+    class Alloc
+    {
+    public:
+      explicit Alloc(Device& device, VmaVirtualBlock allocator, VmaVirtualAllocation allocation, size_t offset, size_t size)
+        : device_(&device), allocator_(allocator), allocation_(allocation), offset_(offset), size_(size)
+      {
+      }
+      ~Alloc();
+
+      Alloc(const Alloc&)            = delete;
+      Alloc& operator=(const Alloc&) = delete;
+      Alloc(Alloc&& old) noexcept;
+      Alloc& operator=(Alloc&& old) noexcept;
+
+      bool operator==(const Alloc&) const noexcept = default;
+
+      [[nodiscard]] VkDeviceSize GetOffset() const noexcept;
+      [[nodiscard]] VkDeviceSize GetSize() const noexcept;
+
+    private:
+      Fvog::Device* device_;
+      VmaVirtualBlock allocator_;
+      VmaVirtualAllocation allocation_;
+      size_t offset_;
+      size_t size_;
+    };
+
+    explicit ManagedBuffer(Device& device, size_t bufferSize, std::string name = {});
+    ~ManagedBuffer();
+
+    ManagedBuffer(const ManagedBuffer&) = delete;
+    ManagedBuffer(ManagedBuffer&&) noexcept;
+    ManagedBuffer& operator=(const ManagedBuffer&) = delete;
+    ManagedBuffer& operator=(ManagedBuffer&&) noexcept;
+
+    [[nodiscard]] std::byte* GetMappedMemory()
+    {
+      return static_cast<std::byte*>(buffer_.GetMappedMemory());
+    }
+
+    [[nodiscard]] Fvog::Device::DescriptorInfo::ResourceHandle GetResourceHandle()
+    {
+      return buffer_.GetResourceHandle();
+    }
+    
+    [[nodiscard]] Alloc Allocate(VkDeviceSize size, VkDeviceSize alignment);
+
+    [[nodiscard]] Buffer& GetBuffer() noexcept
+    {
+      return buffer_;
+    }
+
+  private:
+    Device* device_;
+    Buffer buffer_;
+    VmaVirtualBlock allocator{};
+  };
+
+  // Stores data contiguously, but without stable order, in a tightly packed array.
+  // Ranges are deleted with a variant of the copy-pop pattern.
+  class ContiguousManagedBuffer
+  {
+  public:
+    // No RAII hehe
+    struct Alloc
+    {
+      size_t offset;
+      size_t size;
+    };
+
+    explicit ContiguousManagedBuffer(Device& device, size_t bufferSize, std::string name = {});
+
+    [[nodiscard]] Alloc Allocate(size_t size);
+    void Free(Alloc allocation, VkCommandBuffer commandBuffer);
+
+    [[nodiscard]] Buffer& GetBuffer() noexcept
+    {
+      return buffer_;
+    }
+
+    [[nodiscard]] size_t GetCurrentSize() const noexcept
+    {
+      return currentSize_;
+    }
+
+    [[nodiscard]] Fvog::Device::DescriptorInfo::ResourceHandle GetResourceHandle()
+    {
+      return buffer_.GetResourceHandle();
+    }
+
+  private:
+    Fvog::Device* device_;
+    Buffer buffer_;
+    size_t currentSize_ = 0;
   };
 }

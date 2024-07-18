@@ -1,4 +1,6 @@
 ﻿#include "FrogRenderer2.h"
+#include "Renderables.h"
+#include "Scene.h"
 
 #include <Fvog/Rendering2.h>
 
@@ -270,7 +272,7 @@ namespace
       const auto avail = ImGui::GetContentRegionAvail().x;
 
       ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
-      ImGui::PushID(0);
+      ImGui::PushID(label);
 
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{0, 0});
       ImGui::ColorButton("##0", {1, 0, 0, 1}, buttonFlags, buttonSize);
@@ -798,6 +800,7 @@ void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
 
 void FrogRenderer2::GuiDrawMaterialsArray(VkCommandBuffer)
 {
+#if 0
   if (ImGui::Begin(" Materials##materials_window"))
   {
     ImGui::BeginTable("materials", 1, ImGuiTableFlags_RowBg);
@@ -822,6 +825,7 @@ void FrogRenderer2::GuiDrawMaterialsArray(VkCommandBuffer)
     ImGui::EndTable();
   }
   ImGui::End();
+#endif
 }
 
 void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
@@ -864,24 +868,21 @@ void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
   ImGui::End();
 }
 
-void TraverseLight(std::optional<Utility::GpuLight>& lightOpt)
+bool TraverseLight(FrogRenderer2& renderer, Render::LightID lightId, Render::GpuLight& light, VkCommandBuffer cmd)
 {
-  assert(lightOpt.has_value());
-  auto& light = *lightOpt;
-
   const char* typePreview = "";
   const char* typeIcon = "";
-  if (light.type == Utility::LightType::DIRECTIONAL)
+  if (light.type == Render::LightType::DIRECTIONAL)
   {
     typePreview = "Directional";
     typeIcon = ICON_MD_SUNNY "  ";
   }
-  else if (light.type == Utility::LightType::POINT)
+  else if (light.type == Render::LightType::POINT)
   {
     typePreview = "Point";
     typeIcon = ICON_FA_LIGHTBULB "  ";
   }
-  else if (light.type == Utility::LightType::SPOT)
+  else if (light.type == Render::LightType::SPOT)
   {
     typePreview = "Spot";
     typeIcon = ICON_FA_FILTER "  ";
@@ -891,7 +892,7 @@ void TraverseLight(std::optional<Utility::GpuLight>& lightOpt)
 
   if (ImGui::Button(ICON_FA_TRASH_CAN))
   {
-    lightOpt.reset();
+    renderer.DeleteLight(lightId, cmd);
   }
 
   ImGui::SameLine();
@@ -905,6 +906,7 @@ void TraverseLight(std::optional<Utility::GpuLight>& lightOpt)
   ImGui::TextUnformatted(typeIcon);
   ImGui::PopStyleColor();
 
+  bool modified = false;
   if (isOpen)
   {
     if (ImGui::BeginCombo("Type", typePreview))
@@ -913,36 +915,39 @@ void TraverseLight(std::optional<Utility::GpuLight>& lightOpt)
       //{
       //   light.type = Utility::LightType::DIRECTIONAL;
       // }
-      if (ImGui::Selectable("Point", light.type == Utility::LightType::POINT))
+      if (ImGui::Selectable("Point", light.type == Render::LightType::POINT))
       {
-        light.type = Utility::LightType::POINT;
+        light.type = Render::LightType::POINT;
+        modified   = true;
       }
-      else if (ImGui::Selectable("Spot", light.type == Utility::LightType::SPOT))
+      else if (ImGui::Selectable("Spot", light.type == Render::LightType::SPOT))
       {
-        light.type = Utility::LightType::SPOT;
+        light.type = Render::LightType::SPOT;
+        modified   = true;
       }
       ImGui::EndCombo();
     }
 
-    ImGui::ColorEdit3("Color", &light.color[0], ImGuiColorEditFlags_Float);
-    ImGui::DragFloat("Intensity", &light.intensity, 1, 0, 1e6f, light.type == Utility::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
+    modified |= ImGui::ColorEdit3("Color", &light.color[0], ImGuiColorEditFlags_Float);
+    modified |= ImGui::DragFloat("Intensity", &light.intensity, 1, 0, 1e6f, light.type == Render::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
 
-    if (light.type != Utility::LightType::DIRECTIONAL)
+    if (light.type != Render::LightType::DIRECTIONAL)
     {
-      ImGui::DragFloat("Range", &light.range, 0.2f, 0.0f, 100.0f, "%.2f");
+      modified |= ImGui::DragFloat("Range", &light.range, 0.2f, 0.0f, 100.0f, "%.2f");
     }
 
-    if (light.type == Utility::LightType::SPOT)
+    if (light.type == Render::LightType::SPOT)
     {
-      ImGui::SliderFloat("Inner cone angle", &light.innerConeAngle, 0, 3.14f, "%.2f rad");
-      ImGui::SliderFloat("Outer cone angle", &light.outerConeAngle, 0, 3.14f, "%.2f rad");
+      modified |= ImGui::SliderFloat("Inner cone angle", &light.innerConeAngle, 0, 3.14f, "%.2f rad");
+      modified |= ImGui::SliderFloat("Outer cone angle", &light.outerConeAngle, 0, 3.14f, "%.2f rad");
     }
 
     ImGui::TreePop();
   }
+  return modified;
 }
 
-void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
+void FrogRenderer2::GuiDrawSceneGraphHelper(Scene::Node* node)
 {
   ImGui::PushID(static_cast<int>(std::hash<const void*>{}(node)));
   ImGui::TableNextRow();
@@ -950,12 +955,12 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
   
   auto flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_AllowOverlap;
 
-  if (node->children.empty() && node->meshletInstances.empty())
+  if (node->children.empty() && !node->meshIds.empty())
   {
     flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
   }
 
-  if (auto* p = std::get_if<Utility::Node*>(&selectedThingy); p && *p == node)
+  if (auto* p = std::get_if<Scene::Node*>(&selectedThingy); p && *p == node)
   {
     flags |= ImGuiTreeNodeFlags_Selected;
   }
@@ -971,17 +976,17 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
   }
 
   ImGui::SameLine();
-  if (!node->meshletInstances.empty())
+  if (!node->meshIds.empty())
   {
     ImGui::Image(ImTextureSampler(guiIcons.at("icon_object").ImageView().GetSampledResourceHandle().index), {16, 16});
   }
-  else if (node->light)
+  else if (node->lightId)
   {
-    if (node->light->type == Utility::LightType::POINT)
+    if (node->light.type == Render::LightType::POINT)
     {
       ImGui::Image(ImTextureSampler(guiIcons.at("lamp_point").ImageView().GetSampledResourceHandle().index), {16, 16});
     }
-    else if (node->light->type == Utility::LightType::SPOT)
+    else if (node->light.type == Render::LightType::SPOT)
     {
       ImGui::Image(ImTextureSampler(guiIcons.at("lamp_spot").ImageView().GetSampledResourceHandle().index), {16, 16});
     }
@@ -1002,7 +1007,8 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
       GuiDrawSceneGraphHelper(childNode);
     }
 
-    if (!node->meshletInstances.empty())
+#if 0
+    if (node->meshId)
     {
       // Show list of meshlet instances on this node.
       ImGui::TableNextRow();
@@ -1010,15 +1016,16 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
       const bool isInstancesNodeOpen =
         Gui::TreeNodeWithImage16("Meshlet instances: ", guiIcons.at("lattice"), {}, ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_AllowOverlap);
       ImGui::SameLine();
-      ImGui::Text("%d", (int)node->meshletInstances.size());
+      auto meshletInstances = GetMeshletInstances(GetMeshInstance(node->meshId));
+      ImGui::Text("%d", (int)meshletInstances.size());
       if (isInstancesNodeOpen)
       {
         Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoHostExtendX);
         // Omit instanceId since it isn't populated until scene traversal.
-        for (size_t i = 0; i < node->meshletInstances.size(); i++)
+        for (size_t i = 0; i < meshletInstances.size(); i++)
         {
           ImGui::PushID((int)i);
-          const auto& meshletInstance = node->meshletInstances[i];
+          const auto& meshletInstance = meshletInstances[i];
 
           bool selected = false;
           if (auto* p = std::get_if<MaterialSelected>(&selectedThingy); p && p->index == meshletInstance.materialId)
@@ -1039,6 +1046,7 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Utility::Node* node)
         ImGui::TreePop();
       }
     }
+#endif
 
     ImGui::TreePop();
   }
@@ -1199,26 +1207,33 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       Gui::EndProperties();
     }
 
-    if (auto* p = std::get_if<Utility::Node*>(&selectedThingy))
+    if (auto* p = std::get_if<Scene::Node*>(&selectedThingy))
     {
       auto node = *p;
-
+      
       Gui::BeginProperties(ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit);
-      Gui::DragFloat3("Position", glm::value_ptr(node->translation), 0.0625f);
+      bool modified = Gui::DragFloat3("Position", glm::value_ptr(node->translation), 0.0625f);
       auto euler = glm::eulerAngles(node->rotation);
       if (Gui::DragFloat3("Rotation", glm::value_ptr(euler), 1.0f / 64))
       {
         node->rotation = glm::quat(euler);
+        modified = true;
       }
-      Gui::DragFloat3("Scale", glm::value_ptr(node->scale), 1.0f / 64, 1.0f / 32, 10000, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
+      modified |= Gui::DragFloat3("Scale", glm::value_ptr(node->scale), 1.0f / 64, 1.0f / 32, 10000, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
       Gui::EndProperties();
 
-      if (node->light.has_value())
+      if (node->lightId)
       {
-        TraverseLight(node->light);
+        modified |= TraverseLight(*this, node->lightId, node->light, commandBuffer);
+      }
+
+      if (modified)
+      {
+        node->MarkDirty();
       }
     }
 
+#if 0
     if (auto* p = std::get_if<MaterialSelected>(&selectedThingy))
     {
       auto i = p->index;
@@ -1235,6 +1250,7 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       Gui::SliderFloat("Normal Scale", &gpuMat.normalXyScale, 0, 1);
       Gui::EndProperties();
     }
+#endif
     
     ImGui::EndTable();
   }
@@ -1389,13 +1405,15 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
         Gui::Text("Render Out", "%d, %d", nullptr, renderOutputWidth, renderOutputHeight);
         Gui::Text("Window", "%d, %d", nullptr, windowFramebufferWidth, windowFramebufferHeight);
 
+        Gui::Text("Meshlet Instances", "%u", nullptr, NumMeshletInstances());
+        Gui::Text("Lights", "%u", nullptr, NumLights());
+#if 0
         Gui::Text("Meshlets", "%llu", nullptr, scene.meshlets.size());
-        Gui::Text("Meshlet Instances", "%llu", nullptr, sceneFlattened.meshletInstances.size());
         Gui::Text("Indices", "%llu", nullptr, scene.indices.size());
         Gui::Text("Vertices", "%llu", nullptr, scene.vertices.size());
         Gui::Text("Primitives", "%llu", nullptr, scene.primitives.size());
-        Gui::Text("Lights", "%llu", nullptr, sceneFlattened.lights.size());
         Gui::Text("Materials", "%llu", nullptr, scene.materials.size());
+#endif
         Gui::Text("Camera Position", "%.2f, %.2f, %.2f", nullptr, mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
         Gui::Text("Camera Rotation", "%.3f, %.3f", nullptr, mainCamera.pitch, mainCamera.yaw);
       }

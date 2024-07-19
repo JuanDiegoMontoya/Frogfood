@@ -117,9 +117,13 @@ namespace Scene
   struct Node;
 }
 
-inline glm::vec3 PolarToCartesian(float elevation, float azimuth)
+inline glm::vec3 SphericalToCartesian(float elevation, float azimuth, float radius = 1.0f)
 {
-  return {std::sin(elevation) * std::cos(azimuth), std::cos(elevation), std::sin(elevation) * std::sin(azimuth)};
+  return {
+    radius * std::sin(elevation) * std::cos(azimuth),
+    radius * std::cos(elevation),
+    radius * std::sin(elevation) * std::sin(azimuth)
+  };
 }
 
 namespace Debug

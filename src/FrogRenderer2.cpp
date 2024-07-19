@@ -571,7 +571,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormalAndFaceNormal, frame.gNormaAndFaceNormallPrev);
 
-  shadingUniforms.sunDir = glm::vec4(PolarToCartesian(sunElevation, sunAzimuth), 0);
+  shadingUniforms.sunDir = glm::vec4(SphericalToCartesian(sunElevation, sunAzimuth), 0);
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
 
   auto ctx = Fvog::Context(*device_, commandBuffer);

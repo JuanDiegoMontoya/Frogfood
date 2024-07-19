@@ -678,12 +678,12 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
 
     if (ImGui::SliderFloat("First Clipmap Width", &vsmFirstClipmapWidth, 1.0f, 100.0f))
     {
-      vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+      vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -SphericalToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
     }
 
     if (ImGui::SliderFloat("Projection Z Length", &vsmDirectionalProjectionZLength, 1.0f, 3000.0f, "%.2f", ImGuiSliderFlags_Logarithmic))
     {
-      vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+      vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -SphericalToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
     }
     
     ImGui_FlagCheckbox("Disable HPB", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS);
@@ -1221,7 +1221,7 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       sunRotated |= Gui::SliderFloat("Sun Elevation", &sunElevation, 0, 3.1415f);
       if (sunRotated)
       {
-        vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -PolarToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+        vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -SphericalToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
       }
 
       Gui::ColorEdit3("Sun Color", &sunColor[0], nullptr, ImGuiColorEditFlags_Float);

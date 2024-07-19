@@ -96,6 +96,9 @@
 #define Fvog_usampler2DArray(textureIndex, samplerIndex) \
   NonUniformIndex(usampler2DArray(FvogGetSampledImage(utexture2DArray, textureIndex), FvogGetSampler(samplerIndex)))
 
+#define Fvog_sampler3D(textureIndex, samplerIndex) \
+  NonUniformIndex(sampler3D(Fvog_texture3D(textureIndex), FvogGetSampler(samplerIndex)))
+
 #define Fvog_image2D(imageIndex) \
   FvogGetStorageImage(image2D, imageIndex)
 
@@ -107,6 +110,9 @@
 
 #define Fvog_utexture2D(textureIndex) \
   FvogGetSampledImage(utexture2D, textureIndex)
+
+#define Fvog_texture3D(textureIndex) \
+  FvogGetSampledImage(texture3D, textureIndex)
 
 #endif // __cplusplus
 #endif // RESOURCES_H_GLSL

@@ -9,6 +9,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 //layout(binding = 0) uniform sampler2D s_sceneColor;
 //layout(binding = 1) uniform sampler2D s_noise;
 FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
+FVOG_DECLARE_SAMPLED_IMAGES(texture3D);
 FVOG_DECLARE_SAMPLERS;
 
 FVOG_DECLARE_ARGUMENTS(TonemapArguments)
@@ -16,10 +17,14 @@ FVOG_DECLARE_ARGUMENTS(TonemapArguments)
   FVOG_UINT32 sceneColorIndex;
   FVOG_UINT32 noiseIndex;
   FVOG_UINT32 nearestSamplerIndex;
+  FVOG_UINT32 linearClampSamplerIndex;
 
   FVOG_UINT32 exposureIndex;
   FVOG_UINT32 tonemapUniformsIndex;
   FVOG_UINT32 outputImageIndex;
+
+  FVOG_UINT32 tonyMcMapfaceIndex;
+  FVOG_UINT32 tonemapper; // 0 = AgX, 1 = Tony
 };
 
 //layout(std140, binding = 0) uniform ExposureBuffer
@@ -134,6 +139,18 @@ vec3 AgX_DS(vec3 color_srgb, float exposure, float saturation, float linear, flo
   return workingColor;
 }
 
+// Tony McMapface from https://github.com/h3r2tic/tony-mc-mapface/blob/main/shader/tony_mc_mapface.hlsl
+vec3 TonyMcMapface(vec3 color_srgb, float exposure)
+{
+  vec3 workingColor = max(color_srgb, 0.0f) * pow(2.0, exposure);
+  vec3 encoded = workingColor / (1.0 + workingColor);
+
+  vec3 dims = vec3(textureSize(Fvog_texture3D(tonyMcMapfaceIndex), 0));
+  vec3 uv = encoded * ((dims - 1.0) / dims) + 0.5 / dims;
+
+  return texture(Fvog_sampler3D(tonyMcMapfaceIndex, linearClampSamplerIndex), uv).rgb;
+}
+
 // sRGB OETF
 vec3 linear_to_nonlinear_srgb(vec3 linearColor)
 {
@@ -164,9 +181,19 @@ void main()
   const vec2 uv = (vec2(gid) + 0.5) / targetDim;
   
   vec3 hdrColor = textureLod(Fvog_sampler2D(sceneColorIndex, nearestSamplerIndex), uv, 0).rgb;
-  //vec3 ldrColor = AgX_DS(hdrColor, exposureBuffer.exposure, 1.0, 0.18, 1, 0.15);
-  vec3 ldrColor = AgX_DS(hdrColor, d_exposureBuffer.exposure, d_uniforms.saturation, d_uniforms.agxDsLinearSection, d_uniforms.peak, d_uniforms.compression);
+  vec3 ldrColor = hdrColor;
+  
+  if (tonemapper == 0)
+  {
+    ldrColor = AgX_DS(hdrColor, d_exposureBuffer.exposure, d_uniforms.saturation, d_uniforms.agxDsLinearSection, d_uniforms.peak, d_uniforms.compression);
+  }
+  if (tonemapper == 1)
+  {
+    ldrColor = TonyMcMapface(hdrColor, d_exposureBuffer.exposure);
+  }
+
   vec3 srgbColor = linear_to_nonlinear_srgb(ldrColor);
+
   vec3 ditheredColor = srgbColor;
   
   if (bool(d_uniforms.enableDithering))

@@ -79,10 +79,14 @@ FVOG_DECLARE_ARGUMENTS(TonemapArguments)
   FVOG_UINT32 sceneColorIndex;
   FVOG_UINT32 noiseIndex;
   FVOG_UINT32 nearestSamplerIndex;
+  FVOG_UINT32 linearClampSamplerIndex;
 
   FVOG_UINT32 exposureIndex;
   FVOG_UINT32 tonemapUniformsIndex;
   FVOG_UINT32 outputImageIndex;
+
+  FVOG_UINT32 tonyMcMapfaceIndex;
+  FVOG_UINT32 tonemapper; // 0 = AgX, 1 = Tony
 };
 
 FVOG_DECLARE_ARGUMENTS(DebugTextureArguments)
@@ -508,6 +512,8 @@ private:
   std::optional<Fvog::Texture> noiseTexture;
   Fvog::NDeviceBuffer<TonemapUniforms> tonemapUniformBuffer;
   TonemapUniforms tonemapUniforms{};
+  Fvog::Texture tonyMcMapfaceLut;
+  uint32_t tonemapMode = 1; // 0 = AgX, 1 = Tony
 
   uint32_t renderInternalWidth{};
   uint32_t renderInternalHeight{};
@@ -582,6 +588,7 @@ private:
 
   Fvog::Sampler nearestSampler;
   Fvog::Sampler linearMipmapSampler;
+  Fvog::Sampler linearClampSampler;
   Fvog::Sampler hzbSampler;
   
 

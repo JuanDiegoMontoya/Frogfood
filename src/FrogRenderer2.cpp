@@ -31,6 +31,45 @@ using namespace Fvog::detail;
   const auto CONCAT(gpu_timer_, __LINE__) = stats[(int)(statGroup)][statEnum].MakeScopedTimer(commandBuffer); \
   TracyVkZoneTransient(tracyVkContext_, CONCAT(asdf, __LINE__), commandBuffer, statGroups[(int)(statGroup)].statNames[statEnum], true) 
 
+static Fvog::Texture LoadTonyMcMapfaceTexture(Fvog::Device& device)
+{
+  int x{};
+  int y{};
+  auto* pixels = stbi_load("textures/tony_mcmapface/lut.png", &x, &y, nullptr, 4);
+  if (!pixels)
+  {
+    throw std::runtime_error("Texture not found");
+  }
+
+  constexpr uint32_t dim = 48;
+  if (x != dim || y != dim * dim) // Image should be a column of 48x48 images
+  {
+    throw std::runtime_error("Texture had invalid dimensions");
+  }
+  auto texture = Fvog::Texture(device,
+    {
+      .viewType = VK_IMAGE_VIEW_TYPE_3D,
+      .format   = Fvog::Format::R8G8B8A8_UNORM,
+      .extent   = {dim, dim, dim},
+      .usage    = Fvog::TextureUsage::READ_ONLY,
+    },
+    "Tony McMapface LUT");
+
+  for (uint32_t i = 0; i < dim; i++)
+  {
+    texture.UpdateImageSLOW({
+      .level       = 0,
+      .offset      = {0, 0, i},
+      .extent      = {dim, dim, 1},
+      .data        = pixels + (i * 4 * dim * dim),
+      .rowLength   = 0,
+      .imageHeight = 0,
+    });
+  }
+
+  stbi_image_free(pixels);
+  return texture;
+}
 
 static glm::vec2 GetJitterOffset([[maybe_unused]] uint32_t frameIndex,
                                  [[maybe_unused]] uint32_t renderInternalWidth,
@@ -144,6 +183,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .depthAttachmentFormat = Frame::gDepthFormat,
       })),
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
+    tonyMcMapfaceLut(LoadTonyMcMapfaceTexture(*device_)),
     bloom(*device_),
     autoExposure(*device_),
     exposureBuffer(*device_, {}, "Exposure"),
@@ -168,31 +208,47 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     viewerVsmBitmaskHzbPipeline(Pipelines2::ViewerVsmBitmaskHzb(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     viewerVsmPhysicalPagesOverdrawPipeline(Pipelines2::ViewerVsmPhysicalPagesOverdraw(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    nearestSampler(*device_, {
-      .magFilter = VK_FILTER_NEAREST,
-      .minFilter = VK_FILTER_NEAREST,
-      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-      .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-      .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-      .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-    }, "Nearest"),
-    linearMipmapSampler(*device_, {
-      .magFilter = VK_FILTER_LINEAR,
-      .minFilter = VK_FILTER_LINEAR,
-      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-      .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-      .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-      .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-      .maxAnisotropy = 16,
-    }, "Linear Mipmap"),
-    hzbSampler(*device_, {
-      .magFilter = VK_FILTER_NEAREST,
-      .minFilter = VK_FILTER_NEAREST,
-      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
-      .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-      .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-      .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-    }, "HZB")
+    nearestSampler(*device_,
+      {
+        .magFilter    = VK_FILTER_NEAREST,
+        .minFilter    = VK_FILTER_NEAREST,
+        .mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      },
+      "Nearest"),
+    linearMipmapSampler(*device_,
+      {
+        .magFilter     = VK_FILTER_LINEAR,
+        .minFilter     = VK_FILTER_LINEAR,
+        .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .maxAnisotropy = 16,
+      },
+      "Linear Mipmap"),
+    linearClampSampler(*device_,
+      {
+        .magFilter     = VK_FILTER_LINEAR,
+        .minFilter     = VK_FILTER_LINEAR,
+        .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeV  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+      },
+      "Linear Clamp"),
+    hzbSampler(*device_,
+      {
+        .magFilter    = VK_FILTER_NEAREST,
+        .minFilter    = VK_FILTER_NEAREST,
+        .mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+      },
+      "HZB")
 {
   ZoneScoped;
 
@@ -211,12 +267,12 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   mainCamera.position.y = 1;
 
-  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
+  scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
   //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
-  scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
+  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
   //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
@@ -1184,9 +1240,12 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .sceneColorIndex = (fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value()).ImageView().GetSampledResourceHandle().index,
       .noiseIndex = noiseTexture->ImageView().GetSampledResourceHandle().index,
       .nearestSamplerIndex = nearestSampler.GetResourceHandle().index,
+      .linearClampSamplerIndex = linearClampSampler.GetResourceHandle().index,
       .exposureIndex = exposureBuffer.GetResourceHandle().index,
       .tonemapUniformsIndex = tonemapUniformBuffer.GetDeviceBuffer().GetResourceHandle().index,
       .outputImageIndex = frame.colorLdrWindowRes->ImageView().GetStorageResourceHandle().index,
+      .tonyMcMapfaceIndex = tonyMcMapfaceLut.ImageView().GetSampledResourceHandle().index,
+      .tonemapper = tonemapMode,
     });
     ctx.DispatchInvocations(frame.colorLdrWindowRes.value().GetCreateInfo().extent);
     ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);

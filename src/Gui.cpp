@@ -188,7 +188,9 @@ namespace
     bool Checkbox(const char* label, bool* b, const char* tooltip = nullptr)
     {
       bool pressed0 = BeginSelectableProperty(label, tooltip, true, false, ImGuiSelectableFlags_SpanAllColumns);
-      bool pressed = ImGui::Checkbox((std::string("##") + label).c_str(), b);
+      ImGui::PushID(label);
+      bool pressed = ImGui::Checkbox("", b);
+      ImGui::PopID();
       EndProperty();
       if (pressed0 == true)
       {
@@ -233,6 +235,16 @@ namespace
     {
       BeginProperty(label, tooltip);
       bool pressed = ImGui::ColorEdit4(label, f4, flags);
+      EndProperty();
+      return pressed;
+    }
+
+    bool RadioButton(const char* label, bool active, const char* tooltip = nullptr)
+    {
+      BeginProperty(label, tooltip);
+      ImGui::PushID(label);
+      bool pressed = ImGui::RadioButton("", active);
+      ImGui::PopID();
       EndProperty();
       return pressed;
     }
@@ -1132,9 +1144,20 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       if (Gui::TreeNodeWithImage16("Post Processing", guiIcons.at("rgb")))
       {
         Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
-        Gui::SliderFloat("Saturation", &tonemapUniforms.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-        Gui::SliderFloat("AgX Linear Part", &tonemapUniforms.agxDsLinearSection, 0, tonemapUniforms.peak, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-        Gui::SliderFloat("Compression", &tonemapUniforms.compression, 0, 0.999f, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+        if (Gui::RadioButton("AgX", tonemapMode == 0))
+        {
+          tonemapMode = 0;
+        }
+        if (Gui::RadioButton("Tony McMapface", tonemapMode == 1))
+        {
+          tonemapMode = 1;
+        }
+        if (tonemapMode == 0)
+        {
+          Gui::SliderFloat("Saturation", &tonemapUniforms.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+          Gui::SliderFloat("AgX Linear Part", &tonemapUniforms.agxDsLinearSection, 0, tonemapUniforms.peak, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+          Gui::SliderFloat("Compression", &tonemapUniforms.compression, 0, 0.999f, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+        }
         bool enableDither = tonemapUniforms.enableDithering;
         Gui::Checkbox("Dither", &enableDither);
         Gui::EndProperties();

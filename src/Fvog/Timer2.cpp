@@ -8,9 +8,10 @@
 
 namespace Fvog
 {
-  TimerQueryAsync::TimerQueryAsync(Device& device, uint32_t N)
+  TimerQueryAsync::TimerQueryAsync(Device& device, uint32_t N, std::string name)
     : device_(&device),
-      capacity_(N)
+      capacity_(N),
+      name_(std::move(name))
   {
     assert(capacity_ > 0);
 
@@ -22,6 +23,15 @@ namespace Fvog
       }),
       nullptr,
       &queryPool_);
+
+    // TODO: gate behind compile-time switch
+    vkSetDebugUtilsObjectNameEXT(device_->device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
+        .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+        .objectType   = VK_OBJECT_TYPE_QUERY_POOL,
+        .objectHandle = reinterpret_cast<uint64_t>(queryPool_),
+        .pObjectName  = name_.data(),
+      }));
 
     vkResetQueryPool(device_->device_, queryPool_, 0, N * 2);
   }
@@ -39,7 +49,7 @@ namespace Fvog
     // begin a query if there is at least one inactive
     if (count_ < capacity_)
     {
-      //vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPool_, start_);
+      vkResetQueryPool(device_->device_, queryPool_, start_, 1);
       vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, queryPool_, start_);
     }
   }
@@ -49,7 +59,7 @@ namespace Fvog
     // end a query if there is at least one inactive
     if (count_ < capacity_)
     {
-      //vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPool_, start_ + capacity_);
+      vkResetQueryPool(device_->device_, queryPool_, start_ + capacity_, 1);
       vkCmdWriteTimestamp2(commandBuffer, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, queryPool_, start_ + capacity_);
       start_ = (start_ + 1) % capacity_; // wrap
       count_++;
@@ -77,7 +87,7 @@ namespace Fvog
     constexpr auto flags = VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT;
     vkGetQueryPoolResults(device_->device_, queryPool_, index, 1, sizeof(startResult), &startResult, 0, flags);
     vkGetQueryPoolResults(device_->device_, queryPool_, index + capacity_, 1, sizeof(endResult), &endResult, 0, flags);
-    
+
     // The oldest queries' results are not available, abandon ship!
     if (startResult.availability == 0 || endResult.availability == 0)
     {
@@ -86,13 +96,11 @@ namespace Fvog
 
     // pop oldest timing and retrieve result
     count_--;
-    vkResetQueryPool(device_->device_, queryPool_, index, 1);
-    vkResetQueryPool(device_->device_, queryPool_, index + capacity_, 1);
     const auto period = (uint64_t)device_->device_.physical_device.properties.limits.timestampPeriod;
     if (endResult.timestamp > startResult.timestamp)
       return (endResult.timestamp - startResult.timestamp) * period;
-    //return startResult.timestamp - endResult.timestamp;
-    //__debugbreak();
+
+    // Should never happen if the clock is monotonically increasing.
     return std::nullopt;
   }
 } // namespace Fvog

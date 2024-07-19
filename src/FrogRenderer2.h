@@ -709,8 +709,8 @@ private:
 
   struct StatInfo
   {
-    explicit StatInfo(Fvog::Device& device)
-      : timer(device, Fvog::Device::frameOverlap)
+    explicit StatInfo(Fvog::Device& device, std::string name)
+      : timer(device, Fvog::Device::frameOverlap, std::move(name))
     {
     }
 

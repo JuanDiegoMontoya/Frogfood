@@ -258,10 +258,9 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   stats.resize(std::size(statGroups));
   for (size_t i = 0; i < std::size(statGroups); i++)
   {
-    for (size_t j = 0; j < statGroups[i].statNames.size(); j++)
+    for (auto statName : statGroups[i].statNames)
     {
-      //stats[i].resize(statGroups[i].statNames.size(), StatInfo(*device_));
-      stats[i].emplace_back(*device_);
+      stats[i].emplace_back(*device_, statName);
     }
   }
 

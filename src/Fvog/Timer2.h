@@ -3,6 +3,7 @@
 
 #include <utility>
 #include <optional>
+#include <string>
 
 namespace Fvog
 {
@@ -17,7 +18,7 @@ namespace Fvog
   class TimerQueryAsync
   {
   public:
-    TimerQueryAsync(Device& device, uint32_t N);
+    TimerQueryAsync(Device& device, uint32_t N, std::string name);
     ~TimerQueryAsync();
 
     TimerQueryAsync(const TimerQueryAsync&)            = delete;
@@ -28,7 +29,8 @@ namespace Fvog
         queryPool_(std::exchange(old.queryPool_, nullptr)),
         start_(std::exchange(old.start_, 0)),
         count_(std::exchange(old.count_, 0)),
-        capacity_(std::exchange(old.capacity_, 0))
+        capacity_(std::exchange(old.capacity_, 0)),
+        name_(std::move(old.name_))
     {
     }
 
@@ -60,6 +62,7 @@ namespace Fvog
     uint32_t start_{}; // next timer to be used for measurement
     uint32_t count_{}; // number of timers 'buffered', ie measurement was started by result not read yet
     uint32_t capacity_{};
+    std::string name_;
   };
 
   /// @brief RAII wrapper for TimerQueryAsync

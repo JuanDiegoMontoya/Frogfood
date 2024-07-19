@@ -130,15 +130,18 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     debugTexturePipeline(Pipelines2::DebugTexture(*device_, {.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat)}},})),
     debugLinesPipeline(Pipelines2::DebugLines(*device_,
       {
-        .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat), Frame::gReactiveMaskFormat}},
+        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+        .depthAttachmentFormat = Frame::gDepthFormat,
       })),
     debugAabbsPipeline(Pipelines2::DebugAabbs(*device_,
       {
-        .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat), Frame::gReactiveMaskFormat}},
+        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+        .depthAttachmentFormat = Frame::gDepthFormat,
       })),
     debugRectsPipeline(Pipelines2::DebugRects(*device_,
       {
-        .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat), Frame::gReactiveMaskFormat}},
+        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+        .depthAttachmentFormat = Frame::gDepthFormat,
       })),
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
     bloom(*device_),
@@ -209,11 +212,11 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   mainCamera.position.y = 1;
 
   //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
-  scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
+  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
-  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
+  scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
   //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
   //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
@@ -343,8 +346,6 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
                           vkEnumerateDeviceExtensionProperties,
                           vkGetPhysicalDeviceProperties);
     ffxFsr2ContextCreate(&fsr2Context, &contextDesc);
-
-    frame.gReactiveMask = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Fvog::Format::R8_UNORM, Fvog::TextureUsage::GENERAL, "Reactive Mask");
   }
   else
 #endif
@@ -382,11 +383,12 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   frame.gMotion = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gMotionFormat, usage, "gMotion");
   frame.gNormaAndFaceNormallPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormaAndFaceNormallPrev");
   frame.gDepthPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gDepthPrevFormat, usage, "gDepthPrev");
-  // The next four are general so they can be written to in postprocessing passes via compute
+  // The reamining are general so they can be written to in postprocessing passes via compute
   frame.colorHdrRenderRes = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::colorHdrRenderResFormat, Fvog::TextureUsage::GENERAL, "colorHdrRenderRes");
   frame.colorHdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorHdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorHdrWindowRes");
   frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip(*device_, {newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, Fvog::TextureUsage::GENERAL, "colorHdrBloomScratchBuffer");
   frame.colorLdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorLdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorLdrWindowRes");
+  frame.gReactiveMask = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gReactiveMaskFormat, Fvog::TextureUsage::GENERAL, "Reactive Mask");
 
   // Create debug views with alpha swizzle set to one so they can be seen in ImGui
   frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
@@ -1001,14 +1003,20 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   auto colorAttachments = std::vector<Fvog::RenderColorAttachment>{};
   colorAttachments.emplace_back(frame.colorHdrRenderRes->ImageView(), VK_ATTACHMENT_LOAD_OP_LOAD);
-  if (fsr2Enable)
-  {
-    ctx.ImageBarrierDiscard(*frame.gReactiveMask, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    colorAttachments.emplace_back(frame.gReactiveMask->ImageView(), VK_ATTACHMENT_LOAD_OP_CLEAR, Fvog::ClearColorValue{0.0f});
-  }
+  colorAttachments.emplace_back(frame.gReactiveMask->ImageView(), VK_ATTACHMENT_LOAD_OP_CLEAR, Fvog::ClearColorValue{0.0f});
 
+  ctx.ImageBarrierDiscard(*frame.gReactiveMask, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   ctx.ImageBarrier(*frame.colorHdrRenderRes, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+
+  if (!debugLines.empty())
+  {
+    if (!lineVertexBuffer || lineVertexBuffer->Size() < debugLines.size() * sizeof(Debug::Line))
+    {
+      lineVertexBuffer.emplace(*device_, (uint32_t)debugLines.size(), "Debug Lines");
+    }
+    lineVertexBuffer->UpdateData(commandBuffer, debugLines);
+  }
 
   ctx.BeginRendering({
     .name = "Debug Geometry",
@@ -1020,12 +1028,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //  Lines
     if (!debugLines.empty())
     {
-      if (!lineVertexBuffer || lineVertexBuffer->Size() < debugLines.size() * sizeof(Debug::Line))
-      {
-        lineVertexBuffer.emplace(*device_, (uint32_t)debugLines.size(), "Debug Lines");
-      }
-      lineVertexBuffer->UpdateData(commandBuffer, debugLines);
-
       ctx.BindGraphicsPipeline(debugLinesPipeline);
       ctx.SetPushConstants(DebugLinesPushConstants{
         .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,

@@ -375,7 +375,7 @@ private:
     std::optional<Fvog::Texture> gMotion;
     constexpr static Fvog::Format gMotionFormat = Fvog::Format::R16G16_SFLOAT;
     std::optional<Fvog::Texture> gReactiveMask; // FSR 2 reactive mask texture
-    constexpr static Fvog::Format gReactiveMaskFormat = Fvog::Format::R32_SFLOAT;
+    constexpr static Fvog::Format gReactiveMaskFormat = Fvog::Format::R8_UNORM;
 
     // Previous-frame G-buffer textures used for temporal effects
     std::optional<Fvog::Texture> gNormaAndFaceNormallPrev;

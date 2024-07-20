@@ -95,12 +95,7 @@ namespace Scene
       if (node->light)
       {
         newNode->light = node->light.value();
-
-        // TODO: HACK
-        renderer.GetDevice().ImmediateSubmit([&](VkCommandBuffer cmd)
-        {
-          newNode->lightId = renderer.SpawnLight(newNode->light, cmd);
-        });
+        newNode->lightId = renderer.SpawnLight(newNode->light);
       }
 
       for (const auto* childNode : node->children)
@@ -196,6 +191,13 @@ namespace Scene
   glm::mat4 Node::CalcLocalTransform() const noexcept
   {
     return glm::scale(glm::translate(translation) * glm::mat4_cast(rotation), scale);
+  }
+
+  void Node::DeleteLight(FrogRenderer2& renderer)
+  {
+    assert(lightId);
+    renderer.DeleteLight(lightId);
+    lightId = {0};
   }
 
   void Node::MarkDirty()

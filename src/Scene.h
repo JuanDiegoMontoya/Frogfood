@@ -30,6 +30,9 @@ namespace Scene
 
     [[nodiscard]] glm::mat4 CalcLocalTransform() const noexcept;
 
+    // Horrible interface
+    void DeleteLight(FrogRenderer2& renderer);
+
     glm::mat4 globalTransform;
     //glm::vec3 globalAabbMin;
     //glm::vec3 globalAabbMax;

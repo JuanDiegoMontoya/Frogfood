@@ -34,15 +34,21 @@ namespace
 {
   const char* g_defaultIniPath = "config/defaultLayout.ini";
 
+  uint32_t SetBits(uint32_t v, uint32_t mask, bool apply)
+  {
+    v &= ~mask; // Unset bits in the mask
+    if (apply)
+    {
+      v |= mask;
+    }
+    return v;
+  }
+
   bool ImGui_FlagCheckbox(const char* label, uint32_t* v, uint32_t bit)
   {
     bool isSet = *v & bit;
     const bool ret = ImGui::Checkbox(label, &isSet);
-    *v &= ~bit; // Unset the bit
-    if (isSet)
-    {
-      *v |= bit;
-    }
+    *v = SetBits(*v, bit, isSet);
     return ret;
   }
 
@@ -319,6 +325,20 @@ namespace
       EndProperty();
 
       return a || b || c;
+    }
+
+    bool FlagCheckbox(const char* label, uint32_t* bitfield, uint32_t bits, const char* tooltip = nullptr)
+    {
+      bool pressed0 = BeginSelectableProperty(label, tooltip, true, false, ImGuiSelectableFlags_SpanAllColumns);
+      ImGui::PushID(label);
+      bool pressed = ImGui_FlagCheckbox("", bitfield, bits);
+      ImGui::PopID();
+      EndProperty();
+      if (pressed0 == true)
+      {
+        *bitfield = SetBits(*bitfield, bits, !(*bitfield & bits));
+      }
+      return pressed || pressed0;
     }
   }
 }
@@ -619,40 +639,32 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
       shouldRemakeSwapchainNextFrame = true;
       presentMode = static_cast<VkPresentModeKHR>(pMode);
     }
-
-    ImGui::Checkbox("Update Culling Frustum", &updateCullingFrustum);
+    
     ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
     ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayNormal))
     {
       ImGui::SetTooltip("If unchecked, the hi-z buffer is cleared every frame, essentially forcing this test to pass");
     }
+    
 
-    ImGui::Checkbox("Execute Meshlet Generation", &executeMeshletGeneration);
-
-    ImGui::Separator();
-    ImGui::Text("Debug AABBs");
-    ImGui::Checkbox("Clear Each Frame##clear_debug_aabbs", &clearDebugAabbsEachFrame);
-    ImGui::Checkbox("Draw##draw_debug_aabbs", &drawDebugAabbs);
-
-    ImGui::Separator();
-    ImGui::Text("Debug Rects");
-    ImGui::Checkbox("Clear Each Frame##clear_debug_rects", &clearDebugRectsEachFrame);
-    ImGui::Checkbox("Draw##draw_debug_rects", &drawDebugRects);
+    ImGui::SeparatorText("Debug Drawing");
+    ImGui::Checkbox("Draw AABBs##draw_debug_aabbs", &drawDebugAabbs);
+    ImGui::Checkbox("Draw Rects##draw_debug_rects", &drawDebugRects);
 
     ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
 
-    ImGui::Separator();
-    ImGui::TextUnformatted("Culling");
-    ImGui_FlagCheckbox("Meshlet: Frustum", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_MESHLET_FRUSTUM);
-    ImGui_FlagCheckbox("Meshlet: Hi-z", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_MESHLET_HIZ);
-    ImGui_FlagCheckbox("Primitive: Back-facing", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_BACKFACE);
-    ImGui_FlagCheckbox("Primitive: Frustum", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_FRUSTUM);
-    ImGui_FlagCheckbox("Primitive: Small", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_SMALL);
-    ImGui_FlagCheckbox("Primitive: VSM", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_VSM);
+    ImGui::SeparatorText("Culling");
+    Gui::BeginProperties();
+    Gui::FlagCheckbox("Meshlet: Frustum", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_MESHLET_FRUSTUM);
+    Gui::FlagCheckbox("Meshlet: Hi-z", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_MESHLET_HIZ);
+    Gui::FlagCheckbox("Primitive: Back-facing", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_BACKFACE);
+    Gui::FlagCheckbox("Primitive: Frustum", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_FRUSTUM);
+    Gui::FlagCheckbox("Primitive: Small", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_SMALL);
+    Gui::FlagCheckbox("Primitive: VSM", &globalUniforms.flags, (uint32_t)GlobalFlags::CULL_PRIMITIVE_VSM);
+    Gui::EndProperties();
 
-    ImGui::Separator();
-    ImGui::TextUnformatted("Virtual Shadow Maps");
+    ImGui::SeparatorText("Virtual Shadow Maps");
     ImGui_FlagCheckbox("Show Clipmap ID", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_CLIPMAP_ID);
     ImGui_FlagCheckbox("Show Page Address", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_ADDRESS);
     ImGui_FlagCheckbox("Show Page Outlines", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES);
@@ -880,21 +892,23 @@ void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
   ImGui::End();
 }
 
-bool TraverseLight(FrogRenderer2& renderer, Render::LightID lightId, Render::GpuLight& light, VkCommandBuffer cmd)
+bool TraverseLightNode(FrogRenderer2& renderer, Scene::Node& node)
 {
+  assert(node.lightId);
+
   const char* typePreview = "";
   const char* typeIcon = "";
-  if (light.type == Render::LightType::DIRECTIONAL)
+  if (node.light.type == Render::LightType::DIRECTIONAL)
   {
     typePreview = "Directional";
     typeIcon = ICON_MD_SUNNY "  ";
   }
-  else if (light.type == Render::LightType::POINT)
+  else if (node.light.type == Render::LightType::POINT)
   {
     typePreview = "Point";
     typeIcon = ICON_FA_LIGHTBULB "  ";
   }
-  else if (light.type == Render::LightType::SPOT)
+  else if (node.light.type == Render::LightType::SPOT)
   {
     typePreview = "Spot";
     typeIcon = ICON_FA_FILTER "  ";
@@ -904,17 +918,17 @@ bool TraverseLight(FrogRenderer2& renderer, Render::LightID lightId, Render::Gpu
 
   if (ImGui::Button(ICON_FA_TRASH_CAN))
   {
-    renderer.DeleteLight(lightId, cmd);
+    node.DeleteLight(renderer);
   }
 
   ImGui::SameLine();
 
-  const bool isOpen = ImGui::TreeNode((std::string(typePreview) + " Light ").c_str());
+  const bool isOpen = ImGui::TreeNodeEx((std::string(typePreview) + " Light ").c_str(), ImGuiTreeNodeFlags_SpanAvailWidth);
 
   // Hack to right-align the light icon
   ImGui::SameLine(ImGui::GetWindowWidth() - 40);
 
-  ImGui::PushStyleColor(ImGuiCol_Text, glm::packUnorm4x8(glm::vec4(light.color, 1.0f)));
+  ImGui::PushStyleColor(ImGuiCol_Text, glm::packUnorm4x8(glm::vec4(node.light.color, 1.0f)));
   ImGui::TextUnformatted(typeIcon);
   ImGui::PopStyleColor();
 
@@ -927,31 +941,31 @@ bool TraverseLight(FrogRenderer2& renderer, Render::LightID lightId, Render::Gpu
       //{
       //   light.type = Utility::LightType::DIRECTIONAL;
       // }
-      if (ImGui::Selectable("Point", light.type == Render::LightType::POINT))
+      if (ImGui::Selectable("Point", node.light.type == Render::LightType::POINT))
       {
-        light.type = Render::LightType::POINT;
+        node.light.type = Render::LightType::POINT;
         modified   = true;
       }
-      else if (ImGui::Selectable("Spot", light.type == Render::LightType::SPOT))
+      else if (ImGui::Selectable("Spot", node.light.type == Render::LightType::SPOT))
       {
-        light.type = Render::LightType::SPOT;
+        node.light.type = Render::LightType::SPOT;
         modified   = true;
       }
       ImGui::EndCombo();
     }
 
-    modified |= ImGui::ColorEdit3("Color", &light.color[0], ImGuiColorEditFlags_Float);
-    modified |= ImGui::DragFloat("Intensity", &light.intensity, 1, 0, 1e6f, light.type == Render::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
+    modified |= ImGui::ColorEdit3("Color", &node.light.color[0], ImGuiColorEditFlags_Float);
+    modified |= ImGui::DragFloat("Intensity", &node.light.intensity, 1, 0, 1e6f, node.light.type == Render::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
 
-    if (light.type != Render::LightType::DIRECTIONAL)
+    if (node.light.type != Render::LightType::DIRECTIONAL)
     {
-      modified |= ImGui::DragFloat("Range", &light.range, 0.2f, 0.0f, 100.0f, "%.2f");
+      modified |= ImGui::DragFloat("Range", &node.light.range, 0.2f, 0.0f, 100.0f, "%.2f");
     }
 
-    if (light.type == Render::LightType::SPOT)
+    if (node.light.type == Render::LightType::SPOT)
     {
-      modified |= ImGui::SliderFloat("Inner cone angle", &light.innerConeAngle, 0, 3.14f, "%.2f rad");
-      modified |= ImGui::SliderFloat("Outer cone angle", &light.outerConeAngle, 0, 3.14f, "%.2f rad");
+      modified |= ImGui::SliderFloat("Inner cone angle", &node.light.innerConeAngle, 0, 3.14f, "%.2f rad");
+      modified |= ImGui::SliderFloat("Outer cone angle", &node.light.outerConeAngle, 0, 3.14f, "%.2f rad");
     }
 
     ImGui::TreePop();
@@ -1143,15 +1157,22 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
     {
       if (Gui::TreeNodeWithImage16("Post Processing", guiIcons.at("rgb")))
       {
+        const char* tonemapNames[] = {"AgX", "Tony McMapface"};
+
+        ImGui::SeparatorText("Display Mapper Propertes");
+        if (ImGui::BeginCombo("###Display Mapper", tonemapNames[tonemapMode]))
+        {
+          if (ImGui::Selectable("AgX", tonemapMode == AgX))
+          {
+            tonemapMode = AgX;
+          }
+          if (ImGui::Selectable("Tony McMapface", tonemapMode == TonyMcMapface))
+          {
+            tonemapMode = TonyMcMapface;
+          }
+          ImGui::EndCombo();
+        }
         Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
-        if (Gui::RadioButton("AgX", tonemapMode == 0))
-        {
-          tonemapMode = 0;
-        }
-        if (Gui::RadioButton("Tony McMapface", tonemapMode == 1))
-        {
-          tonemapMode = 1;
-        }
         if (tonemapMode == 0)
         {
           Gui::SliderFloat("Saturation", &tonemapUniforms.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
@@ -1159,7 +1180,9 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
           Gui::SliderFloat("Compression", &tonemapUniforms.compression, 0, 0.999f, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
         }
         bool enableDither = tonemapUniforms.enableDithering;
-        Gui::Checkbox("Dither", &enableDither);
+        Gui::Checkbox("1 ULP Dither", &enableDither, "Apply a small dither to color values before quantizing to 8 bits-per-pixel.\n"
+                                                     "This mitigates banding artifacts when there are large-scale gradients,\n"
+                                                     "while introducing practically imperceptible noise across the image.");
         Gui::EndProperties();
 
         tonemapUniforms.enableDithering = enableDither;
@@ -1247,7 +1270,7 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
 
       if (node->lightId)
       {
-        modified |= TraverseLight(*this, node->lightId, node->light, commandBuffer);
+        modified |= TraverseLightNode(*this, *node);
       }
 
       if (modified)

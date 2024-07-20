@@ -116,8 +116,12 @@ bool CullTriangle(Meshlet meshlet, uint localId)
   // However, the determinant of a matrix and its transpose are the same, so this is fine.
   if ((perFrameUniformsBuffers[globalUniformsIndex].flags & CULL_PRIMITIVE_BACKFACE) != 0)
   {
+    // TODO: Figure out why this only works when culling triangles with POSITIVE area (by its determinant).
+    // VK_FRONT_FACE_COUNTER_CLOCKWISE specifies that a triangle with positive area is considered front-facing.
+    // Hardware backface culling works as expected, which means something is wrong here, possibly with the
+    // order in which indices are loaded.
     const float det = determinant(mat3(posClip0.xyw, posClip1.xyw, posClip2.xyw));
-    if (det <= 0)
+    if (det >= 0)
     {
       return false;
     }

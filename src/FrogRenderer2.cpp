@@ -619,15 +619,9 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = std::max(1u, NumMeshletInstances())}, "Transient Visible Meshlet IDs");
   }
 
-  if (clearDebugAabbsEachFrame)
-  {
-    debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
-  }
-
-  if (clearDebugRectsEachFrame)
-  {
-    debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
-  }
+  // Clear debug buffers
+  debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+  debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
 
   vkCmdBindDescriptorSets(
     commandBuffer,
@@ -691,11 +685,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     vsmSun.UpdateOffset(commandBuffer, mainCamera.position);
   }
 
-  // TODO: this may wreak havoc on future (non-culling) systems that depend on this matrix, but we'll leave it for now
-  if (executeMeshletGeneration)
-  {
-    globalUniforms.oldViewProjUnjittered = device_->frameNumber == 1 ? viewProjUnjittered : globalUniforms.viewProjUnjittered;
-  }
+  globalUniforms.oldViewProjUnjittered = device_->frameNumber == 1 ? viewProjUnjittered : globalUniforms.viewProjUnjittered;
 
   auto mainView = ViewParams{
     .oldViewProj = globalUniforms.oldViewProjUnjittered,
@@ -706,14 +696,12 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     .cameraPos = glm::vec4(mainCamera.position, 0.0),
     .viewport = {0.0f, 0.0f, static_cast<float>(renderInternalWidth), static_cast<float>(renderInternalHeight)},
   };
+  
+  // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
+  // We should probably emit the far plane regardless, but alas, one thing at a time.
+  Math::MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
+  debugMainViewProj = viewProjUnjittered;
 
-  if (updateCullingFrustum)
-  {
-    // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
-    // We should probably emit the far plane regardless, but alas, one thing at a time.
-    Math::MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
-    debugMainViewProj = viewProjUnjittered;
-  }
   globalUniforms.viewProjUnjittered = viewProjUnjittered;
   globalUniforms.viewProj           = viewProj;
   globalUniforms.invViewProj        = glm::inverse(globalUniforms.viewProj);
@@ -732,8 +720,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
   ctx.Barrier();
-
-  if (executeMeshletGeneration)
+  
   {
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eCullMeshletsMain, commandBuffer);
     CullMeshletsForView(commandBuffer, mainView, persistentVisibleMeshletIds.value(), "Cull Meshlets Main");
@@ -1387,24 +1374,18 @@ void FrogRenderer2::DeleteMesh(Render::MeshID mesh)
 }
 
 // Having the data payload in the alloc function is kinda quirky and inconsistent, but I'll keep it for now.
-Render::LightID FrogRenderer2::SpawnLight(const Render::GpuLight& lightData, VkCommandBuffer commandBuffer)
+Render::LightID FrogRenderer2::SpawnLight(const Render::GpuLight& lightData)
 {
   ZoneScoped;
-  const auto lightAlloc = lightsBuffer.Allocate(sizeof(Render::GpuLight));
-
-  lightsBuffer.GetBuffer().UpdateDataExpensive(commandBuffer, lightData, lightAlloc.offset);
-
   auto myId = nextId++;
-  lightAllocations.emplace(myId, LightAlloc{.lightAlloc = lightAlloc});
+  spawnedLights.emplace_back(myId, lightData);
   return {myId};
 }
 
-void FrogRenderer2::DeleteLight(Render::LightID light, VkCommandBuffer commandBuffer)
+void FrogRenderer2::DeleteLight(Render::LightID light)
 {
   ZoneScoped;
-  auto it = lightAllocations.find(light.id);
-  lightsBuffer.Free(it->second.lightAlloc, commandBuffer);
-  lightAllocations.erase(it);
+  deletedLights.emplace_back(light.id);
 }
 
 Render::MaterialID FrogRenderer2::RegisterMaterial(Render::Material&& material)
@@ -1494,8 +1475,6 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     const auto meshletInstancesAlloc = meshletInstancesBuffer.Allocate(meshletInstanceCount * sizeof(Render::MeshletInstance));
     meshletInstancesUploads.emplace_back(srcOffset, meshletInstancesAlloc.offset, meshletInstancesAlloc.size);
 
-    //meshletInstancesBuffer.GetBuffer().UpdateDataExpensive(commandBuffer, std::span(meshletInstances), meshletInstancesAlloc.offset);
-
     meshAllocations.emplace(id,
       MeshAllocs{
         .meshletInstancesAlloc = meshletInstancesAlloc,
@@ -1526,6 +1505,23 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     }
   }
 
+  // Spawn lights
+  for (const auto& [id, gpuLight] : spawnedLights)
+  {
+    const auto lightAlloc = lightsBuffer.Allocate(sizeof(Render::GpuLight));
+    lightAllocations.emplace(id, LightAlloc{.lightAlloc = lightAlloc});
+    ctx.TeenyBufferUpdate(lightsBuffer.GetBuffer(), gpuLight, lightAlloc.offset);
+  }
+
+  // Delete lights
+  for (auto id : deletedLights)
+  {
+    auto it = lightAllocations.find(id);
+    lightsBuffer.Free(it->second.lightAlloc, commandBuffer);
+    lightAllocations.erase(it);
+  }
+
+  // Update mesh uniforms
   for (const auto& [id, uniforms] : modifiedMeshUniforms)
   {
     const auto offset = meshAllocations.at(id).instanceAlloc.GetOffset();
@@ -1533,6 +1529,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     ctx.TeenyBufferUpdate(geometryBuffer.GetBuffer(), uniforms, offset);
   }
 
+  // Update lights
   for (const auto& [id, light] : modifiedLights)
   {
     const auto offset = lightAllocations.at(id).lightAlloc.offset;
@@ -1540,6 +1537,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     ctx.TeenyBufferUpdate(lightsBuffer.GetBuffer(), light, offset);
   }
 
+  // Update materials
   for (const auto& [id, material] : modifiedMaterials)
   {
     const auto offset = materialAllocations.at(id).materialAlloc.GetOffset();
@@ -1553,4 +1551,6 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   modifiedMaterials.clear();
   deletedMeshes.clear();
   spawnedMeshes.clear();
+  deletedLights.clear();
+  spawnedLights.clear();
 }

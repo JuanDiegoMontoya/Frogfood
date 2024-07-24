@@ -1,6 +1,10 @@
 #include "SceneLoader.h"
 #include "Application.h"
 
+#include "Fvog/detail/ApiToEnum2.h"
+#include "Fvog/detail/Common.h"
+#include "Fvog/Rendering2.h"
+
 #include "Renderables.h"
 
 #include "Fvog/detail/ApiToEnum2.h"
@@ -17,6 +21,8 @@
 #include <volk.h>
 
 // #include <glm/gtx/string_cast.hpp>
+
+#include "Fvog/Buffer2.h"
 
 #include <stb_image.h>
 
@@ -130,6 +136,16 @@ namespace Utility
       }
     }
 
+    uint64_t ImageToBufferSize(Fvog::Format format, Fvog::Extent3D extent)
+    {
+      if (Fvog::detail::FormatIsBlockCompressed(format))
+      {
+        return Fvog::detail::BlockCompressedImageSize(format, extent.width, extent.height, extent.depth);
+      }
+
+      return extent.width * extent.height * extent.depth * Fvog::detail::FormatStorageSize(format);
+    }
+
     std::vector<Fvog::Texture> LoadImages(Fvog::Device& device, const fastgltf::Asset& asset)
     {
       ZoneScoped;
@@ -138,27 +154,30 @@ namespace Utility
 
       // Determine how each image is used so we can transcode to the proper format.
       // Assumption: each image has exactly one usage, or is used for both metallic-roughness AND occlusion (which is handled in LoadImages()).
-      for (const auto& material : asset.materials)
       {
-        if (material.pbrData.baseColorTexture && asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex)
+        ZoneScopedN("Determine Image Uses");
+        for (const auto& material : asset.materials)
         {
-          imageUsages[*asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex] = ImageUsage::BASE_COLOR;
-        }
-        if (material.normalTexture && asset.textures[material.normalTexture->textureIndex].imageIndex)
-        {
-          imageUsages[*asset.textures[material.normalTexture->textureIndex].imageIndex] = ImageUsage::NORMAL;
-        }
-        if (material.pbrData.metallicRoughnessTexture && asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex)
-        {
-          imageUsages[*asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex] = ImageUsage::METALLIC_ROUGHNESS;
-        }
-        if (material.occlusionTexture && asset.textures[material.occlusionTexture->textureIndex].imageIndex)
-        {
-          imageUsages[*asset.textures[material.occlusionTexture->textureIndex].imageIndex] = ImageUsage::OCCLUSION;
-        }
-        if (material.emissiveTexture && asset.textures[material.emissiveTexture->textureIndex].imageIndex)
-        {
-          imageUsages[*asset.textures[material.emissiveTexture->textureIndex].imageIndex] = ImageUsage::EMISSION;
+          if (material.pbrData.baseColorTexture && asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex)
+          {
+            imageUsages[*asset.textures[material.pbrData.baseColorTexture->textureIndex].imageIndex] = ImageUsage::BASE_COLOR;
+          }
+          if (material.normalTexture && asset.textures[material.normalTexture->textureIndex].imageIndex)
+          {
+            imageUsages[*asset.textures[material.normalTexture->textureIndex].imageIndex] = ImageUsage::NORMAL;
+          }
+          if (material.pbrData.metallicRoughnessTexture && asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex)
+          {
+            imageUsages[*asset.textures[material.pbrData.metallicRoughnessTexture->textureIndex].imageIndex] = ImageUsage::METALLIC_ROUGHNESS;
+          }
+          if (material.occlusionTexture && asset.textures[material.occlusionTexture->textureIndex].imageIndex)
+          {
+            imageUsages[*asset.textures[material.occlusionTexture->textureIndex].imageIndex] = ImageUsage::OCCLUSION;
+          }
+          if (material.emissiveTexture && asset.textures[material.emissiveTexture->textureIndex].imageIndex)
+          {
+            imageUsages[*asset.textures[material.emissiveTexture->textureIndex].imageIndex] = ImageUsage::EMISSION;
+          }
         }
       }
 
@@ -178,7 +197,7 @@ namespace Utility
         std::string name;
 
         // Non-ktx. Raw decoded pixel data
-        std::unique_ptr<unsigned char[]> data = {};
+        std::unique_ptr<unsigned char[], decltype([](unsigned char* p) { stbi_image_free(p); })> data = {};
 
         // ktx
         std::unique_ptr<ktxTexture2, decltype([](ktxTexture2* p) { ktxTexture_Destroy(ktxTexture(p)); })> ktx = {};
@@ -340,17 +359,90 @@ namespace Utility
           return rawImage;
         });
 
+      struct ImageUploadInfo
+      {
+        size_t imageIndex;
+        uint32_t level;
+        Fvog::Extent3D extent;
+        const void* data;
+        size_t bufferOffset;
+        size_t size;
+      };
+      size_t currentBufferOffset = 0;
+
+      auto imageUploadInfos = std::vector<ImageUploadInfo>();
+      imageUploadInfos.reserve(rawImageData.size());
+
       // Upload image data to GPU
       auto loadedImages = std::vector<Fvog::Texture>();
-      loadedImages.reserve(rawImageData.size());
+      loadedImages.reserve(rawImageData.size()); // This .reserve() is critical for iterator stability
 
-      //constexpr auto imageUsageFlags = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-      constexpr auto usage = Fvog::TextureUsage::READ_ONLY;
+      auto imagesToBarrier = std::vector<Fvog::Texture*>();
+      imagesToBarrier.reserve(rawImageData.size());
 
+      constexpr size_t BATCH_SIZE = 1'000'000'000;
+      auto stagingBuffer = Fvog::Buffer(device, {.size = BATCH_SIZE, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "Scene Loader Staging Buffer");
+
+      auto flushImageUploads = [&] {
+        ZoneScopedN("Flush Image Uploads");
+
+        // Recreate staging buffer if it's too small
+        if (currentBufferOffset + imageUploadInfos.back().size > stagingBuffer.SizeBytes())
+        {
+          stagingBuffer = Fvog::Buffer(device,
+            {.size = VkDeviceSize((currentBufferOffset + imageUploadInfos.back().size) * 1.5), .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE},
+            "Scene Loader Staging Buffer");
+        }
+
+        // Fire off copies in one batch
+        device.ImmediateSubmit([&](VkCommandBuffer commandBuffer)
+        {
+          auto ctx = Fvog::Context(device, commandBuffer);
+          for (auto* loadedImage : imagesToBarrier)
+          {
+            ctx.ImageBarrierDiscard(*loadedImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+          }
+
+          {
+            ZoneScopedN("Memcpy to buffer");
+            std::for_each(std::execution::par,
+              imageUploadInfos.begin(),
+              imageUploadInfos.end(),
+              [&](const ImageUploadInfo& imageUpload)
+              { std::memcpy(static_cast<std::byte*>(stagingBuffer.GetMappedMemory()) + imageUpload.bufferOffset, imageUpload.data, imageUpload.size); });
+          }
+
+          for (const auto& imageUpload : imageUploadInfos)
+          {
+            vkCmdCopyBufferToImage2(commandBuffer, Fvog::detail::Address(VkCopyBufferToImageInfo2{
+              .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+              .srcBuffer = stagingBuffer.Handle(),
+              .dstImage = loadedImages[imageUpload.imageIndex].Image(),
+              .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              .regionCount = 1,
+              .pRegions = Fvog::detail::Address(VkBufferImageCopy2{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+                .bufferOffset = imageUpload.bufferOffset,
+                .bufferRowLength = 0,
+                .bufferImageHeight = 0,
+                .imageSubresource = VkImageSubresourceLayers{
+                  .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                  .mipLevel = imageUpload.level,
+                  .layerCount = 1,
+                },
+                .imageExtent = {imageUpload.extent.width, imageUpload.extent.height, imageUpload.extent.depth},
+              }),
+            }));
+          }
+        });
+      };
+
+      // Create image objects
       for (const auto& image : rawImageData)
       {
         VkExtent2D dims = {static_cast<uint32_t>(image.width), static_cast<uint32_t>(image.height)};
         auto name = image.name.empty() ? "Loaded Material" : image.name;
+        constexpr auto usage = Fvog::TextureUsage::READ_ONLY;
 
         // Upload KTX2 compressed image
         if (image.isKtx)
@@ -358,7 +450,7 @@ namespace Utility
           ZoneScopedN("Upload BCn Image");
           auto* ktx = image.ktx.get();
 
-          auto textureData = Fvog::CreateTexture2DMip(device, dims, image.formatIfKtx, ktx->numLevels, usage, name.c_str());
+          auto textureData = Fvog::CreateTexture2DMip(device, dims, image.formatIfKtx, ktx->numLevels, usage, name);
 
           for (uint32_t level = 0; level < ktx->numLevels; level++)
           {
@@ -369,11 +461,18 @@ namespace Utility
             uint32_t height = std::max(dims.height >> level, 1u);
 
             // Update compressed image
-            textureData.UpdateImageSLOW({
-              .level = level,
-              .extent = {width, height, 1},
-              .data = ktx->pData + offset,
+            const auto size = ImageToBufferSize(textureData.GetCreateInfo().format, textureData.GetCreateInfo().extent);
+
+            imageUploadInfos.emplace_back(ImageUploadInfo {
+              .imageIndex   = loadedImages.size(),
+              .level        = level,
+              .extent       = {width, height, 1},
+              .data         = ktx->pData + offset,
+              .bufferOffset = currentBufferOffset,
+              .size         = size,
             });
+
+            currentBufferOffset += size;
           }
 
           loadedImages.emplace_back(std::move(textureData));
@@ -392,24 +491,59 @@ namespace Utility
                                                       //uint32_t(1 + floor(log2(glm::max(dims.width, dims.height)))),
                                                       1,
                                                       usage,
-                                                      name.c_str());
+                                                      name);
 
           // Update uncompressed image
-          textureData.UpdateImageSLOW({
-            .level = 0,
-            .offset = {},
-            .extent = {dims.width, dims.height, 1},
-            .data = image.data.get(),
-          });
           // TODO: generate mipmaps
           //textureData.GenMipmaps();
 
+          const auto size = ImageToBufferSize(textureData.GetCreateInfo().format, textureData.GetCreateInfo().extent);
+
+          imageUploadInfos.emplace_back(ImageUploadInfo{
+            .imageIndex   = loadedImages.size(),
+            .level        = 0,
+            .extent       = {dims.width, dims.height, 1},
+            .data         = image.data.get(),
+            .bufferOffset = currentBufferOffset,
+            .size         = size,
+          });
+
+          currentBufferOffset += size;
+
           loadedImages.emplace_back(std::move(textureData));
-          // TODO: Somewhere around here, an allocation that Tracy did not track is freed. This closes the connection.
-          // This occurs with glTFs that have textures, and the last thing I see in the client is "Upload 8-BPP Image"
-          // Current prime suspect is VMA due to the fact that it has vma_new and vma_delete which are defined to use new and __aligned_free, respectively
+        }
+
+        // The most recently-created image needs a barrier.
+        imagesToBarrier.emplace_back(&loadedImages.back());
+
+        // Flush upload after batch size is exceeded
+        if (currentBufferOffset >= BATCH_SIZE)
+        {
+          flushImageUploads();
+
+          imageUploadInfos.clear();
+
+          // Reset offset for next batch.
+          currentBufferOffset = 0;
         }
       }
+
+      if (!imageUploadInfos.empty())
+      {
+        flushImageUploads();
+      }
+
+      // Transition every loaded image to READ_ONLY
+      device.ImmediateSubmit(
+        [&](VkCommandBuffer commandBuffer)
+        {
+          auto ctx = Fvog::Context(device, commandBuffer);
+          for (auto& loadedImage : loadedImages)
+          {
+            ctx.ImageBarrier(loadedImage, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+          }
+        });
+
 
       return loadedImages;
     }
@@ -970,7 +1104,7 @@ namespace Utility
         
         const auto meshletCount = [&]
         {
-          ZoneScopedN("meshopt_buildMeshlets");
+          ZoneScopedN("Build Meshlets");
           return meshopt_buildMeshlets(rawMeshlets.data(),
             meshGeometry.indices.data(),
             meshGeometry.primitives.data(),
@@ -982,6 +1116,20 @@ namespace Utility
             maxMeshletIndices,
             maxMeshletPrimitives,
             meshletConeWeight);
+
+          // Faster, but generates less efficient meshlets
+          //{
+          //  ZoneScopedN("Optimize Vertex Cache");
+          //  meshopt_optimizeVertexCache(mesh.indices.data(), mesh.indices.data(), mesh.indices.size(), mesh.vertices.size());
+          //}
+          //return meshopt_buildMeshletsScan(rawMeshlets.data(),
+          //  meshGeometry.indices.data(),
+          //  meshGeometry.primitives.data(),
+          //  mesh.indices.data(),
+          //  mesh.indices.size(),
+          //  meshGeometry.vertices.size(),
+          //  maxMeshletIndices,
+          //  maxMeshletPrimitives);
         }();
 
         // TODO: replace with rawMeshlets.back() AFTER moving rawMeshlets.resize() before this

@@ -18,6 +18,7 @@ namespace Fvog
   class Device;
   class TextureView;
   class Texture;
+  class Buffer;
 
   namespace detail
   {

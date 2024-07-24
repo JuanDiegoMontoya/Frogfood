@@ -231,10 +231,12 @@ Application::Application(const CreateInfo& createInfo)
   : presentMode(createInfo.presentMode)
 {
   ZoneScoped;
-  // Initialiize GLFW
-  if (!glfwInit())
   {
-    throw std::runtime_error("Failed to initialize GLFW");
+    ZoneScopedN("Initialize GLFW");
+    if (!glfwInit())
+    {
+      throw std::runtime_error("Failed to initialize GLFW");
+    }
   }
 
   destroyList_.Push([] { glfwTerminate(); });
@@ -251,10 +253,13 @@ Application::Application(const CreateInfo& createInfo)
     throw std::runtime_error("No monitor detected");
   }
   const GLFWvidmode* videoMode = glfwGetVideoMode(monitor);
-  window = glfwCreateWindow(static_cast<int>(videoMode->width * .75), static_cast<int>(videoMode->height * .75), createInfo.name.data(), nullptr, nullptr);
-  if (!window)
   {
-    throw std::runtime_error("Failed to create window");
+    ZoneScopedN("Create Window");
+    window = glfwCreateWindow(static_cast<int>(videoMode->width * .75), static_cast<int>(videoMode->height * .75), createInfo.name.data(), nullptr, nullptr);
+    if (!window)
+    {
+      throw std::runtime_error("Failed to create window");
+    }
   }
 
   int xSize{};
@@ -281,51 +286,67 @@ Application::Application(const CreateInfo& createInfo)
 
   // Initialize Vulkan
   // instance
-  instance_ = vkb::InstanceBuilder()
-    .set_app_name("Frogrenderer")
-    .require_api_version(1, 3, 0)
-    .set_debug_callback(vulkan_debug_callback)
-    .enable_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
-    .build()
-    .value();
-
-  if (volkInitialize() != VK_SUCCESS)
   {
-    throw std::runtime_error("rip");
+    ZoneScopedN("Create Vulkan Instance");
+    instance_ = vkb::InstanceBuilder()
+      .set_app_name("Frogrenderer")
+      .require_api_version(1, 3, 0)
+      .set_debug_callback(vulkan_debug_callback)
+      .enable_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
+      .build()
+      .value();
   }
 
-  destroyList_.Push([] { volkFinalize(); });
+  {
+    ZoneScopedN("Initialize Volk");
+    if (volkInitialize() != VK_SUCCESS)
+    {
+      throw std::runtime_error("rip");
+    }
 
-  volkLoadInstance(instance_);
+    destroyList_.Push([] { volkFinalize(); });
+
+    volkLoadInstance(instance_);
+  }
 
   // surface
   VkSurfaceKHR surface;
-  if (auto err = glfwCreateWindowSurface(instance_, window, nullptr, &surface); err != VK_SUCCESS)
   {
-    const char* error_msg;
-    if (int ret = glfwGetError(&error_msg))
+    ZoneScopedN("Create Window Surface");
+    if (auto err = glfwCreateWindowSurface(instance_, window, nullptr, &surface); err != VK_SUCCESS)
     {
-      std::cout << ret << " ";
-      if (error_msg != nullptr)
-        std::cout << error_msg;
-      std::cout << "\n";
+      const char* error_msg;
+      if (int ret = glfwGetError(&error_msg))
+      {
+        std::cout << ret << " ";
+        if (error_msg != nullptr)
+          std::cout << error_msg;
+        std::cout << "\n";
+      }
+      throw std::runtime_error("rip");
     }
-    throw std::runtime_error("rip");
   }
+  
   destroyList_.Push([this] { vkDestroySurfaceKHR(instance_, surface_, nullptr); });
 
   // device
-  device_.emplace(instance_, surface);
+  {
+    ZoneScopedN("Create Device");
+    device_.emplace(instance_, surface);
+  }
   
   // swapchain
-  swapchain_ = MakeVkbSwapchain(device_->device_,
-                                windowFramebufferWidth,
-                                windowFramebufferHeight,
-                                presentMode,
-                                device_->frameOverlap,
-                                VK_NULL_HANDLE,
-                                swapchainSrgbFormat,
-                                swapchainUnormFormat);
+  {
+    ZoneScopedN("Create Swapchain");
+    swapchain_ = MakeVkbSwapchain(device_->device_,
+                                 windowFramebufferWidth,
+                                 windowFramebufferHeight,
+                                 presentMode,
+                                 device_->frameOverlap,
+                                 VK_NULL_HANDLE,
+                                 swapchainSrgbFormat,
+                                 swapchainUnormFormat);
+  }
   swapchainImages_ = swapchain_.get_images().value();
   swapchainImageViewsSrgb_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainSrgbFormat);
   swapchainImageViewsUnorm_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainUnormFormat);

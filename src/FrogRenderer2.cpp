@@ -23,6 +23,8 @@ using namespace Fvog::detail;
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyVulkan.hpp>
 
+#include <memory_resource>
+
 #define CONCAT_HELPER(x, y) x##y
 #define CONCAT(x, y)        CONCAT_HELPER(x, y)
 
@@ -267,17 +269,29 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   mainCamera.position.y = 1;
 
-  scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
-  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{.5}));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
-  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
-  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
-  //Utility::LoadModelFromFileMeshlet(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1}));
-  //scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
+  {
+    ZoneScopedN("Load scene");
+
+    auto* oldResource = std::pmr::get_default_resource();
+    auto arena = std::pmr::monotonic_buffer_resource();
+    auto sync  = std::pmr::synchronized_pool_resource(&arena);
+    std::pmr::set_default_resource(&sync);
+
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
+    //Utility::LoadModelFromFile(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
+    //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/hotel_01.glb", glm::scale(glm::vec3{.125f})));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
+    //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
+    scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
+    //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
+    //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1}));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
+
+    std::pmr::set_default_resource(oldResource);
+  }
 
   meshletIndirectCommand = Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>(*device_, {}, "Meshlet Indirect Command");
   cullTrianglesDispatchParams = Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>(*device_, {}, "Cull Triangles Dispatch Params");
@@ -597,7 +611,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   FlushUpdatedSceneData(commandBuffer);
 
-  // A few of these buffers are really slow (2-3ms) to create and destroy every frame (large ones hit vkAllocateMemory), so
+  // A few of these buffers are really slow to create (2-3ms) and destroy every frame (large ones hit vkAllocateMemory), so
   // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
   // The current scheme works fine when the scene is mostly static.
 
@@ -1300,7 +1314,7 @@ void FrogRenderer2::OnPathDrop([[maybe_unused]] std::span<const char*> paths)
   ZoneScoped;
   for (const auto& path : paths)
   {
-    scene.ImportLoadedScene(*this, Utility::LoadModelFromFileMeshlet(*device_, path, glm::identity<glm::mat4>()));
+    scene.Import(*this, Utility::LoadModelFromFile(*device_, path, glm::identity<glm::mat4>()));
   }
 }
 

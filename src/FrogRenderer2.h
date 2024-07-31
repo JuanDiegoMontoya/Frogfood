@@ -23,6 +23,7 @@
 #include <variant>
 #include <vector>
 #include <span>
+#include <memory_resource>
 
 // TODO: these structs should come from shared headers rather than copying them
 FVOG_DECLARE_ARGUMENTS(VisbufferPushConstants)
@@ -160,10 +161,10 @@ public:
 
   struct MeshGeometryInfo
   {
-    std::vector<Render::Meshlet> meshlets;
-    std::vector<Render::Vertex> vertices;
-    std::vector<Render::index_t> indices;
-    std::vector<Render::primitive_t> primitives;
+    std::pmr::vector<Render::Meshlet> meshlets;
+    std::pmr::vector<Render::Vertex> vertices;
+    std::pmr::vector<Render::index_t> indices;
+    std::pmr::vector<Render::primitive_t> primitives;
   };
 
   // Life and death

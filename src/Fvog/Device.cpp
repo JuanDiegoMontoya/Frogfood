@@ -37,6 +37,26 @@ namespace Fvog
       }
       return std::pair{postfix, divisor};
     }
+
+    constexpr auto deviceTracyHeapName = "GPU usage (Vulkan)";
+
+    void VKAPI_CALL DeviceAllocCallback([[maybe_unused]] VmaAllocator VMA_NOT_NULL allocator,
+      [[maybe_unused]] uint32_t memoryType,
+      VkDeviceMemory VMA_NOT_NULL_NON_DISPATCHABLE memory,
+      VkDeviceSize size,
+      [[maybe_unused]] void* VMA_NULLABLE pUserData)
+    {
+      TracyAllocN(memory, size, deviceTracyHeapName);
+    }
+
+    void VKAPI_CALL DeviceFreeCallback([[maybe_unused]] VmaAllocator VMA_NOT_NULL allocator,
+      [[maybe_unused]] uint32_t memoryType,
+      VkDeviceMemory VMA_NOT_NULL_NON_DISPATCHABLE memory,
+      [[maybe_unused]] VkDeviceSize size,
+      [[maybe_unused]] void* VMA_NULLABLE pUserData)
+    {
+      TracyFreeN(memory, deviceTracyHeapName);
+    }
   }
 
   Device::Device(vkb::Instance& instance, VkSurfaceKHR surface)
@@ -187,6 +207,10 @@ namespace Fvog
       .flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT,
       .physicalDevice = physicalDevice_,
       .device = device_,
+      .pDeviceMemoryCallbacks = Address(VmaDeviceMemoryCallbacks{
+        .pfnAllocate = DeviceAllocCallback,
+        .pfnFree = DeviceFreeCallback,
+      }),
       .pVulkanFunctions = Address(VmaVulkanFunctions{
         .vkGetInstanceProcAddr = vkGetInstanceProcAddr,
         .vkGetDeviceProcAddr = vkGetDeviceProcAddr,

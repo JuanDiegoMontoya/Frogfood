@@ -53,7 +53,7 @@ namespace Scene
 
   struct SceneMeshlet
   {
-    void ImportLoadedScene(FrogRenderer2& renderer, Utility::LoadModelResultA loadModelResult);
+    void Import(FrogRenderer2& renderer, Utility::LoadModelResultA loadModelResult);
 
     // Epic interface
     void CalcUpdatedData(FrogRenderer2& renderer) const;

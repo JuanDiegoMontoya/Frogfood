@@ -10,7 +10,7 @@
 
 namespace Scene
 {
-  void SceneMeshlet::ImportLoadedScene(FrogRenderer2& renderer, Utility::LoadModelResultA loadModelResult)
+  void SceneMeshlet::Import(FrogRenderer2& renderer, Utility::LoadModelResultA loadModelResult)
   {
     ZoneScoped;
     meshGeometryIds.reserve(meshGeometryIds.size() + loadModelResult.meshGeometries.size());
@@ -22,6 +22,16 @@ namespace Scene
 
     // Also assume that every node holds a light. These IDs are tiny.
     lightIds.reserve(lightIds.size() + loadModelResult.nodes.size());
+
+    if (materialIds.empty())
+    {
+      // First material is always default.
+      constexpr auto defaultGpu = Render::GpuMaterial{
+        .metallicFactor  = 0,
+        .baseColorFactor = {0.5f, 0.5f, 0.5f, 0.5f},
+      };
+      materialIds.emplace_back(renderer.RegisterMaterial({.gpuMaterial = defaultGpu}));
+    }
 
     materialIds.reserve(materialIds.size() + loadModelResult.materials.size());
 
@@ -38,7 +48,7 @@ namespace Scene
       };
       meshGeometryIds.push_back(renderer.RegisterMeshGeometry(info));
     }
-
+    
     for (auto& material : loadModelResult.materials)
     {
       materialIds.push_back(renderer.RegisterMaterial(std::move(material)));
@@ -110,7 +120,21 @@ namespace Scene
       nodes.emplace_back(std::move(newNode));
     }
 
-    images = std::move(loadModelResult.images);
+    std::ranges::move(loadModelResult.images, std::back_inserter(images));
+
+    {
+      ZoneScopedN("Free temp nodes");
+      loadModelResult.nodes.clear();
+    }
+    {
+      ZoneScopedN("Free mesh geometries");
+      ZoneTextF("Geometries: %llu", loadModelResult.meshGeometries.size());
+      loadModelResult.meshGeometries.clear();
+    }
+    {
+      ZoneScopedN("Free nodes");
+      loadModelResult.nodes.clear();
+    }
   }
 
   void SceneMeshlet::CalcUpdatedData(FrogRenderer2& renderer) const

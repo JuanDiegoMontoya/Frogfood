@@ -415,7 +415,7 @@ namespace Utility
           for (const auto& imageUpload : imageUploadInfos)
           {
             vkCmdCopyBufferToImage2(commandBuffer, Fvog::detail::Address(VkCopyBufferToImageInfo2{
-              .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+              .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
               .srcBuffer = stagingBuffer.Handle(),
               .dstImage = loadedImages[imageUpload.imageIndex].Image(),
               .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -544,6 +544,21 @@ namespace Utility
           }
         });
 
+      // Free CPU pixel data in parallel for better performance. Omitting this block will only affect perf.
+      {
+        ZoneScopedN("Free CPU pixel data");
+        ZoneTextF("Count: %llu", rawImageData.size());
+        std::for_each(std::execution::par,
+         rawImageData.begin(),
+         rawImageData.end(),
+          [](RawImageData& rawImage)
+          {
+            ZoneScoped;
+            rawImage.data.reset();
+            rawImage.ktx.reset();
+            rawImage.encodedPixelData.reset();
+          });
+      }
 
       return loadedImages;
     }
@@ -572,9 +587,69 @@ namespace Utility
 
       return transform;
     }
+
+    // TODO: move this hashing stuff into its own header
+    template<typename T>
+    struct hash;
+
+    template<class T>
+    inline void hash_combine(std::size_t& seed, const T& v)
+    {
+      seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+
+    // Recursive template code derived from Matthieu M.
+    template<class Tuple, size_t Index = std::tuple_size<Tuple>::value - 1>
+    struct HashValueImpl
+    {
+      static void apply(size_t& seed, const Tuple& tuple)
+      {
+        HashValueImpl<Tuple, Index - 1>::apply(seed, tuple);
+        hash_combine(seed, std::get<Index>(tuple));
+      }
+    };
+
+    template<class Tuple>
+    struct HashValueImpl<Tuple, 0>
+    {
+      static void apply(size_t& seed, const Tuple& tuple)
+      {
+        hash_combine(seed, std::get<0>(tuple));
+      }
+    };
+
+    template<typename... TT>
+    struct hash<std::tuple<TT...>>
+    {
+      size_t operator()(const std::tuple<TT...>& tt) const
+      {
+        size_t seed = 0;
+        HashValueImpl<std::tuple<TT...>>::apply(seed, tt);
+        return seed;
+      }
+    };
+
+    struct AccessorIndices
+    {
+      std::optional<std::size_t> positionsIndex;
+      std::optional<std::size_t> normalsIndex;
+      std::optional<std::size_t> texcoordsIndex;
+      std::optional<std::size_t> indicesIndex;
+
+      auto operator<=>(const AccessorIndices&) const = default;
+    };
+    
+    struct HashAccessorIndices
+    {
+      std::size_t operator()(const AccessorIndices& v) const
+      {
+        auto tup = std::make_tuple(v.positionsIndex, v.normalsIndex, v.texcoordsIndex, v.indicesIndex);
+        return hash<decltype(tup)>{}(tup);
+      }
+    };
   } // namespace
 
-  std::vector<Render::Vertex> ConvertVertexBufferFormat(const fastgltf::Asset& model,
+  std::pmr::vector<Render::Vertex> ConvertVertexBufferFormat(const fastgltf::Asset& model,
                                                 std::size_t positionAccessorIndex,
                                                 std::size_t normalAccessorIndex,
                                                 std::optional<std::size_t> texcoordAccessorIndex)
@@ -607,7 +682,7 @@ namespace Utility
 
     assert(positions.size() == normals.size() && positions.size() == texcoords.size());
 
-    std::vector<Render::Vertex> vertices;
+    std::pmr::vector<Render::Vertex> vertices;
     vertices.resize(positions.size());
 
     for (size_t i = 0; i < positions.size(); i++)
@@ -618,10 +693,10 @@ namespace Utility
     return vertices;
   }
 
-  std::vector<Render::index_t> ConvertIndexBufferFormat(const fastgltf::Asset& model, std::size_t indicesAccessorIndex)
+  std::pmr::vector<Render::index_t> ConvertIndexBufferFormat(const fastgltf::Asset& model, std::size_t indicesAccessorIndex)
   {
     ZoneScoped;
-    auto indices   = std::vector<Render::index_t>();
+    auto indices   = std::pmr::vector<Render::index_t>();
     auto& accessor = model.accessors[indicesAccessorIndex];
     indices.resize(accessor.count);
     fastgltf::iterateAccessorWithIndex<Render::index_t>(model, accessor, [&](Render::index_t index, size_t idx) { indices[idx] = index; });
@@ -664,14 +739,13 @@ namespace Utility
       if (loaderMaterial.occlusionTexture.has_value())
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_OCCLUSION_TEXTURE;
-        auto occlusionTextureIndex = loaderMaterial.occlusionTexture->textureIndex;
-        const auto& occlusionTexture = model.textures[occlusionTextureIndex];
-        auto& image = images[occlusionTexture.imageIndex.value()];
-        auto name = occlusionTexture.name.empty() ? "Occlusion" : occlusionTexture.name;
-        auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
+        const auto& occlusionTexture     = model.textures[loaderMaterial.occlusionTexture->textureIndex];
+        auto& image                      = images[occlusionTexture.imageIndex.value()];
+        auto name                        = occlusionTexture.name.empty() ? "Occlusion" : occlusionTexture.name;
+        auto view                        = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.occlusionTextureSampler = {
           std::move(view),
-          //LoadSampler(model.samplers[occlusionTexture.samplerIndex.value()]),
+          // LoadSampler(model.samplers[occlusionTexture.samplerIndex.value()]),
         };
 
         material.gpuMaterial.occlusionTextureIndex = material.occlusionTextureSampler->texture.GetSampledResourceHandle().index;
@@ -680,14 +754,13 @@ namespace Utility
       if (loaderMaterial.emissiveTexture.has_value())
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_EMISSION_TEXTURE;
-        auto emissiveTextureIndex = loaderMaterial.emissiveTexture->textureIndex;
-        const auto& emissiveTexture = model.textures[emissiveTextureIndex];
-        auto& image = images[emissiveTexture.imageIndex.value()];
-        auto name = emissiveTexture.name.empty() ? "Emissive" : emissiveTexture.name;
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        const auto& emissiveTexture     = model.textures[loaderMaterial.emissiveTexture->textureIndex];
+        auto& image                     = images[emissiveTexture.imageIndex.value()];
+        auto name                       = emissiveTexture.name.empty() ? "Emissive" : emissiveTexture.name;
+        auto view                       = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
         material.emissiveTextureSampler = {
           std::move(view),
-          //LoadSampler(model.samplers[emissiveTexture.samplerIndex.value()]),
+          // LoadSampler(model.samplers[emissiveTexture.samplerIndex.value()]),
         };
 
         material.gpuMaterial.emissionTextureIndex = material.emissiveTextureSampler->texture.GetSampledResourceHandle().index;
@@ -696,14 +769,13 @@ namespace Utility
       if (loaderMaterial.normalTexture.has_value())
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_NORMAL_TEXTURE;
-        auto normalTextureIndex = loaderMaterial.normalTexture->textureIndex;
-        const auto& normalTexture = model.textures[normalTextureIndex];
-        auto& image = images[normalTexture.imageIndex.value()];
-        auto name = normalTexture.name.empty() ? "Normal Map" : normalTexture.name;
-        auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
+        const auto& normalTexture     = model.textures[loaderMaterial.normalTexture->textureIndex];
+        auto& image                   = images[normalTexture.imageIndex.value()];
+        auto name                     = normalTexture.name.empty() ? "Normal Map" : normalTexture.name;
+        auto view                     = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.normalTextureSampler = {
           std::move(view),
-          //LoadSampler(model.samplers[normalTexture.samplerIndex.value()]),
+          // LoadSampler(model.samplers[normalTexture.samplerIndex.value()]),
         };
         material.gpuMaterial.normalXyScale = loaderMaterial.normalTexture->scale;
 
@@ -713,41 +785,38 @@ namespace Utility
       if (loaderMaterial.pbrData.baseColorTexture.has_value())
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
-        auto baseColorTextureIndex = loaderMaterial.pbrData.baseColorTexture->textureIndex;
-        const auto& baseColorTexture = model.textures[baseColorTextureIndex];
-        auto& image = images[baseColorTexture.imageIndex.value()];
-        auto name = baseColorTexture.name.empty() ? "Base Color" : baseColorTexture.name;
-        auto view = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
+        const auto& baseColorTexture  = model.textures[loaderMaterial.pbrData.baseColorTexture->textureIndex];
+        auto& image                   = images[baseColorTexture.imageIndex.value()];
+        auto name                     = baseColorTexture.name.empty() ? "Base Color" : baseColorTexture.name;
+        auto view                     = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
         material.albedoTextureSampler = {
           std::move(view),
-          //LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
+          // LoadSampler(model.samplers[baseColorTexture.samplerIndex.value()]),
         };
-        
+
         material.gpuMaterial.baseColorTextureIndex = material.albedoTextureSampler->texture.GetSampledResourceHandle().index;
       }
 
       if (loaderMaterial.pbrData.metallicRoughnessTexture.has_value())
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE;
-        auto metallicRoughnessTextureIndex = loaderMaterial.pbrData.metallicRoughnessTexture->textureIndex;
-        const auto& metallicRoughnessTexture = model.textures[metallicRoughnessTextureIndex];
-        auto& image = images[metallicRoughnessTexture.imageIndex.value()];
-        auto name = metallicRoughnessTexture.name.empty() ? "MetallicRoughness" : metallicRoughnessTexture.name;
-        auto view = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
+        const auto& metallicRoughnessTexture     = model.textures[loaderMaterial.pbrData.metallicRoughnessTexture->textureIndex];
+        auto& image                              = images[metallicRoughnessTexture.imageIndex.value()];
+        auto name                                = metallicRoughnessTexture.name.empty() ? "MetallicRoughness" : metallicRoughnessTexture.name;
+        auto view                                = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.metallicRoughnessTextureSampler = {
           std::move(view),
-          //LoadSampler(model.samplers[metallicRoughnessTexture.samplerIndex.value()]),
+          // LoadSampler(model.samplers[metallicRoughnessTexture.samplerIndex.value()]),
         };
 
         material.gpuMaterial.metallicRoughnessTextureIndex = material.metallicRoughnessTextureSampler->texture.GetSampledResourceHandle().index;
       }
 
-      material.gpuMaterial.baseColorFactor = glm::make_vec4(loaderMaterial.pbrData.baseColorFactor.data());
-      material.gpuMaterial.metallicFactor = loaderMaterial.pbrData.metallicFactor;
-      material.gpuMaterial.roughnessFactor = loaderMaterial.pbrData.roughnessFactor;
-
-      material.gpuMaterial.emissiveFactor = glm::make_vec3(loaderMaterial.emissiveFactor.data());
-      material.gpuMaterial.alphaCutoff = loaderMaterial.alphaCutoff;
+      material.gpuMaterial.baseColorFactor  = glm::make_vec4(loaderMaterial.pbrData.baseColorFactor.data());
+      material.gpuMaterial.metallicFactor   = loaderMaterial.pbrData.metallicFactor;
+      material.gpuMaterial.roughnessFactor  = loaderMaterial.pbrData.roughnessFactor;
+      material.gpuMaterial.emissiveFactor   = glm::make_vec3(loaderMaterial.emissiveFactor.data());
+      material.gpuMaterial.alphaCutoff      = loaderMaterial.alphaCutoff;
       material.gpuMaterial.emissiveStrength = loaderMaterial.emissiveStrength.value_or(1.0f);
       materials.emplace_back(std::move(material));
     }
@@ -758,28 +827,16 @@ namespace Utility
   // Corresponds to a glTF primitive. In other words, it's the mesh data that corresponds to a draw call.
   struct RawMesh
   {
-    std::vector<Render::Vertex> vertices;
-    std::vector<Render::index_t> indices;
+    std::pmr::vector<Render::Vertex> vertices;
+    std::pmr::vector<Render::index_t> indices;
     Render::Box3D boundingBox;
-  };
-
-  struct NodeTempData
-  {
-    struct Indices
-    {
-      size_t rawMeshIndex;
-      size_t materialIndex;
-    };
-    std::vector<Indices> indices;
   };
 
   struct LoadModelResult
   {
-    std::vector<std::unique_ptr<LoadModelNode>> nodes;
-    // This is a semi-hacky way to extend `nodes` without changing the node type, so we can still splice our nodes onto the main scene's
-    //std::vector<NodeTempData> tempData;
-    std::vector<RawMesh> rawMeshes;
-    std::vector<Render::Material> materials;
+    std::pmr::vector<std::unique_ptr<LoadModelNode>> nodes;
+    std::pmr::vector<RawMesh> rawMeshes;
+    std::pmr::vector<Render::Material> materials;
     std::vector<Fvog::Texture> images;
   };
 
@@ -842,17 +899,8 @@ namespace Utility
       std::ranges::move(images, std::back_inserter(scene.images));
     }
 
-    struct AccessorIndices
-    {
-      std::optional<std::size_t> positionsIndex;
-      std::optional<std::size_t> normalsIndex;
-      std::optional<std::size_t> texcoordsIndex;
-      std::optional<std::size_t> indicesIndex;
-
-      auto operator<=>(const AccessorIndices&) const = default;
-    };
-
-    auto uniqueAccessorCombinations = std::vector<std::pair<AccessorIndices, std::size_t>>();
+    //auto uniqueAccessorCombinations = std::vector<std::pair<AccessorIndices, std::size_t>>();
+    auto uniqueAccessorCombinations = std::unordered_map<AccessorIndices, std::size_t, HashAccessorIndices>();
 
     // <node*, global transform>
     struct StackElement
@@ -878,146 +926,161 @@ namespace Utility
     // All nodes referenced in the scene MUST be root nodes
     for (auto nodeIndex : asset.scenes[0].nodeIndices)
     {
-      const auto& assetNode = asset.nodes[nodeIndex];
-      const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
+      const auto& assetNode    = asset.nodes[nodeIndex];
+      const auto name          = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
       LoadModelNode* sceneNode = scene.nodes.emplace_back(std::make_unique<LoadModelNode>(name, rootTranslation, rootRotation, rootScale)).get();
       rootNode->children.emplace_back(sceneNode);
       nodeStack.emplace(sceneNode, &assetNode);
     }
 
-    while (!nodeStack.empty())
     {
-      decltype(nodeStack)::value_type top = nodeStack.top();
-      const auto& [node, gltfNode] = top;
-      nodeStack.pop();
-
-      const glm::mat4 localTransform = NodeToMat4(*gltfNode);
-
-      std::array<float, 16> localTransformArray{};
-      std::copy_n(&localTransform[0][0], 16, localTransformArray.data());
-      std::array<float, 3> scaleArray{};
-      std::array<float, 4> rotationArray{};
-      std::array<float, 3> translationArray{};
-      fastgltf::decomposeTransformMatrix(localTransformArray, scaleArray, rotationArray, translationArray);
-
-      node->translation = glm::make_vec3(translationArray.data());
-      node->rotation = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
-      node->scale = glm::make_vec3(scaleArray.data());
-
-      for (auto childNodeIndex : gltfNode->children)
+      ZoneScopedN("Traverse glTF scene");
+      size_t count = 0;
+      while (!nodeStack.empty())
       {
-        const auto& assetNode = asset.nodes[childNodeIndex];
-        const auto name = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
-        auto& childSceneNode   = scene.nodes.emplace_back(std::make_unique<LoadModelNode>(name));
-        node->children.emplace_back(childSceneNode.get());
-        nodeStack.emplace(childSceneNode.get(), &assetNode);
-      }
+        count++;
+        decltype(nodeStack)::value_type top = nodeStack.top();
+        const auto& [node, gltfNode]        = top;
+        nodeStack.pop();
 
-      if (gltfNode->meshIndex.has_value())
-      {
-        // Load each primitive in the mesh
-        for (const fastgltf::Mesh& mesh = asset.meshes[gltfNode->meshIndex.value()]; const auto& primitive : mesh.primitives)
+        const glm::mat4 localTransform = NodeToMat4(*gltfNode);
+
+        std::array<float, 16> localTransformArray{};
+        std::copy_n(&localTransform[0][0], 16, localTransformArray.data());
+        std::array<float, 3> scaleArray{};
+        std::array<float, 4> rotationArray{};
+        std::array<float, 3> translationArray{};
+
         {
-          AccessorIndices accessorIndices;
-          if (auto it = primitive.findAttribute("POSITION"); it != primitive.attributes.end())
+          ZoneScopedN("Decompose transform matrix");
+          fastgltf::decomposeTransformMatrix(localTransformArray, scaleArray, rotationArray, translationArray);
+        }
+
+        node->translation = glm::make_vec3(translationArray.data());
+        node->rotation    = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
+        node->scale       = glm::make_vec3(scaleArray.data());
+
+        for (auto childNodeIndex : gltfNode->children)
+        {
+          const auto& assetNode = asset.nodes[childNodeIndex];
+          const auto name       = assetNode.name.empty() ? std::string("Node") : std::string(assetNode.name);
+          auto& childSceneNode  = scene.nodes.emplace_back(std::make_unique<LoadModelNode>(name));
+          node->children.emplace_back(childSceneNode.get());
+          nodeStack.emplace(childSceneNode.get(), &assetNode);
+        }
+
+        if (gltfNode->meshIndex.has_value())
+        {
+          ZoneScopedN("Load glTF mesh");
+
+          // Load each primitive in the mesh
+          for (const fastgltf::Mesh& mesh = asset.meshes[gltfNode->meshIndex.value()]; const auto& primitive : mesh.primitives)
           {
-            accessorIndices.positionsIndex = it->second;
+            AccessorIndices accessorIndices;
+            if (auto it = primitive.findAttribute("POSITION"); it != primitive.attributes.end())
+            {
+              accessorIndices.positionsIndex = it->second;
+            }
+            else
+            {
+              // FWOG_UNREACHABLE;
+              assert(false);
+            }
+
+            if (auto it = primitive.findAttribute("NORMAL"); it != primitive.attributes.end())
+            {
+              accessorIndices.normalsIndex = it->second;
+            }
+            else
+            {
+              // TODO: calculate normal
+              // FWOG_UNREACHABLE;
+              assert(false);
+            }
+
+            if (auto it = primitive.findAttribute("TEXCOORD_0"); it != primitive.attributes.end())
+            {
+              accessorIndices.texcoordsIndex = it->second;
+            }
+            else
+            {
+              // Okay, texcoord can be safely missing
+            }
+
+            assert(primitive.indicesAccessor.has_value() && "Non-indexed meshes are not supported");
+            accessorIndices.indicesIndex = primitive.indicesAccessor;
+
+            size_t rawMeshIndex = uniqueAccessorCombinations.size();
+
+            // Only emplace and increment counter if combo does not exist
+            //if (auto it = std::ranges::find_if(uniqueAccessorCombinations, [&](const auto& p) { return p.first == accessorIndices; });
+            if (auto it = uniqueAccessorCombinations.find(accessorIndices);
+                it == uniqueAccessorCombinations.end())
+            {
+              //uniqueAccessorCombinations.emplace_back(accessorIndices, rawMeshIndex);
+              uniqueAccessorCombinations.emplace(accessorIndices, rawMeshIndex);
+            }
+            else
+            {
+              // Combo already exists
+              rawMeshIndex = it->second;
+            }
+
+            auto materialId = primitive.materialIndex.has_value() ? uint32_t(primitive.materialIndex.value()) : 0;
+
+            if (skipMaterials)
+            {
+              materialId = 0;
+            }
+
+            node->meshes.emplace_back(rawMeshIndex, materialId);
+          }
+        }
+
+        // Deduplicating lights is not a concern (they are small and quick to decode), so we load them here for convenience.
+        if (gltfNode->lightIndex.has_value())
+        {
+          const auto& light = asset.lights[*gltfNode->lightIndex];
+
+          Render::GpuLight gpuLight{};
+
+          if (light.type == fastgltf::LightType::Directional)
+          {
+            gpuLight.type = Render::LightType::DIRECTIONAL;
+          }
+          else if (light.type == fastgltf::LightType::Spot)
+          {
+            gpuLight.type = Render::LightType::SPOT;
           }
           else
           {
-            //FWOG_UNREACHABLE;
-            assert(false);
+            gpuLight.type = Render::LightType::POINT;
           }
 
-          if (auto it = primitive.findAttribute("NORMAL"); it != primitive.attributes.end())
-          {
-            accessorIndices.normalsIndex = it->second;
-          }
-          else
-          {
-            // TODO: calculate normal
-            //FWOG_UNREACHABLE;
-            assert(false);
-          }
+          gpuLight.color     = glm::make_vec3(light.color.data());
+          gpuLight.intensity = light.intensity;
+          // If not present, range is infinite
+          gpuLight.range          = light.range.value_or(std::numeric_limits<float>::infinity());
+          gpuLight.innerConeAngle = light.innerConeAngle.value_or(0);
+          gpuLight.outerConeAngle = light.outerConeAngle.value_or(0);
 
-          if (auto it = primitive.findAttribute("TEXCOORD_0"); it != primitive.attributes.end())
-          {
-            accessorIndices.texcoordsIndex = it->second;
-          }
-          else
-          {
-            // Okay, texcoord can be safely missing
-          }
-
-          assert(primitive.indicesAccessor.has_value() && "Non-indexed meshes are not supported");
-          accessorIndices.indicesIndex = primitive.indicesAccessor;
-
-          size_t rawMeshIndex = uniqueAccessorCombinations.size();
-
-          // Only emplace and increment counter if combo does not exist
-          if (auto it = std::ranges::find_if(uniqueAccessorCombinations, [&](const auto& p) { return p.first == accessorIndices; }); it == uniqueAccessorCombinations.end())
-          {
-            uniqueAccessorCombinations.emplace_back(accessorIndices, rawMeshIndex);
-          }
-          else
-          {
-            // Combo already exists
-            rawMeshIndex = it->second;
-          }
-
-          auto materialId = primitive.materialIndex.has_value() ? uint32_t(primitive.materialIndex.value()) : 0;
-
-          if (skipMaterials)
-          {
-            materialId = 0;
-          }
-
-          node->meshes.emplace_back(rawMeshIndex, materialId);
+          node->light = gpuLight;
         }
       }
-
-      // Deduplicating lights is not a concern (they are small and quick to decode), so we load them here for convenience.
-      if (gltfNode->lightIndex.has_value())
-      {
-        const auto& light = asset.lights[*gltfNode->lightIndex];
-
-        Render::GpuLight gpuLight{};
-
-        if (light.type == fastgltf::LightType::Directional)
-        {
-          gpuLight.type = Render::LightType::DIRECTIONAL;
-        }
-        else if (light.type == fastgltf::LightType::Spot)
-        {
-          gpuLight.type = Render::LightType::SPOT;
-        }
-        else
-        {
-          gpuLight.type = Render::LightType::POINT;
-        }
-
-        gpuLight.color = glm::make_vec3(light.color.data());
-        gpuLight.intensity = light.intensity;
-        // If not present, range is infinite
-        gpuLight.range = light.range.value_or(std::numeric_limits<float>::infinity());
-        gpuLight.innerConeAngle = light.innerConeAngle.value_or(0);
-        gpuLight.outerConeAngle = light.outerConeAngle.value_or(0);
-
-        node->light = gpuLight;
-      }
+      ZoneTextF("Nodes traversed: %llu", count);
     }
 
     scene.rawMeshes.resize(uniqueAccessorCombinations.size());
     
-    std::transform(
+    std::for_each(
       std::execution::par,
       uniqueAccessorCombinations.begin(),
       uniqueAccessorCombinations.end(),
-      scene.rawMeshes.begin(),
-      [&](const auto& keyValue) -> RawMesh
+      //scene.rawMeshes.begin(),
+      [&](const auto& keyValue)
       {
         ZoneScopedN("Convert vertices and indices");
-        const auto& [accessorIndices, _] = keyValue;
+        const auto& [accessorIndices, index] = keyValue;
         auto vertices = ConvertVertexBufferFormat(asset, accessorIndices.positionsIndex.value(), accessorIndices.normalsIndex.value(), accessorIndices.texcoordsIndex);
         auto indices = ConvertIndexBufferFormat(asset, accessorIndices.indicesIndex.value());
 
@@ -1043,7 +1106,7 @@ namespace Utility
           bboxMax = {(*iv)[0], (*iv)[1], (*iv)[2]};
         }
 
-        return RawMesh{
+        scene.rawMeshes[index] = RawMesh{
           .vertices = std::move(vertices),
           .indices = std::move(indices),
           .boundingBox = {.min = bboxMin, .max = bboxMax},
@@ -1055,18 +1118,10 @@ namespace Utility
     return scene;
   }
 
-  LoadModelResultA LoadModelFromFileMeshlet(Fvog::Device& device, const std::filesystem::path& fileName, glm::mat4 rootTransform, bool skipMaterials)
+  LoadModelResultA LoadModelFromFile(Fvog::Device& device, const std::filesystem::path& fileName, const glm::mat4& rootTransform, bool skipMaterials)
   {
     ZoneScoped;
     ZoneText(fileName.string().c_str(), fileName.string().size());
-
-    auto result = LoadModelResultA{};
-
-    // First material is always default.
-    result.materials.emplace_back(Render::GpuMaterial{
-      .metallicFactor  = 0,
-      .baseColorFactor = {0.5f, 0.5f, 0.5f, 0.5f},
-    });
 
     auto loadedScene = LoadModelFromFileBase(device, fileName, rootTransform, skipMaterials);
 
@@ -1090,9 +1145,6 @@ namespace Utility
         auto& mesh = loadedScene->rawMeshes[meshIdx];
 
         const auto maxMeshlets = meshopt_buildMeshletsBound(mesh.indices.size(), maxMeshletIndices, maxMeshletPrimitives);
-
-        //MeshletIntermediateInfo meshletInfo;
-        //auto& [rawMeshPtr, vertices, meshletIndices, meshletPrimitives, rawMeshlets] = meshletInfo;
 
         auto meshGeometry = MeshGeometry{};
 
@@ -1165,7 +1217,6 @@ namespace Utility
       });
     
     loadModelResult.rootNodes.emplace_back(loadedScene->nodes.front().get());
-    //std::ranges::move(loadedScene->nodes, std::back_inserter(loadModelResult.nodes));
     loadModelResult.nodes = std::move(loadedScene->nodes);
 
     return loadModelResult;

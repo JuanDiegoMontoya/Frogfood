@@ -36,7 +36,6 @@ namespace Render
     // Fwog::SamplerState sampler;
 
     Fvog::TextureView texture;
-    // Fvog::Device::DescriptorInfo textureDescriptorInfo;
   };
 
   enum class MaterialFlagBit

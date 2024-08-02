@@ -94,7 +94,7 @@ namespace Scene
       {
         auto& meshInstanceId = meshInstanceIds.emplace_back(renderer.RegisterMeshInstance({
           .meshGeometry = meshGeometryIds[baseMeshGeometryIndex + meshIndex],
-          .material     = materialIds[baseMaterialIndex + materialIndex],
+          .material     = materialIds[materialIndex.has_value() ? baseMaterialIndex + *materialIndex : 0],
         }));
         
         auto meshId = meshIds.emplace_back(renderer.SpawnMesh(meshInstanceId));

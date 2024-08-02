@@ -36,7 +36,7 @@ namespace Utility
     struct MeshIndices
     {
       size_t meshIndex;
-      size_t materialIndex;
+      std::optional<size_t> materialIndex;
     };
     std::vector<MeshIndices> meshes;
     std::optional<Render::GpuLight> light; // TODO: hold a light without position/direction type safety

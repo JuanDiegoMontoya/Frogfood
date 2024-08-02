@@ -275,9 +275,6 @@ Application::Application(const CreateInfo& createInfo)
   glfwSetWindowPos(window, videoMode->width / 2 - windowFramebufferWidth / 2 + monitorLeft, videoMode->height / 2 - windowFramebufferHeight / 2 + monitorTop);
 
   glfwSetWindowUserPointer(window, this);
-  //glfwMakeContextCurrent(window);
-  //glfwSwapInterval(vsyncEnabled ? 1 : 0);
-  // TODO: configure vsync
 
   glfwSetCursorPosCallback(window, ApplicationAccess::CursorPosCallback);
   glfwSetCursorEnterCallback(window, ApplicationAccess::CursorEnterCallback);

@@ -1026,11 +1026,11 @@ namespace Utility
               rawMeshIndex = it->second;
             }
 
-            auto materialId = primitive.materialIndex.has_value() ? uint32_t(primitive.materialIndex.value()) : 0;
+            auto materialId = primitive.materialIndex;
 
             if (skipMaterials)
             {
-              materialId = 0;
+              materialId = std::nullopt;
             }
 
             node->meshes.emplace_back(rawMeshIndex, materialId);

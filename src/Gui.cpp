@@ -14,6 +14,8 @@
 #include "vulkan/vulkan_core.h"
 #include <GLFW/glfw3.h>
 
+#include <tracy/Tracy.hpp>
+
 #include <algorithm>
 #include <filesystem>
 #include <string>
@@ -1305,6 +1307,8 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
 
 void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuffer)
 {
+  ZoneScoped;
+
   if (ImGui::GetKeyPressedAmount(ImGuiKey_F1, 10000, 1))
   {
     showGui = !showGui;

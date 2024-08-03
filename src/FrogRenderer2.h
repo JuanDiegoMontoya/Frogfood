@@ -623,7 +623,7 @@ private:
   template<typename T>
   struct ScrollingBuffer
   {
-    ScrollingBuffer(size_t capacity = 2000) : capacity(capacity)
+    ScrollingBuffer(size_t capacity = 3000) : capacity(capacity)
     {
       data = std::make_unique<T[]>(capacity);
     }

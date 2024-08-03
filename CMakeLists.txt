@@ -58,6 +58,8 @@ add_executable(frogRender
     src/Scene.h
     src/Scene.cpp
     src/Renderables.h
+    src/techniques/Atmosphere.h
+    src/techniques/Atmosphere.cpp
 )
 
 target_compile_options(frogRender

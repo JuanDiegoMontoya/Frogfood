@@ -104,7 +104,7 @@ namespace Pipelines2
 
   Fvog::ComputePipeline Tonemap(Fvog::Device& device)
   {
-    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/TonemapAndDither.comp.glsl");
+    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/post/TonemapAndDither.comp.glsl");
 
     return Fvog::ComputePipeline(device, {
       .name = "Tonemap and dither",

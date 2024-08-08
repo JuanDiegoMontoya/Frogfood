@@ -19,6 +19,7 @@
 
 #include "shaders/Resources.h.glsl"
 #include "shaders/ShadeDeferredPbr.h.glsl"
+#include "shaders/post/TonemapAndDither.shared.h"
 
 #include <variant>
 #include <vector>
@@ -73,21 +74,6 @@ FVOG_DECLARE_ARGUMENTS(HzbReducePushConstants)
 {
   FVOG_UINT32 prevHzbIndex;
   FVOG_UINT32 curHzbIndex;
-};
-
-FVOG_DECLARE_ARGUMENTS(TonemapArguments)
-{
-  FVOG_UINT32 sceneColorIndex;
-  FVOG_UINT32 noiseIndex;
-  FVOG_UINT32 nearestSamplerIndex;
-  FVOG_UINT32 linearClampSamplerIndex;
-
-  FVOG_UINT32 exposureIndex;
-  FVOG_UINT32 tonemapUniformsIndex;
-  FVOG_UINT32 outputImageIndex;
-
-  FVOG_UINT32 tonyMcMapfaceIndex;
-  FVOG_UINT32 tonemapper; // 0 = AgX, 1 = Tony
 };
 
 FVOG_DECLARE_ARGUMENTS(DebugTextureArguments)
@@ -317,15 +303,6 @@ private:
     float sourceAngleRad = 0.05f;
   };
 
-  struct TonemapUniforms
-  {
-    float saturation = 1.0f;
-    float agxDsLinearSection = 0.18f;
-    float peak = 1.0f;
-    float compression = 0.15f;
-    uint32_t enableDithering = true;
-  };
-
   // scene parameters
   float sunElevation = 3.0f;
   float sunAzimuth = 0.3f;
@@ -511,17 +488,39 @@ private:
   // Scene
   Scene::SceneMeshlet scene;
 
-  // Post processing
-  std::optional<Fvog::Texture> noiseTexture;
-  Fvog::NDeviceBuffer<TonemapUniforms> tonemapUniformBuffer;
-  TonemapUniforms tonemapUniforms{};
-  Fvog::Texture tonyMcMapfaceLut;
-  uint32_t tonemapMode = 1; // 0 = AgX, 1 = Tony
   enum DisplayMap
   {
     AgX,
-    TonyMcMapface
+    TonyMcMapface,
+    LinearClip, // Do nothing
+    GTMapper, // For HDR, but works with SDR
   };
+
+  // Post processing
+  std::optional<Fvog::Texture> noiseTexture;
+  Fvog::NDeviceBuffer<TonemapUniforms> tonemapUniformBuffer;
+  TonemapUniforms tonemapUniforms{
+    .tonemapper      = TonyMcMapface,
+    .enableDithering = true,
+    .quantizeBits    = 8,
+    .agx =
+      {
+        .saturation  = 1.0f,
+        .linear      = 0.10f,
+        .peak        = 1.0f,
+        .compression = 0.15f,
+      },
+    .gt =
+      {
+        .maxDisplayBrightness  = 1.00f,
+        .contrast              = 1.00f,
+        .startOfLinearSection  = 0.22f,
+        .lengthOfLinearSection = 0.40f,
+        .toeCurviness          = 1.33f,
+        .toeFloor              = 0.00f,
+      },
+  };
+  Fvog::Texture tonyMcMapfaceLut;
 
   uint32_t renderInternalWidth{};
   uint32_t renderInternalHeight{};

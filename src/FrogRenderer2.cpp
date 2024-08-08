@@ -1246,7 +1246,6 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .tonemapUniformsIndex = tonemapUniformBuffer.GetDeviceBuffer().GetResourceHandle().index,
       .outputImageIndex = frame.colorLdrWindowRes->ImageView().GetStorageResourceHandle().index,
       .tonyMcMapfaceIndex = tonyMcMapfaceLut.ImageView().GetSampledResourceHandle().index,
-      .tonemapper = tonemapMode,
     });
     ctx.DispatchInvocations(frame.colorLdrWindowRes.value().GetCreateInfo().extent);
     ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);

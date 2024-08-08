@@ -1159,27 +1159,46 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
     {
       if (Gui::TreeNodeWithImage16("Post Processing", guiIcons.at("rgb")))
       {
-        const char* tonemapNames[] = {"AgX", "Tony McMapface"};
+        const char* tonemapNames[] = {"AgX", "Tony McMapface", "Linear Clip", "Gran Turismo"};
 
         ImGui::SeparatorText("Display Mapper Propertes");
-        if (ImGui::BeginCombo("###Display Mapper", tonemapNames[tonemapMode]))
+        if (ImGui::BeginCombo("###Display Mapper", tonemapNames[tonemapUniforms.tonemapper]))
         {
-          if (ImGui::Selectable("AgX", tonemapMode == AgX))
+          if (ImGui::Selectable("AgX", tonemapUniforms.tonemapper == AgX))
           {
-            tonemapMode = AgX;
+            tonemapUniforms.tonemapper = AgX;
           }
-          if (ImGui::Selectable("Tony McMapface", tonemapMode == TonyMcMapface))
+          if (ImGui::Selectable("Tony McMapface", tonemapUniforms.tonemapper == TonyMcMapface))
           {
-            tonemapMode = TonyMcMapface;
+            tonemapUniforms.tonemapper = TonyMcMapface;
+          }
+          if (ImGui::Selectable("Linear Clip", tonemapUniforms.tonemapper == LinearClip))
+          {
+            tonemapUniforms.tonemapper = LinearClip;
+          }
+          if (ImGui::Selectable("Gran Turisomo", tonemapUniforms.tonemapper == GTMapper))
+          {
+            tonemapUniforms.tonemapper = GTMapper;
           }
           ImGui::EndCombo();
         }
         Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
-        if (tonemapMode == 0)
+        if (tonemapUniforms.tonemapper == AgX)
         {
-          Gui::SliderFloat("Saturation", &tonemapUniforms.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-          Gui::SliderFloat("AgX Linear Part", &tonemapUniforms.agxDsLinearSection, 0, tonemapUniforms.peak, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-          Gui::SliderFloat("Compression", &tonemapUniforms.compression, 0, 0.999f, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+          Gui::SliderFloat("Saturation", &tonemapUniforms.agx.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+          Gui::SliderFloat("Linear Length", &tonemapUniforms.agx.linear, 0, tonemapUniforms.agx.peak, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+          Gui::SliderFloat("Compression", &tonemapUniforms.agx.compression, 0, 0.999f, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+          Gui::SliderFloat("Peak", &tonemapUniforms.agx.peak, 0, 5, "The maximum value of the function.\nShould be >1 for HDR output.", "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+        }
+        if (tonemapUniforms.tonemapper == GTMapper)
+        {
+          // TODO: extract "peak" parameter since it's common to all HDR output
+          Gui::SliderFloat("Peak", &tonemapUniforms.gt.maxDisplayBrightness, 0, 5);
+          Gui::SliderFloat("Contrast", &tonemapUniforms.gt.contrast, 0, 1);
+          Gui::SliderFloat("Linear Start", &tonemapUniforms.gt.startOfLinearSection, 0, 1);
+          Gui::SliderFloat("Linear Length", &tonemapUniforms.gt.lengthOfLinearSection, 0, tonemapUniforms.gt.maxDisplayBrightness);
+          Gui::SliderFloat("Toe Curviness", &tonemapUniforms.gt.toeCurviness, 1, 3);
+          Gui::SliderFloat("Toe Floor", &tonemapUniforms.gt.toeFloor, 0, 1);
         }
         bool enableDither = tonemapUniforms.enableDithering;
         Gui::Checkbox("1 ULP Dither", &enableDither, "Apply a small dither to color values before quantizing to 8 bits-per-pixel.\n"

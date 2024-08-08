@@ -2,7 +2,7 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
-#include "Resources.h.glsl"
+#include "TonemapAndDither.shared.h"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -11,21 +11,6 @@ layout(local_size_x = 8, local_size_y = 8) in;
 FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 FVOG_DECLARE_SAMPLED_IMAGES(texture3D);
 FVOG_DECLARE_SAMPLERS;
-
-FVOG_DECLARE_ARGUMENTS(TonemapArguments)
-{
-  FVOG_UINT32 sceneColorIndex;
-  FVOG_UINT32 noiseIndex;
-  FVOG_UINT32 nearestSamplerIndex;
-  FVOG_UINT32 linearClampSamplerIndex;
-
-  FVOG_UINT32 exposureIndex;
-  FVOG_UINT32 tonemapUniformsIndex;
-  FVOG_UINT32 outputImageIndex;
-
-  FVOG_UINT32 tonyMcMapfaceIndex;
-  FVOG_UINT32 tonemapper; // 0 = AgX, 1 = Tony
-};
 
 //layout(std140, binding = 0) uniform ExposureBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ExposureBuffer)
@@ -38,14 +23,10 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ExposureBuffer)
 //layout(std140, binding = 1) uniform TonemapUniformBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly TonemapUniformBuffer)
 {
-  float saturation;
-  float agxDsLinearSection;
-  float peak;
-  float compression;
-  uint enableDithering;
+  TonemapUniforms data;
 } uniformsBuffers[];
 
-#define d_uniforms uniformsBuffers[tonemapUniformsIndex]
+#define uniforms uniformsBuffers[tonemapUniformsIndex].data
 
 //layout(binding = 0) uniform writeonly image2D i_output;
 FVOG_DECLARE_STORAGE_IMAGES(image2D);
@@ -111,9 +92,9 @@ vec3 DualSection(vec3 x, float linear, float peak)
 	return x;
 }
 
-vec3 AgX_DS(vec3 color_srgb, float exposure, float saturation, float linear, float peak, float compression)
+vec3 AgX_DS(vec3 color_srgb, AgXMapperSettings agx)
 {
-  vec3 workingColor = max(color_srgb, 0.0f) * pow(2.0, exposure);
+  vec3 workingColor = max(color_srgb, 0.0);
 
   mat3 sRGB_to_XYZ = PrimariesToMatrix(vec2(0.64, 0.33),
                                        vec2(0.3, 0.6), 
@@ -122,16 +103,16 @@ vec3 AgX_DS(vec3 color_srgb, float exposure, float saturation, float linear, flo
   mat3 adjusted_to_XYZ = ComputeCompressionMatrix(vec2(0.64,0.33),
                                                   vec2(0.3,0.6), 
                                                   vec2(0.15,0.06), 
-                                                  vec2(0.3127, 0.3290), compression);
+                                                  vec2(0.3127, 0.3290), agx.compression);
   mat3 XYZ_to_adjusted = inverse(adjusted_to_XYZ);
   mat3 sRGB_to_adjusted = sRGB_to_XYZ * XYZ_to_adjusted;
 
   workingColor = sRGB_to_adjusted * workingColor;
-  workingColor = clamp(DualSection(workingColor, linear, peak), 0.0, 1.0);
+  workingColor = clamp(DualSection(workingColor, agx.linear, agx.peak), 0.0, 1.0);
   
   vec3 luminanceWeight = vec3(0.2126729,  0.7151522,  0.0721750);
   vec3 desaturation = vec3(dot(workingColor, luminanceWeight));
-  workingColor = mix(desaturation, workingColor, saturation);
+  workingColor = mix(desaturation, workingColor, agx.saturation);
   workingColor = clamp(workingColor, 0.0, 1.0);
 
   workingColor = inverse(sRGB_to_adjusted) * workingColor;
@@ -140,9 +121,9 @@ vec3 AgX_DS(vec3 color_srgb, float exposure, float saturation, float linear, flo
 }
 
 // Tony McMapface from https://github.com/h3r2tic/tony-mc-mapface/blob/main/shader/tony_mc_mapface.hlsl
-vec3 TonyMcMapface(vec3 color_srgb, float exposure)
+vec3 TonyMcMapface(vec3 color_srgb)
 {
-  vec3 workingColor = max(color_srgb, 0.0f) * pow(2.0, exposure);
+  vec3 workingColor = max(color_srgb, 0.0f);
   vec3 encoded = workingColor / (1.0 + workingColor);
 
   vec3 dims = vec3(textureSize(Fvog_texture3D(tonyMcMapfaceIndex), 0));
@@ -151,8 +132,9 @@ vec3 TonyMcMapface(vec3 color_srgb, float exposure)
   return texture(Fvog_sampler3D(tonyMcMapfaceIndex, linearClampSamplerIndex), uv).rgb;
 }
 
-// sRGB OETF
-vec3 linear_to_nonlinear_srgb(vec3 linearColor)
+//////////////////////// OETFs ////////////////////////
+// sRGB inverse EOTF
+vec3 srgb_oetf(vec3 linearColor)
 {
   bvec3 cutoff = lessThan(linearColor, vec3(0.0031308));
   vec3 higher = vec3(1.055) * pow(linearColor, vec3(1.0 / 2.4)) - vec3(0.055);
@@ -161,11 +143,121 @@ vec3 linear_to_nonlinear_srgb(vec3 linearColor)
   return mix(higher, lower, cutoff);
 }
 
-vec3 apply_dither(vec3 color, vec2 uv)
+// Input should be in [0, 10000] nits
+float InversePQ(float x)
+{
+  const float m1 = 0.1593017578125;
+  const float m2 = 78.84375;
+  const float c1 = 0.8359375;
+  const float c2 = 18.8515625;
+  const float c3 = 18.6875;
+  float ym       = pow(x, m1);
+  return pow((c1 + c2 * ym) / (1 + c3 * ym), m2);
+}
+
+vec3 InversePQ(vec3 c)
+{
+  return vec3(
+    InversePQ(c.r),
+    InversePQ(c.g),
+    InversePQ(c.b)
+  );
+}
+
+// Input should be in [0, 100] nits
+float InversePQ_approx(float x)
+{
+  float k = pow((x * 0.01f), 0.1593017578125);
+  return (3.61972 * (1e-8) + k * (0.00102859 + k * (-0.101284 + 2.05784 * k))) / (0.0495245 + k * (0.135214 + k * (0.772669 + k)));
+}
+
+vec3 InversePQ_approx(vec3 c)
+{
+  return vec3(
+    InversePQ_approx(c.r),
+    InversePQ_approx(c.g),
+    InversePQ_approx(c.b)
+  );
+}
+
+vec3 apply_dither(vec3 color, vec2 uv, uint quantizeBits)
 {
   vec2 uvNoise = uv * (vec2(textureSize(Fvog_sampler2D(sceneColorIndex, nearestSamplerIndex), 0)) / vec2(textureSize(Fvog_sampler2D(noiseIndex, nearestSamplerIndex), 0)));
   vec3 noiseSample = textureLod(Fvog_sampler2D(noiseIndex, nearestSamplerIndex), uvNoise, 0).rgb;
-  return color + vec3((noiseSample - 0.5) / 255.0);
+  //return color + vec3((noiseSample - 0.5) / 255.0);
+  return color + vec3((noiseSample - 0.5) / ((1u << quantizeBits) - 1));
+}
+
+// TODO: this is just smoothstep
+float W_f(float x,float e0,float e1)
+{
+  if (x <= e0)
+    return 0;
+  if (x >= e1)
+    return 1;
+  float a = (x - e0) / (e1 - e0);
+  return a * a*(3 - 2 * a);
+}
+
+// TODO: replace with something better
+float H_f(float x, float e0, float e1)
+{
+  if (x <= e0)
+    return 0;
+  if (x >= e1)
+    return 1;
+  return (x - e0) / (e1 - e0);
+}
+
+// Display mapper suited for HDR (also works for LDR)
+// http://cdn2.gran-turismo.com/data/www/pdi_publications/PracticalHDRandWCGinGTS.pdf
+// https://www.desmos.com/calculator/mbkwnuihbd
+/* Defaults:
+ *   maxDisplayBrightness = 1
+ *   contrast = 1
+ *   startOfLinearSection = 0.22
+ *   lengthOfLinearSection = 0.4
+ *   toeCurviness = 1.33 ("black tightness")
+ *   toeFloor = 0 (darkest black)
+*/
+float GTMapper(float x, GTMapperSettings gt)
+{
+  float P = gt.maxDisplayBrightness;
+  float a = gt.contrast;
+  float m = gt.startOfLinearSection;
+  float l = gt.lengthOfLinearSection;
+  float c = gt.toeCurviness;
+  float b = gt.toeFloor;
+
+  // Linear section
+  float l0 = (P - m)*l / a;
+  float L0 = m - m / a;
+  float L1 = m + (1 - m) / a;
+  float L_x = m + a * (x - m);
+
+  // Toe
+  float T_x = m * pow(x / m, c) + b;
+
+  // Shoulder
+  float S0 = m + l0;
+  float S1 = m + a * l0;
+  float C2 = a * P / (P - S1);
+  float S_x = P - (P - S1) * exp(-(C2*(x-S0)/P));
+
+  float w0_x = 1 - W_f(x, 0, m);
+  float w2_x = H_f(x, m + l0, m + l0);
+  float w1_x = 1 - w0_x - w2_x;
+  float f_x = T_x * w0_x + L_x * w1_x + S_x * w2_x;
+  return f_x;
+}
+
+vec3 GTMapper(vec3 c, GTMapperSettings gt)
+{
+  return vec3(
+    GTMapper(c.r, gt),
+    GTMapper(c.g, gt),
+    GTMapper(c.b, gt)
+  );
 }
 
 void main()
@@ -181,24 +273,36 @@ void main()
   const vec2 uv = (vec2(gid) + 0.5) / targetDim;
   
   vec3 hdrColor = textureLod(Fvog_sampler2D(sceneColorIndex, nearestSamplerIndex), uv, 0).rgb;
-  vec3 ldrColor = hdrColor;
+  hdrColor *=  pow(2.0, d_exposureBuffer.exposure); // Apply exposure
+  vec3 compressedColor = hdrColor;
   
-  if (tonemapper == 0)
+  // sRGB/SDR display mappers
+  if (uniforms.tonemapper == 0)
   {
-    ldrColor = AgX_DS(hdrColor, d_exposureBuffer.exposure, d_uniforms.saturation, d_uniforms.agxDsLinearSection, d_uniforms.peak, d_uniforms.compression);
+    compressedColor = AgX_DS(hdrColor, uniforms.agx);
   }
-  if (tonemapper == 1)
+  if (uniforms.tonemapper == 1)
   {
-    ldrColor = TonyMcMapface(hdrColor, d_exposureBuffer.exposure);
+    compressedColor = TonyMcMapface(hdrColor);
+  }
+  if (uniforms.tonemapper == 2)
+  {
+	  compressedColor = clamp(hdrColor, vec3(0), vec3(1));
   }
 
-  vec3 srgbColor = linear_to_nonlinear_srgb(ldrColor);
+  // Hybrid/HDR-compatible diplay mappers
+  if (uniforms.tonemapper == 3)
+  {
+    compressedColor = GTMapper(hdrColor, uniforms.gt);
+  }
+
+  vec3 srgbColor = srgb_oetf(compressedColor);
 
   vec3 ditheredColor = srgbColor;
   
-  if (bool(d_uniforms.enableDithering))
+  if (bool(uniforms.enableDithering))
   {
-    ditheredColor = apply_dither(srgbColor, uv);
+    ditheredColor = apply_dither(srgbColor, uv, uniforms.quantizeBits);
   }
 
   imageStore(Fvog_image2D(outputImageIndex), gid, vec4(ditheredColor, 1.0));

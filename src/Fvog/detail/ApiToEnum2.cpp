@@ -82,6 +82,7 @@ namespace Fvog::detail
     case Format::B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
     case Format::R8G8B8A8_SNORM: return VK_FORMAT_R8G8B8A8_SNORM;
     case Format::A2R10G10B10_UNORM: return VK_FORMAT_A2R10G10B10_UNORM_PACK32;
+    case Format::A2B10G10R10_UNORM: return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
     case Format::A2R10G10B10_UINT: return VK_FORMAT_A2R10G10B10_UINT_PACK32;
     case Format::R16G16B16A16_UNORM: return VK_FORMAT_R16G16B16A16_UNORM;
     case Format::R16G16B16A16_SNORM: return VK_FORMAT_R16G16B16A16_SNORM;
@@ -159,6 +160,7 @@ namespace Fvog::detail
     case VK_FORMAT_B8G8R8A8_UNORM: return Format::B8G8R8A8_UNORM;
     case VK_FORMAT_R8G8B8A8_SNORM: return Format::R8G8B8A8_SNORM;
     case VK_FORMAT_A2R10G10B10_UNORM_PACK32: return Format::A2R10G10B10_UNORM;
+    case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return Format::A2B10G10R10_UNORM;
     case VK_FORMAT_A2R10G10B10_UINT_PACK32: return Format::A2R10G10B10_UINT;
     case VK_FORMAT_R16G16B16A16_UNORM: return Format::R16G16B16A16_UNORM;
     case VK_FORMAT_R16G16B16A16_SNORM: return Format::R16G16B16A16_SNORM;
@@ -365,5 +367,104 @@ namespace Fvog::detail
 
     assert(false);
     return 0;
+  }
+
+  const char* FormatToString(Format format)
+  {
+    switch (format)
+    {
+    case Format::UNDEFINED: return "UNDEFINED";
+    case Format::R8_UNORM: return "R8_UNORM";
+    case Format::R8_SNORM: return "R8_SNORM";
+    case Format::R16_UNORM: return "R16_UNORM";
+    case Format::R16_SNORM: return "R16_SNORM";
+    case Format::R8G8_UNORM: return "R8G8_UNORM";
+    case Format::R8G8_SNORM: return "R8G8_SNORM";
+    case Format::R16G16_UNORM: return "R16G16_UNORM";
+    case Format::R16G16_SNORM: return "R16G16_SNORM";
+    case Format::R4G4B4A4_UNORM: return "R4G4B4A4_UNORM";
+    case Format::R5G5B5A1_UNORM: return "R5G5B5A1_UNORM";
+    case Format::R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
+    case Format::B8G8R8A8_UNORM: return "B8G8R8A8_UNORM";
+    case Format::R8G8B8A8_SNORM: return "R8G8B8A8_SNORM";
+    case Format::A2R10G10B10_UNORM: return "A2R10G10B10_UNORM";
+    case Format::A2B10G10R10_UNORM: return "A2B10G10R10_UNORM";
+    case Format::A2R10G10B10_UINT: return "A2R10G10B10_UINT";
+    case Format::R16G16B16A16_UNORM: return "R16G16B16A16_UNORM";
+    case Format::R16G16B16A16_SNORM: return "R16G16B16A16_SNORM";
+    case Format::R8G8B8A8_SRGB: return "R8G8B8A8_SRGB";
+    case Format::B8G8R8A8_SRGB: return "B8G8R8A8_SRGB";
+    case Format::R16_SFLOAT: return "R16_SFLOAT";
+    case Format::R16G16_SFLOAT: return "R16G16_SFLOAT";
+    case Format::R16G16B16A16_SFLOAT: return "R16G16B16A16_SFLOAT";
+    case Format::R32_SFLOAT: return "R32_SFLOAT";
+    case Format::R32G32_SFLOAT: return "R32G32_SFLOAT";
+    case Format::R32G32B32A32_SFLOAT: return "R32G32B32A32_SFLOAT";
+    case Format::B10G11R11_UFLOAT: return "B10G11R11_UFLOAT";
+    case Format::E5B9G9R9_UFLOAT: return "E5B9G9R9_UFLOAT";
+    case Format::R8_SINT: return "R8_SINT";
+    case Format::R8_UINT: return "R8_UINT";
+    case Format::R16_SINT: return "R16_SINT";
+    case Format::R16_UINT: return "R16_UINT";
+    case Format::R32_SINT: return "R32_SINT";
+    case Format::R32_UINT: return "R32_UINT";
+    case Format::R8G8_SINT: return "R8G8_SINT";
+    case Format::R8G8_UINT: return "R8G8_UINT";
+    case Format::R16G16_SINT: return "R16G16_SINT";
+    case Format::R16G16_UINT: return "R16G16_UINT";
+    case Format::R32G32_SINT: return "R32G32_SINT";
+    case Format::R32G32_UINT: return "R32G32_UINT";
+    case Format::R8G8B8A8_SINT: return "R8G8B8A8_SINT";
+    case Format::R8G8B8A8_UINT: return "R8G8B8A8_UINT";
+    case Format::R16G16B16A16_SINT: return "R16G16B16A16_SINT";
+    case Format::R16G16B16A16_UINT: return "R16G16B16A16_UINT";
+    case Format::R32G32B32A32_SINT: return "R32G32B32A32_SINT";
+    case Format::R32G32B32A32_UINT: return "R32G32B32A32_UINT";
+    case Format::D32_SFLOAT: return "D32_SFLOAT";
+    case Format::X8_D24_UNORM: return "X8_D24_UNORM";
+    case Format::D16_UNORM: return "D16_UNORM";
+    case Format::D32_SFLOAT_S8_UINT: return "D32_SFLOAT_S8_UINT";
+    case Format::D24_UNORM_S8_UINT: return "D24_UNORM_S8_UINT";
+    case Format::BC1_RGB_UNORM: return "BC1_RGB_UNORM";
+    case Format::BC1_RGB_SRGB: return "BC1_RGB_SRGB";
+    case Format::BC1_RGBA_UNORM: return "BC1_RGBA_UNORM";
+    case Format::BC1_RGBA_SRGB: return "BC1_RGBA_SRGB";
+    case Format::BC2_RGBA_UNORM: return "BC2_RGBA_UNORM";
+    case Format::BC2_RGBA_SRGB: return "BC2_RGBA_SRGB";
+    case Format::BC3_RGBA_UNORM: return "BC3_RGBA_UNORM";
+    case Format::BC3_RGBA_SRGB: return "BC3_RGBA_SRGB";
+    case Format::BC4_R_UNORM: return "BC4_R_UNORM";
+    case Format::BC4_R_SNORM: return "BC4_R_SNORM";
+    case Format::BC5_RG_UNORM: return "BC5_RG_UNORM";
+    case Format::BC5_RG_SNORM: return "BC5_RG_SNORM";
+    case Format::BC6H_RGB_UFLOAT: return "BC6H_RGB_UFLOAT";
+    case Format::BC6H_RGB_SFLOAT: return "BC6H_RGB_SFLOAT";
+    case Format::BC7_RGBA_UNORM: return "BC7_RGBA_UNORM";
+    case Format::BC7_RGBA_SRGB: return "BC7_RGBA_SRGB";
+    default: assert(0); return "Unknown format";
+    }
+  }
+
+  const char* VkColorSpaceToString(VkColorSpaceKHR colorSpace)
+  {
+    switch (colorSpace)
+    {
+    case VK_COLOR_SPACE_SRGB_NONLINEAR_KHR: return "SRGB_NONLINEAR";
+    case VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT: return "DISPLAY_P3_NONLINEAR";
+    case VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT: return "EXTENDED_SRGB_LINEAR";
+    case VK_COLOR_SPACE_DISPLAY_P3_LINEAR_EXT: return "DISPLAY_P3_LINEAR";
+    case VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT: return "DCI_P3_NONLINEAR";
+    case VK_COLOR_SPACE_BT709_LINEAR_EXT: return "BT709_LINEAR";
+    case VK_COLOR_SPACE_BT709_NONLINEAR_EXT: return "BT709_NONLINEAR";
+    case VK_COLOR_SPACE_BT2020_LINEAR_EXT: return "BT2020_LINEAR";
+    case VK_COLOR_SPACE_HDR10_ST2084_EXT: return "HDR10_ST2084";
+    case VK_COLOR_SPACE_DOLBYVISION_EXT: return "DOLBYVISION";
+    case VK_COLOR_SPACE_HDR10_HLG_EXT: return "HDR10_HLG";
+    case VK_COLOR_SPACE_ADOBERGB_LINEAR_EXT: return "ADOBERGB_LINEAR";
+    case VK_COLOR_SPACE_ADOBERGB_NONLINEAR_EXT: return "ADOBERGB_NONLINEAR";
+    case VK_COLOR_SPACE_PASS_THROUGH_EXT: return "PASS_THROUGH";
+    case VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT: return "EXTENDED_SRGB_NONLINEAR";
+    default: assert(0); return "Unknown color space";
+    }
   }
 } // namespace Fvog::detail

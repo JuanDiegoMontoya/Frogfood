@@ -170,7 +170,15 @@ namespace Fvog
     // TODO: put this into a queue for delayed deletion
     if (device_)
     {
-      vkDestroyPipeline(device_->device_, pipeline_, nullptr);
+      device_->genericDeletionQueue_.emplace_back(
+        [device = device_, pipeline = pipeline_, frameOfLastUse = device_->frameNumber](uint64_t value) -> bool {
+          if (value >= frameOfLastUse)
+          {
+            vkDestroyPipeline(device->device_, pipeline, nullptr);
+            return true;
+          }
+          return false;
+        });
     }
   }
 

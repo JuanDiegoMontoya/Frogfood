@@ -83,8 +83,6 @@ struct ImGui_ImplFvog_InitInfo
   uint32_t ImageCount;               // >= MinImageCount
   VkSampleCountFlagBits MSAASamples; // 0 defaults to VK_SAMPLE_COUNT_1_BIT
 
-  Fvog::RenderTargetFormats formats;
-
   // (Optional) Allocation, Debugging
   void (*CheckVkResultFn)(VkResult err);
   VkDeviceSize MinAllocationSize; // Minimum allocation size. Set to 1024*1024 to satisfy zealous best practices validation layer and waste a little memory.
@@ -144,7 +142,7 @@ private:
 IMGUI_IMPL_API bool ImGui_ImplFvog_Init(ImGui_ImplFvog_InitInfo* info);
 IMGUI_IMPL_API void ImGui_ImplFvog_Shutdown();
 IMGUI_IMPL_API void ImGui_ImplFvog_NewFrame();
-IMGUI_IMPL_API void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer);
+IMGUI_IMPL_API void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkSurfaceFormatKHR format);
 IMGUI_IMPL_API void ImGui_ImplFvog_CreateFontsTexture();
 IMGUI_IMPL_API void ImGui_ImplFvog_DestroyFontsTexture();
 

@@ -3,6 +3,7 @@
 #include "Scene.h"
 
 #include <Fvog/Rendering2.h>
+#include <Fvog/detail/ApiToEnum2.h>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -634,12 +635,42 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
 {
   if (ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window"))
   {
+    // TODO: make this only display available present modes
     const auto items = std::array{"Immediate", "Mailbox", "FIFO"};
     auto pMode = static_cast<int>(presentMode);
     if (ImGui::Combo("Present Mode", &pMode, items.data(), (int)items.size()))
     {
       shouldRemakeSwapchainNextFrame = true;
       presentMode = static_cast<VkPresentModeKHR>(pMode);
+    }
+
+    const auto stringifySurfaceFormat = [](VkSurfaceFormatKHR surfaceFormat)
+    {
+      return std::string(Fvog::detail::FormatToString(Fvog::detail::VkToFormat(surfaceFormat.format))) + " | " +
+             Fvog::detail::VkColorSpaceToString(surfaceFormat.colorSpace);
+    };
+
+    const auto currentFormatStr = stringifySurfaceFormat(nextSwapchainFormat_);
+    if (ImGui::BeginCombo("Format", currentFormatStr.c_str(), ImGuiComboFlags_HeightLarge))
+    {
+      ImGui::BeginTable("surface formats", 1, ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody);
+      ImGui::TableSetupColumn("name");
+
+      for (auto surfaceFormat : availableSurfaceFormats_)
+      {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        if (ImGui::Selectable(stringifySurfaceFormat(surfaceFormat).c_str(),
+              surfaceFormat.colorSpace == nextSwapchainFormat_.colorSpace && surfaceFormat.format == nextSwapchainFormat_.format,
+              ImGuiSelectableFlags_SpanAllColumns))
+        {
+          nextSwapchainFormat_ = surfaceFormat;
+          shouldRemakeSwapchainNextFrame = true;
+        }
+      }
+
+      ImGui::EndTable();
+      ImGui::EndCombo();
     }
     
     ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);

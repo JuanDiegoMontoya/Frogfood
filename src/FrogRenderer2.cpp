@@ -168,7 +168,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       })),
     shadingPipeline(Pipelines2::Shading(*device_, {.colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},})),
     tonemapPipeline(Pipelines2::Tonemap(*device_)),
-    debugTexturePipeline(Pipelines2::DebugTexture(*device_, {.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat)}},})),
+    debugTexturePipeline(Pipelines2::DebugTexture(*device_, {.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},})),
     debugLinesPipeline(Pipelines2::DebugLines(*device_,
       {
         .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
@@ -466,6 +466,12 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   frame.gEmissionSwizzled = frame.gEmission->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
   frame.gNormalSwizzled = frame.gNormalAndFaceNormal->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
   frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
+
+  // TODO: only recreate if the swapchain format changed
+  debugTexturePipeline = Pipelines2::DebugTexture(*device_,
+    {
+      .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},
+    });
 }
 
 void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
@@ -1267,7 +1273,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .colorAttachmentCount = 1,
       .pColorAttachments = Address(VkRenderingAttachmentInfo{
         .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .imageView = swapchainImageViewsUnorm_[swapchainImageIndex],
+        .imageView = swapchainImageViews_[swapchainImageIndex],
         .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
         .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,

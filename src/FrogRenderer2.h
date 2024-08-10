@@ -306,7 +306,7 @@ private:
   // scene parameters
   float sunElevation = 3.0f;
   float sunAzimuth = 0.3f;
-  float sunStrength = 50;
+  float sunStrength = 10;
   glm::vec3 sunColor = {1, 1, 1};
 
   float aspectRatio = 1;
@@ -379,7 +379,7 @@ private:
 
     // Final tonemapped color
     std::optional<Fvog::Texture> colorLdrWindowRes;
-    constexpr static Fvog::Format colorLdrWindowResFormat = Fvog::Format::R8G8B8A8_UNORM;
+    constexpr static Fvog::Format colorLdrWindowResFormat = Fvog::Format::R16G16B16A16_SFLOAT;
 
     // For debug drawing with ImGui
     std::optional<Fvog::TextureView> gAlbedoSwizzled;

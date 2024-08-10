@@ -199,13 +199,8 @@ static auto MakeVkbSwapchain(const vkb::Device& device,
                              [[maybe_unused]] VkPresentModeKHR presentMode,
                              uint32_t imageCount,
                              VkSwapchainKHR oldSwapchain,
-                             VkFormat srgbFormat,
-                             VkFormat unormFormat)
+                             VkSurfaceFormatKHR format)
 {
-  const auto allowedViewFormats = std::array{
-    srgbFormat,
-    unormFormat,
-  };
   return vkb::SwapchainBuilder{device}
     .set_desired_min_image_count(imageCount)
     .set_old_swapchain(oldSwapchain)
@@ -216,13 +211,7 @@ static auto MakeVkbSwapchain(const vkb::Device& device,
     .add_fallback_present_mode(VK_PRESENT_MODE_IMMEDIATE_KHR)
     .set_desired_extent(width, height)
     .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-    .set_desired_format({srgbFormat, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
-    .set_create_flags(VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR)
-    .add_pNext(Fvog::detail::Address(VkImageFormatListCreateInfo{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO,
-      .viewFormatCount = static_cast<uint32_t>(allowedViewFormats.size()),
-      .pViewFormats = allowedViewFormats.data(),
-    }))
+    .set_desired_format(format)
     .build()
     .value();
 }
@@ -290,6 +279,7 @@ Application::Application(const CreateInfo& createInfo)
       .require_api_version(1, 3, 0)
       .set_debug_callback(vulkan_debug_callback)
       .enable_extension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)
+      .enable_extension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME)
       .build()
       .value();
   }
@@ -336,17 +326,22 @@ Application::Application(const CreateInfo& createInfo)
   {
     ZoneScopedN("Create Swapchain");
     swapchain_ = MakeVkbSwapchain(device_->device_,
-                                 windowFramebufferWidth,
-                                 windowFramebufferHeight,
-                                 presentMode,
-                                 device_->frameOverlap,
-                                 VK_NULL_HANDLE,
-                                 swapchainSrgbFormat,
-                                 swapchainUnormFormat);
+      windowFramebufferWidth,
+      windowFramebufferHeight,
+      presentMode,
+      device_->frameOverlap,
+      VK_NULL_HANDLE,
+      swapchainFormat_);
+
+    swapchainImages_     = swapchain_.get_images().value();
+    swapchainImageViews_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainFormat_.format);
+
+    // Get available formats for this surface
+    uint32_t surfaceFormatCount{};
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device_->physicalDevice_, surface, &surfaceFormatCount, nullptr);
+    availableSurfaceFormats_.resize(surfaceFormatCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device_->physicalDevice_, surface, &surfaceFormatCount, availableSurfaceFormats_.data());
   }
-  swapchainImages_ = swapchain_.get_images().value();
-  swapchainImageViewsSrgb_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainSrgbFormat);
-  swapchainImageViewsUnorm_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainUnormFormat);
 
   glslang::InitializeProcess();
   destroyList_.Push([] { glslang::FinalizeProcess(); });
@@ -385,9 +380,6 @@ Application::Application(const CreateInfo& createInfo)
     .DescriptorPool = imguiDescriptorPool_,
     .MinImageCount = swapchain_.image_count,
     .ImageCount = swapchain_.image_count,
-    .formats = {
-      .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainUnormFormat)}},
-    },
     .CheckVkResultFn = Fvog::detail::CheckVkResult,
   };
 
@@ -411,12 +403,7 @@ Application::~Application()
 
   vkb::destroy_swapchain(swapchain_);
 
-  for (auto view : swapchainImageViewsSrgb_)
-  {
-    vkDestroyImageView(device_->device_, view, nullptr);
-  }
-
-  for (auto view : swapchainImageViewsUnorm_)
+  for (auto view : swapchainImageViews_)
   {
     vkDestroyImageView(device_->device_, view, nullptr);
   }
@@ -524,14 +511,14 @@ void Application::Draw()
         .colorAttachmentCount = 1,
         .pColorAttachments = Fvog::detail::Address(VkRenderingAttachmentInfo{
           .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-          .imageView = swapchainImageViewsUnorm_[swapchainImageIndex],
+          .imageView = swapchainImageViews_[swapchainImageIndex],
           .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
           .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
           .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         })
       }));
       //auto marker = Fwog::ScopedDebugMarker("Draw GUI");
-      ImGui_ImplFvog_RenderDrawData(drawData, commandBuffer);
+      ImGui_ImplFvog_RenderDrawData(drawData, commandBuffer, swapchainFormat_);
       vkCmdEndRendering(commandBuffer);
     }
 
@@ -638,6 +625,7 @@ void Application::Run()
 
     if (shouldRemakeSwapchainNextFrame)
     {
+      swapchainFormat_ = nextSwapchainFormat_; // "Flush" nextSwapchainFormat_
       RemakeSwapchain(windowFramebufferWidth, windowFramebufferHeight);
       shouldRemakeSwapchainNextFrame = false;
     }
@@ -732,8 +720,7 @@ void Application::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_un
                                   presentMode,
                                   device_->frameOverlap,
                                   oldSwapchain,
-                                  swapchainSrgbFormat,
-                                  swapchainUnormFormat);
+                                  swapchainFormat_);
   }
 
   {
@@ -742,20 +729,14 @@ void Application::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_un
     // Technically UB, but in practice the WFI makes it work
     vkb::destroy_swapchain(oldSwapchain);
 
-    for (auto view : swapchainImageViewsSrgb_)
-    {
-      vkDestroyImageView(device_->device_, view, nullptr);
-    }
-
-    for (auto view : swapchainImageViewsUnorm_)
+    for (auto view : swapchainImageViews_)
     {
       vkDestroyImageView(device_->device_, view, nullptr);
     }
   }
 
   swapchainImages_ = swapchain_.get_images().value();
-  swapchainImageViewsSrgb_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainSrgbFormat);
-  swapchainImageViewsUnorm_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainUnormFormat);
+  swapchainImageViews_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainFormat_.format);
 
   swapchainOk = true;
 

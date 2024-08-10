@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : enable
 
 #include "TonemapAndDither.shared.h"
+#include "../Color.h.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -32,46 +33,6 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly TonemapUniformBuffer)
 FVOG_DECLARE_STORAGE_IMAGES(image2D);
 
 // AgX implementation from here: https://www.shadertoy.com/view/Dt3XDr
-vec3 xyYToXYZ(vec3 xyY)
-{
-  float Y = xyY.z;
-  float X = (xyY.x * Y) / xyY.y;
-  float Z = ((1.0f - xyY.x - xyY.y) * Y) / xyY.y;
-
-  return vec3(X, Y, Z);
-}
-
-vec3 Unproject(vec2 xy)
-{
-  return xyYToXYZ(vec3(xy.x, xy.y, 1));				
-}
-
-mat3 PrimariesToMatrix(vec2 xy_red, vec2 xy_green, vec2 xy_blue, vec2 xy_white)
-{
-  vec3 XYZ_red = Unproject(xy_red);
-  vec3 XYZ_green = Unproject(xy_green);
-  vec3 XYZ_blue = Unproject(xy_blue);
-  vec3 XYZ_white = Unproject(xy_white);
-
-  mat3 temp = mat3(XYZ_red.x,	  1.0, XYZ_red.z,
-                    XYZ_green.x, 1.f, XYZ_green.z,
-                    XYZ_blue.x,  1.0, XYZ_blue.z);
-  vec3 scale = inverse(temp) * XYZ_white;
-
-  return mat3(XYZ_red * scale.x, XYZ_green * scale.y, XYZ_blue * scale.z);
-}
-
-mat3 ComputeCompressionMatrix(vec2 xyR, vec2 xyG, vec2 xyB, vec2 xyW, float compression)
-{
-  float scale_factor = 1.0 / (1.0 - compression);
-  vec2 R = mix(xyW, xyR, scale_factor);
-  vec2 G = mix(xyW, xyG, scale_factor);
-  vec2 B = mix(xyW, xyB, scale_factor);
-  vec2 W = xyW;
-
-  return PrimariesToMatrix(R, G, B, W);
-}
-
 float DualSection(float x, float linear, float peak)
 {
 	// Length of linear section
@@ -96,24 +57,18 @@ vec3 AgX_DS(vec3 color_srgb, AgXMapperSettings agx)
 {
   vec3 workingColor = max(color_srgb, 0.0);
 
-  mat3 sRGB_to_XYZ = PrimariesToMatrix(vec2(0.64, 0.33),
-                                       vec2(0.3, 0.6), 
-                                       vec2(0.15, 0.06), 
-                                       vec2(0.3127, 0.3290));
-  mat3 adjusted_to_XYZ = ComputeCompressionMatrix(vec2(0.64,0.33),
-                                                  vec2(0.3,0.6), 
-                                                  vec2(0.15,0.06), 
-                                                  vec2(0.3127, 0.3290), agx.compression);
-  mat3 XYZ_to_adjusted = inverse(adjusted_to_XYZ);
+  mat3 sRGB_to_XYZ      = color_PrimariesToMatrix(vec2(0.64, 0.33), vec2(0.3, 0.6), vec2(0.15, 0.06), vec2(0.3127, 0.3290));
+  mat3 adjusted_to_XYZ  = color_ComputeCompressionMatrix(vec2(0.64, 0.33), vec2(0.3, 0.6), vec2(0.15, 0.06), vec2(0.3127, 0.3290), agx.compression);
+  mat3 XYZ_to_adjusted  = inverse(adjusted_to_XYZ);
   mat3 sRGB_to_adjusted = sRGB_to_XYZ * XYZ_to_adjusted;
 
   workingColor = sRGB_to_adjusted * workingColor;
   workingColor = clamp(DualSection(workingColor, agx.linear, agx.peak), 0.0, 1.0);
-  
-  vec3 luminanceWeight = vec3(0.2126729,  0.7151522,  0.0721750);
-  vec3 desaturation = vec3(dot(workingColor, luminanceWeight));
-  workingColor = mix(desaturation, workingColor, agx.saturation);
-  workingColor = clamp(workingColor, 0.0, 1.0);
+
+  vec3 luminanceWeight = vec3(0.2126729, 0.7151522, 0.0721750);
+  vec3 desaturation    = vec3(dot(workingColor, luminanceWeight));
+  workingColor         = mix(desaturation, workingColor, agx.saturation);
+  workingColor         = clamp(workingColor, 0.0, 1.0);
 
   workingColor = inverse(sRGB_to_adjusted) * workingColor;
 
@@ -130,54 +85,6 @@ vec3 TonyMcMapface(vec3 color_srgb)
   vec3 uv = encoded * ((dims - 1.0) / dims) + 0.5 / dims;
 
   return texture(Fvog_sampler3D(tonyMcMapfaceIndex, linearClampSamplerIndex), uv).rgb;
-}
-
-//////////////////////// OETFs ////////////////////////
-// sRGB inverse EOTF
-vec3 srgb_oetf(vec3 linearColor)
-{
-  bvec3 cutoff = lessThan(linearColor, vec3(0.0031308));
-  vec3 higher = vec3(1.055) * pow(linearColor, vec3(1.0 / 2.4)) - vec3(0.055);
-  vec3 lower = linearColor * vec3(12.92);
-
-  return mix(higher, lower, cutoff);
-}
-
-// Input should be in [0, 10000] nits
-float InversePQ(float x)
-{
-  const float m1 = 0.1593017578125;
-  const float m2 = 78.84375;
-  const float c1 = 0.8359375;
-  const float c2 = 18.8515625;
-  const float c3 = 18.6875;
-  float ym       = pow(x, m1);
-  return pow((c1 + c2 * ym) / (1 + c3 * ym), m2);
-}
-
-vec3 InversePQ(vec3 c)
-{
-  return vec3(
-    InversePQ(c.r),
-    InversePQ(c.g),
-    InversePQ(c.b)
-  );
-}
-
-// Input should be in [0, 100] nits
-float InversePQ_approx(float x)
-{
-  float k = pow((x * 0.01f), 0.1593017578125);
-  return (3.61972 * (1e-8) + k * (0.00102859 + k * (-0.101284 + 2.05784 * k))) / (0.0495245 + k * (0.135214 + k * (0.772669 + k)));
-}
-
-vec3 InversePQ_approx(vec3 c)
-{
-  return vec3(
-    InversePQ_approx(c.r),
-    InversePQ_approx(c.g),
-    InversePQ_approx(c.b)
-  );
 }
 
 vec3 apply_dither(vec3 color, vec2 uv, uint quantizeBits)
@@ -296,7 +203,7 @@ void main()
     compressedColor = GTMapper(hdrColor, uniforms.gt);
   }
 
-  vec3 srgbColor = srgb_oetf(compressedColor);
+  vec3 srgbColor = color_sRGB_OETF(compressedColor);
 
   vec3 ditheredColor = srgbColor;
   

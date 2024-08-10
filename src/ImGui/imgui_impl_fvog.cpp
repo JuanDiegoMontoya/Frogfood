@@ -88,6 +88,8 @@
   #include "Fvog/Rendering2.h"
   #include "Fvog/Buffer2.h"
   #include "Fvog/Texture2.h"
+  #include "Fvog/detail/ApiToEnum2.h"
+  #include "RendererUtilities.h"
   #include <optional>
 
   #include <stdio.h>
@@ -108,6 +110,7 @@ static void ImGui_ImplFvog_DestroyDeviceObjects();
 static void ImGui_ImplFvog_DestroyFrameRenderBuffers(ImGui_ImplFvog_FrameRenderBuffers* buffers);
 static void ImGui_ImplFvog_DestroyWindowRenderBuffers(ImGui_ImplFvog_WindowRenderBuffers* buffers);
 static void ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(VkDevice device, const VkAllocationCallbacks* allocator);
+static void ImGui_ImplFvog_RecreatePipeline();
 
   // Vulkan prototypes for use with custom loaders
   // (see description of IMGUI_IMPL_VULKAN_NO_PROTOTYPES in imgui_impl_vulkan.h
@@ -169,6 +172,7 @@ struct ImGui_ImplFvog_Data
   VkPipeline PipelineForViewports; // pipeline for secondary viewports (created by backend)
   std::optional<Fvog::Shader> ShaderModuleVert;
   std::optional<Fvog::Shader> ShaderModuleFrag;
+  VkSurfaceFormatKHR lastSurfaceFormat;// = {.format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
 
   // Font data
   std::optional<Fvog::Texture> FontImage;
@@ -192,82 +196,20 @@ struct ImGui_ImplFvog_Data
 //static void ImGui_ImplFvog_InitPlatformInterface();
 static void ImGui_ImplFvog_ShutdownPlatformInterface();
 
+#define COLOR_SPACE_sRGB_NONLINEAR 0
+#define COLOR_SPACE_scRGB_LINEAR 1
+#define COLOR_SPACE_HDR10_ST2084 2
+#define COLOR_SPACE_BT2020_LINEAR 3
+
 struct ImGuiPushConstants
 {
   uint32_t vertexBufferIndex{};
   uint32_t textureIndex{};
   uint32_t samplerIndex{};
+  uint32_t displayColorSpace{};
   float scale[2]{};
   float translation[2]{};
 };
-
-// backends/vulkan/glsl_shader.vert, compiled with:
-// # glslangValidator -V -x -o glsl_shader.vert.u32 glsl_shader.vert
-constexpr static std::string_view glsl_shader_vert = R"(
-#version 450 core
-#extension GL_EXT_nonuniform_qualifier : require
-#extension GL_EXT_scalar_block_layout : require
-
-layout(push_constant, scalar) uniform PushConstants
-{
-  uint vertexBufferIndex;
-  uint textureIndex;
-  uint samplerIndex;
-  vec2 scale;
-  vec2 translation;
-} pc;
-
-struct Vertex
-{
-  vec2 position;
-  vec2 texcoord;
-  uint color;
-};
-
-layout(set = 0, binding = 0, scalar) readonly buffer VertexBuffer
-{
-  Vertex vertices[];
-}buffers[];
-
-out gl_PerVertex { vec4 gl_Position; };
-layout(location = 0) out struct { vec4 Color; vec2 UV; } Out;
-void main()
-{
-  Vertex vertex = buffers[pc.vertexBufferIndex].vertices[gl_VertexIndex];
-  Out.Color = unpackUnorm4x8(vertex.color);
-  Out.UV = vertex.texcoord;
-  gl_Position = vec4(vertex.position * pc.scale + pc.translation, 0, 1);
-}
-)";
-
-// backends/vulkan/glsl_shader.frag, compiled with:
-// # glslangValidator -V -x -o glsl_shader.frag.u32 glsl_shader.frag
-constexpr static std::string_view glsl_shader_frag = R"(
-#version 450 core
-#extension GL_EXT_nonuniform_qualifier : require
-#extension GL_EXT_scalar_block_layout : require
-
-layout(push_constant, scalar) uniform PushConstants
-{
-  uint vertexBufferIndex;
-  uint textureIndex;
-  uint samplerIndex;
-  vec2 scale;
-  vec2 translation;
-} pc;
-
-layout(set = 0, binding = 3) uniform texture2D textures[];
-layout(set = 0, binding = 4) uniform sampler samplers[];
-
-layout(location = 0) in struct { vec4 Color; vec2 UV; } In;
-
-layout(location = 0) out vec4 fColor;
-
-void main()
-{
-  fColor = In.Color * texture(sampler2D(textures[pc.textureIndex], samplers[pc.samplerIndex]), In.UV);
-}
-)";
 
 bool ImGui_ImplFvog_LoadFunctions(PFN_vkVoidFunction (*loader_func)(const char* function_name, void* user_data), void* user_data)
 {
@@ -363,7 +305,7 @@ static void ImGui_ImplFvog_SetupRenderState(
 }
 
 // Render function
-void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer)
+void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkSurfaceFormatKHR format)
 {
   // Avoid rendering when minimized, scale coordinates for retina displays (screen coordinates != framebuffer coordinates)
   int fb_width = (int)(draw_data->DisplaySize.x * draw_data->FramebufferScale.x);
@@ -373,6 +315,12 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
 
   ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
   ImGui_ImplFvog_InitInfo* v = &bd->VulkanInitInfo;
+
+  if (format.format != bd->lastSurfaceFormat.format)
+  {
+    bd->lastSurfaceFormat = format;
+    ImGui_ImplFvog_RecreatePipeline();
+  }
 
   // Allocate array to store enough vertex/index buffers. Each unique viewport gets its own storage.
   ImGui_ImplFvog_ViewportData* viewport_renderer_data = (ImGui_ImplFvog_ViewportData*)draw_data->OwnerViewport->RendererUserData;
@@ -416,6 +364,23 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
   }
 
   auto pushConstants = ImGuiPushConstants{};
+
+  // Setup color space
+  {
+    pushConstants.displayColorSpace = COLOR_SPACE_sRGB_NONLINEAR;
+    if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT)
+    {
+      pushConstants.displayColorSpace = COLOR_SPACE_scRGB_LINEAR;
+    }
+    if (format.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT)
+    {
+      pushConstants.displayColorSpace = COLOR_SPACE_HDR10_ST2084;
+    }
+    if (format.colorSpace == VK_COLOR_SPACE_BT2020_LINEAR_EXT)
+    {
+      pushConstants.displayColorSpace = COLOR_SPACE_BT2020_LINEAR;
+    }
+  }
 
   // Setup desired Vulkan state
   ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline->Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
@@ -556,11 +521,11 @@ static void ImGui_ImplFvog_CreateShaderModules(VkDevice device)
   ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
   if (!bd->ShaderModuleVert.has_value())
   {
-    bd->ShaderModuleVert = Fvog::Shader(device, Fvog::PipelineStage::VERTEX_SHADER, glsl_shader_vert, "ImGui Vertex Shader");
+    bd->ShaderModuleVert = Fvog::Shader(device, Fvog::PipelineStage::VERTEX_SHADER, std::filesystem::path("shaders/imgui/imgui.vert.glsl"), "ImGui Vertex Shader");
   }
   if (!bd->ShaderModuleFrag.has_value())
   {
-    bd->ShaderModuleFrag = Fvog::Shader(device, Fvog::PipelineStage::FRAGMENT_SHADER, glsl_shader_frag, "ImGui Fragment Shader");
+    bd->ShaderModuleFrag = Fvog::Shader(device, Fvog::PipelineStage::FRAGMENT_SHADER, std::filesystem::path("shaders/imgui/imgui.frag.glsl"), "ImGui Fragment Shader");
   }
 }
 
@@ -568,7 +533,7 @@ static [[nodiscard]] Fvog::GraphicsPipeline ImGui_ImplFvog_CreatePipeline(VkDevi
 {
   ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
   ImGui_ImplFvog_CreateShaderModules(device);
-
+  
   return Fvog::GraphicsPipeline(
     *bd->device,
     Fvog::GraphicsPipelineInfo{
@@ -594,36 +559,23 @@ static [[nodiscard]] Fvog::GraphicsPipeline ImGui_ImplFvog_CreatePipeline(VkDevi
           }
         },
       },
-      .renderTargetFormats = bd->VulkanInitInfo.formats,
+      .renderTargetFormats = Fvog::RenderTargetFormats{{{Fvog::detail::VkToFormat(bd->lastSurfaceFormat.format)}}},
     }
   );
+}
 
-  //VkVertexInputAttributeDescription attribute_desc[3] = {};
-  //attribute_desc[0].location = 0;
-  //attribute_desc[0].binding = binding_desc[0].binding;
-  //attribute_desc[0].format = VK_FORMAT_R32G32_SFLOAT;
-  //attribute_desc[0].offset = offsetof(ImDrawVert, pos);
-  //attribute_desc[1].location = 1;
-  //attribute_desc[1].binding = binding_desc[0].binding;
-  //attribute_desc[1].format = VK_FORMAT_R32G32_SFLOAT;
-  //attribute_desc[1].offset = offsetof(ImDrawVert, uv);
-  //attribute_desc[2].location = 2;
-  //attribute_desc[2].binding = binding_desc[0].binding;
-  //attribute_desc[2].format = VK_FORMAT_R8G8B8A8_UNORM;
-  //attribute_desc[2].offset = offsetof(ImDrawVert, col);
 
-  //VkPipelineVertexInputStateCreateInfo vertex_info = {};
-  //vertex_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  //vertex_info.vertexBindingDescriptionCount = 1;
-  //vertex_info.pVertexBindingDescriptions = binding_desc;
-  //vertex_info.vertexAttributeDescriptionCount = 3;
-  //vertex_info.pVertexAttributeDescriptions = attribute_desc;
+IMGUI_IMPL_API void ImGui_ImplFvog_RecreatePipeline()
+{
+  ImGui_ImplFvog_Data* bd    = ImGui_ImplFvog_GetBackendData();
+  ImGui_ImplFvog_InitInfo* v = &bd->VulkanInitInfo;
+  
+  bd->Pipeline = ImGui_ImplFvog_CreatePipeline(v->Device->device_, v->MSAASamples);
 }
 
 static bool ImGui_ImplFvog_CreateDeviceObjects()
 {
-  ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
-  ImGui_ImplFvog_InitInfo* v = &bd->VulkanInitInfo;
+  ImGui_ImplFvog_Data* bd    = ImGui_ImplFvog_GetBackendData();
 
   if (!bd->FontSampler)
   {
@@ -639,7 +591,6 @@ static bool ImGui_ImplFvog_CreateDeviceObjects()
     }, "ImGui Font Sampler");
   }
 
-  bd->Pipeline = ImGui_ImplFvog_CreatePipeline(v->Device->device_, v->MSAASamples);
 
   return true;
 }

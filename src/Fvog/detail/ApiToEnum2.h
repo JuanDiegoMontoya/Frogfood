@@ -26,4 +26,8 @@ namespace Fvog::detail
 
   // Returns the size, in bytes, of a single pixel or block (for compressed formats) of the input format
   uint32_t FormatStorageSize(Format format);
+
+  const char* FormatToString(Format format);
+
+  const char* VkColorSpaceToString(VkColorSpaceKHR colorSpace);
 }

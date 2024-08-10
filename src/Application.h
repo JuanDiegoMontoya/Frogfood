@@ -102,10 +102,12 @@ protected:
   VkDescriptorPool imguiDescriptorPool_{};
   vkb::Swapchain swapchain_{};
   std::vector<VkImage> swapchainImages_;
-  std::vector<VkImageView> swapchainImageViewsSrgb_;
-  std::vector<VkImageView> swapchainImageViewsUnorm_;
-  static constexpr auto swapchainSrgbFormat = VK_FORMAT_B8G8R8A8_SRGB;
-  static constexpr auto swapchainUnormFormat = VK_FORMAT_B8G8R8A8_UNORM;
+  std::vector<VkImageView> swapchainImageViews_;
+  std::vector<VkSurfaceFormatKHR> availableSurfaceFormats_;
+  static constexpr VkSurfaceFormatKHR defaultSwapchainFormat = {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
+  VkSurfaceFormatKHR swapchainFormat_ = defaultSwapchainFormat; // Only Application should modify this
+  VkSurfaceFormatKHR nextSwapchainFormat_ = swapchainFormat_; // Workaround to prevent ImGui backend from using incorrect pipeline layout after changing swapchainFormat in GUI
+
   tracy::VkCtx* tracyVkContext_{};
   GLFWwindow* window;
   View mainCamera{};

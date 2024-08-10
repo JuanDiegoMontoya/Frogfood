@@ -100,16 +100,16 @@ vec3 color_sRGB_OETF(vec3 srgb_linear)
 // Note: sRGB and scRGB have the same white point and primaries and only differ in their transfer functions
 float color_scRGB_EOTF(float srgb_nonlinear)
 {
-  if (srgb_nonlinear <= -0.0031308)
+  if (srgb_nonlinear < -0.04045)
   {
-    return -1.055 * pow(-srgb_nonlinear, 1.0 / 2.4) + 0.055;
+    return -pow(((0.055 - srgb_nonlinear) / 1.055), 2.4);
   }
-  if (srgb_nonlinear >= 0.0031308)
+  if (srgb_nonlinear > 0.04045)
   {
-    return 1.055 * pow(srgb_nonlinear, 1.0 / 2.4) - 0.055;
+    return pow(((srgb_nonlinear + 0.055) / 1.055), 2.4);
   }
-  // else if (-0.0031308 < srgb_nonlinear && srgb_nonlinear < 0.0031308)
-  return srgb_nonlinear * 12.92;
+  // else if (-0.04045 <= srgb_nonlinear && srgb_nonlinear <= 0.04045)
+  return srgb_nonlinear / 12.92;
 }
 
 vec3 color_scRGB_EOTF(vec3 srgb_nonlinear)
@@ -123,16 +123,16 @@ vec3 color_scRGB_EOTF(vec3 srgb_nonlinear)
 
 float color_scRGB_OETF(float srgb_linear)
 {
-  if (srgb_linear < -0.04045)
+  if (srgb_linear <= -0.0031308)
   {
-    return -pow(((0.055 - srgb_linear) / 1.055), 2.4);
+    return -1.055 * pow(-srgb_linear, 1.0 / 2.4) + 0.055;
   }
-  if (srgb_linear > 0.04045)
+  if (srgb_linear >= 0.0031308)
   {
-    return pow(((srgb_linear + 0.055) / 1.055), 2.4);
+    return 1.055 * pow(srgb_linear, 1.0 / 2.4) - 0.055;
   }
-  // else if (-0.04045 <= srgb_linear && srgb_linear <= 0.04045)
-  return srgb_linear / 12.92;
+  // else if (-0.0031308 < srgb_linear && srgb_linear < 0.0031308)
+  return srgb_linear * 12.92;
 }
 
 vec3 color_scRGB_OETF(vec3 srgb_linear)

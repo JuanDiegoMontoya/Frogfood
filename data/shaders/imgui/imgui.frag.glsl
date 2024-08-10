@@ -28,7 +28,7 @@ void main()
 
   vec3 color_srgb_nonlinear = color_raw.rgb;
 
-  // If the output is sRGB_NONLINEAR, no transform is required
+  // If the output is sRGB_NONLINEAR, no transform is required.
   if (pc.displayColorSpace == COLOR_SPACE_sRGB_NONLINEAR)
   {
     fColor.rgb = color_srgb_nonlinear;
@@ -39,15 +39,14 @@ void main()
   }
   if (pc.displayColorSpace == COLOR_SPACE_scRGB_LINEAR)
   {
-    vec3 color_srgb_linear = color_sRGB_EOTF(color_srgb_nonlinear);
-    fColor.rgb             = color_scRGB_OETF(color_srgb_linear);
+    fColor.rgb = color_sRGB_EOTF(color_srgb_nonlinear);
   }
   if (pc.displayColorSpace == COLOR_SPACE_HDR10_ST2084) // BT.2020 with PQ EOTF
   {
     vec3 color_srgb_linear   = color_sRGB_EOTF(color_srgb_nonlinear);
     mat3 sRGB_to_BT2020      = color_make_sRGB_to_BT2020_matrix();
     vec3 color_bt2020_linear = sRGB_to_BT2020 * color_srgb_linear;
-    fColor.rgb               = color_InversePQ(color_bt2020_linear);
+    fColor.rgb               = color_InversePQ(color_bt2020_linear / 100); // TODO: this magic number is sketchy
   }
   if (pc.displayColorSpace == COLOR_SPACE_BT2020_LINEAR) // BT.2020 with no transfer function
   {

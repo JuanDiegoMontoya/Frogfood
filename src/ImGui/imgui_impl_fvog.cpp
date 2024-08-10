@@ -200,6 +200,7 @@ static void ImGui_ImplFvog_ShutdownPlatformInterface();
 #define COLOR_SPACE_scRGB_LINEAR 1
 #define COLOR_SPACE_HDR10_ST2084 2
 #define COLOR_SPACE_BT2020_LINEAR 3
+#define COLOR_SPACE_sRGB_LINEAR 4
 
 struct ImGuiPushConstants
 {
@@ -379,6 +380,10 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
     if (format.colorSpace == VK_COLOR_SPACE_BT2020_LINEAR_EXT)
     {
       pushConstants.displayColorSpace = COLOR_SPACE_BT2020_LINEAR;
+    }
+    if (Fvog::detail::FormatIsSrgb(Fvog::detail::VkToFormat(format.format)))
+    {
+      pushConstants.displayColorSpace = COLOR_SPACE_sRGB_LINEAR;
     }
   }
 

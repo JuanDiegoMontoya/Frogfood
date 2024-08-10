@@ -33,6 +33,10 @@ void main()
   {
     fColor.rgb = color_srgb_nonlinear;
   }
+  if (pc.displayColorSpace == COLOR_SPACE_sRGB_LINEAR)
+  {
+    fColor.rgb = color_sRGB_EOTF(color_srgb_nonlinear);
+  }
   if (pc.displayColorSpace == COLOR_SPACE_scRGB_LINEAR)
   {
     vec3 color_srgb_linear = color_sRGB_EOTF(color_srgb_nonlinear);

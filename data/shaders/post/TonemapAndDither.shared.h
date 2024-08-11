@@ -27,7 +27,6 @@ struct AgXMapperSettings
 
 struct GTMapperSettings
 {
-  float maxDisplayBrightness;
   float contrast;
   float startOfLinearSection;
   float lengthOfLinearSection;
@@ -37,9 +36,10 @@ struct GTMapperSettings
 
 struct TonemapUniforms
 {
-  FVOG_UINT32 tonemapper; // 0 = AgX, 1 = Tony, 2 = Linear
+  FVOG_UINT32 tonemapper; // 0 = AgX, 1 = Tony, 2 = Linear, 3 = GT
   FVOG_UINT32 enableDithering;
   FVOG_UINT32 quantizeBits;
+  float maxDisplayNits;
   AgXMapperSettings agx;
   GTMapperSettings gt;
 };

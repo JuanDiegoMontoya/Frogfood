@@ -672,6 +672,13 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
       ImGui::EndTable();
       ImGui::EndCombo();
     }
+
+    Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
+    if (Gui::SliderFloat("Peak Display Nits", &maxDisplayNits, 1, 10000, nullptr, nullptr, ImGuiSliderFlags_Logarithmic))
+    {
+      tonemapUniforms.maxDisplayNits = maxDisplayNits;
+    }
+    Gui::EndProperties();
     
     ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
     ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
@@ -1207,13 +1214,15 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
           {
             tonemapUniforms.tonemapper = LinearClip;
           }
-          if (ImGui::Selectable("Gran Turisomo", tonemapUniforms.tonemapper == GTMapper))
+          if (ImGui::Selectable("Gran Turismo", tonemapUniforms.tonemapper == GTMapper))
           {
             tonemapUniforms.tonemapper = GTMapper;
           }
           ImGui::EndCombo();
         }
+
         Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
+
         if (tonemapUniforms.tonemapper == AgX)
         {
           Gui::SliderFloat("Saturation", &tonemapUniforms.agx.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
@@ -1223,11 +1232,9 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
         }
         if (tonemapUniforms.tonemapper == GTMapper)
         {
-          // TODO: extract "peak" parameter since it's common to all HDR output
-          Gui::SliderFloat("Peak", &tonemapUniforms.gt.maxDisplayBrightness, 0, 5);
           Gui::SliderFloat("Contrast", &tonemapUniforms.gt.contrast, 0, 1);
           Gui::SliderFloat("Linear Start", &tonemapUniforms.gt.startOfLinearSection, 0, 1);
-          Gui::SliderFloat("Linear Length", &tonemapUniforms.gt.lengthOfLinearSection, 0, tonemapUniforms.gt.maxDisplayBrightness);
+          Gui::SliderFloat("Linear Length", &tonemapUniforms.gt.lengthOfLinearSection, 0, tonemapUniforms.maxDisplayNits);
           Gui::SliderFloat("Toe Curviness", &tonemapUniforms.gt.toeCurviness, 1, 3);
           Gui::SliderFloat("Toe Floor", &tonemapUniforms.gt.toeFloor, 0, 1);
         }

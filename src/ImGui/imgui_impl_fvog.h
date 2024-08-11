@@ -88,20 +88,38 @@ struct ImGui_ImplFvog_InitInfo
   VkDeviceSize MinAllocationSize; // Minimum allocation size. Set to 1024*1024 to satisfy zealous best practices validation layer and waste a little memory.
 };
 
+// Called by user code
+IMGUI_IMPL_API bool ImGui_ImplFvog_Init(ImGui_ImplFvog_InitInfo* info);
+IMGUI_IMPL_API void ImGui_ImplFvog_Shutdown();
+IMGUI_IMPL_API void ImGui_ImplFvog_NewFrame();
+IMGUI_IMPL_API void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkSurfaceFormatKHR format, float maxDisplayNits);
+IMGUI_IMPL_API void ImGui_ImplFvog_CreateFontsTexture();
+IMGUI_IMPL_API void ImGui_ImplFvog_DestroyFontsTexture();
+
+// Optional: load Vulkan functions with a custom function loader
+// This is only useful with IMGUI_IMPL_VULKAN_NO_PROTOTYPES / VK_NO_PROTOTYPES
+IMGUI_IMPL_API bool ImGui_ImplFvog_LoadFunctions(PFN_vkVoidFunction (*loader_func)(const char* function_name, void* user_data), void* user_data = nullptr);
+
+#define IMGUI_COLOR_SPACE_sRGB_NONLINEAR 0
+#define IMGUI_COLOR_SPACE_scRGB_LINEAR   1
+#define IMGUI_COLOR_SPACE_HDR10_ST2084   2
+#define IMGUI_COLOR_SPACE_BT2020_LINEAR  3
+#define IMGUI_COLOR_SPACE_sRGB_LINEAR    4
+
 // Combined texture-sampler type that can be stored in ImTextureID
 struct ImTextureSampler
 {
-  constexpr static uint32_t DefaultSamplerIndex = (uint32_t)-1;
+  constexpr static uint32_t DefaultSamplerIndex = 65535;
+  constexpr static uint32_t DefaultColorSpace = IMGUI_COLOR_SPACE_sRGB_NONLINEAR;
 
-  ImTextureSampler(uint32_t textureIndex, uint32_t samplerIndex = DefaultSamplerIndex)
+  ImTextureSampler(uint32_t textureIndex, uint32_t samplerIndex = DefaultSamplerIndex, uint32_t colorSpace = DefaultColorSpace)
   {
     SetTextureIndex(textureIndex);
     SetSamplerIndex(samplerIndex);
+    SetColorSpace(colorSpace);
   }
 
-  explicit ImTextureSampler(ImTextureID id)
-    : id_(id)
-  {}
+  explicit ImTextureSampler(ImTextureID id) : id_(id) {}
 
   [[nodiscard]] uint32_t GetTextureIndex() const
   {
@@ -110,7 +128,12 @@ struct ImTextureSampler
 
   [[nodiscard]] uint32_t GetSamplerIndex() const
   {
-    return static_cast<uint32_t>(id_ >> 32ull);
+    return static_cast<uint32_t>((id_ & 0x0000FFFF00000000) >> 32ull);
+  }
+
+  [[nodiscard]] uint32_t GetColorSpace() const
+  {
+    return static_cast<uint32_t>((id_ & 0xFFFF000000000000) >> 48ull);
   }
 
   [[nodiscard]] bool IsSamplerDefault() const
@@ -120,12 +143,17 @@ struct ImTextureSampler
 
   void SetTextureIndex(uint32_t textureIndex)
   {
-    id_ = (id_ & 0xFFFF0000) | textureIndex;
+    id_ = (id_ & 0xFFFFFFFF00000000) | textureIndex;
   }
 
   void SetSamplerIndex(uint32_t samplerIndex)
   {
-    id_ = (id_ & 0x0000FFFF) | ((uint64_t)samplerIndex << 32ull);
+    id_ = (id_ & 0xFFFF0000FFFFFFFF) | ((uint64_t)samplerIndex << 32ull);
+  }
+
+  void SetColorSpace(uint32_t colorSpace)
+  {
+    id_ = (id_ & 0x0000FFFFFFFFFFFF) | ((uint64_t)colorSpace << 48ull);
   }
 
   operator ImTextureID() const
@@ -137,17 +165,5 @@ private:
   // sampler index is stored in the MSBs, texture index is stored in LSBs
   ImTextureID id_{};
 };
-
-// Called by user code
-IMGUI_IMPL_API bool ImGui_ImplFvog_Init(ImGui_ImplFvog_InitInfo* info);
-IMGUI_IMPL_API void ImGui_ImplFvog_Shutdown();
-IMGUI_IMPL_API void ImGui_ImplFvog_NewFrame();
-IMGUI_IMPL_API void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkSurfaceFormatKHR format);
-IMGUI_IMPL_API void ImGui_ImplFvog_CreateFontsTexture();
-IMGUI_IMPL_API void ImGui_ImplFvog_DestroyFontsTexture();
-
-// Optional: load Vulkan functions with a custom function loader
-// This is only useful with IMGUI_IMPL_VULKAN_NO_PROTOTYPES / VK_NO_PROTOTYPES
-IMGUI_IMPL_API bool ImGui_ImplFvog_LoadFunctions(PFN_vkVoidFunction (*loader_func)(const char* function_name, void* user_data), void* user_data = nullptr);
 
 #endif // #ifndef IMGUI_DISABLE

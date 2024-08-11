@@ -107,6 +107,7 @@ protected:
   static constexpr VkSurfaceFormatKHR defaultSwapchainFormat = {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
   VkSurfaceFormatKHR swapchainFormat_ = defaultSwapchainFormat; // Only Application should modify this
   VkSurfaceFormatKHR nextSwapchainFormat_ = swapchainFormat_; // Workaround to prevent ImGui backend from using incorrect pipeline layout after changing swapchainFormat in GUI
+  float maxDisplayNits = 200.0f;
 
   tracy::VkCtx* tracyVkContext_{};
   GLFWwindow* window;

@@ -63,12 +63,13 @@ vec3 AgX_DS(vec3 color_srgb, AgXMapperSettings agx)
   mat3 sRGB_to_adjusted = sRGB_to_XYZ * XYZ_to_adjusted;
 
   workingColor = sRGB_to_adjusted * workingColor;
-  workingColor = clamp(DualSection(workingColor, agx.linear, agx.peak), 0.0, 1.0);
+  //workingColor = clamp(DualSection(workingColor, agx.linear, agx.peak), 0.0, 1.0);
+  workingColor = DualSection(workingColor, agx.linear, agx.peak);
 
   vec3 luminanceWeight = vec3(0.2126729, 0.7151522, 0.0721750);
   vec3 desaturation    = vec3(dot(workingColor, luminanceWeight));
   workingColor         = mix(desaturation, workingColor, agx.saturation);
-  workingColor         = clamp(workingColor, 0.0, 1.0);
+  //workingColor         = clamp(workingColor, 0.0, 1.0);
 
   workingColor = inverse(sRGB_to_adjusted) * workingColor;
 
@@ -120,16 +121,16 @@ float H_f(float x, float e0, float e1)
 // http://cdn2.gran-turismo.com/data/www/pdi_publications/PracticalHDRandWCGinGTS.pdf
 // https://www.desmos.com/calculator/mbkwnuihbd
 /* Defaults:
- *   maxDisplayBrightness = 1
+ *   maxDisplayNits = 1
  *   contrast = 1
  *   startOfLinearSection = 0.22
  *   lengthOfLinearSection = 0.4
  *   toeCurviness = 1.33 ("black tightness")
  *   toeFloor = 0 (darkest black)
 */
-float GTMapper(float x, GTMapperSettings gt)
+float GTMapper(float x, GTMapperSettings gt, float maxDisplayNits)
 {
-  float P = gt.maxDisplayBrightness;
+  float P = maxDisplayNits;
   float a = gt.contrast;
   float m = gt.startOfLinearSection;
   float l = gt.lengthOfLinearSection;
@@ -158,12 +159,12 @@ float GTMapper(float x, GTMapperSettings gt)
   return f_x;
 }
 
-vec3 GTMapper(vec3 c, GTMapperSettings gt)
+vec3 GTMapper(vec3 c, GTMapperSettings gt, float maxDisplayNits)
 {
   return vec3(
-    GTMapper(c.r, gt),
-    GTMapper(c.g, gt),
-    GTMapper(c.b, gt)
+    GTMapper(c.r, gt, maxDisplayNits),
+    GTMapper(c.g, gt, maxDisplayNits),
+    GTMapper(c.b, gt, maxDisplayNits)
   );
 }
 
@@ -200,7 +201,7 @@ void main()
   // Hybrid/HDR-compatible diplay mappers
   if (uniforms.tonemapper == 3)
   {
-    compressedColor = GTMapper(hdrColor, uniforms.gt);
+    compressedColor = GTMapper(hdrColor, uniforms.gt, uniforms.maxDisplayNits);
   }
 
   vec3 srgbColor = color_sRGB_OETF(compressedColor);

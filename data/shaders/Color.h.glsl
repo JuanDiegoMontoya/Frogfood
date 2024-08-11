@@ -36,9 +36,9 @@ mat3 color_PrimariesToMatrix(vec2 xy_red, vec2 xy_green, vec2 xy_blue, vec2 xy_w
   vec3 XYZ_blue = color_Unproject(xy_blue);
   vec3 XYZ_white = color_Unproject(xy_white);
 
-  mat3 temp = mat3(XYZ_red.x,    1.0, XYZ_red.z,
-                    XYZ_green.x, 1.f, XYZ_green.z,
-                    XYZ_blue.x,  1.0, XYZ_blue.z);
+  mat3 temp = mat3(XYZ_red.x,   1.0, XYZ_red.z,
+                   XYZ_green.x, 1.0, XYZ_green.z,
+                   XYZ_blue.x,  1.0, XYZ_blue.z);
   vec3 scale = inverse(temp) * XYZ_white;
 
   return mat3(XYZ_red * scale.x, XYZ_green * scale.y, XYZ_blue * scale.z);
@@ -58,19 +58,26 @@ mat3 color_ComputeCompressionMatrix(vec2 xyR, vec2 xyG, vec2 xyB, vec2 xyW, floa
 
 mat3 color_make_sRGB_to_XYZ_matrix()
 {
-  return color_PrimariesToMatrix(vec2(0.64, 0.33), vec2(0.3, 0.6), vec2(0.15, 0.06), vec2(0.3127, 0.3290));
+  //return color_PrimariesToMatrix(vec2(0.64, 0.33), vec2(0.3, 0.6), vec2(0.15, 0.06), vec2(0.3127, 0.3290));
+  return mat3(0.4124564, 0.2126729, 0.0193339,
+              0.3575761, 0.7151522, 0.1191920,
+              0.1804375, 0.0721750, 0.9503041);
 }
 
 mat3 color_make_BT2020_to_XYZ_matrix()
 {
+  // TODO: this is probably wrong
   return color_PrimariesToMatrix(vec2(0.708, 0.292), vec2(0.170, 0.797), vec2(0.131, 0.046), vec2(0.3127, 0.3290));
 }
 
 mat3 color_make_sRGB_to_BT2020_matrix()
 {
-  mat3 sRGB_to_XYZ = color_make_sRGB_to_XYZ_matrix();
-  mat3 XYZ_to_BT2020 = inverse(color_make_BT2020_to_XYZ_matrix());
-  return sRGB_to_XYZ * XYZ_to_BT2020;
+  // mat3 sRGB_to_XYZ = color_make_sRGB_to_XYZ_matrix();
+  // mat3 XYZ_to_BT2020 = inverse(color_make_BT2020_to_XYZ_matrix());
+  // return sRGB_to_XYZ * XYZ_to_BT2020;
+  return mat3(0.627403896, 0.0690972894, 0.0163914389,
+              0.329283039, 0.919540395, 0.0880133077,
+              0.0433130657, 0.0113623156, 0.895595253);
 }
 
 
@@ -144,8 +151,28 @@ vec3 color_scRGB_OETF(vec3 srgb_linear)
   );
 }
 
+vec3 color_BT1886_EOTF(vec3 x)
+{
+  return 100.0 * pow(x, vec3(2.4));
+}
+
+vec3 color_BT709_OETF(vec3 x)
+{
+  bvec3 cutoff = lessThanEqual(x, vec3(0.018));
+  vec3 higher = pow(x, vec3(1.0 / 2.2)) * 1.099 - 0.099;
+  vec3 lower = x * 4.5;
+  
+  return mix(higher, lower, cutoff);
+}
+
+vec3 color_PQ_OOTF(vec3 x)
+{
+  float BT709_scale_factor = 59.5208;
+  return color_BT1886_EOTF(color_BT709_OETF(x * BT709_scale_factor));
+}
+
 // Input should be in [0, 10000] nits
-float color_InversePQ(float x)
+float color_PQ_inv_eotf(float x)
 {
   const float m1 = 0.1593017578125;
   const float m2 = 78.84375;
@@ -156,28 +183,28 @@ float color_InversePQ(float x)
   return pow((c1 + c2 * ym) / (1.0 + c3 * ym), m2);
 }
 
-vec3 color_InversePQ(vec3 c)
+vec3 color_PQ_inv_eotf(vec3 c)
 {
   return vec3(
-    color_InversePQ(c.r),
-    color_InversePQ(c.g),
-    color_InversePQ(c.b)
+    color_PQ_inv_eotf(c.r),
+    color_PQ_inv_eotf(c.g),
+    color_PQ_inv_eotf(c.b)
   );
 }
 
 // Input should be in [0, 100] nits
-float color_InversePQ_approx(float x)
+float color_PQ_inv_eotf_approx(float x)
 {
-  float k = pow((x * 0.01f), 0.1593017578125);
+  float k = pow((x * 0.01), 0.1593017578125);
   return (3.61972 * (1e-8) + k * (0.00102859 + k * (-0.101284 + 2.05784 * k))) / (0.0495245 + k * (0.135214 + k * (0.772669 + k)));
 }
 
-vec3 color_InversePQ_approx(vec3 c)
+vec3 color_PQ_inv_eotf_approx(vec3 c)
 {
   return vec3(
-    color_InversePQ_approx(c.r),
-    color_InversePQ_approx(c.g),
-    color_InversePQ_approx(c.b)
+    color_PQ_inv_eotf_approx(c.r),
+    color_PQ_inv_eotf_approx(c.g),
+    color_PQ_inv_eotf_approx(c.b)
   );
 }
 

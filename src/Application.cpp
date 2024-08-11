@@ -518,7 +518,7 @@ void Application::Draw()
         })
       }));
       //auto marker = Fwog::ScopedDebugMarker("Draw GUI");
-      ImGui_ImplFvog_RenderDrawData(drawData, commandBuffer, swapchainFormat_);
+      ImGui_ImplFvog_RenderDrawData(drawData, commandBuffer, swapchainFormat_, maxDisplayNits);
       vkCmdEndRendering(commandBuffer);
     }
 

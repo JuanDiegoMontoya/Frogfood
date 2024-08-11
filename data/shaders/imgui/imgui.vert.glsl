@@ -12,7 +12,9 @@ layout(push_constant, scalar) uniform PushConstants
   uint vertexBufferIndex;
   uint textureIndex;
   uint samplerIndex;
+  uint textureColorSpace;
   uint displayColorSpace;
+  float maxDisplayNits;
   vec2 scale;
   vec2 translation;
 } pc;

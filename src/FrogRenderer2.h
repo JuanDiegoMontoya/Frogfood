@@ -503,6 +503,7 @@ private:
     .tonemapper      = TonyMcMapface,
     .enableDithering = true,
     .quantizeBits    = 8,
+    .maxDisplayNits = 1,
     .agx =
       {
         .saturation  = 1.0f,
@@ -512,7 +513,6 @@ private:
       },
     .gt =
       {
-        .maxDisplayBrightness  = 1.00f,
         .contrast              = 1.00f,
         .startOfLinearSection  = 0.22f,
         .lengthOfLinearSection = 0.40f,

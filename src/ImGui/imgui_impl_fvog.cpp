@@ -196,18 +196,14 @@ struct ImGui_ImplFvog_Data
 //static void ImGui_ImplFvog_InitPlatformInterface();
 static void ImGui_ImplFvog_ShutdownPlatformInterface();
 
-#define COLOR_SPACE_sRGB_NONLINEAR 0
-#define COLOR_SPACE_scRGB_LINEAR 1
-#define COLOR_SPACE_HDR10_ST2084 2
-#define COLOR_SPACE_BT2020_LINEAR 3
-#define COLOR_SPACE_sRGB_LINEAR 4
-
 struct ImGuiPushConstants
 {
   uint32_t vertexBufferIndex{};
   uint32_t textureIndex{};
   uint32_t samplerIndex{};
+  uint32_t textureColorSpace{};
   uint32_t displayColorSpace{};
+  float maxDisplayNits{};
   float scale[2]{};
   float translation[2]{};
 };
@@ -306,7 +302,7 @@ static void ImGui_ImplFvog_SetupRenderState(
 }
 
 // Render function
-void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkSurfaceFormatKHR format)
+void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkSurfaceFormatKHR format, float maxDisplayNits)
 {
   // Avoid rendering when minimized, scale coordinates for retina displays (screen coordinates != framebuffer coordinates)
   int fb_width = (int)(draw_data->DisplaySize.x * draw_data->FramebufferScale.x);
@@ -368,23 +364,25 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
 
   // Setup color space
   {
-    pushConstants.displayColorSpace = COLOR_SPACE_sRGB_NONLINEAR;
+    pushConstants.displayColorSpace = IMGUI_COLOR_SPACE_sRGB_NONLINEAR;
     if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT)
     {
-      pushConstants.displayColorSpace = COLOR_SPACE_scRGB_LINEAR;
+      pushConstants.displayColorSpace = IMGUI_COLOR_SPACE_scRGB_LINEAR;
     }
     if (format.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT)
     {
-      pushConstants.displayColorSpace = COLOR_SPACE_HDR10_ST2084;
+      pushConstants.displayColorSpace = IMGUI_COLOR_SPACE_HDR10_ST2084;
     }
     if (format.colorSpace == VK_COLOR_SPACE_BT2020_LINEAR_EXT)
     {
-      pushConstants.displayColorSpace = COLOR_SPACE_BT2020_LINEAR;
+      pushConstants.displayColorSpace = IMGUI_COLOR_SPACE_BT2020_LINEAR;
     }
     if (Fvog::detail::FormatIsSrgb(Fvog::detail::VkToFormat(format.format)))
     {
-      pushConstants.displayColorSpace = COLOR_SPACE_sRGB_LINEAR;
+      pushConstants.displayColorSpace = IMGUI_COLOR_SPACE_sRGB_LINEAR;
     }
+
+    pushConstants.maxDisplayNits = maxDisplayNits;
   }
 
   // Setup desired Vulkan state
@@ -459,6 +457,8 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
         {
           pushConstants.samplerIndex = textureSampler.GetSamplerIndex();
         }
+
+        pushConstants.textureColorSpace = textureSampler.GetColorSpace();
 
         vkCmdPushConstants(command_buffer, bd->device->defaultPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(pushConstants), &pushConstants);
 

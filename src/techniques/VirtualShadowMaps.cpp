@@ -344,7 +344,7 @@ namespace Techniques::VirtualShadowMaps
       .allocRequestsIndex = pageAllocRequests_.GetResourceHandle().index,
       .visiblePagesBitmaskIndex = visiblePagesBitmask_.GetResourceHandle().index,
       .physicalPagesUintIndex = physicalPagesUint_.GetStorageResourceHandle().index,
-      .physicalPagesOverdrawIndex = physicalPagesOverdrawHeatmap_.ImageView().GetSampledResourceHandle().index,
+      .physicalPagesOverdrawIndex = physicalPagesOverdrawHeatmap_.ImageView().GetStorageResourceHandle().index,
     };
   }
 

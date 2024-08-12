@@ -442,6 +442,13 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
     const uint32_t hzbHeight = Math::PreviousPower2(renderInternalHeight);
     const uint32_t hzbMips = 1 + static_cast<uint32_t>(glm::floor(glm::log2(static_cast<float>(glm::max(hzbWidth, hzbHeight)))));
     frame.hzb = Fvog::CreateTexture2DMip(*device_, {hzbWidth, hzbHeight}, Frame::hzbFormat, hzbMips, Fvog::TextureUsage::GENERAL, "HZB");
+    device_->ImmediateSubmit(
+      [&, this](VkCommandBuffer cmd)
+      {
+        auto ctx = Fvog::Context(*device_, cmd);
+        ctx.ImageBarrierDiscard(*frame.hzb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        ctx.ClearTexture(*frame.hzb, {.color = {FAR_DEPTH}});
+      });
   }
 
   // Create gbuffer textures and render info
@@ -1157,7 +1164,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     ctx.ImageBarrier(*frame.gDepth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ctx.ImageBarrier(*frame.gMotion, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     ctx.ImageBarrier(*frame.gReactiveMask, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    ctx.ImageBarrierDiscard(*frame.colorHdrWindowRes, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    ctx.ImageBarrierDiscard(*frame.colorHdrWindowRes, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); // This nonsense transition is needed for FSR2
 
     float jitterX{};
     float jitterY{};

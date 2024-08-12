@@ -82,6 +82,7 @@ namespace Fvog
         .wideLines = true,
         .samplerAnisotropy = true,
         .textureCompressionBC = true,
+        .vertexPipelineStoresAndAtomics = true,
         .fragmentStoresAndAtomics = true,
         .shaderStorageImageExtendedFormats = true,
         // Apparently the next two features are not needed with 1.3 since you can query support in a granular fashion
@@ -389,7 +390,7 @@ namespace Fvog
 
     {
       ZoneScopedN("Get graphics queue semaphore value");
-      detail::CheckVkResult(vkGetSemaphoreCounterValue(device_, graphicsQueueTimelineSemaphore_, &value));
+      value = GetCurrentFrameData().renderTimelineSemaphoreWaitValue;
     }
 
     {

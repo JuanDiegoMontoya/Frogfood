@@ -198,8 +198,15 @@ namespace Fvog
       };
 
       {
+        
         ZoneScopedN("GlslangToSpv");
-        glslang::GlslangToSpv(*program.getIntermediate(glslangStage), info.binarySpv, &options);
+        spv::SpvBuildLogger logger;
+        glslang::GlslangToSpv(*shader.getIntermediate(), info.binarySpv, &logger, &options);
+        auto loggerMessages = logger.getAllMessages();
+        if (!loggerMessages.empty())
+        {
+          printf("spv logger messages: %s", loggerMessages.c_str());
+        }
       }
 
       // For debug-dumping SPIR-V to a file

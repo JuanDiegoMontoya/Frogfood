@@ -329,7 +329,7 @@ Application::Application(const CreateInfo& createInfo)
       windowFramebufferWidth,
       windowFramebufferHeight,
       presentMode,
-      device_->frameOverlap,
+      numSwapchainImages,
       VK_NULL_HANDLE,
       swapchainFormat_);
 
@@ -718,7 +718,7 @@ void Application::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_un
                                   windowFramebufferWidth,
                                   windowFramebufferHeight,
                                   presentMode,
-                                  device_->frameOverlap,
+                                  numSwapchainImages,
                                   oldSwapchain,
                                   swapchainFormat_);
   }
@@ -739,10 +739,12 @@ void Application::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_un
   swapchainImageViews_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainFormat_.format);
 
   swapchainOk = true;
-
-  OnFramebufferResize(newWidth, newHeight);
-
-  // Redraw the window
+  
+  shouldResizeNextFrame = true;
+  
+  // This line triggers the recreation of window-size-dependent resources.
+  // Commenting it out results in a faster, but lower quality resizing experience.
+  //OnUpdate(0);
   Draw();
 }
 

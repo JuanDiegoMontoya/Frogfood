@@ -125,6 +125,7 @@ protected:
   bool shouldResizeNextFrame = false;
   bool shouldRemakeSwapchainNextFrame = false;
   VkPresentModeKHR presentMode;
+  uint32_t numSwapchainImages = 3;
 
 private:
   friend class ApplicationAccess;

@@ -601,6 +601,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   shadingUniforms.sunDir = glm::vec4(SphericalToCartesian(sunElevation, sunAzimuth), 0);
   shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
+  {
+    uint32_t state         = static_cast<uint32_t>(device_->frameNumber);
+    shadingUniforms.random = {PCG::RandFloat(state), PCG::RandFloat(state)};
+  }
 
   auto ctx = Fvog::Context(*device_, commandBuffer);
 
@@ -1547,6 +1551,8 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     lightsBuffer.Free(it->second.lightAlloc, commandBuffer);
     lightAllocations.erase(it);
   }
+
+  ctx.Barrier();
 
   // Update mesh uniforms
   for (const auto& [id, uniforms] : modifiedMeshUniforms)

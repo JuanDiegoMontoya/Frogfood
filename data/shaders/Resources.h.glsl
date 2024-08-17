@@ -4,6 +4,8 @@
 
 #ifdef __cplusplus
 
+#include <cstdint>
+
 #define FVOG_FLOAT float
 #define FVOG_VEC2 glm::vec2
 #define FVOG_VEC3 glm::vec3
@@ -55,6 +57,16 @@
 
 #define NonUniformIndex nonuniformEXT
 #define printf debugPrintfEXT
+
+#ifdef GL_EXT_debug_printf
+  #define ASSERT_MSG(x, msg) do { if (!bool(x)) { printf(msg); } } while(false)
+  #define ASSERT(x) ASSERT_MSG(x, "Assertion failed!\n")
+  #define UNREACHABLE ASSERT_MSG(false, "Unreachable path taken!\n")
+#else
+  #define ASSERT_MSG(x, msg) (int(0))
+  #define ASSERT(x) (int(0))
+  #define UNREACHABLE (int(0))
+#endif
 
 #define FVOG_STORAGE_BUFFER_BINDING 0
 #define FVOG_STORAGE_IMAGE_BINDING 2

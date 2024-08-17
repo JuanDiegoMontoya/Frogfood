@@ -38,6 +38,7 @@ vec3 ConvertTextureToOutputColorSpace(vec3 color_in, uint in_color_space, uint o
   case COLOR_SPACE_sRGB_NONLINEAR:
     switch(out_color_space)
     {
+    case COLOR_SPACE_sRGB_LINEAR:    return color_sRGB_EOTF(color_in);
     case COLOR_SPACE_sRGB_NONLINEAR: return color_in;
     case COLOR_SPACE_scRGB_LINEAR:   return color_sRGB_EOTF(color_in) * pc.maxDisplayNits / 80.0;
     case COLOR_SPACE_BT2020_LINEAR:  return color_convert_sRGB_to_BT2020(color_sRGB_EOTF(color_in));
@@ -47,6 +48,7 @@ vec3 ConvertTextureToOutputColorSpace(vec3 color_in, uint in_color_space, uint o
   case COLOR_SPACE_scRGB_LINEAR:
     switch(out_color_space)
     {
+    case COLOR_SPACE_sRGB_LINEAR:    return color_in * 80.0 / pc.maxDisplayNits;
     case COLOR_SPACE_sRGB_NONLINEAR: return color_sRGB_OETF(color_in * 80.0 / pc.maxDisplayNits);
     case COLOR_SPACE_scRGB_LINEAR:   return color_in;
     case COLOR_SPACE_BT2020_LINEAR:  return color_convert_sRGB_to_BT2020(color_in * 80.0 / pc.maxDisplayNits);
@@ -56,6 +58,7 @@ vec3 ConvertTextureToOutputColorSpace(vec3 color_in, uint in_color_space, uint o
   case COLOR_SPACE_HDR10_ST2084:
     switch(out_color_space)
     {
+    case COLOR_SPACE_sRGB_LINEAR:    return color_convert_BT2020_to_sRGB(color_PQ_EOTF(color_in) * 10000.0 / pc.maxDisplayNits);
     case COLOR_SPACE_sRGB_NONLINEAR: return color_sRGB_OETF(color_convert_BT2020_to_sRGB(color_PQ_EOTF(color_in) * 10000.0 / pc.maxDisplayNits));
     case COLOR_SPACE_scRGB_LINEAR:   return color_convert_BT2020_to_sRGB(color_PQ_EOTF(color_in) * 10000.0 / pc.maxDisplayNits) * pc.maxDisplayNits / 80.0;
     case COLOR_SPACE_BT2020_LINEAR:  return color_PQ_EOTF(color_in) * 10000.0 / pc.maxDisplayNits;
@@ -65,6 +68,7 @@ vec3 ConvertTextureToOutputColorSpace(vec3 color_in, uint in_color_space, uint o
   case COLOR_SPACE_BT2020_LINEAR:
     switch(out_color_space)
     {
+    case COLOR_SPACE_sRGB_LINEAR:    return color_convert_BT2020_to_sRGB(color_in);
     case COLOR_SPACE_sRGB_NONLINEAR: return color_sRGB_OETF(color_convert_BT2020_to_sRGB(color_in));
     case COLOR_SPACE_scRGB_LINEAR:   return color_convert_BT2020_to_sRGB(color_in) * pc.maxDisplayNits / 80.0;
     case COLOR_SPACE_BT2020_LINEAR:  return color_in;
@@ -74,6 +78,7 @@ vec3 ConvertTextureToOutputColorSpace(vec3 color_in, uint in_color_space, uint o
   case COLOR_SPACE_sRGB_LINEAR:
     switch(out_color_space)
     {
+    case COLOR_SPACE_sRGB_LINEAR:    return color_in;
     case COLOR_SPACE_sRGB_NONLINEAR: return color_sRGB_OETF(color_in);
     case COLOR_SPACE_scRGB_LINEAR:   return color_in * pc.maxDisplayNits / 80.0;
     case COLOR_SPACE_BT2020_LINEAR:  return color_convert_sRGB_to_BT2020(color_in);

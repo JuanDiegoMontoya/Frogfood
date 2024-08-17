@@ -164,6 +164,7 @@ vec3 ConvertShadingToTonemapOutputColorSpace(vec3 color_in, uint in_color_space,
   case COLOR_SPACE_sRGB_LINEAR:
     switch (out_color_space)
     {
+    case COLOR_SPACE_sRGB_LINEAR:    return color_in;
     case COLOR_SPACE_sRGB_NONLINEAR: return color_sRGB_OETF(color_in);
     case COLOR_SPACE_scRGB_LINEAR:   return color_in * uniforms.maxDisplayNits / 80.0;
     case COLOR_SPACE_BT2020_LINEAR:  return color_convert_sRGB_to_BT2020(color_in);
@@ -173,6 +174,7 @@ vec3 ConvertShadingToTonemapOutputColorSpace(vec3 color_in, uint in_color_space,
   case COLOR_SPACE_BT2020_LINEAR:
     switch (out_color_space)
     {
+    case COLOR_SPACE_sRGB_LINEAR:    return color_convert_BT2020_to_sRGB(color_in);
     case COLOR_SPACE_sRGB_NONLINEAR: return color_sRGB_OETF(color_convert_BT2020_to_sRGB(color_in));
     case COLOR_SPACE_scRGB_LINEAR:   return color_convert_BT2020_to_sRGB(color_in) * uniforms.maxDisplayNits / 80.0;
     case COLOR_SPACE_BT2020_LINEAR:  return color_in;

@@ -615,8 +615,15 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     ZoneScopedN("Update GPU Buffers");
     auto marker = ctx.MakeScopedDebugMarker("Update Buffers");
 
-    tonemapUniforms.shadingInternalColorSpace = shadingUniforms.shadingInternalColorSpace;
-    tonemapUniformBuffer.UpdateData(commandBuffer, tonemapUniforms);
+    auto actualTonemapUniforms = tonemapUniforms;
+    // Special case for rendering to _SRGB images.
+    if (!showGui && Fvog::detail::FormatIsSrgb(Fvog::detail::VkToFormat(swapchainFormat_.format)))
+    {
+      actualTonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_sRGB_LINEAR;
+    }
+
+    actualTonemapUniforms.shadingInternalColorSpace = shadingUniforms.shadingInternalColorSpace;
+    tonemapUniformBuffer.UpdateData(commandBuffer, actualTonemapUniforms);
 
     // VSM lod bias corresponds to upscaling lod bias, otherwise shadows become blocky as the upscaling ratio increases.
     auto actualVsmUniforms = vsmUniforms;

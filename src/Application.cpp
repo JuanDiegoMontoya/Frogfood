@@ -518,7 +518,8 @@ void Application::Draw()
         })
       }));
       //auto marker = Fwog::ScopedDebugMarker("Draw GUI");
-      ImGui_ImplFvog_RenderDrawData(drawData, commandBuffer, swapchainFormat_, maxDisplayNits);
+      const bool isSurfaceHDR = swapchainFormat_.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT || swapchainFormat_.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+      ImGui_ImplFvog_RenderDrawData(drawData, commandBuffer, swapchainFormat_, isSurfaceHDR ? maxDisplayNits : 1);
       vkCmdEndRendering(commandBuffer);
     }
 

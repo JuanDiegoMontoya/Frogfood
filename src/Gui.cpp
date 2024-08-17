@@ -688,6 +688,11 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
       ImGui::EndCombo();
     }
 
+    ImGui_HoverTooltip("If you have an HDR display, setting the surface \n"
+                       "format to extended sRGB (scRGB) or HDR10 allows \n"
+                       "the renderer to take advantage of a wider gamut \n"
+                       "and dynamic range.");
+
     if (ImGui::BeginCombo("Internal Color Space", StringifyRendererColorSpace(shadingUniforms.shadingInternalColorSpace), ImGuiComboFlags_HeightLarge))
     {
       if (ImGui::Selectable("sRGB_LINEAR", shadingUniforms.shadingInternalColorSpace == COLOR_SPACE_sRGB_LINEAR))
@@ -700,6 +705,11 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
       }
       ImGui::EndCombo();
     }
+
+    ImGui_HoverTooltip("The color space in which shading occurs. This is \n"
+                       "also the color space in which the image is \n"
+                       "tonemapped. Not all tonemappers are compatible \n"
+                       "with all color spaces!");
 
     if (ImGui::BeginCombo("Output Color Space", StringifyRendererColorSpace(tonemapUniforms.tonemapOutputColorSpace), ImGuiComboFlags_HeightLarge))
     {
@@ -722,11 +732,21 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
       ImGui::EndCombo();
     }
 
+    ImGui_HoverTooltip("The space of colors emitted by the tonemapper. \n"
+                       "If rendering to the swapchain directly, this \n"
+                       "should match its surface's color space.");
+
     Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
-    if (Gui::SliderFloat("Peak Display Nits", &maxDisplayNits, 1, 10000, nullptr, nullptr, ImGuiSliderFlags_Logarithmic))
+    const char* nitsTooltip = "For HDR output only. Affects the maximum brightness of the tonemapped image. \n"
+                              "Set to your monitor's peak brightness, otherwise the image \n"
+                              "may have a limited dynamic range or suffer from clipping.";
+    const bool isSurfaceHDR = swapchainFormat_.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT || swapchainFormat_.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+    ImGui::BeginDisabled(!isSurfaceHDR);
+    if (Gui::SliderFloat("Max Brightness", &maxDisplayNits, 1, 10000, nitsTooltip, "%.1f cd/m^2", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat))
     {
       tonemapUniforms.maxDisplayNits = maxDisplayNits;
     }
+    ImGui::EndDisabled();
     Gui::EndProperties();
     
     ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
@@ -1272,18 +1292,26 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
           {
             tonemapUniforms.tonemapper = AgX;
           }
-          if (ImGui::Selectable("Tony McMapface", tonemapUniforms.tonemapper == TonyMcMapface))
-          {
-            tonemapUniforms.tonemapper = TonyMcMapface;
-          }
-          if (ImGui::Selectable("Linear Clip", tonemapUniforms.tonemapper == LinearClip))
-          {
-            tonemapUniforms.tonemapper = LinearClip;
-          }
+          ImGui_HoverTooltip("Neutral tonemapper suitable for SDR and HDR. Takes sRGB input.");
+
           if (ImGui::Selectable("Gran Turismo", tonemapUniforms.tonemapper == GTMapper))
           {
             tonemapUniforms.tonemapper = GTMapper;
           }
+          ImGui_HoverTooltip("Per-channel filmic tonemapper suitable for SDR and HDR.");
+
+          if (ImGui::Selectable("Tony McMapface", tonemapUniforms.tonemapper == TonyMcMapface))
+          {
+            tonemapUniforms.tonemapper = TonyMcMapface;
+          }
+          ImGui_HoverTooltip("Neutral tonemapper for SDR. Takes sRGB input.");
+
+          if (ImGui::Selectable("Linear Clip", tonemapUniforms.tonemapper == LinearClip))
+          {
+            tonemapUniforms.tonemapper = LinearClip;
+          }
+          ImGui_HoverTooltip("The \"nothing\" tonemapper. Clamps output to [0, 1].");
+
           ImGui::EndCombo();
         }
 

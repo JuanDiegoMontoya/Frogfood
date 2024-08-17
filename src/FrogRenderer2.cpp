@@ -622,6 +622,13 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       actualTonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_sRGB_LINEAR;
     }
 
+    // Tonemappers use maxDisplayNits to determine the output brightness. Anything above 1 will result in incorrect output for SDR.
+    const bool isSurfaceHDR = swapchainFormat_.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT || swapchainFormat_.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+    if (!isSurfaceHDR)
+    {
+      actualTonemapUniforms.maxDisplayNits = 1;
+    }
+
     actualTonemapUniforms.shadingInternalColorSpace = shadingUniforms.shadingInternalColorSpace;
     tonemapUniformBuffer.UpdateData(commandBuffer, actualTonemapUniforms);
 

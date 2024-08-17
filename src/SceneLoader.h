@@ -1,5 +1,6 @@
 #pragma once
 #include "Renderables.h"
+#include "shaders/ShadeDeferredPbr.h.glsl"
 
 #include "Fvog/Texture2.h"
 
@@ -39,7 +40,7 @@ namespace Utility
       std::optional<size_t> materialIndex;
     };
     std::vector<MeshIndices> meshes;
-    std::optional<Render::GpuLight> light; // TODO: hold a light without position/direction type safety
+    std::optional<GpuLight> light; // TODO: hold a light without position/direction type safety
   };
 
   struct LoadModelResultA

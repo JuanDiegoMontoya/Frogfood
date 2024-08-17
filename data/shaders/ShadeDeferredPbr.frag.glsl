@@ -1,5 +1,6 @@
 #version 460 core
 
+#define SHADING_PUSH_CONSTANTS
 #include "ShadeDeferredPbr.h.glsl"
 
 #include "Config.shared.h"
@@ -9,15 +10,9 @@
 #define VSM_NO_PUSH_CONSTANTS
 #include "shadows/vsm/VsmCommon.h.glsl"
 #include "Utility.h.glsl"
+#include "Color.h.glsl"
 
 #define d_perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
-
-// layout(binding = 0) uniform sampler2D s_gAlbedo;
-// layout(binding = 1) uniform sampler2D s_gNormalAndFaceNormal;
-// layout(binding = 2) uniform sampler2D s_gDepth;
-// layout(binding = 3) uniform sampler2D s_gSmoothVertexNormal;
-// layout(binding = 6) uniform sampler2D s_emission;
-// layout(binding = 7) uniform sampler2D s_metallicRoughnessAo;
 
 FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
@@ -25,49 +20,20 @@ layout(location = 0) in vec2 v_uv;
 
 layout(location = 0) out vec3 o_color;
 
-#define VSM_SHOW_CLIPMAP_ID    (1 << 0)
-#define VSM_SHOW_PAGE_ADDRESS  (1 << 1)
-#define VSM_SHOW_PAGE_OUTLINES (1 << 2)
-#define VSM_SHOW_SHADOW_DEPTH  (1 << 3)
-#define VSM_SHOW_DIRTY_PAGES   (1 << 4)
-#define BLEND_NORMALS          (1 << 5)
-#define VSM_SHOW_OVERDRAW      (1 << 6)
-
-//layout(binding = 1, std140) uniform ShadingUniforms
-FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadingUniforms)
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadingUniformsBuffers)
 {
-  vec4 sunDir;
-  vec4 sunStrength;
-  vec2 random;
-  uint numberOfLights;
-  uint debugFlags;
+  ShadingUniforms uniforms;
 }shadingUniformsBuffers[];
 
-#define shadingUniforms shadingUniformsBuffers[shadingUniformsIndex]
+#define shadingUniforms shadingUniformsBuffers[shadingUniformsIndex].uniforms
 
-//layout(binding = 2, std140) uniform ShadowUniforms
-FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadowUniforms)
+FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ShadowUniformsBuffers)
 {
-  uint shadowMode; // 0 = PCSS, 1 = SMRT
-
-  // PCSS
-  uint pcfSamples;
-  float lightWidth;
-  float maxPcfRadius;
-  uint blockerSearchSamples;
-  float blockerSearchRadius;
-
-  // SMRT
-  uint shadowRays;
-  uint stepsPerRay;
-  float rayStepSize;
-  float heightmapThickness;
-  float sourceAngleRad;
+  ShadowUniforms uniforms;
 }shadowUniformsBuffers[];
 
-#define shadowUniforms shadowUniformsBuffers[shadowUniformsIndex]
+#define shadowUniforms shadowUniformsBuffers[shadowUniformsIndex].uniforms
 
-//layout(binding = 6, std430) readonly buffer LightBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly LightBuffer)
 {
   GpuLight lights[];
@@ -325,7 +291,7 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
   {
     GpuLight light = d_lightBuffer.lights[i];
 
-    color += EvaluatePunctualLight(viewDir, light, surface);
+    color += EvaluatePunctualLight(viewDir, light, surface, shadingUniforms.shadingInternalColorSpace);
   }
 
   return color;
@@ -334,14 +300,19 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 void main()
 {
   const ivec2 gid = ivec2(gl_FragCoord.xy);
-  const vec3 albedo = texelFetch(FvogGetSampledImage(texture2D, gAlbedoIndex), gid, 0).rgb;
   const vec4 normalOctAndFlatNormalOct = texelFetch(FvogGetSampledImage(texture2D, gNormalAndFaceNormalIndex), gid, 0).xyzw;
   const vec3 mappedNormal = OctToVec3(normalOctAndFlatNormalOct.xy);
   const vec3 flatNormal = OctToVec3(normalOctAndFlatNormalOct.zw);
   const vec3 smoothNormal = OctToVec3(texelFetch(FvogGetSampledImage(texture2D, gSmoothVertexNormalIndex), gid, 0).xy);
   const float depth = texelFetch(FvogGetSampledImage(texture2D, gDepthIndex), gid, 0).x;
-  const vec3 emission = texelFetch(FvogGetSampledImage(texture2D, gEmissionIndex), gid, 0).rgb;
   const vec3 metallicRoughnessAo = texelFetch(FvogGetSampledImage(texture2D, gMetallicRoughnessAoIndex), gid, 0).rgb;
+
+  const vec3 albedo_internal = color_convert_src_to_dst(texelFetch(FvogGetSampledImage(texture2D, gAlbedoIndex), gid, 0).rgb, 
+    COLOR_SPACE_sRGB_LINEAR,
+    shadingUniforms.shadingInternalColorSpace);
+  const vec3 emission_internal = color_convert_src_to_dst(texelFetch(FvogGetSampledImage(texture2D, gEmissionIndex), gid, 0).rgb,
+    COLOR_SPACE_sRGB_LINEAR,
+    shadingUniforms.shadingInternalColorSpace);
 
   if (depth == FAR_DEPTH)
   {
@@ -357,9 +328,10 @@ void main()
   ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
   float shadowSun = shadowVsm.shadow;
 
-  // Filtered shadow
-  shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal);
-
+  if (shadowUniforms.shadowFilter == SHADOW_FILTER_PCSS)
+  {
+    shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal);
+  }
 
 
 
@@ -379,7 +351,7 @@ void main()
   vec3 viewDir = normalize(d_perFrameUniforms.cameraPos.xyz - fragWorldPos);
   
   Surface surface;
-  surface.albedo = albedo;
+  surface.albedo = albedo_internal;
   surface.normal = normal;
   surface.position = fragWorldPos;
   surface.metallic = metallicRoughnessAo.x;
@@ -390,16 +362,17 @@ void main()
   surface.reflectance = 0.5;
   surface.f90 = 1.0;
 
-  vec3 finalColor = vec3(.03) * albedo * metallicRoughnessAo.z; // Ambient lighting
+  vec3 finalColor = vec3(.03) * albedo_internal * metallicRoughnessAo.z; // Ambient lighting
 
   float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
-  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * shadingUniforms.sunStrength.rgb * NoL_sun * shadowSun;
+  const vec3 sunColor_internal_space = color_convert_src_to_dst(shadingUniforms.sunStrength.rgb,
+    COLOR_SPACE_sRGB_LINEAR,
+    shadingUniforms.shadingInternalColorSpace);
+  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * sunColor_internal_space * NoL_sun * shadowSun;
   finalColor += LocalLightIntensity(viewDir, surface);
-  finalColor += emission;
+  finalColor += emission_internal;
 
   o_color = finalColor;
-
-
 
   // Disco view (hashed physical address or clipmap level)
   if (GetIsPageVisible(shadowVsm.pageData))

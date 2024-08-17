@@ -144,7 +144,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     shadowUniformsBuffer(*device_, 1, "Shadow Uniforms"),
     geometryBuffer(*device_, 1'000'000'000, "Geometry Buffer"),
     meshletInstancesBuffer(*device_, 100'000'000 * sizeof(Render::MeshletInstance), "Meshlet Instances Buffer"),
-    lightsBuffer(*device_, 1'000 * sizeof(Render::GpuLight), "Light Buffer"),
+    lightsBuffer(*device_, 1'000 * sizeof(GpuLight), "Light Buffer"),
     // Create the pipelines used in the application
     cullMeshletsPipeline(Pipelines2::CullMeshlets(*device_)),
     cullTrianglesPipeline(Pipelines2::CullTriangles(*device_)),
@@ -340,7 +340,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   constexpr auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
   vsmTempDepthStencil      = Fvog::CreateTexture2D(*device_, vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
-
+  
   OnFramebufferResize(windowFramebufferWidth, windowFramebufferHeight);
   // The main loop might invoke the resize callback (which in turn causes a redraw) on the first frame, and OnUpdate produces
   // some resources necessary for rendering (but can be resused). This is a minor hack to make sure those resources are
@@ -615,6 +615,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     ZoneScopedN("Update GPU Buffers");
     auto marker = ctx.MakeScopedDebugMarker("Update Buffers");
 
+    tonemapUniforms.shadingInternalColorSpace = shadingUniforms.shadingInternalColorSpace;
     tonemapUniformBuffer.UpdateData(commandBuffer, tonemapUniforms);
 
     // VSM lod bias corresponds to upscaling lod bias, otherwise shadows become blocky as the upscaling ratio increases.
@@ -1405,7 +1406,7 @@ void FrogRenderer2::DeleteMesh(Render::MeshID mesh)
 }
 
 // Having the data payload in the alloc function is kinda quirky and inconsistent, but I'll keep it for now.
-Render::LightID FrogRenderer2::SpawnLight(const Render::GpuLight& lightData)
+Render::LightID FrogRenderer2::SpawnLight(const GpuLight& lightData)
 {
   ZoneScoped;
   auto myId = nextId++;
@@ -1442,7 +1443,7 @@ void FrogRenderer2::UpdateMesh(Render::MeshID mesh, const Render::ObjectUniforms
   modifiedMeshUniforms[mesh.id] = uniforms;
 }
 
-void FrogRenderer2::UpdateLight(Render::LightID light, const Render::GpuLight& lightData)
+void FrogRenderer2::UpdateLight(Render::LightID light, const GpuLight& lightData)
 {
   ZoneScoped;
   modifiedLights[light.id] = lightData;
@@ -1539,7 +1540,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   // Spawn lights
   for (const auto& [id, gpuLight] : spawnedLights)
   {
-    const auto lightAlloc = lightsBuffer.Allocate(sizeof(Render::GpuLight));
+    const auto lightAlloc = lightsBuffer.Allocate(sizeof(GpuLight));
     lightAllocations.emplace(id, LightAlloc{.lightAlloc = lightAlloc});
     ctx.TeenyBufferUpdate(lightsBuffer.GetBuffer(), gpuLight, lightAlloc.offset);
   }

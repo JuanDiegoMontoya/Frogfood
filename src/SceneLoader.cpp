@@ -1042,19 +1042,19 @@ namespace Utility
         {
           const auto& light = asset.lights[*gltfNode->lightIndex];
 
-          Render::GpuLight gpuLight{};
+          GpuLight gpuLight{};
 
           if (light.type == fastgltf::LightType::Directional)
           {
-            gpuLight.type = Render::LightType::DIRECTIONAL;
+            gpuLight.type = LIGHT_TYPE_DIRECTIONAL;
           }
           else if (light.type == fastgltf::LightType::Spot)
           {
-            gpuLight.type = Render::LightType::SPOT;
+            gpuLight.type = LIGHT_TYPE_SPOT;
           }
           else
           {
-            gpuLight.type = Render::LightType::POINT;
+            gpuLight.type = LIGHT_TYPE_POINT;
           }
 
           gpuLight.color     = glm::make_vec3(light.color.data());

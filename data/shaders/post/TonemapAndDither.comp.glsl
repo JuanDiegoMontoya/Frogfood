@@ -53,7 +53,7 @@ vec3 DualSection(vec3 x, float linear, float peak)
 	return x;
 }
 
-vec3 AgX_DS(vec3 color_srgb, AgXMapperSettings agx)
+vec3 AgX_DS(vec3 color_srgb, AgXMapperSettings agx, float maxDisplayNits)
 {
   vec3 workingColor = max(color_srgb, 0.0);
 
@@ -64,7 +64,7 @@ vec3 AgX_DS(vec3 color_srgb, AgXMapperSettings agx)
 
   workingColor = sRGB_to_adjusted * workingColor;
   //workingColor = clamp(DualSection(workingColor, agx.linear, agx.peak), 0.0, 1.0);
-  workingColor = DualSection(workingColor, agx.linear, agx.peak);
+  workingColor = DualSection(workingColor, agx.linear, maxDisplayNits);
 
   vec3 luminanceWeight = vec3(0.2126729, 0.7151522, 0.0721750);
   vec3 desaturation    = vec3(dot(workingColor, luminanceWeight));
@@ -85,7 +85,7 @@ vec3 TonyMcMapface(vec3 color_srgb)
   vec3 dims = vec3(textureSize(Fvog_texture3D(tonyMcMapfaceIndex), 0));
   vec3 uv = encoded * ((dims - 1.0) / dims) + 0.5 / dims;
 
-  return texture(Fvog_sampler3D(tonyMcMapfaceIndex, linearClampSamplerIndex), uv).rgb;
+  return textureLod(Fvog_sampler3D(tonyMcMapfaceIndex, linearClampSamplerIndex), uv, 0).rgb;
 }
 
 vec3 apply_dither(vec3 color, vec2 uv, uint quantizeBits)
@@ -94,17 +94,6 @@ vec3 apply_dither(vec3 color, vec2 uv, uint quantizeBits)
   vec3 noiseSample = textureLod(Fvog_sampler2D(noiseIndex, nearestSamplerIndex), uvNoise, 0).rgb;
   //return color + vec3((noiseSample - 0.5) / 255.0);
   return color + vec3((noiseSample - 0.5) / ((1u << quantizeBits) - 1));
-}
-
-// TODO: this is just smoothstep
-float W_f(float x,float e0,float e1)
-{
-  if (x <= e0)
-    return 0;
-  if (x >= e1)
-    return 1;
-  float a = (x - e0) / (e1 - e0);
-  return a * a*(3 - 2 * a);
 }
 
 // TODO: replace with something better
@@ -152,7 +141,7 @@ float GTMapper(float x, GTMapperSettings gt, float maxDisplayNits)
   float C2 = a * P / (P - S1);
   float S_x = P - (P - S1) * exp(-(C2*(x-S0)/P));
 
-  float w0_x = 1 - W_f(x, 0, m);
+  float w0_x = 1 - smoothstep(x, 0, m);
   float w2_x = H_f(x, m + l0, m + l0);
   float w1_x = 1 - w0_x - w2_x;
   float f_x = T_x * w0_x + L_x * w1_x + S_x * w2_x;
@@ -168,6 +157,34 @@ vec3 GTMapper(vec3 c, GTMapperSettings gt, float maxDisplayNits)
   );
 }
 
+vec3 ConvertShadingToTonemapOutputColorSpace(vec3 color_in, uint in_color_space, uint out_color_space)
+{
+  switch (in_color_space)
+  {
+  case COLOR_SPACE_sRGB_LINEAR:
+    switch (out_color_space)
+    {
+    case COLOR_SPACE_sRGB_NONLINEAR: return color_sRGB_OETF(color_in);
+    case COLOR_SPACE_scRGB_LINEAR:   return color_in * uniforms.maxDisplayNits / 80.0;
+    case COLOR_SPACE_BT2020_LINEAR:  return color_convert_sRGB_to_BT2020(color_in);
+    case COLOR_SPACE_HDR10_ST2084:   return color_PQ_OETF(color_convert_sRGB_to_BT2020(color_in) * uniforms.maxDisplayNits / 10000.0);
+    }
+    break;
+  case COLOR_SPACE_BT2020_LINEAR:
+    switch (out_color_space)
+    {
+    case COLOR_SPACE_sRGB_NONLINEAR: return color_sRGB_OETF(color_convert_BT2020_to_sRGB(color_in));
+    case COLOR_SPACE_scRGB_LINEAR:   return color_convert_BT2020_to_sRGB(color_in) * uniforms.maxDisplayNits / 80.0;
+    case COLOR_SPACE_BT2020_LINEAR:  return color_in;
+    case COLOR_SPACE_HDR10_ST2084:   return color_PQ_OETF(color_in * uniforms.maxDisplayNits / 10000.0);
+    }
+    break;
+  }
+
+  UNREACHABLE;
+  return color_in;
+}
+
 void main()
 {
   const ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
@@ -181,37 +198,36 @@ void main()
   const vec2 uv = (vec2(gid) + 0.5) / targetDim;
   
   vec3 hdrColor = textureLod(Fvog_sampler2D(sceneColorIndex, nearestSamplerIndex), uv, 0).rgb;
-  hdrColor *=  pow(2.0, d_exposureBuffer.exposure); // Apply exposure
-  vec3 compressedColor = hdrColor;
+  hdrColor *= pow(2.0, d_exposureBuffer.exposure); // Apply exposure
+  vec3 tonemappedColor = hdrColor;
   
-  // sRGB/SDR display mappers
+  // sRGB/SDR display mappers (AgX actually works okay as an HDR tonemapper despite assuming BT.709 input)
   if (uniforms.tonemapper == 0)
   {
-    compressedColor = AgX_DS(hdrColor, uniforms.agx);
+    tonemappedColor = AgX_DS(hdrColor, uniforms.agx, uniforms.maxDisplayNits);
   }
   if (uniforms.tonemapper == 1)
   {
-    compressedColor = TonyMcMapface(hdrColor);
+    tonemappedColor = TonyMcMapface(hdrColor);
   }
   if (uniforms.tonemapper == 2)
   {
-	  compressedColor = clamp(hdrColor, vec3(0), vec3(1));
+	  tonemappedColor = clamp(hdrColor, vec3(0), vec3(1));
   }
 
   // Hybrid/HDR-compatible diplay mappers
   if (uniforms.tonemapper == 3)
   {
-    compressedColor = GTMapper(hdrColor, uniforms.gt, uniforms.maxDisplayNits);
+    tonemappedColor = GTMapper(hdrColor, uniforms.gt, uniforms.maxDisplayNits);
   }
 
-  vec3 srgbColor = color_sRGB_OETF(compressedColor);
+  vec3 outputColor = ConvertShadingToTonemapOutputColorSpace(tonemappedColor, uniforms.shadingInternalColorSpace, uniforms.tonemapOutputColorSpace);
 
-  vec3 ditheredColor = srgbColor;
+  vec3 ditheredColor = outputColor;
   
   if (bool(uniforms.enableDithering))
   {
-    ditheredColor = apply_dither(srgbColor, uv, uniforms.quantizeBits);
+    ditheredColor = apply_dither(outputColor, uv, uniforms.quantizeBits);
   }
-
   imageStore(Fvog_image2D(outputImageIndex), gid, vec4(ditheredColor, 1.0));
 }

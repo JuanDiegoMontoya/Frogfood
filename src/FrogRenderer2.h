@@ -163,7 +163,7 @@ public:
   [[nodiscard]] Render::MeshID SpawnMesh(Render::MeshInstanceID meshInstance);
   void DeleteMesh(Render::MeshID mesh);
 
-  [[nodiscard]] Render::LightID SpawnLight(const Render::GpuLight& lightData);
+  [[nodiscard]] Render::LightID SpawnLight(const GpuLight& lightData);
   void DeleteLight(Render::LightID light);
 
   [[nodiscard]] Render::MaterialID RegisterMaterial(Render::Material&& material);
@@ -171,7 +171,7 @@ public:
 
   // Updating
   void UpdateMesh(Render::MeshID mesh, const Render::ObjectUniforms& uniforms);
-  void UpdateLight(Render::LightID light, const Render::GpuLight& lightData);
+  void UpdateLight(Render::LightID light, const GpuLight& lightData);
   void UpdateMaterial(Render::MaterialID material, const Render::GpuMaterial& materialData);
 
   // Oh man oh jeez
@@ -261,46 +261,6 @@ private:
     ViewType type = ViewType::MAIN;
     glm::uint virtualTableIndex;
     glm::uvec2 _padding;
-  };
-
-  enum class ShadingDebugFlag : uint32_t
-  {
-    VSM_SHOW_CLIPMAP_ID    = 1 << 0,
-    VSM_SHOW_PAGE_ADDRESS  = 1 << 1,
-    VSM_SHOW_PAGE_OUTLINES = 1 << 2,
-    VSM_SHOW_SHADOW_DEPTH  = 1 << 3,
-    VSM_SHOW_DIRTY_PAGES   = 1 << 4,
-    BLEND_NORMALS          = 1 << 5,
-    VSM_SHOW_OVERDRAW      = 1 << 6,
-  };
-  //FWOG_DECLARE_FLAG_TYPE(ShadingDebugFlags, ShadingDebugFlag, uint32_t)
-
-  struct ShadingUniforms
-  {
-    glm::vec4 sunDir;
-    glm::vec4 sunStrength;
-    glm::vec2 random;
-    glm::uint numberOfLights;
-    uint32_t debugFlags{};
-  };
-
-  struct ShadowUniforms
-  {
-    uint32_t shadowMode = 0; // 0 = PCSS, 1 = SMRT
-
-    // PCSS stuff
-    uint32_t pcfSamples = 16;
-    float lightWidth = 0.002f;
-    float maxPcfRadius = 0.032f;
-    uint32_t blockerSearchSamples = 16;
-    float blockerSearchRadius = 0.032f;
-
-    // SMRT stuff
-    uint32_t shadowRays = 7;
-    uint32_t stepsPerRay = 7;
-    float rayStepSize = 0.1f;
-    float heightmapThickness = 0.5f;
-    float sourceAngleRad = 0.05f;
   };
 
   // scene parameters
@@ -435,7 +395,7 @@ private:
 
   uint32_t NumLights() const noexcept
   {
-    return (uint32_t)lightsBuffer.GetCurrentSize() / sizeof(Render::GpuLight);
+    return (uint32_t)lightsBuffer.GetCurrentSize() / sizeof(GpuLight);
   }
 
   uint64_t nextId = 1; // 0 is reserved for "null" IDs
@@ -447,11 +407,11 @@ private:
 
   // Will be batch uploaded
   std::unordered_map<uint64_t, Render::ObjectUniforms> modifiedMeshUniforms;
-  std::unordered_map<uint64_t, Render::GpuLight> modifiedLights;
+  std::unordered_map<uint64_t, GpuLight> modifiedLights;
   std::unordered_map<uint64_t, Render::GpuMaterial> modifiedMaterials;
   std::vector<std::pair<uint64_t, Render::MeshInstanceID>> spawnedMeshes;
   std::vector<uint64_t> deletedMeshes;
-  std::vector<std::pair<uint64_t, Render::GpuLight>> spawnedLights;
+  std::vector<std::pair<uint64_t, GpuLight>> spawnedLights;
   std::vector<uint64_t> deletedLights;
 
   void FlushUpdatedSceneData(VkCommandBuffer commandBuffer);
@@ -499,27 +459,7 @@ private:
   // Post processing
   std::optional<Fvog::Texture> noiseTexture;
   Fvog::NDeviceBuffer<TonemapUniforms> tonemapUniformBuffer;
-  TonemapUniforms tonemapUniforms{
-    .tonemapper      = TonyMcMapface,
-    .enableDithering = true,
-    .quantizeBits    = 8,
-    .maxDisplayNits = 1,
-    .agx =
-      {
-        .saturation  = 1.0f,
-        .linear      = 0.10f,
-        .peak        = 1.0f,
-        .compression = 0.15f,
-      },
-    .gt =
-      {
-        .contrast              = 1.00f,
-        .startOfLinearSection  = 0.22f,
-        .lengthOfLinearSection = 0.40f,
-        .toeCurviness          = 1.33f,
-        .toeFloor              = 0.00f,
-      },
-  };
+  TonemapUniforms tonemapUniforms{};
   Fvog::Texture tonyMcMapfaceLut;
 
   uint32_t renderInternalWidth{};

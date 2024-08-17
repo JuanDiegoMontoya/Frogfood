@@ -1,6 +1,9 @@
 #ifndef PBR_H
 #define PBR_H
 
+#include "Color.h.glsl"
+#include "ShadeDeferredPbr.h.glsl"
+
 // Punctual light attenuation factor
 float GetSquareFalloffAttenuation(vec3 posToLight, float lightInvRadius)
 {
@@ -113,25 +116,7 @@ vec3 BRDF(vec3 viewDir, vec3 L, Surface surface)
   return Fr + Fd * (vec3(1) - F) * (1.0 - surface.metallic);
 }
 
-#define LIGHT_TYPE_DIRECTIONAL 0u
-#define LIGHT_TYPE_POINT 1u
-#define LIGHT_TYPE_SPOT 2u
-
-struct GpuLight
-{
-  vec3 color;
-  uint type;
-  vec3 direction;  // Directional and spot only
-  // Point and spot lights use candela (lm/sr) while directional use lux (lm/m^2)
-  float intensity;
-  vec3 position;        // Point and spot only
-  float range;          // Point and spot only
-  float innerConeAngle; // Spot only
-  float outerConeAngle; // Spot only
-  uint _padding[2];
-};
-
-vec3 EvaluatePunctualLight(vec3 viewDir, GpuLight light, Surface surface)
+vec3 EvaluatePunctualLight(vec3 viewDir, GpuLight light, Surface surface, uint internalColorSpace)
 {
   vec3 surfaceToLight = light.position - surface.position;
   vec3 L = normalize(surfaceToLight);
@@ -144,7 +129,10 @@ vec3 EvaluatePunctualLight(vec3 viewDir, GpuLight light, Surface surface)
     attenuation *= GetSpotAngleAttenuation(light.innerConeAngle, light.outerConeAngle, light.direction, L);
   }
 
-  return BRDF(viewDir, L, surface) * attenuation * NoL * light.color * light.intensity;
+  vec3 lightColor_internal_space = color_convert_src_to_dst(light.color,
+    light.colorSpace,
+    internalColorSpace);
+  return BRDF(viewDir, L, surface) * attenuation * NoL * lightColor_internal_space * light.intensity;
 }
 
 #endif // PBR_H

@@ -4,6 +4,8 @@
 
 #include "Renderables.h"
 
+#include "shaders/ShadeDeferredPbr.h.glsl"
+
 #include <glm/vec2.hpp>
 #include <glm/gtc/quaternion.hpp>
 
@@ -48,7 +50,7 @@ namespace Scene
     
     std::vector<Render::MeshID> meshIds;
     Render::LightID lightId;
-    Render::GpuLight light; // Only contains valid data if lightId is not null
+    GpuLight light; // Only contains valid data if lightId is not null
   };
 
   struct SceneMeshlet

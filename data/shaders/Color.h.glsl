@@ -3,17 +3,31 @@
 #define COLOR_H_GLSL
 
 //////////////////// Defines /////////////////////
-#define COLOR_SPACE_sRGB_NONLINEAR 0
-#define COLOR_SPACE_scRGB_LINEAR 1
-#define COLOR_SPACE_HDR10_ST2084 2
-#define COLOR_SPACE_BT2020_LINEAR 3
-#define COLOR_SPACE_sRGB_LINEAR 4
+#define COLOR_SPACE_sRGB_NONLINEAR 0u
+#define COLOR_SPACE_scRGB_LINEAR   1u
+#define COLOR_SPACE_HDR10_ST2084   2u
+#define COLOR_SPACE_BT2020_LINEAR  3u
+#define COLOR_SPACE_sRGB_LINEAR    4u
+#define COLOR_SPACE_MAX_ENUM       5u
 
 
 
 
+#ifndef __cplusplus
+#include "Resources.h.glsl"
 
 //////////////////// Color space manipulation /////////////////////
+bool color_is_color_space(uint color_space)
+{
+  return color_space < COLOR_SPACE_MAX_ENUM;
+}
+
+bool color_is_color_space_linear(uint color_space)
+{
+  ASSERT_MSG(color_is_color_space(color_space), "Not a color space!\n");
+  return !(color_space == COLOR_SPACE_sRGB_NONLINEAR || color_space == COLOR_SPACE_HDR10_ST2084);
+}
+
 vec3 color_xyYToXYZ(vec3 xyY)
 {
   float Y = xyY.z;
@@ -56,28 +70,81 @@ mat3 color_ComputeCompressionMatrix(vec2 xyR, vec2 xyG, vec2 xyB, vec2 xyW, floa
   return color_PrimariesToMatrix(R, G, B, W);
 }
 
+// https://www.russellcottrell.com/photo/matrixCalculator.htm
 mat3 color_make_sRGB_to_XYZ_matrix()
 {
-  //return color_PrimariesToMatrix(vec2(0.64, 0.33), vec2(0.3, 0.6), vec2(0.15, 0.06), vec2(0.3127, 0.3290));
-  return mat3(0.4124564, 0.2126729, 0.0193339,
-              0.3575761, 0.7151522, 0.1191920,
-              0.1804375, 0.0721750, 0.9503041);
+  return transpose(mat3(0.4123908, 0.3575843, 0.1804808,
+                        0.2126390, 0.7151687, 0.0721923,
+                        0.0193308, 0.1191948, 0.9505322));
+}
+
+mat3 color_make_XYZ_to_sRGB_matrix()
+{
+  return transpose(mat3(3.2409699, -1.5373832, -0.4986108,
+                        -0.9692436, 1.8759675, 0.0415551,
+                         0.0556301, -0.2039770, 1.0569715));
 }
 
 mat3 color_make_BT2020_to_XYZ_matrix()
 {
-  // TODO: this is probably wrong
-  return color_PrimariesToMatrix(vec2(0.708, 0.292), vec2(0.170, 0.797), vec2(0.131, 0.046), vec2(0.3127, 0.3290));
+  return transpose(mat3(0.6369580, 0.1446169, 0.1688810,
+                        0.2627002, 0.6779981, 0.0593017,
+                        0.0000000, 0.0280727, 1.0609851));
+}
+
+mat3 color_make_XYZ_to_BT2020_matrix()
+{
+  return transpose(mat3(1.7166512, -0.3556708, -0.2533663,
+                        -0.6666844, 1.6164812, 0.0157685,
+                        0.0176399, -0.0427706, 0.9421031));
 }
 
 mat3 color_make_sRGB_to_BT2020_matrix()
 {
-  // mat3 sRGB_to_XYZ = color_make_sRGB_to_XYZ_matrix();
-  // mat3 XYZ_to_BT2020 = inverse(color_make_BT2020_to_XYZ_matrix());
-  // return sRGB_to_XYZ * XYZ_to_BT2020;
-  return mat3(0.627403896, 0.0690972894, 0.0163914389,
-              0.329283039, 0.919540395, 0.0880133077,
-              0.0433130657, 0.0113623156, 0.895595253);
+  return color_make_XYZ_to_BT2020_matrix() * color_make_sRGB_to_XYZ_matrix();
+}
+
+mat3 color_make_BT2020_to_sRGB_matrix()
+{
+  return color_make_XYZ_to_sRGB_matrix() * color_make_BT2020_to_XYZ_matrix();
+}
+
+vec3 color_convert_sRGB_to_BT2020(vec3 srgb_linear)
+{
+  return color_make_sRGB_to_BT2020_matrix() * srgb_linear;
+}
+
+vec3 color_convert_BT2020_to_sRGB(vec3 bt2020_linear)
+{
+  return color_make_BT2020_to_sRGB_matrix() * bt2020_linear;
+}
+
+// Linear color spaces only.
+vec3 color_convert_src_to_dst(vec3 color_src, uint src_color_space, uint dst_color_space)
+{
+  ASSERT_MSG(color_is_color_space_linear(src_color_space), "src_color_space is not linear!\n");
+  ASSERT_MSG(color_is_color_space_linear(dst_color_space), "dst_color_space is not linear!\n");
+
+  if (src_color_space == dst_color_space)
+  {
+    return color_src;
+  }
+
+  mat3 XYZ_from_src;
+  switch (src_color_space)
+  {
+  case COLOR_SPACE_sRGB_LINEAR: XYZ_from_src = color_make_sRGB_to_XYZ_matrix(); break;
+  case COLOR_SPACE_BT2020_LINEAR: XYZ_from_src = color_make_BT2020_to_XYZ_matrix(); break;
+  }
+
+  mat3 dst_from_XYZ;
+  switch (dst_color_space)
+  {
+  case COLOR_SPACE_sRGB_LINEAR: dst_from_XYZ = color_make_XYZ_to_sRGB_matrix(); break;
+  case COLOR_SPACE_BT2020_LINEAR: dst_from_XYZ = color_make_XYZ_to_BT2020_matrix(); break;
+  }
+
+  return dst_from_XYZ * XYZ_from_src * color_src;
 }
 
 
@@ -156,6 +223,7 @@ vec3 color_BT1886_EOTF(vec3 x)
   return 100.0 * pow(x, vec3(2.4));
 }
 
+// Similar to, but not the same as the sRGB OETF.
 vec3 color_BT709_OETF(vec3 x)
 {
   bvec3 cutoff = lessThanEqual(x, vec3(0.018));
@@ -171,41 +239,63 @@ vec3 color_PQ_OOTF(vec3 x)
   return color_BT1886_EOTF(color_BT709_OETF(x * BT709_scale_factor));
 }
 
-// Input should be in [0, 10000] nits
-float color_PQ_inv_eotf(float x)
+// Input should be in [0, 10000] nits. Usage: color_PQ_OETF(x * max_nits / 10000.0);
+float color_PQ_OETF(float x)
 {
   const float m1 = 0.1593017578125;
   const float m2 = 78.84375;
   const float c1 = 0.8359375;
   const float c2 = 18.8515625;
   const float c3 = 18.6875;
-  float ym       = pow(x, m1);
+  float ym = pow(x, m1);
   return pow((c1 + c2 * ym) / (1.0 + c3 * ym), m2);
 }
 
-vec3 color_PQ_inv_eotf(vec3 c)
+vec3 color_PQ_OETF(vec3 c)
 {
   return vec3(
-    color_PQ_inv_eotf(c.r),
-    color_PQ_inv_eotf(c.g),
-    color_PQ_inv_eotf(c.b)
+    color_PQ_OETF(c.r),
+    color_PQ_OETF(c.g),
+    color_PQ_OETF(c.b)
   );
 }
 
 // Input should be in [0, 100] nits
-float color_PQ_inv_eotf_approx(float x)
+float color_PQ_OETF_approx(float x)
 {
   float k = pow((x * 0.01), 0.1593017578125);
   return (3.61972 * (1e-8) + k * (0.00102859 + k * (-0.101284 + 2.05784 * k))) / (0.0495245 + k * (0.135214 + k * (0.772669 + k)));
 }
 
-vec3 color_PQ_inv_eotf_approx(vec3 c)
+vec3 color_PQ_OETF_approx(vec3 c)
 {
   return vec3(
-    color_PQ_inv_eotf_approx(c.r),
-    color_PQ_inv_eotf_approx(c.g),
-    color_PQ_inv_eotf_approx(c.b)
+    color_PQ_OETF_approx(c.r),
+    color_PQ_OETF_approx(c.g),
+    color_PQ_OETF_approx(c.b)
   );
 }
 
+// Usage: color_PQ_EOTF(x) * (10000.0 / max_nits);
+float color_PQ_EOTF(float x)
+{
+  const float m1 = 0.1593017578125;
+  const float m2 = 78.84375;
+  const float c1 = 0.8359375;
+  const float c2 = 18.8515625;
+  const float c3 = 18.6875;
+  float em2 = pow(x, 1.0 / m2);
+  return pow(max((em2 - c1), 0.0) / (c2 - c3 * em2), 1.0 / m1);
+}
+
+vec3 color_PQ_EOTF(vec3 c)
+{
+  return vec3(
+    color_PQ_EOTF(c.r),
+    color_PQ_EOTF(c.g),
+    color_PQ_EOTF(c.b)
+  );
+}
+
+#endif
 #endif

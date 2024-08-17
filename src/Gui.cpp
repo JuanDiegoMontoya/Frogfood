@@ -344,6 +344,19 @@ namespace
       return pressed || pressed0;
     }
   }
+
+  const char* StringifyRendererColorSpace(uint32_t colorSpace)
+  {
+    switch (colorSpace)
+    {
+    case COLOR_SPACE_sRGB_LINEAR: return "sRGB_LINEAR";
+    case COLOR_SPACE_scRGB_LINEAR: return "scRGB_LINEAR";
+    case COLOR_SPACE_sRGB_NONLINEAR: return "sRGB_NONLINEAR";
+    case COLOR_SPACE_BT2020_LINEAR: return "BT2020_LINEAR";
+    case COLOR_SPACE_HDR10_ST2084: return "HDR10_ST2084";
+    default: return "Unknown color space";
+    }
+  }
 }
 
 void FrogRenderer2::InitGui()
@@ -522,8 +535,10 @@ void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 
     // Calculate the min and max UV of the magnifier window
     glm::vec2 uv0{mp - magnifierHalfExtentUv};
     glm::vec2 uv1{mp + magnifierHalfExtentUv};
-    
-    ImGui::Image(ImTextureSampler(frame.colorLdrWindowRes.value().ImageView().GetSampledResourceHandle().index, nearestSampler.GetResourceHandle().index),
+
+    ImGui::Image(ImTextureSampler(frame.colorLdrWindowRes.value().ImageView().GetSampledResourceHandle().index,
+                   nearestSampler.GetResourceHandle().index,
+                   tonemapUniforms.tonemapOutputColorSpace),
                  magnifierSize,
                  ImVec2(uv0.x, uv0.y),
                  ImVec2(uv1.x, uv1.y));
@@ -651,7 +666,7 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
     };
 
     const auto currentFormatStr = stringifySurfaceFormat(nextSwapchainFormat_);
-    if (ImGui::BeginCombo("Format", currentFormatStr.c_str(), ImGuiComboFlags_HeightLarge))
+    if (ImGui::BeginCombo("Surface Format", currentFormatStr.c_str(), ImGuiComboFlags_HeightLarge))
     {
       ImGui::BeginTable("surface formats", 1, ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody);
       ImGui::TableSetupColumn("name");
@@ -670,6 +685,40 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
       }
 
       ImGui::EndTable();
+      ImGui::EndCombo();
+    }
+
+    if (ImGui::BeginCombo("Internal Color Space", StringifyRendererColorSpace(shadingUniforms.shadingInternalColorSpace), ImGuiComboFlags_HeightLarge))
+    {
+      if (ImGui::Selectable("sRGB_LINEAR", shadingUniforms.shadingInternalColorSpace == COLOR_SPACE_sRGB_LINEAR))
+      {
+        shadingUniforms.shadingInternalColorSpace = COLOR_SPACE_sRGB_LINEAR;
+      }
+      if (ImGui::Selectable("BT2020_LINEAR", shadingUniforms.shadingInternalColorSpace == COLOR_SPACE_BT2020_LINEAR))
+      {
+        shadingUniforms.shadingInternalColorSpace = COLOR_SPACE_BT2020_LINEAR;
+      }
+      ImGui::EndCombo();
+    }
+
+    if (ImGui::BeginCombo("Output Color Space", StringifyRendererColorSpace(tonemapUniforms.tonemapOutputColorSpace), ImGuiComboFlags_HeightLarge))
+    {
+      if (ImGui::Selectable("sRGB_NONLINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_sRGB_NONLINEAR))
+      {
+        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_sRGB_NONLINEAR;
+      }
+      if (ImGui::Selectable("scRGB_LINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_scRGB_LINEAR))
+      {
+        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_scRGB_LINEAR;
+      }
+      if (ImGui::Selectable("BT2020_LINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_BT2020_LINEAR))
+      {
+        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_BT2020_LINEAR;
+      }
+      if (ImGui::Selectable("HDR10_ST2084", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_HDR10_ST2084))
+      {
+        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_HDR10_ST2084;
+      }
       ImGui::EndCombo();
     }
 
@@ -705,13 +754,13 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
     Gui::EndProperties();
 
     ImGui::SeparatorText("Virtual Shadow Maps");
-    ImGui_FlagCheckbox("Show Clipmap ID", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_CLIPMAP_ID);
-    ImGui_FlagCheckbox("Show Page Address", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_ADDRESS);
-    ImGui_FlagCheckbox("Show Page Outlines", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_PAGE_OUTLINES);
-    ImGui_FlagCheckbox("Show Shadow Depth", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_SHADOW_DEPTH);
-    ImGui_FlagCheckbox("Show Dirty Pages", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_DIRTY_PAGES);
-    ImGui_FlagCheckbox("Show Overdraw", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::VSM_SHOW_OVERDRAW);
-    ImGui_FlagCheckbox("Blend Normals", &shadingUniforms.debugFlags, (uint32_t)ShadingDebugFlag::BLEND_NORMALS);
+    ImGui_FlagCheckbox("Show Clipmap ID", &shadingUniforms.debugFlags, VSM_SHOW_CLIPMAP_ID);
+    ImGui_FlagCheckbox("Show Page Address", &shadingUniforms.debugFlags, VSM_SHOW_PAGE_ADDRESS);
+    ImGui_FlagCheckbox("Show Page Outlines", &shadingUniforms.debugFlags, VSM_SHOW_PAGE_OUTLINES);
+    ImGui_FlagCheckbox("Show Shadow Depth", &shadingUniforms.debugFlags, VSM_SHOW_SHADOW_DEPTH);
+    ImGui_FlagCheckbox("Show Dirty Pages", &shadingUniforms.debugFlags, VSM_SHOW_DIRTY_PAGES);
+    ImGui_FlagCheckbox("Show Overdraw", &shadingUniforms.debugFlags, VSM_SHOW_OVERDRAW);
+    ImGui_FlagCheckbox("Blend Normals", &shadingUniforms.debugFlags, BLEND_NORMALS);
 
     ImGui::Separator();
     ImGui::SliderFloat("Alpha Hash Scale", &globalUniforms.alphaHashScale, 1, 3);
@@ -746,11 +795,13 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
     auto SliderUint = [](const char* label, uint32_t* v, uint32_t v_min, uint32_t v_max) -> bool
     { return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u"); };
 
-    int shadowMode = shadowUniforms.shadowMode;
-    ImGui::RadioButton("PCSS", &shadowMode, 0);
+    int shadowMode = shadowUniforms.shadowFilter;
+    ImGui::RadioButton("PCSS", &shadowMode, SHADOW_FILTER_PCSS);
     ImGui::SameLine();
-    ImGui::RadioButton("SMRT", &shadowMode, 1);
-    shadowUniforms.shadowMode = shadowMode;
+    ImGui::RadioButton("SMRT", &shadowMode, SHADOW_FILTER_SMRT);
+    ImGui::SameLine();
+    ImGui::RadioButton("None", &shadowMode, SHADOW_FILTER_NONE);
+    shadowUniforms.shadowFilter = shadowMode;
 
     if (shadowMode == 0)
     {
@@ -938,17 +989,17 @@ bool TraverseLightNode(FrogRenderer2& renderer, Scene::Node& node)
 
   const char* typePreview = "";
   const char* typeIcon = "";
-  if (node.light.type == Render::LightType::DIRECTIONAL)
+  if (node.light.type == LIGHT_TYPE_DIRECTIONAL)
   {
     typePreview = "Directional";
     typeIcon = ICON_MD_SUNNY "  ";
   }
-  else if (node.light.type == Render::LightType::POINT)
+  else if (node.light.type == LIGHT_TYPE_SPOT)
   {
     typePreview = "Point";
     typeIcon = ICON_FA_LIGHTBULB "  ";
   }
-  else if (node.light.type == Render::LightType::SPOT)
+  else if (node.light.type == LIGHT_TYPE_SPOT)
   {
     typePreview = "Spot";
     typeIcon = ICON_FA_FILTER "  ";
@@ -981,28 +1032,43 @@ bool TraverseLightNode(FrogRenderer2& renderer, Scene::Node& node)
       //{
       //   light.type = Utility::LightType::DIRECTIONAL;
       // }
-      if (ImGui::Selectable("Point", node.light.type == Render::LightType::POINT))
+      if (ImGui::Selectable("Point", node.light.type == LIGHT_TYPE_POINT))
       {
-        node.light.type = Render::LightType::POINT;
+        node.light.type = LIGHT_TYPE_POINT;
         modified   = true;
       }
-      else if (ImGui::Selectable("Spot", node.light.type == Render::LightType::SPOT))
+      else if (ImGui::Selectable("Spot", node.light.type == LIGHT_TYPE_SPOT))
       {
-        node.light.type = Render::LightType::SPOT;
+        node.light.type = LIGHT_TYPE_SPOT;
         modified   = true;
       }
       ImGui::EndCombo();
     }
 
     modified |= ImGui::ColorEdit3("Color", &node.light.color[0], ImGuiColorEditFlags_Float);
-    modified |= ImGui::DragFloat("Intensity", &node.light.intensity, 1, 0, 1e6f, node.light.type == Render::LightType::DIRECTIONAL ? "%.0f lx" : "%.0f cd");
+    modified |= ImGui::DragFloat("Intensity", &node.light.intensity, 1, 0, 1e6f, node.light.type == LIGHT_TYPE_DIRECTIONAL ? "%.0f lx" : "%.0f cd");
 
-    if (node.light.type != Render::LightType::DIRECTIONAL)
+    if (ImGui::BeginCombo("Color Space", StringifyRendererColorSpace(node.light.colorSpace), ImGuiComboFlags_HeightLarge))
+    {
+      if (ImGui::Selectable("sRGB_LINEAR", node.light.colorSpace == COLOR_SPACE_sRGB_LINEAR))
+      {
+        node.light.colorSpace = COLOR_SPACE_sRGB_LINEAR;
+        modified              = true;
+      }
+      if (ImGui::Selectable("BT2020_LINEAR", node.light.colorSpace == COLOR_SPACE_BT2020_LINEAR))
+      {
+        node.light.colorSpace = COLOR_SPACE_BT2020_LINEAR;
+        modified              = true;
+      }
+      ImGui::EndCombo();
+    }
+
+    if (node.light.type != LIGHT_TYPE_DIRECTIONAL)
     {
       modified |= ImGui::DragFloat("Range", &node.light.range, 0.2f, 0.0f, 100.0f, "%.2f");
     }
 
-    if (node.light.type == Render::LightType::SPOT)
+    if (node.light.type == LIGHT_TYPE_SPOT)
     {
       modified |= ImGui::SliderFloat("Inner cone angle", &node.light.innerConeAngle, 0, 3.14f, "%.2f rad");
       modified |= ImGui::SliderFloat("Outer cone angle", &node.light.outerConeAngle, 0, 3.14f, "%.2f rad");
@@ -1048,11 +1114,11 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Scene::Node* node)
   }
   else if (node->lightId)
   {
-    if (node->light.type == Render::LightType::POINT)
+    if (node->light.type == LIGHT_TYPE_POINT)
     {
       ImGui::Image(ImTextureSampler(guiIcons.at("lamp_point").ImageView().GetSampledResourceHandle().index), {16, 16});
     }
-    else if (node->light.type == Render::LightType::SPOT)
+    else if (node->light.type == LIGHT_TYPE_SPOT)
     {
       ImGui::Image(ImTextureSampler(guiIcons.at("lamp_spot").ImageView().GetSampledResourceHandle().index), {16, 16});
     }
@@ -1226,9 +1292,8 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
         if (tonemapUniforms.tonemapper == AgX)
         {
           Gui::SliderFloat("Saturation", &tonemapUniforms.agx.saturation, 0, 2, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-          Gui::SliderFloat("Linear Length", &tonemapUniforms.agx.linear, 0, tonemapUniforms.agx.peak, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-          Gui::SliderFloat("Compression", &tonemapUniforms.agx.compression, 0, 0.999f, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-          Gui::SliderFloat("Peak", &tonemapUniforms.agx.peak, 0, 5, "The maximum value of the function.\nShould be >1 for HDR output.", "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+          Gui::SliderFloat("Linear Length", &tonemapUniforms.agx.linear, 0, maxDisplayNits, nullptr, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+          Gui::SliderFloat("Compression", &tonemapUniforms.agx.compression, 0, 0.999f, "Amount to compress the gamut by.", "%.2f", ImGuiSliderFlags_NoRoundToFormat);
         }
         if (tonemapUniforms.tonemapper == GTMapper)
         {
@@ -1486,8 +1551,11 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
     }();
 
     aspectRatio = viewportContentSize.x / viewportContentSize.y;
-  
-    ImGui::Image(frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index, viewportContentSize);
+
+    auto viewportImageParams = ImTextureSampler(frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index,
+      ImTextureSampler::DefaultSamplerIndex,
+      tonemapUniforms.tonemapOutputColorSpace);
+    ImGui::Image(viewportImageParams, viewportContentSize);
 
     viewportIsHovered = ImGui::IsItemHovered();
 

@@ -140,4 +140,6 @@ target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTO
 
 if (MSVC)
     target_compile_definitions(frogRender PUBLIC STBI_MSC_SECURE_CRT)
+else()
+    target_link_libraries(frogRender PRIVATE tbb)
 endif()

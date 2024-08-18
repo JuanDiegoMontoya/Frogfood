@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
+set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "")
+
 project(Frogfood)
 
 set(CMAKE_CXX_STANDARD 20)

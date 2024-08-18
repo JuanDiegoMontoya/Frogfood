@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
+set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "")
+
 project(Frogfood)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -138,4 +140,6 @@ target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTO
 
 if (MSVC)
     target_compile_definitions(frogRender PUBLIC STBI_MSC_SECURE_CRT)
+else()
+    target_link_libraries(frogRender PRIVATE tbb)
 endif()

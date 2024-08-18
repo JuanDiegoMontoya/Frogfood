@@ -534,7 +534,7 @@ static void ImGui_ImplFvog_CreateShaderModules(VkDevice device)
   }
 }
 
-static [[nodiscard]] Fvog::GraphicsPipeline ImGui_ImplFvog_CreatePipeline(VkDevice device, VkSampleCountFlagBits MSAASamples)
+[[nodiscard]] static Fvog::GraphicsPipeline ImGui_ImplFvog_CreatePipeline(VkDevice device, VkSampleCountFlagBits MSAASamples)
 {
   ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
   ImGui_ImplFvog_CreateShaderModules(device);

@@ -1,5 +1,7 @@
 #include "Application.h"
 #define GLFW_INCLUDE_VULKAN
+
+#include "stb_image.h"
 #include <GLFW/glfw3.h>
 #include <volk.h>
 #include <VkBootstrap.h>
@@ -29,6 +31,7 @@
 #include <sstream>
 #include <fstream>
 #include <filesystem>
+#include <thread>
 
 #ifdef TRACY_ENABLE
 #include <cstdlib>
@@ -235,6 +238,7 @@ Application::Application(const CreateInfo& createInfo)
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   glfwWindowHint(GLFW_MAXIMIZED, createInfo.maximize);
   glfwWindowHint(GLFW_DECORATED, createInfo.decorate);
+  glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
 
   GLFWmonitor* monitor = glfwGetPrimaryMonitor();
   if (monitor == nullptr)
@@ -269,6 +273,23 @@ Application::Application(const CreateInfo& createInfo)
   glfwSetCursorEnterCallback(window, ApplicationAccess::CursorEnterCallback);
   glfwSetFramebufferSizeCallback(window, ApplicationAccess::FramebufferResizeCallback);
   glfwSetDropCallback(window, ApplicationAccess::PathDropCallback);
+
+  // Load app icon
+  {
+    int x = 0;
+    int y = 0;
+    const auto pixels = stbi_load("textures/froge.png", &x, &y, nullptr, 4);
+    if (pixels)
+    {
+      const auto image = GLFWimage{
+        .width  = x,
+        .height = y,
+        .pixels = pixels,
+      };
+      glfwSetWindowIcon(window, 1, &image);
+      stbi_image_free(pixels);
+    }
+  }
 
   // Initialize Vulkan
   // instance
@@ -603,6 +624,9 @@ void Application::Run()
   ZoneScoped;
   glfwSetInputMode(window, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
 
+  // Inform the user that the renderer is done loading
+  glfwRequestWindowAttention(window);
+
   // The main loop.
   double prevFrame = glfwGetTime();
   while (!glfwWindowShouldClose(window))
@@ -635,6 +659,12 @@ void Application::Run()
     if (glfwGetKey(window, GLFW_KEY_ESCAPE))
     {
       glfwSetWindowShouldClose(window, true);
+    }
+
+    // Sleep for a bit if the window is not focused
+    if (!glfwGetWindowAttrib(window, GLFW_FOCUSED))
+    {
+      std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
     }
 
     // Toggle the cursor if the grave accent (tilde) key is pressed.

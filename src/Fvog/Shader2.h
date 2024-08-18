@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <filesystem>
+#include <vector>
 #include "BasicTypes2.h"
 
 namespace Fvog

@@ -1082,7 +1082,7 @@ bool TraverseLightNode(FrogRenderer2& renderer, Scene::Node& node)
     typePreview = "Directional";
     typeIcon = ICON_MD_SUNNY "  ";
   }
-  else if (node.light.type == LIGHT_TYPE_SPOT)
+  else if (node.light.type == LIGHT_TYPE_POINT)
   {
     typePreview = "Point";
     typeIcon = ICON_FA_LIGHTBULB "  ";

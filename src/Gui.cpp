@@ -357,6 +357,20 @@ namespace
     default: return "Unknown color space";
     }
   }
+
+  uint32_t VkToColorSpace(VkColorSpaceKHR colorSpace)
+  {
+    switch (colorSpace)
+    {
+    case VK_COLOR_SPACE_SRGB_NONLINEAR_KHR: return COLOR_SPACE_sRGB_NONLINEAR;
+    case VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT: return COLOR_SPACE_scRGB_LINEAR;
+    case VK_COLOR_SPACE_BT2020_LINEAR_EXT: return COLOR_SPACE_BT2020_LINEAR;
+    case VK_COLOR_SPACE_HDR10_ST2084_EXT: return COLOR_SPACE_HDR10_ST2084;
+    default: assert(0);
+    }
+
+    return static_cast<uint32_t>(-1);
+  }
 }
 
 void FrogRenderer2::InitGui()
@@ -424,8 +438,8 @@ void FrogRenderer2::InitGui()
   style.Colors[ImGuiCol_Button]                = ImVec4(0.05f, 0.05f, 0.05f, 0.54f);
   style.Colors[ImGuiCol_ButtonHovered]         = ImVec4(0.19f, 0.19f, 0.19f, 0.54f);
   style.Colors[ImGuiCol_ButtonActive]          = ImVec4(0.20f, 0.22f, 0.23f, 1.00f);
-  style.Colors[ImGuiCol_Header]                = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_HeaderHovered]         = ImVec4(0.00f, 0.00f, 0.00f, 0.56f);
+  style.Colors[ImGuiCol_Header]                = ImVec4(0.00f, 0.00f, 0.00f, 0.56f);
+  style.Colors[ImGuiCol_HeaderHovered]         = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
   style.Colors[ImGuiCol_HeaderActive]          = ImVec4(0.20f, 0.22f, 0.23f, 0.33f);
   style.Colors[ImGuiCol_Separator]             = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
   style.Colors[ImGuiCol_SeparatorHovered]      = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
@@ -575,6 +589,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
 
       ImGui::EndMenu();
     }
+
     if (ImGui::BeginMenu("View"))
     {
       if (ImGui::MenuItem("Reset layout"))
@@ -587,6 +602,58 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
         ImGui::SaveIniSettingsToDisk(g_defaultIniPath);
       }
 
+      ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Presets"))
+    {
+      if (ImGui::MenuItem("HDR Test (SDR)"))
+      {
+        // Find sRGB format
+        for (auto surfaceFormat : availableSurfaceFormats_)
+        {
+          if (surfaceFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+          {
+            tonemapUniforms.tonemapOutputColorSpace = VkToColorSpace(surfaceFormat.colorSpace);
+            nextSwapchainFormat_ = surfaceFormat;
+            break;
+          }
+        }
+        shouldRemakeSwapchainNextFrame = true;
+        mainCamera.position            = {-2.12f, 0.75f, -1.68f};
+        mainCamera.pitch               = -0.22f;
+        mainCamera.yaw                 = 12.85f;
+        sunStrength                    = 0.1f;
+      }
+      ImGui_HoverTooltip("Settings:\n"
+                         "Surface color space: sRGB_NONLINEAR\n"
+                         "Camera position: Yes\n"
+                         "Camera rotation: Yes\n"
+                         "Sun Intensity: 0.1 lx (moonlight)");
+
+      if (ImGui::MenuItem("HDR Test (HDR)"))
+      {
+        // Find supported HDR format
+        for (auto surfaceFormat : availableSurfaceFormats_)
+        {
+          if (surfaceFormat.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT || surfaceFormat.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT)
+          {
+            tonemapUniforms.tonemapOutputColorSpace = VkToColorSpace(surfaceFormat.colorSpace);
+            nextSwapchainFormat_ = surfaceFormat;
+            break;
+          }
+        }
+        shouldRemakeSwapchainNextFrame = true;
+        mainCamera.position            = {-2.12f, 0.75f, -1.68f};
+        mainCamera.pitch               = -0.22f;
+        mainCamera.yaw                 = 12.85f;
+        sunStrength                    = 0.1f;
+      }
+      ImGui_HoverTooltip("Settings:\n"
+                         "Surface color space: scRGB_LINEAR or HDR10_ST2084\n"
+                         "Camera position: Yes\n"
+                         "Camera rotation: Yes\n"
+                         "Sun Intensity: 0.1 lx (moonlight)");
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
@@ -680,6 +747,7 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
               ImGuiSelectableFlags_SpanAllColumns))
         {
           nextSwapchainFormat_ = surfaceFormat;
+          tonemapUniforms.tonemapOutputColorSpace = VkToColorSpace(surfaceFormat.colorSpace);
           shouldRemakeSwapchainNextFrame = true;
         }
       }
@@ -1400,7 +1468,7 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       }
 
       Gui::ColorEdit3("Sun Color", &sunColor[0], nullptr, ImGuiColorEditFlags_Float);
-      Gui::SliderFloat("Sun Strength", &sunStrength, 0, 500, nullptr, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+      Gui::SliderFloat("Sun Strength", &sunStrength, 0, 111000, nullptr, "%.2f lx", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
 
       Gui::EndProperties();
     }

@@ -4,6 +4,7 @@
 
 #include <Fvog/Rendering2.h>
 #include <Fvog/detail/ApiToEnum2.h>
+#include "shaders/CalibrateHdr.comp.glsl"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -371,6 +372,12 @@ namespace
 
     return static_cast<uint32_t>(-1);
   }
+
+  std::string StringifySurfaceFormat(VkSurfaceFormatKHR surfaceFormat)
+  {
+    return std::string(Fvog::detail::FormatToString(Fvog::detail::VkToFormat(surfaceFormat.format))) + " | " +
+           Fvog::detail::VkColorSpaceToString(surfaceFormat.colorSpace);
+  }
 }
 
 void FrogRenderer2::InitGui()
@@ -725,97 +732,6 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
       shouldRemakeSwapchainNextFrame = true;
       presentMode = static_cast<VkPresentModeKHR>(pMode);
     }
-
-    const auto stringifySurfaceFormat = [](VkSurfaceFormatKHR surfaceFormat)
-    {
-      return std::string(Fvog::detail::FormatToString(Fvog::detail::VkToFormat(surfaceFormat.format))) + " | " +
-             Fvog::detail::VkColorSpaceToString(surfaceFormat.colorSpace);
-    };
-
-    const auto currentFormatStr = stringifySurfaceFormat(nextSwapchainFormat_);
-    if (ImGui::BeginCombo("Surface Format", currentFormatStr.c_str(), ImGuiComboFlags_HeightLarge))
-    {
-      ImGui::BeginTable("surface formats", 1, ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody);
-      ImGui::TableSetupColumn("name");
-
-      for (auto surfaceFormat : availableSurfaceFormats_)
-      {
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        if (ImGui::Selectable(stringifySurfaceFormat(surfaceFormat).c_str(),
-              surfaceFormat.colorSpace == nextSwapchainFormat_.colorSpace && surfaceFormat.format == nextSwapchainFormat_.format,
-              ImGuiSelectableFlags_SpanAllColumns))
-        {
-          nextSwapchainFormat_ = surfaceFormat;
-          tonemapUniforms.tonemapOutputColorSpace = VkToColorSpace(surfaceFormat.colorSpace);
-          shouldRemakeSwapchainNextFrame = true;
-        }
-      }
-
-      ImGui::EndTable();
-      ImGui::EndCombo();
-    }
-
-    ImGui_HoverTooltip("If you have an HDR display, setting the surface \n"
-                       "format to extended sRGB (scRGB) or HDR10 allows \n"
-                       "the renderer to take advantage of a wider gamut \n"
-                       "and dynamic range.");
-
-    if (ImGui::BeginCombo("Internal Color Space", StringifyRendererColorSpace(shadingUniforms.shadingInternalColorSpace), ImGuiComboFlags_HeightLarge))
-    {
-      if (ImGui::Selectable("sRGB_LINEAR", shadingUniforms.shadingInternalColorSpace == COLOR_SPACE_sRGB_LINEAR))
-      {
-        shadingUniforms.shadingInternalColorSpace = COLOR_SPACE_sRGB_LINEAR;
-      }
-      if (ImGui::Selectable("BT2020_LINEAR", shadingUniforms.shadingInternalColorSpace == COLOR_SPACE_BT2020_LINEAR))
-      {
-        shadingUniforms.shadingInternalColorSpace = COLOR_SPACE_BT2020_LINEAR;
-      }
-      ImGui::EndCombo();
-    }
-
-    ImGui_HoverTooltip("The color space in which shading occurs. This is \n"
-                       "also the color space in which the image is \n"
-                       "tonemapped. Not all tonemappers are compatible \n"
-                       "with all color spaces!");
-
-    if (ImGui::BeginCombo("Output Color Space", StringifyRendererColorSpace(tonemapUniforms.tonemapOutputColorSpace), ImGuiComboFlags_HeightLarge))
-    {
-      if (ImGui::Selectable("sRGB_NONLINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_sRGB_NONLINEAR))
-      {
-        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_sRGB_NONLINEAR;
-      }
-      if (ImGui::Selectable("scRGB_LINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_scRGB_LINEAR))
-      {
-        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_scRGB_LINEAR;
-      }
-      if (ImGui::Selectable("BT2020_LINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_BT2020_LINEAR))
-      {
-        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_BT2020_LINEAR;
-      }
-      if (ImGui::Selectable("HDR10_ST2084", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_HDR10_ST2084))
-      {
-        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_HDR10_ST2084;
-      }
-      ImGui::EndCombo();
-    }
-
-    ImGui_HoverTooltip("The space of colors emitted by the tonemapper. \n"
-                       "If rendering to the swapchain directly, this \n"
-                       "should match its surface's color space.");
-
-    Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
-    const char* nitsTooltip = "For HDR output only. Affects the maximum brightness of the tonemapped image. \n"
-                              "Set to your monitor's peak brightness, otherwise the image \n"
-                              "may have a limited dynamic range or suffer from clipping.";
-    const bool isSurfaceHDR = swapchainFormat_.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT || swapchainFormat_.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
-    ImGui::BeginDisabled(!isSurfaceHDR);
-    if (Gui::SliderFloat("Max Brightness", &maxDisplayNits, 1, 10000, nitsTooltip, "%.1f cd/m^2", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat))
-    {
-      tonemapUniforms.maxDisplayNits = maxDisplayNits;
-    }
-    ImGui::EndDisabled();
-    Gui::EndProperties();
     
     ImGui::Checkbox("Display Main Frustum", &debugDisplayMainFrustum);
     ImGui::Checkbox("Generate Hi-Z Buffer", &generateHizBuffer);
@@ -1523,6 +1439,133 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
   ImGui::End();
 }
 
+void FrogRenderer2::GuiDrawHdrWindow(VkCommandBuffer commandBuffer)
+{
+  ZoneScoped;
+
+  if (ImGui::Begin("HDR###hdr_window"))
+  {
+    const auto currentFormatStr = StringifySurfaceFormat(nextSwapchainFormat_);
+    if (ImGui::BeginCombo("Surface Format", currentFormatStr.c_str(), ImGuiComboFlags_HeightLarge))
+    {
+      ImGui::BeginTable("surface formats", 1, ImGuiTableFlags_RowBg | ImGuiTableFlags_NoBordersInBody);
+      ImGui::TableSetupColumn("name");
+
+      for (auto surfaceFormat : availableSurfaceFormats_)
+      {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        if (ImGui::Selectable(StringifySurfaceFormat(surfaceFormat).c_str(),
+              surfaceFormat.colorSpace == nextSwapchainFormat_.colorSpace && surfaceFormat.format == nextSwapchainFormat_.format,
+              ImGuiSelectableFlags_SpanAllColumns))
+        {
+          nextSwapchainFormat_                    = surfaceFormat;
+          tonemapUniforms.tonemapOutputColorSpace = VkToColorSpace(surfaceFormat.colorSpace);
+          shouldRemakeSwapchainNextFrame          = true;
+        }
+      }
+
+      ImGui::EndTable();
+      ImGui::EndCombo();
+    }
+
+    ImGui_HoverTooltip("If you have an HDR display, setting the surface \n"
+                       "format to extended sRGB (scRGB) or HDR10 allows \n"
+                       "the renderer to take advantage of a wider gamut \n"
+                       "and dynamic range.");
+
+    if (ImGui::BeginCombo("Internal Color Space", StringifyRendererColorSpace(shadingUniforms.shadingInternalColorSpace), ImGuiComboFlags_HeightLarge))
+    {
+      if (ImGui::Selectable("sRGB_LINEAR", shadingUniforms.shadingInternalColorSpace == COLOR_SPACE_sRGB_LINEAR))
+      {
+        shadingUniforms.shadingInternalColorSpace = COLOR_SPACE_sRGB_LINEAR;
+      }
+      if (ImGui::Selectable("BT2020_LINEAR", shadingUniforms.shadingInternalColorSpace == COLOR_SPACE_BT2020_LINEAR))
+      {
+        shadingUniforms.shadingInternalColorSpace = COLOR_SPACE_BT2020_LINEAR;
+      }
+      ImGui::EndCombo();
+    }
+
+    ImGui_HoverTooltip("The color space in which shading occurs. This is \n"
+                       "also the color space in which the image is \n"
+                       "tonemapped. Not all tonemappers are compatible \n"
+                       "with all color spaces!");
+
+    if (ImGui::BeginCombo("Output Color Space", StringifyRendererColorSpace(tonemapUniforms.tonemapOutputColorSpace), ImGuiComboFlags_HeightLarge))
+    {
+      if (ImGui::Selectable("sRGB_NONLINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_sRGB_NONLINEAR))
+      {
+        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_sRGB_NONLINEAR;
+      }
+      if (ImGui::Selectable("scRGB_LINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_scRGB_LINEAR))
+      {
+        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_scRGB_LINEAR;
+      }
+      if (ImGui::Selectable("BT2020_LINEAR", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_BT2020_LINEAR))
+      {
+        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_BT2020_LINEAR;
+      }
+      if (ImGui::Selectable("HDR10_ST2084", tonemapUniforms.tonemapOutputColorSpace == COLOR_SPACE_HDR10_ST2084))
+      {
+        tonemapUniforms.tonemapOutputColorSpace = COLOR_SPACE_HDR10_ST2084;
+      }
+      ImGui::EndCombo();
+    }
+
+    ImGui_HoverTooltip("The space of colors emitted by the tonemapper. \n"
+                       "If rendering to the swapchain directly, this \n"
+                       "should match its surface's color space.");
+
+    Gui::BeginProperties(ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV);
+    const char* nitsTooltip = "For HDR output only. Affects the maximum brightness of the tonemapped image. \n"
+                              "Set to your monitor's peak brightness, otherwise the image \n"
+                              "may have a limited dynamic range or suffer from clipping.";
+    const bool isSurfaceHDR =
+      swapchainFormat_.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT || swapchainFormat_.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+    ImGui::BeginDisabled(!isSurfaceHDR);
+    if (Gui::SliderFloat("Max Brightness", &maxDisplayNits, 1, 10000, nitsTooltip, "%.1f cd/m^2", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat))
+    {
+      tonemapUniforms.maxDisplayNits = maxDisplayNits;
+    }
+    ImGui::EndDisabled();
+    Gui::EndProperties();
+
+    // Draw texture for calibrating HDR
+    auto ctx = Fvog::Context(*device_, commandBuffer);
+
+    ctx.ImageBarrierDiscard(calibrateHdrTexture, VK_IMAGE_LAYOUT_GENERAL);
+    ctx.BindComputePipeline(calibrateHdrPipeline);
+    ctx.SetPushConstants(CalibrateHdrArguments{
+      .outputImageIndex = calibrateHdrTexture.ImageView().GetStorageResourceHandle().index,
+      .displayTargetNits = maxDisplayNits,
+    });
+    ctx.DispatchInvocations(calibrateHdrTexture.GetCreateInfo().extent);
+    ctx.Barrier();
+
+    auto nearestRepeatSampler = Fvog::Sampler(*device_, Fvog::SamplerCreateInfo{
+      .magFilter = VK_FILTER_NEAREST,
+      .minFilter = VK_FILTER_NEAREST,
+      .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+      .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    });
+
+    const auto avail = ImGui::GetContentRegionAvail();
+    const auto size  = ImVec2{glm::max(avail.x, 100.0f), glm::max(avail.y, 100.0f)};
+    const auto aspect = size.x / size.y;
+
+    ImGui::Image(
+      ImTextureSampler{calibrateHdrTexture.ImageView().GetSampledResourceHandle().index, nearestRepeatSampler.GetResourceHandle().index, COLOR_SPACE_HDR10_ST2084},
+      size,
+      {0, 0},
+      {aspect, 1});
+    ImGui_HoverTooltip("To use, drag the brightness slider until the squares are nearly indistinguishable.\n"
+                       "Note: only works for HDR surface formats.");
+  }
+
+  ImGui::End();
+}
+
 void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
@@ -1703,6 +1746,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
   GuiDrawViewer(commandBuffer);
   GuiDrawMaterialsArray(commandBuffer);
   GuiDrawPerfWindow(commandBuffer);
-  GuiDrawSceneGraph(commandBuffer);
   GuiDrawComponentEditor(commandBuffer);
+  GuiDrawHdrWindow(commandBuffer);
+  GuiDrawSceneGraph(commandBuffer);
 }

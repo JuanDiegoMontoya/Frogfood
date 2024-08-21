@@ -201,6 +201,7 @@ private:
   void GuiDrawSceneGraph(VkCommandBuffer commandBuffer);
   void GuiDrawSceneGraphHelper(Scene::Node* node);
   void GuiDrawComponentEditor(VkCommandBuffer commandBuffer);
+  void GuiDrawHdrWindow(VkCommandBuffer commandBuffer);
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
 
@@ -461,6 +462,8 @@ private:
   Fvog::NDeviceBuffer<TonemapUniforms> tonemapUniformBuffer;
   TonemapUniforms tonemapUniforms{};
   Fvog::Texture tonyMcMapfaceLut;
+  Fvog::Texture calibrateHdrTexture;
+  Fvog::ComputePipeline calibrateHdrPipeline;
 
   uint32_t renderInternalWidth{};
   uint32_t renderInternalHeight{};

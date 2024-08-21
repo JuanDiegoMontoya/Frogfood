@@ -186,6 +186,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       })),
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
     tonyMcMapfaceLut(LoadTonyMcMapfaceTexture(*device_)),
+    calibrateHdrTexture(Fvog::CreateTexture2D(*device_, {2, 2}, Fvog::Format::A2R10G10B10_UNORM, Fvog::TextureUsage::GENERAL, "HDR Calibration Texture")),
+    calibrateHdrPipeline(Pipelines2::CalibrateHdr(*device_)),
     bloom(*device_),
     autoExposure(*device_),
     exposureBuffer(*device_, {}, "Exposure"),

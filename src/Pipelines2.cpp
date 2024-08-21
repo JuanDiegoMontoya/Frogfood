@@ -112,6 +112,17 @@ namespace Pipelines2
     });
   }
 
+  Fvog::ComputePipeline CalibrateHdr(Fvog::Device& device)
+  {
+    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/CalibrateHdr.comp.glsl");
+
+    return Fvog::ComputePipeline(device,
+      {
+        .name   = "Calibrate HDR",
+        .shader = &comp,
+      });
+  }
+
   Fvog::GraphicsPipeline DebugTexture(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
   {
     auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");

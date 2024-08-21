@@ -140,7 +140,7 @@ namespace Fvog
       shader.setEnvClient(glslang::EShClient::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_3);
       shader.setEnvTarget(glslang::EShTargetLanguage::EShTargetSpv, glslang::EShTargetLanguageVersion::EShTargetSpv_1_6);
       shader.setPreamble("#extension GL_GOOGLE_include_directive : enable\n");
-      
+      shader.setOverrideVersion(460);
       shader.setDebugInfo(true);
 
       bool parseResult;

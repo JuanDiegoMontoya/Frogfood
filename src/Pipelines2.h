@@ -11,6 +11,7 @@ namespace Pipelines2
   [[nodiscard]] Fvog::GraphicsPipeline VisbufferResolve(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::GraphicsPipeline Shading(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::ComputePipeline Tonemap(Fvog::Device& device);
+  [[nodiscard]] Fvog::ComputePipeline CalibrateHdr(Fvog::Device& device);
   [[nodiscard]] Fvog::GraphicsPipeline DebugTexture(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::GraphicsPipeline ShadowMain(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::GraphicsPipeline ShadowVsm(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);

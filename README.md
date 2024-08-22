@@ -16,6 +16,7 @@ A froggylicious renderer.
 - Auto exposure based on vibes
 - Mediocre but not too terrible color handling and image formation
 - Epically fast glTF loading powered by [fastgltf](https://github.com/spnda/fastgltf) (on compilers that support std::execution::par (MSVC))
+- HDR display support and wide gamut rendering
 
 ## OpenGL
 

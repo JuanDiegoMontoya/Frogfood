@@ -251,7 +251,7 @@ void main()
   const uint primitiveId = payload & MESHLET_PRIMITIVE_MASK;
   const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
   const Meshlet meshlet = d_meshlets[meshletInstance.meshletId];
-  const GpuMaterial material = d_materials[meshletInstance.materialId];
+  const GpuMaterial material = d_materials[d_transforms[meshletInstance.instanceId].materialId];
   const mat4 transform = d_transforms[meshletInstance.instanceId].modelCurrent;
   const mat4 transformPrevious = d_transforms[meshletInstance.instanceId].modelPrevious;
 

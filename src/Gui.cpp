@@ -1091,7 +1091,7 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Scene::Node* node)
   
   auto flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_AllowOverlap;
 
-  if (node->children.empty() && !node->meshIds.empty())
+  if (node->children.empty() && !node->meshes.empty())
   {
     flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet;
   }
@@ -1112,7 +1112,7 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Scene::Node* node)
   }
 
   ImGui::SameLine();
-  if (!node->meshIds.empty())
+  if (!node->meshes.empty())
   {
     ImGui::Image(ImTextureSampler(guiIcons.at("icon_object").ImageView().GetSampledResourceHandle().index), {16, 16});
   }

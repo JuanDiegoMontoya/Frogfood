@@ -22,6 +22,12 @@ namespace Utility
 
 namespace Scene
 {
+  struct MeshIdAndMaterialId
+  {
+    Render::MeshID meshId;
+    Render::MaterialID materialId;
+  };
+
   struct Node
   {
     std::string name;
@@ -47,8 +53,8 @@ namespace Scene
 
     // Also tells parents that a descendant is dirty.
     void MarkDirty();
-    
-    std::vector<Render::MeshID> meshIds;
+
+    std::vector<MeshIdAndMaterialId> meshes;
     Render::LightID lightId;
     GpuLight light; // Only contains valid data if lightId is not null
   };
@@ -65,7 +71,6 @@ namespace Scene
 
     std::vector<Fvog::Texture> images;
     std::vector<Render::MeshGeometryID> meshGeometryIds;
-    std::vector<Render::MeshInstanceID> meshInstanceIds;
     std::vector<Render::MeshID> meshIds;
     std::vector<Render::LightID> lightIds;
     std::vector<Render::MaterialID> materialIds;

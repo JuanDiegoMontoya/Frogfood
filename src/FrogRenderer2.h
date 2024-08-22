@@ -157,10 +157,7 @@ public:
   [[nodiscard]] Render::MeshGeometryID RegisterMeshGeometry(MeshGeometryInfo meshGeometry);
   void UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry);
 
-  [[nodiscard]] Render::MeshInstanceID RegisterMeshInstance(const Render::MeshInstanceInfo& meshInstance);
-  void UnregisterMeshInstance(Render::MeshInstanceID meshInstance);
-
-  [[nodiscard]] Render::MeshID SpawnMesh(Render::MeshInstanceID meshInstance);
+  [[nodiscard]] Render::MeshID SpawnMesh(Render::MeshGeometryID meshInstance);
   void DeleteMesh(Render::MeshID mesh);
 
   [[nodiscard]] Render::LightID SpawnLight(const GpuLight& lightData);
@@ -173,6 +170,9 @@ public:
   void UpdateMesh(Render::MeshID mesh, const Render::ObjectUniforms& uniforms);
   void UpdateLight(Render::LightID light, const GpuLight& lightData);
   void UpdateMaterial(Render::MaterialID material, const Render::GpuMaterial& materialData);
+
+  // Querying
+  uint32_t GetMaterialGpuIndex(Render::MaterialID material);
 
   // Oh man oh jeez
   Fvog::Device& GetDevice()
@@ -401,7 +401,6 @@ private:
 
   uint64_t nextId = 1; // 0 is reserved for "null" IDs
   std::unordered_map<uint64_t, MeshGeometryAllocs> meshGeometryAllocations;
-  std::unordered_map<uint64_t, Render::MeshInstanceInfo> meshInstanceInfos;
   std::unordered_map<uint64_t, MeshAllocs> meshAllocations;
   std::unordered_map<uint64_t, LightAlloc> lightAllocations;
   std::unordered_map<uint64_t, MaterialAlloc> materialAllocations;
@@ -410,7 +409,7 @@ private:
   std::unordered_map<uint64_t, Render::ObjectUniforms> modifiedMeshUniforms;
   std::unordered_map<uint64_t, GpuLight> modifiedLights;
   std::unordered_map<uint64_t, Render::GpuMaterial> modifiedMaterials;
-  std::vector<std::pair<uint64_t, Render::MeshInstanceID>> spawnedMeshes;
+  std::vector<std::pair<uint64_t, Render::MeshGeometryID>> spawnedMeshes;
   std::vector<uint64_t> deletedMeshes;
   std::vector<std::pair<uint64_t, GpuLight>> spawnedLights;
   std::vector<uint64_t> deletedLights;

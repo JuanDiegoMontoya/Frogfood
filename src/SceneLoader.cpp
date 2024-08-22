@@ -553,7 +553,15 @@ namespace Utility
          rawImageData.end(),
           [](RawImageData& rawImage)
           {
-            ZoneScoped;
+            ZoneScopedN("Free image data");
+            if (!rawImage.name.empty())
+            {
+              ZoneTextF("Name: %s", rawImage.name.c_str());
+            }
+            else
+            {
+              ZoneTextF("%s", "Unnamed");
+            }
             rawImage.data.reset();
             rawImage.ktx.reset();
             rawImage.encodedPixelData.reset();

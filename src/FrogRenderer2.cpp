@@ -290,9 +290,9 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Airfield_Ground.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
-    //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1}));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
-
+    
     std::pmr::set_default_resource(oldResource);
   }
 
@@ -355,7 +355,6 @@ FrogRenderer2::~FrogRenderer2()
   vkDeviceWaitIdle(device_->device_);
 
   meshGeometryAllocations.clear();
-  meshInstanceInfos.clear();
   meshAllocations.clear();
   lightAllocations.clear();
   materialAllocations.clear();
@@ -1393,21 +1392,7 @@ void FrogRenderer2::UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry)
   meshGeometryAllocations.erase(meshGeometry.id);
 }
 
-Render::MeshInstanceID FrogRenderer2::RegisterMeshInstance(const Render::MeshInstanceInfo& meshInstance)
-{
-  ZoneScoped;
-  auto myId = nextId++;
-  meshInstanceInfos.emplace(myId, meshInstance);
-  return {myId};
-}
-
-void FrogRenderer2::UnregisterMeshInstance(Render::MeshInstanceID meshInstance)
-{
-  ZoneScoped;
-  meshInstanceInfos.erase(meshInstance.id);
-}
-
-Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshInstanceID meshInstance)
+Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshGeometryID meshInstance)
 {
   ZoneScoped;
   auto myId = nextId++;
@@ -1471,6 +1456,13 @@ void FrogRenderer2::UpdateMaterial(Render::MaterialID material, const Render::Gp
   modifiedMaterials[material.id] = materialData;
 }
 
+uint32_t FrogRenderer2::GetMaterialGpuIndex(Render::MaterialID material)
+{
+  ZoneScoped;
+  const auto& alloc = materialAllocations.at(material.id);
+  return static_cast<uint32_t>(alloc.materialAlloc.GetOffset() / sizeof(Render::GpuMaterial));
+}
+
 void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
@@ -1500,11 +1492,9 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   meshletInstancesUploads.reserve(spawnedMeshes.size());
 
   // Spawned meshes
-  for (const auto& [id, meshInstance] : spawnedMeshes)
+  for (const auto& [id, meshGeometry] : spawnedMeshes)
   {
-    auto [meshGeometryId, materialId] = meshInstanceInfos.at(meshInstance.id);
-    const auto& meshletsAlloc         = meshGeometryAllocations.at(meshGeometryId.id).meshletsAlloc;
-    const auto& materialAlloc         = materialAllocations.at(materialId.id).materialAlloc;
+    const auto& meshletsAlloc = meshGeometryAllocations.at(meshGeometry.id).meshletsAlloc;
 
     const auto meshletInstanceCount = meshletsAlloc.GetSize() / sizeof(Render::Meshlet);
 
@@ -1513,11 +1503,10 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     // Spawn a set of meshlet instances referring to the mesh's meshlets, with the correct offsets.
     auto baseMeshletIndex = meshletsAlloc.GetOffset() / sizeof(Render::Meshlet);
     auto instanceIndex    = instanceAlloc.GetOffset() / sizeof(Render::ObjectUniforms);
-    auto materialIndex    = materialAlloc.GetOffset() / sizeof(Render::GpuMaterial);
     auto srcOffset        = meshletInstances.size() * sizeof(Render::MeshletInstance);
     for (size_t i = 0; i < meshletInstanceCount; i++)
     {
-      meshletInstances.emplace_back(uint32_t(baseMeshletIndex + i), (uint32_t)instanceIndex, (uint32_t)materialIndex);
+      meshletInstances.emplace_back(uint32_t(baseMeshletIndex + i), (uint32_t)instanceIndex);
     }
 
     const auto meshletInstancesAlloc = meshletInstancesBuffer.Allocate(meshletInstanceCount * sizeof(Render::MeshletInstance));

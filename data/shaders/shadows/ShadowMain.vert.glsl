@@ -26,7 +26,7 @@ void main()
   const vec3 position = PackedToVec3(vertex.position);
   const mat4 transform = d_transforms[instanceId].modelCurrent;
 
-  v_materialId = meshletInstance.materialId;
+  v_materialId = d_transforms[instanceId].materialId;
   v_uv = PackedToVec2(vertex.uv);
   i_objectSpacePos = position;
   gl_Position = d_currentView.viewProj * transform * vec4(position, 1.0);

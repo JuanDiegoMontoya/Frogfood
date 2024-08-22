@@ -51,7 +51,6 @@ struct MeshletInstance
 {
   uint meshletId;
   uint instanceId;
-  uint materialId;
 };
 
 struct View
@@ -172,6 +171,8 @@ struct ObjectUniforms
 {
   mat4 modelPrevious;
   mat4 modelCurrent;
+  uint materialId;
+  uint _padding[3];
 };
 
 //layout (std430, binding = 4) restrict readonly buffer TransformBuffer

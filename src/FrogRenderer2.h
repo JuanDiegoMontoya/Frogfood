@@ -16,6 +16,9 @@
 #include "Fvog/Buffer2.h"
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Timer2.h"
+#if defined(FROGRENDER_RAYTRACING_ENABLE)
+  #include "Fvog/AccelerationStructure.h"
+#endif
 
 #include "shaders/Resources.h.glsl"
 #include "shaders/ShadeDeferredPbr.h.glsl"
@@ -447,6 +450,13 @@ private:
 
   // Scene
   Scene::SceneMeshlet scene;
+
+  // TODO: Temporary, for testing omly
+  std::optional<Fvog::Blas> blas;
+  std::optional<Fvog::Tlas> tlas;
+  std::optional<Fvog::TypedBuffer<Render::Vertex>> blasVertices;
+  std::optional<Fvog::TypedBuffer<Render::index_t>> blasIndices;
+  std::optional<Fvog::TypedBuffer<Fvog::TlasInstance>> tlasInstances;
 
   enum DisplayMap
   {

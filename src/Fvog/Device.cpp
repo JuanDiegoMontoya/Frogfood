@@ -75,6 +75,25 @@ namespace Fvog
       .set_surface(surface_)
       .add_required_extension(VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)
       .add_required_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) // TODO: enable for profiling builds only
+    #if defined(FROGRENDER_RAYTRACING_ENABLE)
+      .add_required_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
+      .add_required_extension_features(VkPhysicalDeviceAccelerationStructureFeaturesKHR {
+        //VkPhysicalDeviceAccelerationStructureFeaturesKHR
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+        .accelerationStructure = true,
+      })
+      .add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
+      .add_required_extension_features(VkPhysicalDeviceRayTracingPipelineFeaturesKHR {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+        .rayTracingPipeline = true,
+      })
+      .add_required_extension(VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME)
+      .add_required_extension_features(VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR,
+        .rayTracingPositionFetch = true
+      })
+      .add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
+    #endif
       .set_required_features({
         .independentBlend = true,
         .multiDrawIndirect = true,

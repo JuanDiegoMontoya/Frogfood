@@ -342,7 +342,73 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   constexpr auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
   vsmTempDepthStencil      = Fvog::CreateTexture2D(*device_, vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
-  
+
+#if defined(FROGRENDER_RAYTRACING_ENABLE)
+  // TODO: Move this somewhere else
+  blasVertices = Fvog::TypedBuffer<Render::Vertex>(*device_, {
+    .count = 3,
+    .flag =
+      Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE |
+      Fvog::BufferFlagThingy::NO_DESCRIPTOR,
+  }, "BLAS Vertices");
+  blasIndices = Fvog::TypedBuffer<uint32_t>(*device_, {
+    .count = 3,
+    .flag =
+      Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE |
+      Fvog::BufferFlagThingy::NO_DESCRIPTOR,
+  }, "BLAS Indices");
+  tlasInstances = Fvog::TypedBuffer<Fvog::TlasInstance>(*device_, {
+    .count = 1,
+    .flag =
+      Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE |
+      Fvog::BufferFlagThingy::NO_DESCRIPTOR,
+  }, "TLAS Instances");
+
+  {
+    Render::Vertex vertices[3] = {
+      { { -0.5f,  0.5f, 0.0f }, 0, { 0.0f, 0.0f } },
+      { {  0.5f,  0.5f, 0.0f }, 0, { 0.0f, 1.0f } },
+      { {  0.0f, -0.5f, 0.0f }, 0, { 1.0f, 1.0f } },
+    };
+    std::memcpy(blasVertices->GetMappedMemory(), vertices, sizeof(vertices));
+
+    uint32_t indices[3] = { 0, 1, 2 };
+    std::memcpy(blasIndices->GetMappedMemory(), indices, sizeof(indices));
+  }
+  blas = Fvog::Blas(*device_, {
+    .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
+    .buildFlags =
+      Fvog::AccelerationStructureBuildFlag::FAST_TRACE |
+      Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS |
+      Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+    .vertexBuffer = &*blasVertices,
+    .indexBuffer =  &*blasIndices,
+    .vertexStride = sizeof(Render::Vertex),
+  }, "BLAS");
+
+  {
+    Fvog::TlasInstance instance = {
+      .transform = {
+        0.5f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.5f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.5f, 0.0f
+      },
+      .objectIndex = 0,
+      .blasAddress = blas->GetAddress(),
+    };
+    std::memcpy(tlasInstances->GetMappedMemory(), &instance, sizeof(instance));
+
+    tlas = Fvog::Tlas(*device_, {
+      .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
+      .buildFlags =
+        Fvog::AccelerationStructureBuildFlag::FAST_TRACE |
+        Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS |
+        Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+      .instanceBuffer = &*tlasInstances,
+    }, "TLAS");
+  }
+#endif
+
   OnFramebufferResize(windowFramebufferWidth, windowFramebufferHeight);
   // The main loop might invoke the resize callback (which in turn causes a redraw) on the first frame, and OnUpdate produces
   // some resources necessary for rendering (but can be resused). This is a minor hack to make sure those resources are

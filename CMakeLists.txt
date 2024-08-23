@@ -7,6 +7,7 @@ project(Frogfood)
 set(CMAKE_CXX_STANDARD 20)
 
 option(FROGRENDER_FSR2_ENABLE "Enable FSR2 for examples that support it (currently 03_gltf_viewer). Windows only!" FALSE)
+option(FROGRENDER_RAYTRACING_ENABLE "Enable VKRT" FALSE)
 
 find_package(Vulkan REQUIRED)
 
@@ -61,6 +62,13 @@ add_executable(frogRender
     src/Scene.cpp
     src/Renderables.h
 )
+
+if (FROGRENDER_RAYTRACING_ENABLE)
+    target_sources(frogRender PRIVATE
+        src/Fvog/AccelerationStructure.h
+        src/Fvog/AccelerationStructure.cpp
+    )
+endif ()
 
 target_compile_options(frogRender
     PRIVATE
@@ -143,3 +151,7 @@ if (MSVC)
 else()
     target_link_libraries(frogRender PRIVATE tbb)
 endif()
+
+if (FROGRENDER_RAYTRACING_ENABLE)
+    target_compile_definitions(frogRender PUBLIC FROGRENDER_RAYTRACING_ENABLE)
+endif ()

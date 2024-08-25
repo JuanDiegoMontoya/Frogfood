@@ -6,7 +6,7 @@ project(Frogfood)
 
 set(CMAKE_CXX_STANDARD 20)
 
-option(FROGRENDER_FSR2_ENABLE "Enable FSR2 for examples that support it (currently 03_gltf_viewer). Windows only!" FALSE)
+option(FROGRENDER_FSR2_ENABLE "Enable FidelityFX Super Resolution 2. Windows only!" FALSE)
 option(FROGRENDER_RAYTRACING_ENABLE "Enable VKRT" FALSE)
 
 find_package(Vulkan REQUIRED)

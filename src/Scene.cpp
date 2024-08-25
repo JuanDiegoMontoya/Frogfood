@@ -39,11 +39,13 @@ namespace Scene
 
     for (const auto& meshGeometry : loadModelResult.meshGeometries)
     {
+      // TODO: move arrays in
       auto info = FrogRenderer2::MeshGeometryInfo{
-        .meshlets   = meshGeometry.meshlets,
-        .vertices   = meshGeometry.vertices,
-        .indices    = meshGeometry.indices,
-        .primitives = meshGeometry.primitives,
+        .meshlets        = meshGeometry.meshlets,
+        .vertices        = meshGeometry.vertices,
+        .remappedIndices = meshGeometry.remappedIndices,
+        .primitives      = meshGeometry.primitives,
+        .originalIndices = meshGeometry.originalIndices,
       };
       meshGeometryIds.push_back(renderer.RegisterMeshGeometry(info));
     }

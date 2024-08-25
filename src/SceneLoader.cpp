@@ -1159,14 +1159,14 @@ namespace Utility
         auto rawMeshlets = std::vector<meshopt_Meshlet>(maxMeshlets);
         
         meshGeometry.vertices = std::move(mesh.vertices);
-        meshGeometry.indices.resize(maxMeshlets * maxMeshletIndices);
+        meshGeometry.remappedIndices.resize(maxMeshlets * maxMeshletIndices);
         meshGeometry.primitives.resize(maxMeshlets * maxMeshletPrimitives * 3);
         
         const auto meshletCount = [&]
         {
           ZoneScopedN("Build Meshlets");
           return meshopt_buildMeshlets(rawMeshlets.data(),
-            meshGeometry.indices.data(),
+            meshGeometry.remappedIndices.data(),
             meshGeometry.primitives.data(),
             mesh.indices.data(),
             mesh.indices.size(),
@@ -1194,10 +1194,11 @@ namespace Utility
 
         // TODO: replace with rawMeshlets.back() AFTER moving rawMeshlets.resize() before this
         const auto& lastMeshlet = rawMeshlets[meshletCount - 1];
-        meshGeometry.indices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
+        meshGeometry.remappedIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
         meshGeometry.primitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
         rawMeshlets.resize(meshletCount);
         meshGeometry.meshlets.reserve(meshletCount);
+        meshGeometry.originalIndices = std::move(mesh.indices);
 
         for (const auto& meshlet : rawMeshlets)
         {
@@ -1205,7 +1206,7 @@ namespace Utility
           auto max = glm::vec3(std::numeric_limits<float>::lowest());
           for (uint32_t i = 0; i < meshlet.triangle_count * 3; ++i)
           {
-            const auto& vertex = meshGeometry.vertices[meshGeometry.indices[meshlet.vertex_offset + meshGeometry.primitives[meshlet.triangle_offset + i]]];
+            const auto& vertex = meshGeometry.vertices[meshGeometry.remappedIndices[meshlet.vertex_offset + meshGeometry.primitives[meshlet.triangle_offset + i]]];
             min                = glm::min(min, vertex.position);
             max                = glm::max(max, vertex.position);
           }

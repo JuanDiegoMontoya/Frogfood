@@ -16,8 +16,9 @@ namespace Utility
   {
     std::pmr::vector<Render::Meshlet> meshlets;
     std::pmr::vector<Render::Vertex> vertices;
-    std::pmr::vector<Render::index_t> indices; // meshletIndices
+    std::pmr::vector<Render::index_t> remappedIndices; // meshletIndices
     std::pmr::vector<Render::primitive_t> primitives;
+    std::pmr::vector<Render::index_t> originalIndices;
   };
 
   struct LoadModelNode

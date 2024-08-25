@@ -343,72 +343,6 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   constexpr auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
   vsmTempDepthStencil      = Fvog::CreateTexture2D(*device_, vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
 
-#if defined(FROGRENDER_RAYTRACING_ENABLE)
-  // TODO: Move this somewhere else
-  blasVertices = Fvog::TypedBuffer<Render::Vertex>(*device_, {
-    .count = 3,
-    .flag =
-      Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE |
-      Fvog::BufferFlagThingy::NO_DESCRIPTOR,
-  }, "BLAS Vertices");
-  blasIndices = Fvog::TypedBuffer<uint32_t>(*device_, {
-    .count = 3,
-    .flag =
-      Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE |
-      Fvog::BufferFlagThingy::NO_DESCRIPTOR,
-  }, "BLAS Indices");
-  tlasInstances = Fvog::TypedBuffer<Fvog::TlasInstance>(*device_, {
-    .count = 1,
-    .flag =
-      Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE |
-      Fvog::BufferFlagThingy::NO_DESCRIPTOR,
-  }, "TLAS Instances");
-
-  {
-    Render::Vertex vertices[3] = {
-      { { -0.5f,  0.5f, 0.0f }, 0, { 0.0f, 0.0f } },
-      { {  0.5f,  0.5f, 0.0f }, 0, { 0.0f, 1.0f } },
-      { {  0.0f, -0.5f, 0.0f }, 0, { 1.0f, 1.0f } },
-    };
-    std::memcpy(blasVertices->GetMappedMemory(), vertices, sizeof(vertices));
-
-    uint32_t indices[3] = { 0, 1, 2 };
-    std::memcpy(blasIndices->GetMappedMemory(), indices, sizeof(indices));
-  }
-  blas = Fvog::Blas(*device_, {
-    .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
-    .buildFlags =
-      Fvog::AccelerationStructureBuildFlag::FAST_TRACE |
-      Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS |
-      Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
-    .vertexBuffer = &*blasVertices,
-    .indexBuffer =  &*blasIndices,
-    .vertexStride = sizeof(Render::Vertex),
-  }, "BLAS");
-
-  {
-    Fvog::TlasInstance instance = {
-      .transform = {
-        0.5f, 0.0f, 0.0f, 0.0f,
-        0.0f, 0.5f, 0.0f, 0.0f,
-        0.0f, 0.0f, 0.5f, 0.0f
-      },
-      .objectIndex = 0,
-      .blasAddress = blas->GetAddress(),
-    };
-    std::memcpy(tlasInstances->GetMappedMemory(), &instance, sizeof(instance));
-
-    tlas = Fvog::Tlas(*device_, {
-      .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
-      .buildFlags =
-        Fvog::AccelerationStructureBuildFlag::FAST_TRACE |
-        Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS |
-        Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
-      .instanceBuffer = &*tlasInstances,
-    }, "TLAS");
-  }
-#endif
-
   OnFramebufferResize(windowFramebufferWidth, windowFramebufferHeight);
   // The main loop might invoke the resize callback (which in turn causes a redraw) on the first frame, and OnUpdate produces
   // some resources necessary for rendering (but can be resused). This is a minor hack to make sure those resources are
@@ -710,6 +644,33 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   }
 
   FlushUpdatedSceneData(commandBuffer);
+
+  {
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    TracyVkZone(tracyVkContext_, commandBuffer, "Build TLAS");
+    ZoneScopedN("Build TLAS");
+    auto instances = std::vector<Fvog::TlasInstance>();
+    instances.reserve(meshAllocations.size());
+    for (const auto& [meshId, instance] : meshAllocations)
+    {
+      instances.push_back(instance.tlasInstance);
+    }
+
+    auto tlasInstances =
+      Fvog::TypedBuffer<Fvog::TlasInstance>(*device_, {(uint32_t)instances.size(), Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE}, "TLAS Instances Buffer");
+
+    std::memcpy(tlasInstances.GetMappedMemory(), instances.data(), sizeof(Fvog::TlasInstance) * instances.size());
+
+    auto tlas = Fvog::Tlas(*device_,
+      Fvog::TlasCreateInfo{
+        .commandBuffer = commandBuffer,
+        .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
+        .buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+        .instanceBuffer = &tlasInstances,
+      },
+      "TLAS");
+#endif
+  }
 
   // A few of these buffers are really slow to create (2-3ms) and destroy every frame (large ones hit vkAllocateMemory), so
   // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
@@ -1420,14 +1381,14 @@ void FrogRenderer2::OnPathDrop([[maybe_unused]] std::span<const char*> paths)
 Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo meshGeometry)
 {
   ZoneScoped;
-  auto verticesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.vertices).size_bytes(), sizeof(Render::Vertex));
-  auto indicesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.indices).size_bytes(), sizeof(Render::index_t));
+  auto verticesAlloc   = geometryBuffer.Allocate(std::span(meshGeometry.vertices).size_bytes(), sizeof(Render::Vertex));
+  auto indicesAlloc    = geometryBuffer.Allocate(std::span(meshGeometry.remappedIndices).size_bytes(), sizeof(Render::index_t));
   auto primitivesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.primitives).size_bytes(), sizeof(Render::primitive_t));
-  auto meshletAlloc = geometryBuffer.Allocate(std::span(meshGeometry.meshlets).size_bytes(), sizeof(Render::Meshlet));
+  auto meshletAlloc    = geometryBuffer.Allocate(std::span(meshGeometry.meshlets).size_bytes(), sizeof(Render::Meshlet));
 
   // Massage meshlets before uploading
-  const auto baseVertex = verticesAlloc.GetOffset() / sizeof(Render::Vertex);
-  const auto baseIndex = indicesAlloc.GetOffset() / sizeof(Render::index_t);
+  const auto baseVertex    = verticesAlloc.GetOffset() / sizeof(Render::Vertex);
+  const auto baseIndex     = indicesAlloc.GetOffset() / sizeof(Render::index_t);
   const auto basePrimitive = primitivesAlloc.GetOffset() / sizeof(Render::primitive_t);
   for (auto& meshlet : meshGeometry.meshlets)
   {
@@ -1438,7 +1399,7 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
 
   std::memcpy(geometryBuffer.GetMappedMemory() + meshletAlloc.GetOffset(), meshGeometry.meshlets.data(), meshletAlloc.GetSize());
   std::memcpy(geometryBuffer.GetMappedMemory() + verticesAlloc.GetOffset(), meshGeometry.vertices.data(), verticesAlloc.GetSize());
-  std::memcpy(geometryBuffer.GetMappedMemory() + indicesAlloc.GetOffset(), meshGeometry.indices.data(), indicesAlloc.GetSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + indicesAlloc.GetOffset(), meshGeometry.remappedIndices.data(), indicesAlloc.GetSize());
   std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetSize());
 
   auto myId = nextId++;
@@ -1448,6 +1409,20 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
       .verticesAlloc   = std::move(verticesAlloc),
       .indicesAlloc    = std::move(indicesAlloc),
       .primitivesAlloc = std::move(primitivesAlloc),
+#if FROGRENDER_RAYTRACING_ENABLE
+      .blas = Fvog::Blas(*device_,
+        Fvog::BlasCreateInfo{
+          .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
+          .buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+          .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
+          .vertexBuffer  = geometryBuffer.GetBuffer().GetDeviceAddress() + verticesAlloc.GetOffset(),
+          .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + indicesAlloc.GetOffset(),
+          .vertexStride  = sizeof(Render::Vertex),
+          .numVertices   = (uint32_t)meshGeometry.vertices.size(),
+          .indexType     = VK_INDEX_TYPE_UINT32,
+          .numIndices    = (uint32_t)meshGeometry.originalIndices.size(),
+        }),
+#endif
   });
   return {myId};
 }
@@ -1582,6 +1557,17 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
       MeshAllocs{
         .meshletInstancesAlloc = meshletInstancesAlloc,
         .instanceAlloc         = std::move(instanceAlloc),
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+        .tlasInstance =
+          Fvog::TlasInstance{
+            .transform                = {},
+            .objectIndex              = 0,
+            .mask                     = 0xFF,
+            .shaderBindingTableOffset = 0,
+            .flags                    = {},
+            .blasAddress              = meshGeometryAllocations.at(meshGeometry.id).blas.GetAddress(),
+          },
+#endif
       });
   }
   
@@ -1632,6 +1618,13 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     const auto offset = meshAllocations.at(id).instanceAlloc.GetOffset();
     assert(offset % sizeof(uniforms) == 0);
     ctx.TeenyBufferUpdate(geometryBuffer.GetBuffer(), uniforms, offset);
+
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    // Make memory layout match VkTransformMatrixKHR::matrix[3][4] (3 rows, 4 columns, row-major)
+    // Must be here to ensure meshAllocations[mesh.id] exists
+    auto transformAffine = glm::transpose(glm::mat4x3(uniforms.modelCurrent));
+    std::memcpy(&meshAllocations.at(id).tlasInstance.transform, &transformAffine, sizeof(VkTransformMatrixKHR));
+#endif
   }
 
   // Update lights

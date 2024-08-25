@@ -7,6 +7,8 @@
 
 #include <glm/mat4x4.hpp>
 
+#include <optional>
+
 namespace Fvog
 {
   enum class AccelerationStructureGeometryFlag : uint32_t
@@ -45,15 +47,19 @@ namespace Fvog
     AccelerationStructureGeometryFlags geoemtryFlags = {};
     AccelerationStructureBuildFlags buildFlags       = {};
 
-    const Buffer* vertexBuffer = nullptr;
-    const Buffer* indexBuffer  = nullptr;
-    size_t vertexStride        = 0;
+    VkFormat vertexFormat        = VK_FORMAT_R32G32B32_SFLOAT;
+    VkDeviceAddress vertexBuffer = 0;
+    VkDeviceAddress indexBuffer  = 0;
+    VkDeviceSize vertexStride    = 0;
+    uint32_t numVertices         = 0;
+    VkIndexType indexType        = VK_INDEX_TYPE_UINT32;
+    uint32_t numIndices          = 0;
   };
 
   class Blas
   {
   public:
-    Blas(Device& device, const BlasCreateInfo& createInfo, std::string name = {});
+    explicit Blas(Device& device, const BlasCreateInfo& createInfo, std::string name = {});
     ~Blas();
 
     Blas(const Blas& other)            = delete;
@@ -99,12 +105,14 @@ namespace Fvog
     uint32_t mask : 8 = 0;
     uint32_t shaderBindingTableOffset : 24 = 0;
     AccelerationStructureGeometryInstanceFlag flags : 8 = {};
-    VkDeviceSize blasAddress = 0;
+    VkDeviceAddress blasAddress = 0;
   };
   static_assert(sizeof(TlasInstance) == sizeof(VkAccelerationStructureInstanceKHR));
 
   struct TlasCreateInfo
   {
+    // TODO: If a command buffer is provided, use it instead of doing immediate submits.
+    std::optional<VkCommandBuffer> commandBuffer     = {};
     AccelerationStructureGeometryFlags geoemtryFlags = {};
     AccelerationStructureBuildFlags buildFlags       = {};
 

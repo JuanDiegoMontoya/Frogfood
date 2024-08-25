@@ -9,7 +9,14 @@ namespace Fvog
 {
   Blas::Blas(Device& device, const BlasCreateInfo& createInfo, std::string name) : createInfo_(createInfo), device_(&device)
   {
-    const uint32_t maxVertex = uint32_t(createInfo.vertexBuffer->SizeBytes() / createInfo.vertexStride - 1);
+    assert(createInfo.numIndices >= 3);
+    //assert(createInfo.numIndices % 3 == 0);
+    assert(createInfo.numVertices >= 3);
+    assert(createInfo.vertexBuffer != 0);
+    assert(createInfo.indexBuffer != 0);
+    //const uint32_t maxVertex = uint32_t(createInfo.vertexBuffer->SizeBytes() / createInfo.vertexStride - 1);
+
+    const uint32_t primitiveCount = createInfo.numIndices / 3;
 
     const VkAccelerationStructureGeometryKHR geometryInfo = {
       .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
@@ -19,18 +26,18 @@ namespace Fvog
           .triangles =
             {
               .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
-              .vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
-              .vertexData   = {createInfo.vertexBuffer->GetDeviceAddress()},
+              .vertexFormat = createInfo.vertexFormat,
+              .vertexData   = {.deviceAddress = createInfo.vertexBuffer},
               .vertexStride = createInfo.vertexStride,
-              .maxVertex    = maxVertex,
-              .indexType    = VK_INDEX_TYPE_UINT32,
-              .indexData    = {createInfo.indexBuffer->GetDeviceAddress()},
+              .maxVertex    = createInfo.numVertices - 1,
+              .indexType    = createInfo.indexType,
+              .indexData    = {.deviceAddress = createInfo.indexBuffer},
             },
         },
       .flags = static_cast<VkGeometryFlagsKHR>(createInfo.geoemtryFlags),
     };
 
-    const uint32_t primitiveCount = uint32_t(createInfo.indexBuffer->SizeBytes() / sizeof(uint32_t) / 3);
+    //const uint32_t primitiveCount = uint32_t(createInfo.indexBuffer->SizeBytes() / sizeof(uint32_t) / 3);
 
     VkAccelerationStructureBuildGeometryInfoKHR buildInfo = {
       .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
@@ -419,8 +426,16 @@ namespace Fvog
   {
     if (handle_)
     {
-      // TODO: move to deletion queue
-      vkDestroyAccelerationStructureKHR(device_->device_, handle_, nullptr);
+      device_->genericDeletionQueue_.emplace_back(
+        [device = device_, handle = handle_, frameOfLastUse = device_->frameNumber](uint64_t value) -> bool
+        {
+          if (value >= frameOfLastUse)
+          {
+            vkDestroyAccelerationStructureKHR(device->device_, handle, nullptr);
+            return true;
+          }
+          return false;
+        });
     }
   }
 

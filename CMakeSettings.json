@@ -15,6 +15,11 @@
           "name": "FROGRENDER_FSR2_ENABLE",
           "value": "True",
           "type": "BOOL"
+        },
+        {
+          "name": "FROGRENDER_RAYTRACING_ENABLE",
+          "value": "True",
+          "type": "BOOL"
         }
       ]
     },
@@ -31,6 +36,11 @@
       "variables": [
         {
           "name": "FROGRENDER_FSR2_ENABLE",
+          "value": "True",
+          "type": "BOOL"
+        },
+        {
+          "name": "FROGRENDER_RAYTRACING_ENABLE",
           "value": "True",
           "type": "BOOL"
         }

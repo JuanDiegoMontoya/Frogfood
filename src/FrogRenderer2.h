@@ -152,8 +152,9 @@ public:
   {
     std::pmr::vector<Render::Meshlet> meshlets;
     std::pmr::vector<Render::Vertex> vertices;
-    std::pmr::vector<Render::index_t> indices;
+    std::pmr::vector<Render::index_t> remappedIndices;
     std::pmr::vector<Render::primitive_t> primitives;
+    std::pmr::vector<Render::index_t> originalIndices;
   };
 
   // Life and death
@@ -368,12 +369,18 @@ private:
     Fvog::ManagedBuffer::Alloc verticesAlloc;
     Fvog::ManagedBuffer::Alloc indicesAlloc;
     Fvog::ManagedBuffer::Alloc primitivesAlloc;
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    Fvog::Blas blas;
+#endif
   };
 
   struct MeshAllocs
   {
     Fvog::ContiguousManagedBuffer::Alloc meshletInstancesAlloc;
     Fvog::ManagedBuffer::Alloc instanceAlloc;
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    Fvog::TlasInstance tlasInstance;
+#endif
   };
 
   struct LightAlloc
@@ -450,13 +457,6 @@ private:
 
   // Scene
   Scene::SceneMeshlet scene;
-
-  // TODO: Temporary, for testing omly
-  std::optional<Fvog::Blas> blas;
-  std::optional<Fvog::Tlas> tlas;
-  std::optional<Fvog::TypedBuffer<Render::Vertex>> blasVertices;
-  std::optional<Fvog::TypedBuffer<Render::index_t>> blasIndices;
-  std::optional<Fvog::TypedBuffer<Fvog::TlasInstance>> tlasInstances;
 
   enum DisplayMap
   {

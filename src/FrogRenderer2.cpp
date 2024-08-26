@@ -1409,6 +1409,9 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
   std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetSize());
   std::memcpy(geometryBuffer.GetMappedMemory() + originalIndicesAlloc.GetOffset(), meshGeometry.originalIndices.data(), originalIndicesAlloc.GetSize());
 
+  auto verticesOffset = verticesAlloc.GetOffset();
+  auto originalIndicesOffset = originalIndicesAlloc.GetOffset();
+
   auto myId = nextId++;
   meshGeometryAllocations.emplace(myId,
     MeshGeometryAllocs{
@@ -1417,14 +1420,14 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
       .indicesAlloc    = std::move(indicesAlloc),
       .primitivesAlloc = std::move(primitivesAlloc),
       .originalIndicesAlloc = std::move(originalIndicesAlloc),
-#if FROGRENDER_RAYTRACING_ENABLE
+#ifdef FROGRENDER_RAYTRACING_ENABLE
       .blas = Fvog::Blas(*device_,
         Fvog::BlasCreateInfo{
           .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
           //.buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
           .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
-          .vertexBuffer  = geometryBuffer.GetBuffer().GetDeviceAddress() + verticesAlloc.GetOffset(),
-          .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + originalIndicesAlloc.GetOffset(),
+          .vertexBuffer  = geometryBuffer.GetBuffer().GetDeviceAddress() + verticesOffset,
+          .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + originalIndicesOffset,
           .vertexStride  = sizeof(Render::Vertex),
           .numVertices   = (uint32_t)meshGeometry.vertices.size(),
           .indexType     = VK_INDEX_TYPE_UINT32,

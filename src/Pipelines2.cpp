@@ -350,4 +350,13 @@ namespace Pipelines2
       .renderTargetFormats = renderTargetFormats,
     });
   }
+
+  Fvog::RayTracingPipeline TestRayTracingPipeline(Fvog::Device& device)
+  {
+    auto rayGen = LoadShaderWithIncludes2(device, Fvog::PipelineStage::RAYGEN_SHADER, "shaders/raytracing/Test.rgen.glsl");
+    return Fvog::RayTracingPipeline(device, {
+      .name = "Test RayTracingPipeline",
+      .rayGenShader = &rayGen,
+    });
+  }
 } // namespace Pipelines2

@@ -459,6 +459,10 @@ private:
   Fvog::GraphicsPipeline debugAabbsPipeline;
   Fvog::GraphicsPipeline debugRectsPipeline;
 
+  // TODO: remove
+  Fvog::RayTracingPipeline testRayTracingPipeline;
+  std::optional<Fvog::Texture> testRayTracingOutput;
+
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
 
   bool debugDrawForwardRender_ = false;

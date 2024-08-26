@@ -1,7 +1,9 @@
 #pragma once
 
 #include <volk.h>
+
 #include "BasicTypes2.h"
+#include "Buffer2.h"
 
 #include <span>
 #include <string>
@@ -124,6 +126,15 @@ namespace Fvog
     Fvog::Format stencilAttachmentFormat = Fvog::Format::UNDEFINED;
   };
 
+
+  struct ShaderBindingTable
+  {
+    std::optional<Buffer> buffer;
+    VkStridedDeviceAddressRegionKHR rayGenRegion{};
+    VkStridedDeviceAddressRegionKHR missRegion{};
+    VkStridedDeviceAddressRegionKHR hitGroupRegion{};
+  };
+
   /// @brief Parameters for the constructor of GraphicsPipeline
   struct GraphicsPipelineInfo
   {
@@ -154,6 +165,26 @@ namespace Fvog
 
     /// @brief Non-null pointer to a compute shader
     const Shader* shader;
+  };
+
+  struct RayTracingHitGroup
+  {
+    // Required
+    const Shader* closestHit = nullptr;
+
+    // Optional
+    const Shader* anyHit = nullptr;
+    const Shader* intersection = nullptr;
+  };
+
+  struct RayTracingPipelineInfo
+  {
+    std::string name = {};
+
+    // Required
+    const Shader* rayGenShader = nullptr;
+    std::vector<RayTracingHitGroup> hitGroups = {};
+    std::vector<const Shader*> missShaders = {};
   };
 
   /// @brief An object that encapsulates the state needed to issue draws
@@ -216,6 +247,47 @@ namespace Fvog
     Device* device_{};
     VkPipeline pipeline_{};
     Extent3D workgroupSize_;
+    std::string name_;
+  };
+
+  class RayTracingPipeline
+  {
+  public:
+    explicit RayTracingPipeline(Device& device, VkPipelineLayout pipelineLayout, const RayTracingPipelineInfo& info);
+
+    explicit RayTracingPipeline(Device& device, const RayTracingPipelineInfo& info);
+    ~RayTracingPipeline();
+    RayTracingPipeline(RayTracingPipeline&& old) noexcept;
+    RayTracingPipeline& operator=(RayTracingPipeline&& old) noexcept;
+    RayTracingPipeline(const RayTracingPipeline&) = delete;
+    RayTracingPipeline& operator=(const RayTracingPipeline&) = delete;
+
+    bool operator==(const RayTracingPipeline&) const = default;
+
+    [[nodiscard]] VkPipeline Handle() const
+    {
+      return pipeline_;
+    }
+
+    [[nodiscard]] VkStridedDeviceAddressRegionKHR GetRayGenRegion() const
+    {
+      return shaderBindingTable_.rayGenRegion;
+    }
+
+    [[nodiscard]] VkStridedDeviceAddressRegionKHR GetMissRegion() const
+    {
+      return shaderBindingTable_.missRegion;
+    }
+
+    [[nodiscard]] VkStridedDeviceAddressRegionKHR GetHitGroupRegion() const
+    {
+      return shaderBindingTable_.hitGroupRegion;
+    }
+
+  private:
+    Device* device_{};
+    VkPipeline pipeline_{};
+    ShaderBindingTable shaderBindingTable_{};
     std::string name_;
   };
   // clang-format on

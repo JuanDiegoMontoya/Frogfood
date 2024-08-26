@@ -22,7 +22,12 @@ namespace Fvog
   {
     VERTEX_SHADER,
     FRAGMENT_SHADER,
-    COMPUTE_SHADER
+    COMPUTE_SHADER,
+    RAYGEN_SHADER,
+    MISS_SHADER,
+    CLOSEST_HIT_SHADER,
+    ANY_HIT_SHADER,
+    INTERSECTION_SHADER,
   };
 
   /// @brief A shader object to be used in one or more GraphicsPipeline or ComputePipeline objects

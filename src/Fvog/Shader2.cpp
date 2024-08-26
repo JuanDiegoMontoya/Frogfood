@@ -30,6 +30,11 @@ namespace Fvog
       case PipelineStage::VERTEX_SHADER: return VK_SHADER_STAGE_VERTEX_BIT;
       case PipelineStage::FRAGMENT_SHADER: return VK_SHADER_STAGE_FRAGMENT_BIT;
       case PipelineStage::COMPUTE_SHADER: return VK_SHADER_STAGE_COMPUTE_BIT;
+      case PipelineStage::RAYGEN_SHADER: return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+      case PipelineStage::MISS_SHADER: return VK_SHADER_STAGE_MISS_BIT_KHR;
+      case PipelineStage::CLOSEST_HIT_SHADER: return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+      case PipelineStage::ANY_HIT_SHADER: return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+      case PipelineStage::INTERSECTION_SHADER: return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
       default: assert(0); return {};
       }
     }
@@ -122,6 +127,11 @@ namespace Fvog
       case VkShaderStageFlagBits::VK_SHADER_STAGE_VERTEX_BIT: return EShLanguage::EShLangVertex;
       case VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT: return EShLanguage::EShLangFragment;
       case VkShaderStageFlagBits::VK_SHADER_STAGE_COMPUTE_BIT: return EShLanguage::EShLangCompute;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_RAYGEN_BIT_KHR: return EShLanguage::EShLangRayGen;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_MISS_BIT_KHR: return EShLanguage::EShLangMiss;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR: return EShLanguage::EShLangClosestHit;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_ANY_HIT_BIT_KHR: return EShLanguage::EShLangAnyHit;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_INTERSECTION_BIT_KHR: return EShLanguage::EShLangIntersect;
       }
       return static_cast<EShLanguage>(-1);
     }

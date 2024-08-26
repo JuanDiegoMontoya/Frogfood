@@ -12,5 +12,10 @@ namespace Fvog::detail
     return std::addressof(v);
   }
 
+  constexpr size_t AlignUp(size_t value, size_t alignment)
+  {
+    return (value + alignment - 1) & ~(alignment - 1);
+  }
+
   void CheckVkResult(VkResult result);
 }

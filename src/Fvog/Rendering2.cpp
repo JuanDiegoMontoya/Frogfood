@@ -341,6 +341,13 @@ namespace Fvog
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.Handle());
   }
 
+  void Context::BindRayTracingPipeline(const RayTracingPipeline& pipeline) const
+  {
+    ZoneScoped;
+    boundRayTracingPipeline_ = &pipeline;
+    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline.Handle());
+  }
+
   void Context::Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const
   {
     Dispatch({groupCountX, groupCountY, groupCountZ});
@@ -393,6 +400,20 @@ namespace Fvog
   {
     ZoneScoped;
     vkCmdDrawIndexedIndirect(commandBuffer_, buffer.Handle(), bufferOffset, drawCount, stride);
+  }
+  void Context::TraceRays(uint32_t width, uint32_t height, uint32_t depth) const
+  {
+    ZoneScoped;
+    assert(boundRayTracingPipeline_);
+    vkCmdTraceRaysKHR(
+      commandBuffer_,
+      Address(boundRayTracingPipeline_->GetRayGenRegion()),
+      Address(boundRayTracingPipeline_->GetMissRegion()),
+      Address(boundRayTracingPipeline_->GetHitGroupRegion()),
+      Address(VkStridedDeviceAddressRegionKHR()), // No callable region
+      width,
+      height,
+      depth);
   }
 
   void Context::BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const

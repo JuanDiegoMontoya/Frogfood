@@ -184,6 +184,13 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
         .depthAttachmentFormat = Frame::gDepthFormat,
       })),
+    // TODO: remove
+    testRayTracingPipeline(Pipelines2::TestRayTracingPipeline(*device_)),
+    testRayTracingOutput(Fvog::Texture(*device_, {
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = Fvog::Format::R8G8B8A8_UNORM,
+      .extent = { 1920, 1080, 1 },
+    })),
     forwardRenderer_(*device_),
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
     tonyMcMapfaceLut(LoadTonyMcMapfaceTexture(*device_)),
@@ -1354,22 +1361,23 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     vkCmdEndRendering(commandBuffer);
   }
 
+#if defined(FROGRENDER_RAYTRACING_ENABLE)
+  vkCmdBindDescriptorSets(
+    commandBuffer,
+    VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+    device_->defaultPipelineLayout,
+    0,
+    1,
+    &device_->descriptorSet_,
+    0,
+    nullptr);
 
+  ctx.ImageBarrierDiscard(*testRayTracingOutput, VK_IMAGE_LAYOUT_GENERAL);
+  ctx.BindRayTracingPipeline(testRayTracingPipeline);
+  ctx.SetPushConstants(testRayTracingOutput->ImageView().GetStorageResourceHandle().index);
+  ctx.TraceRays(testRayTracingOutput->GetCreateInfo().extent.width, testRayTracingOutput->GetCreateInfo().extent.height, 1);
+#endif
 
-
-
-
-
-
-
-
-
-
-
-
-  
-
-  
   // swapchainImages_[swapchainImageIndex] needs to be COLOR_ATTACHMENT_OPTIMAL after this function returns
   ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }

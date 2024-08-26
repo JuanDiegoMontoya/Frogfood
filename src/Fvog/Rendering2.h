@@ -18,6 +18,7 @@ namespace Fvog
   class Buffer;
   class GraphicsPipeline;
   class ComputePipeline;
+  class RayTracingPipeline;
   class Device;
   struct TextureUpdateInfo;
 
@@ -189,6 +190,7 @@ namespace Fvog
 
     void BindGraphicsPipeline(const GraphicsPipeline& pipeline) const;
     void BindComputePipeline(const ComputePipeline& pipeline) const;
+    void BindRayTracingPipeline(const RayTracingPipeline& pipeline) const;
 
     void Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const;
     void Dispatch(Extent3D groupCount) const;
@@ -200,6 +202,8 @@ namespace Fvog
     void DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, uint32_t vertexOffset, uint32_t firstInstance) const;
     void DrawIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const;
     void DrawIndexedIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const;
+
+    void TraceRays(uint32_t width, uint32_t height, uint32_t depth) const;
 
     void BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const;
 
@@ -218,5 +222,6 @@ namespace Fvog
     Fvog::Device* device_{};
     VkCommandBuffer commandBuffer_{};
     mutable const ComputePipeline* boundComputePipeline_{};
+    mutable const RayTracingPipeline* boundRayTracingPipeline_{}; // TODO: feels dirty idk
   };
 }

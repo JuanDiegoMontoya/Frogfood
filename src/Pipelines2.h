@@ -22,4 +22,7 @@ namespace Pipelines2
   [[nodiscard]] Fvog::GraphicsPipeline ViewerVsmPhysicalPages(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::GraphicsPipeline ViewerVsmBitmaskHzb(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
   [[nodiscard]] Fvog::GraphicsPipeline ViewerVsmPhysicalPagesOverdraw(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats);
+
+  // TODO: remove
+  [[nodiscard]] Fvog::RayTracingPipeline TestRayTracingPipeline(Fvog::Device& device);
 } // namespace Pipelines2

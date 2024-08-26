@@ -27,7 +27,7 @@ namespace Fvog
     ZoneNameV(_, name_.data(), name_.size());
 
     auto stages = std::vector<VkPipelineShaderStageCreateInfo>();
-    
+
     assert(info.vertexShader);
     stages.emplace_back(VkPipelineShaderStageCreateInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -151,7 +151,7 @@ namespace Fvog
       }),
       nullptr,
       &pipeline_));
-    
+
     // TODO: gate behind compile-time switch
     vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
@@ -222,7 +222,7 @@ namespace Fvog
       }),
       nullptr,
       &pipeline_));
-    
+
     // TODO: gate behind compile-time switch
     vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
@@ -263,5 +263,232 @@ namespace Fvog
   Extent3D ComputePipeline::WorkgroupSize() const
   {
     return workgroupSize_;
+  }
+
+  RayTracingPipeline::RayTracingPipeline(Device& device, VkPipelineLayout pipelineLayout, const RayTracingPipelineInfo& info)
+    : device_(&device), name_(info.name)
+  {
+    using namespace detail;
+    ZoneScoped;
+    ZoneNamed(_, true);
+    ZoneNameV(_, name_.data(), name_.size());
+
+    assert(info.rayGenShader);
+
+    std::vector<VkPipelineShaderStageCreateInfo> stages;
+    std::vector<VkRayTracingShaderGroupCreateInfoKHR> rayTracingGroups;
+
+    stages.emplace_back(VkPipelineShaderStageCreateInfo{
+      .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+      .stage  = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
+      .module = info.rayGenShader->Handle(),
+      .pName  = "main",
+    });
+    rayTracingGroups.emplace_back(VkRayTracingShaderGroupCreateInfoKHR{
+      .sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+      .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
+      .generalShader      = static_cast<uint32_t>(stages.size() - 1),
+      .closestHitShader   = VK_SHADER_UNUSED_KHR,
+      .anyHitShader       = VK_SHADER_UNUSED_KHR,
+      .intersectionShader = VK_SHADER_UNUSED_KHR,
+    });
+
+    for (const auto& missShader : info.missShaders)
+    {
+      stages.emplace_back(VkPipelineShaderStageCreateInfo{
+        .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage  = VK_SHADER_STAGE_MISS_BIT_KHR,
+        .module = missShader->Handle(),
+        .pName  = "main",
+      });
+      rayTracingGroups.emplace_back(VkRayTracingShaderGroupCreateInfoKHR{
+        .sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+        .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
+        .generalShader      = static_cast<uint32_t>(stages.size() - 1),
+        .closestHitShader   = VK_SHADER_UNUSED_KHR,
+        .anyHitShader       = VK_SHADER_UNUSED_KHR,
+        .intersectionShader = VK_SHADER_UNUSED_KHR,
+      });
+    }
+
+    for (const auto& [closestHit, anyHit, intersection] : info.hitGroups)
+    {
+      // If we have a hit group, we must have a closest hit shader
+      assert(closestHit);
+      VkRayTracingShaderGroupCreateInfoKHR hitGroupInfo{
+        .sType              = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+        .type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR,
+        .generalShader      = VK_SHADER_UNUSED_KHR,
+        .closestHitShader   = VK_SHADER_UNUSED_KHR,
+        .anyHitShader       = VK_SHADER_UNUSED_KHR,
+        .intersectionShader = VK_SHADER_UNUSED_KHR,
+      };
+
+      stages.emplace_back(VkPipelineShaderStageCreateInfo{
+        .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage  = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR,
+        .module = closestHit->Handle(),
+        .pName  = "main",
+      });
+      hitGroupInfo.closestHitShader = static_cast<uint32_t>(stages.size() - 1);
+
+      if (anyHit)
+      {
+        stages.emplace_back(VkPipelineShaderStageCreateInfo{
+          .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage  = VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+          .module = anyHit->Handle(),
+          .pName  = "main",
+        });
+        hitGroupInfo.anyHitShader = static_cast<uint32_t>(stages.size() - 1);
+      }
+      if (intersection)
+      {
+        stages.emplace_back(VkPipelineShaderStageCreateInfo{
+          .sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+          .stage  = VK_SHADER_STAGE_INTERSECTION_BIT_KHR,
+          .module = intersection->Handle(),
+          .pName  = "main",
+        });
+        hitGroupInfo.intersectionShader = static_cast<uint32_t>(stages.size() - 1);
+      }
+      rayTracingGroups.emplace_back(hitGroupInfo);
+    }
+
+    CheckVkResult(vkCreateRayTracingPipelinesKHR(device.device_,
+      nullptr,
+      nullptr,
+      1,
+      Address(VkRayTracingPipelineCreateInfoKHR{
+        .sType                        = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR,
+        .stageCount                   = static_cast<uint32_t>(stages.size()),
+        .pStages                      = stages.data(),
+        .groupCount                   = static_cast<uint32_t>(rayTracingGroups.size()),
+        .pGroups                      = rayTracingGroups.data(),
+        .maxPipelineRayRecursionDepth = 1, // TODO: put this in CreateInfo?
+        .layout                       = pipelineLayout,
+      }),
+      nullptr,
+      &pipeline_));
+
+    vkSetDebugUtilsObjectNameEXT(device.device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
+        .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+        .objectType   = VK_OBJECT_TYPE_PIPELINE,
+        .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
+        .pObjectName  = name_.data(),
+      }));
+
+    // Fetch ray tracing properties
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingProperties{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR,
+    };
+    vkGetPhysicalDeviceProperties2(device.physicalDevice_,
+      Address(VkPhysicalDeviceProperties2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        .pNext = &rayTracingProperties,
+      }));
+
+    const auto shaderHandleAlignment     = rayTracingProperties.shaderGroupHandleAlignment;
+    const auto shaderHandleBaseAlignment = rayTracingProperties.shaderGroupBaseAlignment;
+    const auto shaderHandleSize          = AlignUp(rayTracingProperties.shaderGroupHandleSize, shaderHandleAlignment);
+    const auto shaderHandleBaseSize      = AlignUp(rayTracingProperties.shaderGroupHandleSize, shaderHandleBaseAlignment);
+
+    // We don't want the aligned size here as the data returned is packed
+    std::vector<uint8_t> shaderGroupHandles(rayTracingGroups.size() * rayTracingProperties.shaderGroupHandleSize);
+    CheckVkResult(vkGetRayTracingShaderGroupHandlesKHR(
+      device.device_,
+      pipeline_,
+      0,
+      static_cast<uint32_t>(rayTracingGroups.size()),
+      shaderGroupHandles.size(),
+      shaderGroupHandles.data()));
+
+    // RayGen shader is the base, followed by Miss shaders, then Hit groups, therefore we need aligned base size here
+    VkStridedDeviceAddressRegionKHR rayGenRegion{
+      .stride = shaderHandleBaseSize,
+      // The size of the raygen region must be equal to its stride
+      .size = shaderHandleBaseSize,
+    };
+
+    VkStridedDeviceAddressRegionKHR missRegion{
+      // Non-base aligned stride
+      .stride = shaderHandleSize,
+      // Base aligned size
+      .size = AlignUp(shaderHandleSize * info.missShaders.size(), shaderHandleBaseAlignment),
+    };
+
+    VkStridedDeviceAddressRegionKHR hitGroupRegion{
+      // Non-base aligned stride
+      .stride = shaderHandleSize,
+      // Base aligned size
+      .size = AlignUp(shaderHandleSize * info.hitGroups.size(), shaderHandleBaseAlignment),
+    };
+
+    Buffer shaderBindingTableBuffer(device,
+      BufferCreateInfo{.size = rayGenRegion.size + missRegion.size + hitGroupRegion.size,
+        .flag                = BufferFlagThingy::NO_DESCRIPTOR | BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE},
+      info.name + "ShaderBindingTable");
+
+    auto* shaderHandleBasePtr       = shaderGroupHandles.data();
+    auto* shaderBindingTableBasePtr = static_cast<uint8_t*>(shaderBindingTableBuffer.GetMappedMemory());
+
+    // Write RayGen shader
+    std::memcpy(shaderBindingTableBasePtr, shaderHandleBasePtr, shaderHandleSize);
+    shaderBindingTableBasePtr += rayGenRegion.size;
+    shaderHandleBasePtr += shaderHandleSize;
+    rayGenRegion.deviceAddress = shaderBindingTableBuffer.GetDeviceAddress();
+
+    // Write Miss shaders
+    if (!info.missShaders.empty())
+    {
+      std::memcpy(shaderBindingTableBasePtr, shaderHandleBasePtr, shaderHandleSize);
+      shaderBindingTableBasePtr += missRegion.size;
+      shaderHandleBasePtr += shaderHandleSize * info.missShaders.size();
+    }
+    missRegion.deviceAddress = rayGenRegion.deviceAddress + rayGenRegion.size;
+
+    // Write Hit groups
+    if (!info.hitGroups.empty())
+    {
+      std::memcpy(shaderBindingTableBasePtr, shaderHandleBasePtr, shaderHandleSize);
+    }
+    hitGroupRegion.deviceAddress = rayGenRegion.deviceAddress + rayGenRegion.size + missRegion.size;
+
+    shaderBindingTable_.buffer         = std::move(shaderBindingTableBuffer);
+    shaderBindingTable_.rayGenRegion   = rayGenRegion;
+    shaderBindingTable_.missRegion     = missRegion;
+    shaderBindingTable_.hitGroupRegion = hitGroupRegion;
+  }
+
+  RayTracingPipeline::RayTracingPipeline(Device& device, const RayTracingPipelineInfo& info)
+    : RayTracingPipeline(device, device.defaultPipelineLayout, info)
+  {}
+
+  RayTracingPipeline::~RayTracingPipeline()
+  {
+    // TODO: put this into a queue for delayed deletion
+    if (device_)
+    {
+      vkDestroyPipeline(device_->device_, pipeline_, nullptr);
+    }
+  }
+
+  RayTracingPipeline::RayTracingPipeline(RayTracingPipeline&& old) noexcept
+    : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
+      pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
+      shaderBindingTable_(std::move(old.shaderBindingTable_)),
+      name_(std::move(old.name_))
+  {
+  }
+
+  RayTracingPipeline& RayTracingPipeline::operator=(RayTracingPipeline&& old) noexcept
+  {
+    if (&old == this)
+    {
+      return *this;
+    }
+    this->~RayTracingPipeline();
+    return *new (this) RayTracingPipeline(std::move(old));
   }
 } // namespace Fvog

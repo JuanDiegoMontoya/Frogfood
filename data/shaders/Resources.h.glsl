@@ -51,6 +51,7 @@
 #extension GL_EXT_nonuniform_qualifier : require          // descriptor indexing
 #extension GL_EXT_scalar_block_layout : require	          // sane buffer layout
 #extension GL_EXT_buffer_reference : require              // BDA
+//#extension GL_EXT_buffer_reference2 : require              // BDA
 #extension GL_EXT_shader_image_load_formatted : require   // readable images without explicit format
 #extension GL_EXT_samplerless_texture_functions : require // texelFetch on sampled images
 #extension GL_EXT_debug_printf : enable                   // printf

@@ -1,6 +1,7 @@
 ﻿#include "FrogRenderer2.h"
 #include "Renderables.h"
 #include "Scene.h"
+#include "MathUtilities.h"
 
 #include <Fvog/Rendering2.h>
 #include <Fvog/detail/ApiToEnum2.h>
@@ -661,6 +662,12 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
                          "Camera position: Yes\n"
                          "Camera rotation: Yes\n"
                          "Sun Intensity: 0.1 lx (moonlight)");
+      ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Options"))
+    {
+      ImGui::Checkbox("Use debug forward renderer", &debugDrawForwardRender_);
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
@@ -1691,10 +1698,41 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
 
     aspectRatio = viewportContentSize.x / viewportContentSize.y;
 
-    auto viewportImageParams = ImTextureSampler(frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index,
-      ImTextureSampler::DefaultSamplerIndex,
-      tonemapUniforms.tonemapOutputColorSpace);
-    ImGui::Image(viewportImageParams, viewportContentSize);
+    if (!debugDrawForwardRender_)
+    {
+      auto viewportImageParams = ImTextureSampler(frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index,
+        ImTextureSampler::DefaultSamplerIndex,
+        tonemapUniforms.tonemapOutputColorSpace);
+      ImGui::Image(viewportImageParams, viewportContentSize);
+    }
+    else // Draw with simple forward renderer for debugging
+    {
+      for (const auto& node : scene.nodes)
+      {
+        for (const auto& [meshId, materialId] : node->meshes)
+        {
+          const auto& meshGeometryAllocs = meshGeometryAllocations.at(meshAllocations.at(meshId.id).geometryId.id);
+
+          forwardRenderer_.PushDraw({
+            .vertexBufferAddress = geometryBuffer.GetBuffer().GetDeviceAddress() + meshGeometryAllocs.verticesAlloc.GetOffset(),
+            .indexBuffer         = &geometryBuffer.GetBuffer(),
+            .indexBufferOffset   = meshGeometryAllocs.originalIndicesAlloc.GetOffset(),
+            .indexCount          = uint32_t(meshGeometryAllocs.originalIndicesAlloc.GetSize() / sizeof(Render::index_t)),
+            .worldFromObject     = node->globalTransform,
+          });
+        }
+      }
+
+      auto ctx = Fvog::Context(*device_, commandBuffer);
+      ctx.ImageBarrierDiscard(frame.forwardRenderTarget.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+
+      auto proj = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
+      forwardRenderer_.FlushAndRender(commandBuffer, {.clipFromWorld = proj * mainCamera.GetViewMatrix()}, frame.forwardRenderTarget.value().ImageView());
+
+      ctx.ImageBarrier(frame.forwardRenderTarget.value(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
+
+      ImGui::Image(ImTextureSampler(frame.forwardRenderTargetSwizzled.value().GetSampledResourceHandle().index), viewportContentSize);
+    }
 
     viewportIsHovered = ImGui::IsItemHovered();
 

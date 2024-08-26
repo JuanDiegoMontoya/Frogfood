@@ -6,6 +6,7 @@
 #include "techniques/Bloom.h"
 #include "techniques/AutoExposure.h"
 #include "techniques/VirtualShadowMaps.h"
+#include "debug/ForwardRenderer.h"
 
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
@@ -352,6 +353,9 @@ private:
     std::optional<Fvog::TextureView> gEmissionSwizzled;
     std::optional<Fvog::TextureView> gNormalSwizzled;
     std::optional<Fvog::TextureView> gDepthSwizzled;
+
+    std::optional<Fvog::Texture> forwardRenderTarget; // SDR
+    std::optional<Fvog::TextureView> forwardRenderTargetSwizzled;
   };
   Frame frame{};
 
@@ -369,6 +373,7 @@ private:
     Fvog::ManagedBuffer::Alloc verticesAlloc;
     Fvog::ManagedBuffer::Alloc indicesAlloc;
     Fvog::ManagedBuffer::Alloc primitivesAlloc;
+    Fvog::ManagedBuffer::Alloc originalIndicesAlloc;
 #ifdef FROGRENDER_RAYTRACING_ENABLE
     Fvog::Blas blas;
 #endif
@@ -376,6 +381,7 @@ private:
 
   struct MeshAllocs
   {
+    Render::MeshGeometryID geometryId;
     Fvog::ContiguousManagedBuffer::Alloc meshletInstancesAlloc;
     Fvog::ManagedBuffer::Alloc instanceAlloc;
 #ifdef FROGRENDER_RAYTRACING_ENABLE
@@ -454,6 +460,9 @@ private:
   Fvog::GraphicsPipeline debugRectsPipeline;
 
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
+
+  bool debugDrawForwardRender_ = false;
+  Debug::ForwardRenderer forwardRenderer_;
 
   // Scene
   Scene::SceneMeshlet scene;

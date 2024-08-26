@@ -61,6 +61,8 @@ add_executable(frogRender
     src/Scene.h
     src/Scene.cpp
     src/Renderables.h
+    src/debug/ForwardRenderer.h
+    src/debug/ForwardRenderer.cpp
 )
 
 if (FROGRENDER_RAYTRACING_ENABLE)

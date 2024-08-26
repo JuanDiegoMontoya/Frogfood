@@ -41,11 +41,11 @@ namespace Scene
     {
       // TODO: move arrays in
       auto info = FrogRenderer2::MeshGeometryInfo{
-        .meshlets        = meshGeometry.meshlets,
-        .vertices        = meshGeometry.vertices,
-        .remappedIndices = meshGeometry.remappedIndices,
-        .primitives      = meshGeometry.primitives,
-        .originalIndices = meshGeometry.originalIndices,
+        .meshlets        = std::move(meshGeometry.meshlets),
+        .vertices        = std::move(meshGeometry.vertices),
+        .remappedIndices = std::move(meshGeometry.remappedIndices),
+        .primitives      = std::move(meshGeometry.primitives),
+        .originalIndices = std::move(meshGeometry.originalIndices),
       };
       meshGeometryIds.push_back(renderer.RegisterMeshGeometry(info));
     }
@@ -156,6 +156,7 @@ namespace Scene
       nodeStack.pop();
 
       const auto globalTransform = parentGlobalTransform * node->CalcLocalTransform();
+      node->globalTransform      = globalTransform;
 
       for (auto* childNode : node->children)
       {

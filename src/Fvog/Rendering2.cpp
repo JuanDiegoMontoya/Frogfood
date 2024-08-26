@@ -377,6 +377,12 @@ namespace Fvog
     vkCmdDraw(commandBuffer_, vertexCount, instanceCount, firstVertex, firstInstance);
   }
 
+  void Context::DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, uint32_t vertexOffset, uint32_t firstInstance) const
+  {
+    ZoneScoped;
+    vkCmdDrawIndexed(commandBuffer_, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+  }
+
   void Context::DrawIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const
   {
     ZoneScoped;

@@ -184,6 +184,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
         .depthAttachmentFormat = Frame::gDepthFormat,
       })),
+    forwardRenderer_(*device_),
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
     tonyMcMapfaceLut(LoadTonyMcMapfaceTexture(*device_)),
     calibrateHdrTexture(Fvog::CreateTexture2D(*device_, {2, 2}, Fvog::Format::A2R10G10B10_UNORM, Fvog::TextureUsage::GENERAL, "HDR Calibration Texture")),
@@ -292,6 +293,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/2.0/Box/glTF/Box.gltf", glm::scale(glm::vec3{1})));
     
     std::pmr::set_default_resource(oldResource);
   }
@@ -475,6 +477,9 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   frame.gEmissionSwizzled = frame.gEmission->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
   frame.gNormalSwizzled = frame.gNormalAndFaceNormal->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
   frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
+
+  frame.forwardRenderTarget = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Fvog::Format::R8G8B8A8_SRGB, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Forward Render Target");
+  frame.forwardRenderTargetSwizzled = frame.forwardRenderTarget->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
 
   // TODO: only recreate if the swapchain format changed
   debugTexturePipeline = Pipelines2::DebugTexture(*device_,
@@ -665,7 +670,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       Fvog::TlasCreateInfo{
         .commandBuffer = commandBuffer,
         .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
-        .buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+        //.buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
         .instanceBuffer = &tlasInstances,
       },
       "TLAS");
@@ -1385,6 +1390,7 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
   auto indicesAlloc    = geometryBuffer.Allocate(std::span(meshGeometry.remappedIndices).size_bytes(), sizeof(Render::index_t));
   auto primitivesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.primitives).size_bytes(), sizeof(Render::primitive_t));
   auto meshletAlloc    = geometryBuffer.Allocate(std::span(meshGeometry.meshlets).size_bytes(), sizeof(Render::Meshlet));
+  auto originalIndicesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.originalIndices).size_bytes(), sizeof(Render::index_t));
 
   // Massage meshlets before uploading
   const auto baseVertex    = verticesAlloc.GetOffset() / sizeof(Render::Vertex);
@@ -1401,6 +1407,7 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
   std::memcpy(geometryBuffer.GetMappedMemory() + verticesAlloc.GetOffset(), meshGeometry.vertices.data(), verticesAlloc.GetSize());
   std::memcpy(geometryBuffer.GetMappedMemory() + indicesAlloc.GetOffset(), meshGeometry.remappedIndices.data(), indicesAlloc.GetSize());
   std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + originalIndicesAlloc.GetOffset(), meshGeometry.originalIndices.data(), originalIndicesAlloc.GetSize());
 
   auto myId = nextId++;
   meshGeometryAllocations.emplace(myId,
@@ -1409,14 +1416,15 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
       .verticesAlloc   = std::move(verticesAlloc),
       .indicesAlloc    = std::move(indicesAlloc),
       .primitivesAlloc = std::move(primitivesAlloc),
+      .originalIndicesAlloc = std::move(originalIndicesAlloc),
 #if FROGRENDER_RAYTRACING_ENABLE
       .blas = Fvog::Blas(*device_,
         Fvog::BlasCreateInfo{
           .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
-          .buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+          //.buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
           .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
           .vertexBuffer  = geometryBuffer.GetBuffer().GetDeviceAddress() + verticesAlloc.GetOffset(),
-          .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + indicesAlloc.GetOffset(),
+          .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + originalIndicesAlloc.GetOffset(),
           .vertexStride  = sizeof(Render::Vertex),
           .numVertices   = (uint32_t)meshGeometry.vertices.size(),
           .indexType     = VK_INDEX_TYPE_UINT32,
@@ -1555,6 +1563,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
 
     meshAllocations.emplace(id,
       MeshAllocs{
+        .geometryId = meshGeometry,
         .meshletInstancesAlloc = meshletInstancesAlloc,
         .instanceAlloc         = std::move(instanceAlloc),
 #ifdef FROGRENDER_RAYTRACING_ENABLE
@@ -1624,6 +1633,14 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     // Must be here to ensure meshAllocations[mesh.id] exists
     auto transformAffine = glm::transpose(glm::mat4x3(uniforms.modelCurrent));
     std::memcpy(&meshAllocations.at(id).tlasInstance.transform, &transformAffine, sizeof(VkTransformMatrixKHR));
+
+    // Debug identity transform
+    //auto transform = VkTransformMatrixKHR{};
+    //std::memset(&transform, 0, sizeof(transform));
+    //transform.matrix[0][0] = 1;
+    //transform.matrix[1][1] = 1;
+    //transform.matrix[2][2] = 1;
+    //std::memcpy(&meshAllocations.at(id).tlasInstance.transform, &transform, sizeof(VkTransformMatrixKHR));
 #endif
   }
 

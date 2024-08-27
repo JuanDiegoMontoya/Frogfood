@@ -101,7 +101,7 @@ namespace Fvog
   struct TlasInstance
   {
     VkTransformMatrixKHR transform = {};
-    uint32_t objectIndex : 24 = 0;
+    uint32_t instanceCustomIndex : 24 = 0;
     uint32_t mask : 8 = 0;
     uint32_t shaderBindingTableOffset : 24 = 0;
     AccelerationStructureGeometryInstanceFlag flags : 8 = {};
@@ -150,12 +150,18 @@ namespace Fvog
       return createInfo_;
     }
 
+    Device::DescriptorInfo::ResourceHandle GetResourceHandle()
+    {
+      return descriptorInfo_.value().GpuResource();
+    }
+
   private:
     VkAccelerationStructureKHR handle_;
     // Buffer holding the actual AS data
     std::optional<Buffer> buffer_;
     // Address of the acceleration structure
     VkDeviceSize address_;
+    std::optional<Device::DescriptorInfo> descriptorInfo_;
 
     TlasCreateInfo createInfo_;
     Device* device_;

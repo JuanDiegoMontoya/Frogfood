@@ -420,6 +420,8 @@ namespace Fvog
         .pObjectName  = name.c_str(),
       }));
     handle_ = tlas;
+
+    descriptorInfo_ = device_->AllocateAccelerationStructureDescriptor(tlas);
   }
 
   Tlas::~Tlas()
@@ -443,6 +445,7 @@ namespace Fvog
     : handle_(std::exchange(other.handle_, {})),
       buffer_(std::move(other.buffer_)),
       address_(std::exchange(other.address_, {})),
+      descriptorInfo_(std::move(other.descriptorInfo_)),
       createInfo_(std::exchange(other.createInfo_, {})),
       device_(std::exchange(other.device_, nullptr))
   {

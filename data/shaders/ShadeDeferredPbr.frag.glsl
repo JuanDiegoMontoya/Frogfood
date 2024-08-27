@@ -1,5 +1,8 @@
 #version 460 core
 
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_ray_tracing_position_fetch : require
+
 #define SHADING_PUSH_CONSTANTS
 #include "ShadeDeferredPbr.h.glsl"
 
@@ -12,9 +15,14 @@
 #include "Utility.h.glsl"
 #include "Color.h.glsl"
 
+// TODO: temp for rt
+#define VISBUFFER_NO_PUSH_CONSTANTS
+#include "visbuffer/VisbufferCommon.h.glsl"
+
 #define d_perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
 
 FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
+FVOG_DECLARE_ACCELERATION_STRUCTURES;
 
 layout(location = 0) in vec2 v_uv;
 
@@ -425,7 +433,56 @@ void main()
     }
   }
 
+  //if (gid == ivec2(0))
+    //printf("tlas: %u, %u\n", uint(shadingUniforms.tlas >> 32), uint(shadingUniforms.tlas));
 
+  const vec3 reflectedDir = normalize(reflect(-viewDir, smoothNormal));
 
+  rayQueryEXT rayQuery;
+  //rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(shadingUniforms.tlas), 
+  rayQueryInitializeEXT(rayQuery, FvogGetAccelerationStructure(shadingUniforms.tlasIndex), 
+    //gl_RayFlagsTerminateOnFirstHitEXT,
+    gl_RayFlagsOpaqueEXT,
+    //0xFF, d_perFrameUniforms.cameraPos.xyz, 0.1, -viewDir, 1000);
+    0xFF, fragWorldPos, 0.01, reflectedDir, 1000);
 
+  while(rayQueryProceedEXT(rayQuery))
+  {
+    if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
+    {
+      rayQueryConfirmIntersectionEXT(rayQuery);
+    }
+  }
+
+  if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
+  {
+    //vec3 positions[3];
+    //rayQueryGetIntersectionTriangleVertexPositionsEXT(rayQuery, true, positions);
+    //o_color.rgb = positions[0];
+    int primitiveId = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
+    int instanceId = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true);
+    ObjectUniforms obj = TransformBuffers[NonUniformIndex(shadingUniforms.instanceBufferIndex)].transforms[instanceId];
+    Vertex vertex0 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 0]];
+    Vertex vertex1 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 1]];
+    Vertex vertex2 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 2]];
+
+    vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
+    vec3 baryc = vec3(bary.x, bary.y, 1.0 - bary.x - bary.y);
+
+    vec2 uv = PackedToVec2(vertex0.uv) * baryc.x + PackedToVec2(vertex1.uv) * baryc.y + PackedToVec2(vertex2.uv) * baryc.z;
+
+    GpuMaterial material = MaterialBuffers[NonUniformIndex(shadingUniforms.materialBufferIndex)].materials[obj.materialId];
+
+    if (bool(material.flags & MATERIAL_HAS_BASE_COLOR))
+    {
+      vec4 sampledColor = textureLod(Fvog_sampler2D(material.baseColorTextureIndex, nearestSamplerIndex), uv, 0.0);
+      o_color.rgb *= sampledColor.rgb;
+    }
+    else
+    {
+      o_color.rgb *= baryc;
+    }
+
+    //o_color.rgb *= 0.5;
+  }
 }

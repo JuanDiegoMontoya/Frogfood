@@ -657,15 +657,17 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   FlushUpdatedSceneData(commandBuffer);
 
-  {
+
 #ifdef FROGRENDER_RAYTRACING_ENABLE
+  auto tlas = [&]
+  {
     TracyVkZone(tracyVkContext_, commandBuffer, "Build TLAS");
     ZoneScopedN("Build TLAS");
     auto instances = std::vector<Fvog::TlasInstance>();
     instances.reserve(meshAllocations.size());
     for (const auto& [meshId, instance] : meshAllocations)
     {
-      instances.push_back(instance.tlasInstance);
+      instances.push_back(instance.tlasInstance.value());
     }
 
     auto tlasInstances =
@@ -673,7 +675,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     std::memcpy(tlasInstances.GetMappedMemory(), instances.data(), sizeof(Fvog::TlasInstance) * instances.size());
 
-    auto tlas = Fvog::Tlas(*device_,
+    return Fvog::Tlas(*device_,
       Fvog::TlasCreateInfo{
         .commandBuffer = commandBuffer,
         .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
@@ -681,8 +683,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
         .instanceBuffer = &tlasInstances,
       },
       "TLAS");
+  }();
 #endif
-  }
 
   // A few of these buffers are really slow to create (2-3ms) and destroy every frame (large ones hit vkAllocateMemory), so
   // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
@@ -803,7 +805,11 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   globalUniformsBuffer.UpdateData(commandBuffer, globalUniforms);
 
   shadowUniformsBuffer.UpdateData(commandBuffer, shadowUniforms);
-  
+
+  //shadingUniforms.tlas = tlas.GetAddress();
+  shadingUniforms.tlasIndex = tlas.GetResourceHandle().index;
+  shadingUniforms.materialBufferIndex = geometryBuffer.GetResourceHandle().index;
+  shadingUniforms.instanceBufferIndex = geometryBuffer.GetResourceHandle().index;
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
   ctx.Barrier();
@@ -1452,11 +1458,14 @@ void FrogRenderer2::UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry)
   meshGeometryAllocations.erase(meshGeometry.id);
 }
 
-Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshGeometryID meshInstance)
+Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshGeometryID meshGeometry)
 {
   ZoneScoped;
   auto myId = nextId++;
-  spawnedMeshes.emplace_back(myId, meshInstance);
+  auto& meshAllocation = meshAllocations[myId];
+  meshAllocation.instanceAlloc = geometryBuffer.Allocate(sizeof(Render::ObjectUniforms), sizeof(Render::ObjectUniforms));
+  meshAllocation.geometryId    = meshGeometry; 
+  spawnedMeshes.emplace_back(Render::MeshID{myId}, meshGeometry);
   return {myId};
 }
 
@@ -1523,6 +1532,18 @@ uint32_t FrogRenderer2::GetMaterialGpuIndex(Render::MaterialID material)
   return static_cast<uint32_t>(alloc.materialAlloc.GetOffset() / sizeof(Render::GpuMaterial));
 }
 
+VkDeviceAddress FrogRenderer2::GetVertexBufferPointerFromMesh(Render::MeshID meshId)
+{
+  const auto& meshGeometryAllocs = meshGeometryAllocations.at(meshAllocations.at(meshId.id).geometryId->id);
+  return geometryBuffer.GetBuffer().GetDeviceAddress() + meshGeometryAllocs.verticesAlloc.GetOffset();
+}
+
+VkDeviceAddress FrogRenderer2::GetOriginalIndexBufferPointerFromMesh(Render::MeshID meshId)
+{
+  const auto& meshGeometryAllocs = meshGeometryAllocations.at(meshAllocations.at(meshId.id).geometryId->id);
+  return geometryBuffer.GetBuffer().GetDeviceAddress() + meshGeometryAllocs.originalIndicesAlloc.GetOffset();
+}
+
 void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
@@ -1536,7 +1557,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   for (auto id : deletedMeshes)
   {
     auto it = meshAllocations.find(id);
-    meshletInstancesBuffer.Free(it->second.meshletInstancesAlloc, commandBuffer);
+    meshletInstancesBuffer.Free(it->second.meshletInstancesAlloc.value(), commandBuffer);
     meshAllocations.erase(it);
   }
 
@@ -1552,17 +1573,17 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   meshletInstancesUploads.reserve(spawnedMeshes.size());
 
   // Spawned meshes
-  for (const auto& [id, meshGeometry] : spawnedMeshes)
+  for (auto& [meshId, meshGeometry] : spawnedMeshes)
   {
     const auto& meshletsAlloc = meshGeometryAllocations.at(meshGeometry.id).meshletsAlloc;
 
     const auto meshletInstanceCount = meshletsAlloc.GetSize() / sizeof(Render::Meshlet);
 
-    auto instanceAlloc = geometryBuffer.Allocate(sizeof(Render::ObjectUniforms), sizeof(Render::ObjectUniforms));
+    auto& partialMeshAlloc = meshAllocations.at(meshId.id);
 
     // Spawn a set of meshlet instances referring to the mesh's meshlets, with the correct offsets.
     auto baseMeshletIndex = meshletsAlloc.GetOffset() / sizeof(Render::Meshlet);
-    auto instanceIndex    = instanceAlloc.GetOffset() / sizeof(Render::ObjectUniforms);
+    auto instanceIndex    = partialMeshAlloc.instanceAlloc.value().GetOffset() / sizeof(Render::ObjectUniforms);
     auto srcOffset        = meshletInstances.size() * sizeof(Render::MeshletInstance);
     for (size_t i = 0; i < meshletInstanceCount; i++)
     {
@@ -1572,23 +1593,18 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     const auto meshletInstancesAlloc = meshletInstancesBuffer.Allocate(meshletInstanceCount * sizeof(Render::MeshletInstance));
     meshletInstancesUploads.emplace_back(srcOffset, meshletInstancesAlloc.offset, meshletInstancesAlloc.size);
 
-    meshAllocations.emplace(id,
-      MeshAllocs{
-        .geometryId = meshGeometry,
-        .meshletInstancesAlloc = meshletInstancesAlloc,
-        .instanceAlloc         = std::move(instanceAlloc),
+    partialMeshAlloc.meshletInstancesAlloc = meshletInstancesAlloc;
 #ifdef FROGRENDER_RAYTRACING_ENABLE
-        .tlasInstance =
-          Fvog::TlasInstance{
-            .transform                = {},
-            .objectIndex              = 0,
-            .mask                     = 0xFF,
-            .shaderBindingTableOffset = 0,
-            .flags                    = {},
-            .blasAddress              = meshGeometryAllocations.at(meshGeometry.id).blas.GetAddress(),
-          },
+    auto tlasInstance = Fvog::TlasInstance{
+      .transform                = {},
+      .instanceCustomIndex      = uint32_t(instanceIndex),
+      .mask                     = 0xFF,
+      .shaderBindingTableOffset = 0,
+      .flags                    = {},
+      .blasAddress              = meshGeometryAllocations.at(meshGeometry.id).blas.GetAddress(),
+    };
+    partialMeshAlloc.tlasInstance = tlasInstance;
 #endif
-      });
   }
   
   // Upload meshlet instances of spawned meshes.
@@ -1635,7 +1651,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   // Update mesh uniforms
   for (const auto& [id, uniforms] : modifiedMeshUniforms)
   {
-    const auto offset = meshAllocations.at(id).instanceAlloc.GetOffset();
+    const auto offset = meshAllocations.at(id).instanceAlloc.value().GetOffset();
     assert(offset % sizeof(uniforms) == 0);
     ctx.TeenyBufferUpdate(geometryBuffer.GetBuffer(), uniforms, offset);
 
@@ -1643,15 +1659,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     // Make memory layout match VkTransformMatrixKHR::matrix[3][4] (3 rows, 4 columns, row-major)
     // Must be here to ensure meshAllocations[mesh.id] exists
     auto transformAffine = glm::transpose(glm::mat4x3(uniforms.modelCurrent));
-    std::memcpy(&meshAllocations.at(id).tlasInstance.transform, &transformAffine, sizeof(VkTransformMatrixKHR));
-
-    // Debug identity transform
-    //auto transform = VkTransformMatrixKHR{};
-    //std::memset(&transform, 0, sizeof(transform));
-    //transform.matrix[0][0] = 1;
-    //transform.matrix[1][1] = 1;
-    //transform.matrix[2][2] = 1;
-    //std::memcpy(&meshAllocations.at(id).tlasInstance.transform, &transform, sizeof(VkTransformMatrixKHR));
+    std::memcpy(&meshAllocations.at(id).tlasInstance.value().transform, &transformAffine, sizeof(VkTransformMatrixKHR));
 #endif
   }
 

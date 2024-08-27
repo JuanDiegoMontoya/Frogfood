@@ -179,6 +179,8 @@ namespace Scene
           const auto uniforms = Render::ObjectUniforms{
             .modelPrevious = globalTransform,
             .modelCurrent = globalTransform,
+            .vertexBuffer = renderer.GetVertexBufferPointerFromMesh(meshId),
+            .indexBuffer = renderer.GetOriginalIndexBufferPointerFromMesh(meshId),
             .materialId = renderer.GetMaterialGpuIndex(materialId),
           };
           renderer.UpdateMesh(meshId, uniforms);

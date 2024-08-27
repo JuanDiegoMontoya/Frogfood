@@ -1711,7 +1711,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
       {
         for (const auto& [meshId, materialId] : node->meshes)
         {
-          const auto& meshGeometryAllocs = meshGeometryAllocations.at(meshAllocations.at(meshId.id).geometryId.id);
+          const auto& meshGeometryAllocs = meshGeometryAllocations.at(meshAllocations.at(meshId.id).geometryId->id);
 
           forwardRenderer_.PushDraw({
             .vertexBufferAddress = geometryBuffer.GetBuffer().GetDeviceAddress() + meshGeometryAllocs.verticesAlloc.GetOffset(),

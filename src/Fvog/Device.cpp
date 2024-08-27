@@ -81,6 +81,7 @@ namespace Fvog
         //VkPhysicalDeviceAccelerationStructureFeaturesKHR
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
         .accelerationStructure = true,
+        .descriptorBindingAccelerationStructureUpdateAfterBind = true,
       })
       .add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
       .add_required_extension_features(VkPhysicalDeviceRayTracingPipelineFeaturesKHR {
@@ -93,6 +94,11 @@ namespace Fvog
         .rayTracingPositionFetch = true
       })
       .add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
+      .add_required_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME)
+      .add_required_extension_features(VkPhysicalDeviceRayQueryFeaturesKHR{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+        .rayQuery = true,
+      })
     #endif
       .set_required_features({
         .independentBlend = true,
@@ -268,6 +274,9 @@ namespace Fvog
       {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = maxResourceDescriptors},
       {.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = maxResourceDescriptors},
       {.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = maxSamplerDescriptors},
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+      {.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, .descriptorCount = maxResourceDescriptors},
+#endif
     });
 
     CheckVkResult(vkCreateDescriptorPool(device_, Address(VkDescriptorPoolCreateInfo{
@@ -285,6 +294,9 @@ namespace Fvog
       {storageImageBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
       {sampledImageBinding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
       {samplerBinding, VK_DESCRIPTOR_TYPE_SAMPLER, maxSamplerDescriptors, VK_SHADER_STAGE_ALL},
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+      {accelerationStructureBinding, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
+#endif
     });
 
     constexpr auto bindingsFlags = std::to_array<VkDescriptorBindingFlags>({
@@ -293,9 +305,13 @@ namespace Fvog
       {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
       {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
       {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+      {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
+#endif
     });
-
+    
     static_assert(bindings.size() == bindingsFlags.size());
+    static_assert(poolSizes.size() == bindingsFlags.size());
 
     CheckVkResult(vkCreateDescriptorSetLayout(device_, Address(VkDescriptorSetLayoutCreateInfo{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -483,6 +499,9 @@ namespace Fvog
             case ResourceType::STORAGE_IMAGE: storageImageDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
             case ResourceType::SAMPLED_IMAGE: sampledImageDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
             case ResourceType::SAMPLER: samplerDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+            case ResourceType::ACCELERATION_STRUCTURE: accelerationStructureDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
+#endif
             case ResourceType::INVALID:
             default: assert(0); return true;
             }
@@ -648,6 +667,35 @@ namespace Fvog
         myIdx,
       }};
   }
+
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  Device::DescriptorInfo Device::AllocateAccelerationStructureDescriptor(VkAccelerationStructureKHR tlas)
+  {
+    ZoneScoped;
+    const auto myIdx = accelerationStructureDescriptorAllocator.Allocate();
+
+    vkUpdateDescriptorSets(device_, 1, detail::Address(VkWriteDescriptorSet{
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .pNext = detail::Address(VkWriteDescriptorSetAccelerationStructureKHR{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
+        .accelerationStructureCount = 1,
+        .pAccelerationStructures = &tlas,
+      }),
+      .dstSet = descriptorSet_,
+      .dstBinding = accelerationStructureBinding,
+      .dstArrayElement = myIdx,
+      .descriptorCount = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+    }), 0, nullptr);
+
+    return DescriptorInfo{
+      *this,
+      DescriptorInfo::ResourceHandle{
+        ResourceType::ACCELERATION_STRUCTURE,
+        myIdx,
+      }};
+  }
+#endif
 
   Device::IndexAllocator::IndexAllocator(uint32_t numIndices)
   {

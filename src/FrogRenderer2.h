@@ -162,7 +162,7 @@ public:
   [[nodiscard]] Render::MeshGeometryID RegisterMeshGeometry(MeshGeometryInfo meshGeometry);
   void UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry);
 
-  [[nodiscard]] Render::MeshID SpawnMesh(Render::MeshGeometryID meshInstance);
+  [[nodiscard]] Render::MeshID SpawnMesh(Render::MeshGeometryID meshGeometry);
   void DeleteMesh(Render::MeshID mesh);
 
   [[nodiscard]] Render::LightID SpawnLight(const GpuLight& lightData);
@@ -178,6 +178,9 @@ public:
 
   // Querying
   uint32_t GetMaterialGpuIndex(Render::MaterialID material);
+  // Hacky functions, need better interface for this
+  VkDeviceAddress GetVertexBufferPointerFromMesh(Render::MeshID meshId);
+  VkDeviceAddress GetOriginalIndexBufferPointerFromMesh(Render::MeshID meshId);
 
   // Oh man oh jeez
   Fvog::Device& GetDevice()
@@ -381,11 +384,11 @@ private:
 
   struct MeshAllocs
   {
-    Render::MeshGeometryID geometryId;
-    Fvog::ContiguousManagedBuffer::Alloc meshletInstancesAlloc;
-    Fvog::ManagedBuffer::Alloc instanceAlloc;
+    std::optional<Render::MeshGeometryID> geometryId;
+    std::optional<Fvog::ContiguousManagedBuffer::Alloc> meshletInstancesAlloc;
+    std::optional<Fvog::ManagedBuffer::Alloc> instanceAlloc;
 #ifdef FROGRENDER_RAYTRACING_ENABLE
-    Fvog::TlasInstance tlasInstance;
+    std::optional<Fvog::TlasInstance> tlasInstance;
 #endif
   };
 
@@ -422,10 +425,16 @@ private:
   std::unordered_map<uint64_t, MaterialAlloc> materialAllocations;
 
   // Will be batch uploaded
+  struct SpawnedMesh
+  {
+    Render::MeshID id;
+    Render::MeshGeometryID meshGeometryId;
+  };
+
   std::unordered_map<uint64_t, Render::ObjectUniforms> modifiedMeshUniforms;
   std::unordered_map<uint64_t, GpuLight> modifiedLights;
   std::unordered_map<uint64_t, Render::GpuMaterial> modifiedMaterials;
-  std::vector<std::pair<uint64_t, Render::MeshGeometryID>> spawnedMeshes;
+  std::vector<SpawnedMesh> spawnedMeshes;
   std::vector<uint64_t> deletedMeshes;
   std::vector<std::pair<uint64_t, GpuLight>> spawnedLights;
   std::vector<uint64_t> deletedLights;

@@ -89,7 +89,7 @@ namespace Fvog
     };
 
     constexpr static uint32_t maxResourceDescriptors = 100'000;
-    constexpr static uint32_t maxSamplerDescriptors = 100;
+    constexpr static uint32_t maxSamplerDescriptors = 1000;
     constexpr static uint32_t storageBufferBinding = 0;
     constexpr static uint32_t combinedImageSamplerBinding = 1;
     constexpr static uint32_t storageImageBinding = 2;
@@ -100,6 +100,10 @@ namespace Fvog
     IndexAllocator storageImageDescriptorAllocator = maxResourceDescriptors;
     IndexAllocator sampledImageDescriptorAllocator = maxResourceDescriptors;
     IndexAllocator samplerDescriptorAllocator = maxSamplerDescriptors;
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    constexpr static uint32_t accelerationStructureBinding = 5;
+    IndexAllocator accelerationStructureDescriptorAllocator = maxResourceDescriptors;
+#endif
     VkDescriptorPool descriptorPool_{};
     VkDescriptorSetLayout descriptorSetLayout_{};
     VkDescriptorSet descriptorSet_{};
@@ -113,6 +117,9 @@ namespace Fvog
       STORAGE_IMAGE,
       SAMPLED_IMAGE,
       SAMPLER,
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+      ACCELERATION_STRUCTURE,
+#endif
     };
 
     class DescriptorInfo
@@ -147,6 +154,10 @@ namespace Fvog
     DescriptorInfo AllocateStorageImageDescriptor(VkImageView imageView, VkImageLayout imageLayout);
     DescriptorInfo AllocateSampledImageDescriptor(VkImageView imageView, VkImageLayout imageLayout);
     DescriptorInfo AllocateSamplerDescriptor(VkSampler sampler);
+
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    DescriptorInfo AllocateAccelerationStructureDescriptor(VkAccelerationStructureKHR tlas);
+#endif
 
     // Queues
     VkQueue graphicsQueue_{};

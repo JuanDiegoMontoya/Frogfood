@@ -167,10 +167,22 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletIndexBuffer)
 
 #define d_indices MeshletIndexBuffers[meshletIndicesIndex].indices
 
+FVOG_DECLARE_BUFFER_REFERENCE(VertexBuffer)
+{
+  Vertex vertices[];
+};
+
+FVOG_DECLARE_BUFFER_REFERENCE(IndexBuffer)
+{
+  uint indices[];
+};
+
 struct ObjectUniforms
 {
   mat4 modelPrevious;
   mat4 modelCurrent;
+  VertexBuffer vertexBuffer;
+  IndexBuffer indexBuffer;
   uint materialId;
   uint _padding[3];
 };

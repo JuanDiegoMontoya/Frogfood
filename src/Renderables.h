@@ -105,6 +105,9 @@ namespace Render
     bool operator==(const ObjectUniforms&) const noexcept = default;
     glm::mat4 modelPrevious;
     glm::mat4 modelCurrent;
+    // TODO: Mesh geometry info should go in its own array
+    VkDeviceAddress vertexBuffer{};
+    VkDeviceAddress indexBuffer{};
     uint32_t materialId = 0;
     uint32_t _padding[3];
   };

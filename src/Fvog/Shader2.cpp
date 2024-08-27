@@ -149,7 +149,11 @@ namespace Fvog
       shader.setEnvInput(glslang::EShSource::EShSourceGlsl, glslangStage, glslang::EShClient::EShClientVulkan, 100);
       shader.setEnvClient(glslang::EShClient::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_3);
       shader.setEnvTarget(glslang::EShTargetLanguage::EShTargetSpv, glslang::EShTargetLanguageVersion::EShTargetSpv_1_6);
-      shader.setPreamble("#extension GL_GOOGLE_include_directive : enable\n");
+      shader.setPreamble("#extension GL_GOOGLE_include_directive : enable\n"
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+                         "#define FROGRENDER_RAYTRACING_ENABLE 1\n"
+#endif
+      );
       shader.setOverrideVersion(460);
       shader.setDebugInfo(true);
 

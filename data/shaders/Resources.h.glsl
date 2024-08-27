@@ -51,6 +51,7 @@
 #extension GL_EXT_nonuniform_qualifier : require          // descriptor indexing
 #extension GL_EXT_scalar_block_layout : require	          // sane buffer layout
 #extension GL_EXT_buffer_reference : require              // BDA
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 //#extension GL_EXT_buffer_reference2 : require              // BDA
 #extension GL_EXT_shader_image_load_formatted : require   // readable images without explicit format
 #extension GL_EXT_samplerless_texture_functions : require // texelFetch on sampled images
@@ -73,6 +74,7 @@
 #define FVOG_STORAGE_IMAGE_BINDING 2
 #define FVOG_SAMPLED_IMAGE_BINDING 3
 #define FVOG_SAMPLER_BINDING 4
+#define FVOG_ACCELERATION_STRUCTURE_BINDING 5
 
 // TODO: the bindings should come from a shared header
 #define FVOG_DECLARE_SAMPLED_IMAGES(type) \
@@ -90,6 +92,12 @@
 // Qualifiers can be put in the block name
 #define FVOG_DECLARE_STORAGE_BUFFERS(blockname) \
   layout(set = 0, binding = FVOG_STORAGE_BUFFER_BINDING, std430) buffer blockname
+
+#define FVOG_DECLARE_ACCELERATION_STRUCTURES \
+  layout(set = 0, binding = FVOG_ACCELERATION_STRUCTURE_BINDING) uniform accelerationStructureEXT a_accelerationStructures[]
+
+#define FvogGetAccelerationStructure(index) \
+  a_accelerationStructures[index]
 
 #define FvogGetSampledImage(type, index) \
   t_sampledImages_##type[index]

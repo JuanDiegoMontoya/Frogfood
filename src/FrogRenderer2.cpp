@@ -679,7 +679,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       Fvog::TlasCreateInfo{
         .commandBuffer = commandBuffer,
         .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
-        //.buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+        .buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
         .instanceBuffer = &tlasInstances,
       },
       "TLAS");
@@ -810,6 +810,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   shadingUniforms.tlasIndex = tlas.GetResourceHandle().index;
   shadingUniforms.materialBufferIndex = geometryBuffer.GetResourceHandle().index;
   shadingUniforms.instanceBufferIndex = geometryBuffer.GetResourceHandle().index;
+  shadingUniforms.tlasAddress         = tlas.GetAddress();
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
   ctx.Barrier();
@@ -1438,7 +1439,7 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
       .blas = Fvog::Blas(*device_,
         Fvog::BlasCreateInfo{
           .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
-          //.buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+          .buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
           .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
           .vertexBuffer  = geometryBuffer.GetBuffer().GetDeviceAddress() + verticesOffset,
           .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + originalIndicesOffset,

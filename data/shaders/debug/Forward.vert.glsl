@@ -18,6 +18,9 @@ FVOG_DECLARE_STORAGE_BUFFERS(ArgsBuffers)
   mat4 clipFromWorld;
   mat4 worldFromObject;
   VertexBuffer vertexBuffer;
+  FVOG_UINT32 materialId;
+  FVOG_UINT32 materialBufferIndex;
+  FVOG_UINT32 samplerIndex;
 }argsBuffers[];
 
 FVOG_DECLARE_ARGUMENTS(DebugForwardArgs)

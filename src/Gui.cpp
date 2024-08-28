@@ -1719,6 +1719,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
             .indexBufferOffset   = meshGeometryAllocs.originalIndicesAlloc.GetOffset(),
             .indexCount          = uint32_t(meshGeometryAllocs.originalIndicesAlloc.GetSize() / sizeof(Render::index_t)),
             .worldFromObject     = node->globalTransform,
+            .materialId          = GetMaterialGpuIndex(materialId),
           });
         }
       }
@@ -1727,11 +1728,11 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
       ctx.ImageBarrierDiscard(frame.forwardRenderTarget.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
       auto proj = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
-      forwardRenderer_.FlushAndRender(commandBuffer, {.clipFromWorld = proj * mainCamera.GetViewMatrix()}, frame.forwardRenderTarget.value().ImageView());
+      forwardRenderer_.FlushAndRender(commandBuffer, {.clipFromWorld = proj * mainCamera.GetViewMatrix()}, frame.forwardRenderTarget.value().ImageView(), geometryBuffer.GetBuffer());
 
       ctx.ImageBarrier(frame.forwardRenderTarget.value(), VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
 
-      ImGui::Image(ImTextureSampler(frame.forwardRenderTargetSwizzled.value().GetSampledResourceHandle().index), viewportContentSize);
+      ImGui::Image(ImTextureSampler(frame.forwardRenderTargetSwizzled.value().GetSampledResourceHandle().index, ImTextureSampler::DefaultSamplerIndex, COLOR_SPACE_sRGB_LINEAR), viewportContentSize);
     }
 
     viewportIsHovered = ImGui::IsItemHovered();

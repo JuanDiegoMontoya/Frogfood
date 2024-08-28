@@ -35,6 +35,7 @@ namespace Debug
       VkDeviceSize indexBufferOffset{};
       uint32_t indexCount;
       glm::mat4 worldFromObject{};
+      uint32_t materialId{};
     };
 
     struct ViewParams
@@ -43,7 +44,7 @@ namespace Debug
     };
 
     void PushDraw(const Drawable& draw);
-    void FlushAndRender(VkCommandBuffer commandBuffer, const ViewParams& view, const Fvog::TextureView& renderTarget);
+    void FlushAndRender(VkCommandBuffer commandBuffer, const ViewParams& view, const Fvog::TextureView& renderTarget, Fvog::Buffer& materialBuffer);
 
   private:
     struct Uniforms
@@ -51,6 +52,9 @@ namespace Debug
       glm::mat4 clipFromWorld;
       glm::mat4 worldFromObject;
       VkDeviceAddress vertexBufferAddress;
+      uint32_t materialId;
+      uint32_t materialBufferIndex;
+      uint32_t samplerIndex;
     };
 
     Fvog::Device* device_{};

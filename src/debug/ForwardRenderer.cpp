@@ -1,7 +1,7 @@
 #include "ForwardRenderer.h"
 #include "RendererUtilities.h"
 #include "Fvog/Rendering2.h"
-
+#include <vector>
 #include <tracy/Tracy.hpp>
 
 namespace Debug
@@ -19,7 +19,7 @@ namespace Debug
     draws_.push_back(draw);
   }
 
-  void ForwardRenderer::FlushAndRender(VkCommandBuffer commandBuffer, const ViewParams& view, const Fvog::TextureView& renderTarget)
+  void ForwardRenderer::FlushAndRender(VkCommandBuffer commandBuffer, const ViewParams& view, const Fvog::TextureView& renderTarget, Fvog::Buffer& materialBuffer)
   {
     ZoneScoped;
     auto ctx = Fvog::Context(*device_, commandBuffer);
@@ -74,6 +74,13 @@ namespace Debug
 
     ctx.BindGraphicsPipeline(pipeline_.value());
 
+    auto sampler = Fvog::Sampler(*device_, Fvog::SamplerCreateInfo{
+      .magFilter = VK_FILTER_LINEAR,
+      .minFilter = VK_FILTER_LINEAR,
+      .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+      .maxAnisotropy = 16,
+    });
+
     for (const auto& draw : draws_)
     {
       // Extremely efficient: make a buffer for every draw
@@ -83,6 +90,9 @@ namespace Debug
         .clipFromWorld       = view.clipFromWorld,
         .worldFromObject     = draw.worldFromObject,
         .vertexBufferAddress = draw.vertexBufferAddress,
+        .materialId = draw.materialId,
+        .materialBufferIndex = materialBuffer.GetResourceHandle().index,
+        .samplerIndex = sampler.GetResourceHandle().index,
       };
       std::memcpy(uniformBuffer_.value().GetMappedMemory(), &uniforms, sizeof(Uniforms));
 

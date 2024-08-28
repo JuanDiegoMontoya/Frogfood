@@ -167,12 +167,12 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletIndexBuffer)
 
 #define d_indices MeshletIndexBuffers[meshletIndicesIndex].indices
 
-FVOG_DECLARE_BUFFER_REFERENCE(VertexBuffer)
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer VertexBuffer
 {
   Vertex vertices[];
 };
 
-FVOG_DECLARE_BUFFER_REFERENCE(IndexBuffer)
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer IndexBuffer
 {
   uint indices[];
 };

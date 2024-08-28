@@ -461,11 +461,11 @@ void main()
     Vertex vertex1 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 1]];
     Vertex vertex2 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 2]];
 
-    vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
-    vec3 baryc = vec3(bary.x, bary.y, 1.0 - bary.x - bary.y);
+    // The spec is weird and says we get the B and C barycoords, not A and B like one might expect.
+    vec2 baryBC = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
+    vec3 bary = vec3(1.0 - baryBC.x - baryBC.y, baryBC.x, baryBC.y);
     
-    // For some reason this works, but the classic P=uA+vB+wC thing doesn't. That should be investigated.
-    vec2 uv = PackedToVec2(vertex0.uv) + baryc.x * (PackedToVec2(vertex1.uv) - PackedToVec2(vertex0.uv)) + baryc.y * (PackedToVec2(vertex2.uv) - PackedToVec2(vertex0.uv));
+    vec2 uv = PackedToVec2(vertex0.uv) * bary.x + PackedToVec2(vertex1.uv) * bary.y + PackedToVec2(vertex2.uv) * bary.z;
 
     //vec3 normal = OctToVec3(unpackSnorm2x16(vertex0.normal)) * baryc.x + OctToVec3(unpackSnorm2x16(vertex1.normal)) * baryc.y + OctToVec3(unpackSnorm2x16(vertex2.normal)) * baryc.z;
 
@@ -482,7 +482,7 @@ void main()
     {
       vec3 positions[3];
       rayQueryGetIntersectionTriangleVertexPositionsEXT(rayQuery, true, positions);
-      o_color.rgb = abs(positions[0] * baryc.x + positions[1] * baryc.y + positions[2] * baryc.z);
+      o_color.rgb = abs(positions[0] * bary.x + positions[1] * bary.y + positions[2] * bary.z);
       //o_color.rgb *= baryc;
     }
 

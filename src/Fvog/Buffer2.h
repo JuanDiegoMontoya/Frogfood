@@ -206,8 +206,8 @@ namespace Fvog
     class Alloc
     {
     public:
-      explicit Alloc(Device& device, VmaVirtualBlock allocator, VmaVirtualAllocation allocation, size_t offset, size_t size)
-        : device_(&device), allocator_(allocator), allocation_(allocation), offset_(offset), size_(size)
+      explicit Alloc(Device& device, VmaVirtualBlock allocator, VmaVirtualAllocation allocation, size_t offset, size_t allocSize, size_t dataSize)
+        : device_(&device), allocator_(allocator), allocation_(allocation), offset_(offset), allocSize_(allocSize), dataSize_(dataSize)
       {
       }
       ~Alloc();
@@ -220,14 +220,16 @@ namespace Fvog
       bool operator==(const Alloc&) const noexcept = default;
 
       [[nodiscard]] VkDeviceSize GetOffset() const noexcept;
-      [[nodiscard]] VkDeviceSize GetSize() const noexcept;
+      [[nodiscard]] VkDeviceSize GetDataSize() const noexcept;
+      [[nodiscard]] VkDeviceSize GetAllocSize() const noexcept;
 
     private:
       Fvog::Device* device_;
       VmaVirtualBlock allocator_;
       VmaVirtualAllocation allocation_;
       size_t offset_;
-      size_t size_;
+      size_t allocSize_; // Adjusted for alignment
+      size_t dataSize_;
     };
 
     explicit ManagedBuffer(Device& device, size_t bufferSize, std::string name = {});
@@ -253,6 +255,11 @@ namespace Fvog
     [[nodiscard]] Buffer& GetBuffer() noexcept
     {
       return buffer_;
+    }
+
+    [[nodiscard]] VmaVirtualBlock GetVirtualBlock() const
+    {
+      return allocator;
     }
 
   private:

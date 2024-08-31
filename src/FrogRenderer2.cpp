@@ -1418,11 +1418,11 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
     meshlet.primitiveOffset += (uint32_t)basePrimitive;
   }
 
-  std::memcpy(geometryBuffer.GetMappedMemory() + meshletAlloc.GetOffset(), meshGeometry.meshlets.data(), meshletAlloc.GetSize());
-  std::memcpy(geometryBuffer.GetMappedMemory() + verticesAlloc.GetOffset(), meshGeometry.vertices.data(), verticesAlloc.GetSize());
-  std::memcpy(geometryBuffer.GetMappedMemory() + indicesAlloc.GetOffset(), meshGeometry.remappedIndices.data(), indicesAlloc.GetSize());
-  std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetSize());
-  std::memcpy(geometryBuffer.GetMappedMemory() + originalIndicesAlloc.GetOffset(), meshGeometry.originalIndices.data(), originalIndicesAlloc.GetSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + meshletAlloc.GetOffset(), meshGeometry.meshlets.data(), meshletAlloc.GetDataSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + verticesAlloc.GetOffset(), meshGeometry.vertices.data(), verticesAlloc.GetDataSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + indicesAlloc.GetOffset(), meshGeometry.remappedIndices.data(), indicesAlloc.GetDataSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetDataSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + originalIndicesAlloc.GetOffset(), meshGeometry.originalIndices.data(), originalIndicesAlloc.GetDataSize());
 
   auto verticesOffset = verticesAlloc.GetOffset();
   auto originalIndicesOffset = originalIndicesAlloc.GetOffset();
@@ -1578,7 +1578,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   {
     const auto& meshletsAlloc = meshGeometryAllocations.at(meshGeometry.id).meshletsAlloc;
 
-    const auto meshletInstanceCount = meshletsAlloc.GetSize() / sizeof(Render::Meshlet);
+    const auto meshletInstanceCount = meshletsAlloc.GetDataSize() / sizeof(Render::Meshlet);
 
     auto& partialMeshAlloc = meshAllocations.at(meshId.id);
 

@@ -208,7 +208,8 @@ namespace Fvog
       allocator_(std::exchange(old.allocator_, nullptr)),
       allocation_(std::exchange(old.allocation_, nullptr)),
       offset_(std::exchange(old.offset_, 0)),
-      size_(std::exchange(old.size_, 0))
+      allocSize_(std::exchange(old.allocSize_, 0)),
+      dataSize_(std::exchange(old.dataSize_, 0))
   {
   }
 
@@ -225,9 +226,14 @@ namespace Fvog
     return offset_;
   }
 
-  VkDeviceSize ManagedBuffer::Alloc::GetSize() const noexcept
+  VkDeviceSize ManagedBuffer::Alloc::GetDataSize() const noexcept
   {
-    return size_;
+    return dataSize_;
+  }
+
+  VkDeviceSize ManagedBuffer::Alloc::GetAllocSize() const noexcept
+  {
+    return allocSize_;
   }
 
   // TODO: Instances of this buffer will probably be huge (>256MB), so the map flag will require ReBAR on the user's system.
@@ -263,6 +269,7 @@ namespace Fvog
 
   ManagedBuffer::Alloc ManagedBuffer::Allocate(VkDeviceSize size, const VkDeviceSize alignment)
   {
+    const auto dataSize = size;
     auto vmaAlign = alignment;
     // Fixup alignment and size if alignment isn't a power of two, which is required for VMA
     if (!std::has_single_bit(alignment))
@@ -286,7 +293,7 @@ namespace Fvog
     offset += offsetAmount;
     size -= offsetAmount;
     assert(offset % alignment == 0);
-    return Alloc(*device_, allocator, allocation, offset, size);
+    return Alloc(*device_, allocator, allocation, offset, size, dataSize);
   }
 
   ContiguousManagedBuffer::ContiguousManagedBuffer(Device& device, size_t bufferSize, std::string name)

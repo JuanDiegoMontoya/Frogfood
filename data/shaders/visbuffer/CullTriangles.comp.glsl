@@ -196,7 +196,8 @@ bool CullTriangle(Meshlet meshlet, uint localId)
 layout(local_size_x = MAX_PRIMITIVES) in;
 void main()
 {
-  const uint meshletInstanceId = d_visibleMeshlets.indices[gl_WorkGroupID.x];
+  const uint visibleMeshletId = gl_WorkGroupID.x;
+  const uint meshletInstanceId = d_visibleMeshlets.indices[visibleMeshletId];
   const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
   const uint meshletId = meshletInstance.meshletId;
   const Meshlet meshlet = d_meshlets[meshletId];
@@ -237,9 +238,11 @@ void main()
     const uint indexOffset = sh_baseIndex + activePrimitiveId * 3;
     if (indexOffset + 2 < d_indexBuffer.data.length())
     {
-      d_indexBuffer.data[indexOffset + 0] = (gl_WorkGroupID.x << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 0) & MESHLET_PRIMITIVE_MASK);
-      d_indexBuffer.data[indexOffset + 1] = (gl_WorkGroupID.x << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 1) & MESHLET_PRIMITIVE_MASK);
-      d_indexBuffer.data[indexOffset + 2] = (gl_WorkGroupID.x << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 2) & MESHLET_PRIMITIVE_MASK);
+      ASSERT_MSG(visibleMeshletId < (1u << MESHLET_ID_BITS), "CullTriangles.comp: visibleMeshletId too large\n");
+      ASSERT_MSG(primitiveId + 2 < (1u << MESHLET_PRIMITIVE_BITS), "CullTriangles.comp: primitiveId too large\n");
+      d_indexBuffer.data[indexOffset + 0] = (visibleMeshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 0) & MESHLET_PRIMITIVE_MASK);
+      d_indexBuffer.data[indexOffset + 1] = (visibleMeshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 1) & MESHLET_PRIMITIVE_MASK);
+      d_indexBuffer.data[indexOffset + 2] = (visibleMeshletId << MESHLET_PRIMITIVE_BITS) | ((primitiveId + 2) & MESHLET_PRIMITIVE_MASK);
     }
   }
 }

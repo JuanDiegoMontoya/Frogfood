@@ -6,8 +6,7 @@
 #include "Fvog/Rendering2.h"
 
 #include "Renderables.h"
-
-#include "Fvog/detail/ApiToEnum2.h"
+#include "MathUtilities.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -84,17 +83,6 @@ namespace Utility
       case Fvog::Format::R8G8B8A8_UNORM: return Fvog::Format::R8G8B8A8_SRGB;
       default: return format;
       }
-    }
-
-    glm::vec2 signNotZero(glm::vec2 v)
-    {
-      return glm::vec2((v.x >= 0.0f) ? +1.0f : -1.0f, (v.y >= 0.0f) ? +1.0f : -1.0f);
-    }
-
-    glm::vec2 float32x3_to_oct(glm::vec3 v)
-    {
-      glm::vec2 p = glm::vec2{v.x, v.y} * (1.0f / (abs(v.x) + abs(v.y) + abs(v.z)));
-      return (v.z <= 0.0f) ? ((1.0f - glm::abs(glm::vec2{p.y, p.x})) * signNotZero(p)) : p;
     }
 
     auto ConvertGlAddressMode(uint32_t wrap)
@@ -695,7 +683,7 @@ namespace Utility
 
     for (size_t i = 0; i < positions.size(); i++)
     {
-      vertices[i] = {positions[i], glm::packSnorm2x16(float32x3_to_oct(normals[i])), texcoords[i]};
+      vertices[i] = {positions[i], glm::packSnorm2x16(Math::Vec3ToOct(normals[i])), texcoords[i]};
     }
 
     return vertices;

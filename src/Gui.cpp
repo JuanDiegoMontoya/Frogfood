@@ -13,6 +13,7 @@
 #include "ImGui/imgui_impl_fvog.h"
 
 #include "RendererUtilities.h"
+#include "MathUtilities.h"
 
 #include "vulkan/vulkan_core.h"
 #include <GLFW/glfw3.h>
@@ -508,7 +509,10 @@ void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 
     magnifierLock = false;
   }
 
-  if (ImGui::Begin((ICON_MD_ZOOM_IN " Magnifier: " + std::string(magnifierLock ? "Locked" : "Unlocked") + " (Hold Space to unlock)" + "###mag").c_str()))
+  if (showMagnifierWindow &&
+      ImGui::Begin((ICON_MD_ZOOM_IN " Magnifier: " + std::string(magnifierLock ? "Locked" : "Unlocked") + " (Hold Space to unlock)" + "###mag").c_str(),
+        &showMagnifierWindow,
+        ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::SliderFloat("Zoom (+, -)", &magnifierZoom, 1.0f, 50.0f, "%.2fx", ImGuiSliderFlags_Logarithmic);
     if (ImGui::GetKeyPressedAmount(ImGuiKey_KeypadSubtract, 10000, 1))
@@ -600,6 +604,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
 
     if (ImGui::BeginMenu("View"))
     {
+      // TODO: Reset window visibility flags (show*Window variables)
       if (ImGui::MenuItem("Reset layout"))
       {
         ImGui::LoadIniSettingsFromDisk(g_defaultIniPath);
@@ -670,6 +675,20 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
       ImGui::Checkbox("Use debug forward renderer", &debugDrawForwardRender_);
       ImGui::EndMenu();
     }
+
+    if (ImGui::BeginMenu("Window"))
+    {
+      ImGui::Checkbox("Performance", &showPerfWindow);
+      ImGui::Checkbox("HDR", &showHdrWindow);
+      ImGui::Checkbox("Component Editor", &showComponentEditorWindow);
+      ImGui::Checkbox("Scene Graph", &showSceneGraphWindow);
+      ImGui::Checkbox("Texture Viewer", &showTextureViewerWindow);
+      ImGui::Checkbox("Debug", &showDebugWindow);
+      ImGui::Checkbox("Magnifier", &showMagnifierWindow);
+      ImGui::Checkbox("FSR 2", &showFsr2Window);
+      ImGui::Checkbox("Geometry Inspector", &showGeometryInspector);
+      ImGui::EndMenu();
+    }
     ImGui::EndMainMenuBar();
   }
 
@@ -681,7 +700,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
 
 void FrogRenderer2::GuiDrawFsrWindow(VkCommandBuffer)
 {
-  if (ImGui::Begin(ICON_MD_STAR " FSR 2###fsr2_window"))
+  if (showFsr2Window && ImGui::Begin(ICON_MD_STAR " FSR 2###fsr2_window", &showFsr2Window, ImGuiWindowFlags_NoFocusOnAppearing))
   {
 #ifdef FROGRENDER_FSR2_ENABLE
     if (ImGui::Checkbox("Enable FSR 2", &fsr2Enable))
@@ -729,7 +748,7 @@ void FrogRenderer2::GuiDrawFsrWindow(VkCommandBuffer)
 
 void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
 {
-  if (ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window"))
+  if (showDebugWindow && ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window", &showDebugWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     // TODO: make this only display available present modes
     const auto items = std::array{"Immediate", "Mailbox", "FIFO"};
@@ -783,7 +802,7 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
 void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
 {
   // TODO: pick icon for this window
-  if (ImGui::Begin(" Shadow"))
+  if (showShadowWindow && ImGui::Begin(" Shadow###shadow_window", &showShadowWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::TextUnformatted("VSM");
     ImGui::SliderFloat("LoD Bias", &vsmUniforms.lodBias, -3, 3, "%.2f");
@@ -837,7 +856,7 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
 void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
 {
   // TODO: pick icon for this window (eye?)
-  if (ImGui::Begin("Texture Viewer##viewer_window"))
+  if (showTextureViewerWindow && ImGui::Begin("Texture Viewer##viewer_window", &showTextureViewerWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     bool selectedTex = false;
 
@@ -956,7 +975,7 @@ void FrogRenderer2::GuiDrawMaterialsArray(VkCommandBuffer)
 
 void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
 {
-  if (ImGui::Begin("Perf##perf_window", nullptr, 0))
+  if (showPerfWindow && ImGui::Begin("Performance##perf_window", &showPerfWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     for (size_t groupIdx = 0; const auto& statGroup : statGroups)
     {
@@ -1198,7 +1217,7 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Scene::Node* node)
 
 void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
 {
-  if (ImGui::Begin("Scene Graph##scene_graph_window"))
+  if (showSceneGraphWindow && ImGui::Begin("Scene Graph##scene_graph_window", &showSceneGraphWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{});
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{});
@@ -1259,7 +1278,7 @@ void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
 
 void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
 {
-  if (ImGui::Begin("Component Editor###component_editor_window"))
+  if (showComponentEditorWindow && ImGui::Begin("Component Editor###component_editor_window", &showComponentEditorWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{});
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{});
@@ -1450,7 +1469,7 @@ void FrogRenderer2::GuiDrawHdrWindow(VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
 
-  if (ImGui::Begin("HDR###hdr_window"))
+  if (showHdrWindow && ImGui::Begin("HDR###hdr_window", &showHdrWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     const auto currentFormatStr = StringifySurfaceFormat(nextSwapchainFormat_);
     if (ImGui::BeginCombo("Surface Format", currentFormatStr.c_str(), ImGuiComboFlags_HeightLarge))
@@ -1570,6 +1589,248 @@ void FrogRenderer2::GuiDrawHdrWindow(VkCommandBuffer commandBuffer)
                        "Note: only works for HDR surface formats.");
   }
 
+  ImGui::End();
+}
+
+void FrogRenderer2::GuiDrawGeometryInspector(VkCommandBuffer)
+{
+  ZoneScoped;
+
+  if (showGeometryInspector && ImGui::Begin("Geometry Inspector###geometry_inspector", &showGeometryInspector, ImGuiWindowFlags_NoFocusOnAppearing))
+  {
+    ImGui::Text("Geometry Buffer");
+    Gui::BeginProperties();
+    VmaStatistics statistics{};
+    vmaGetVirtualBlockStatistics(geometryBuffer.GetVirtualBlock(), &statistics);
+    Gui::Text("Total size", "%llu", "Number of bytes in the geometry buffer.", geometryBuffer.GetBuffer().SizeBytes());
+    Gui::Text("Bytes used", "%llu", "The number of bytes consumed by geometry.", statistics.allocationBytes);
+    Gui::EndProperties();
+
+    if (ImGui::Button("Download Geometry"))
+    {
+      geometryBufferData_ = std::make_unique_for_overwrite<std::byte[]>(geometryBuffer.GetBuffer().SizeBytes());
+
+      auto tempBuffer = Fvog::Buffer(*device_, {.size = geometryBuffer.GetBuffer().SizeBytes(), .flag = Fvog::BufferFlagThingy::MAP_RANDOM_ACCESS});
+      device_->ImmediateSubmit(
+        [&](VkCommandBuffer cmd) {
+          auto ctx = Fvog::Context(*device_, cmd);
+          ctx.CopyBuffer(geometryBuffer.GetBuffer(), tempBuffer, {.size = geometryBuffer.GetBuffer().SizeBytes()});
+        });
+      std::memcpy(geometryBufferData_.get(), tempBuffer.GetMappedMemory(), geometryBuffer.GetBuffer().SizeBytes());
+    }
+
+    ImGui::Separator();
+    
+    if (geometryBufferData_)
+    {
+      if (ImGui::TreeNode("Mesh Geometry"))
+      {
+        int forceTree = 0;
+        if (ImGui::Button("Expand Tree"))
+        {
+          forceTree = 1;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Collapse Tree"))
+        {
+          forceTree = -1;
+        }
+        
+        for (const auto& [id, allocs] : meshGeometryAllocations)
+        {
+          ImGui::PushID((void*)id);
+
+          if (forceTree) { ImGui::SetNextItemOpen(forceTree == 1); }
+          if (ImGui::TreeNode("geometry", "Geometry %llu", id))
+          {
+            if (forceTree) { ImGui::SetNextItemOpen(forceTree == 1); }
+            if (ImGui::TreeNode("Meshlets"))
+            {
+              ImGui::BeginTable("meshlets table", 7, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit);
+              ImGui::TableSetupColumn("Index");
+              ImGui::TableSetupColumn("Offset");
+              ImGui::TableSetupColumn("Vertex offset");
+              ImGui::TableSetupColumn("Index offset");
+              ImGui::TableSetupColumn("Primitive offset");
+              ImGui::TableSetupColumn("Index count");
+              ImGui::TableSetupColumn("Primitive count");
+              ImGui::TableHeadersRow();
+
+              const size_t start   = allocs.meshletsAlloc.GetOffset() / sizeof(Render::Meshlet);
+              const size_t end     = (allocs.meshletsAlloc.GetOffset() + allocs.meshletsAlloc.GetDataSize()) / sizeof(Render::Meshlet);
+              const auto* meshlets = reinterpret_cast<const Render::Meshlet*>(geometryBufferData_.get());
+              for (size_t i = start; i < end; i++)
+              {
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i - start);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", meshlets[i].vertexOffset);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", meshlets[i].indexOffset);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", meshlets[i].primitiveOffset);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", meshlets[i].indexCount);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", meshlets[i].primitiveCount);
+              }
+
+              ImGui::EndTable();
+              ImGui::TreePop();
+            }
+
+            if (forceTree) { ImGui::SetNextItemOpen(forceTree == 1); }
+            if (ImGui::TreeNode("Vertices"))
+            {
+              ImGui::BeginTable("vertices table", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit);
+              ImGui::TableSetupColumn("Index");
+              ImGui::TableSetupColumn("Offset");
+              ImGui::TableSetupColumn("Position");
+              ImGui::TableSetupColumn("Normal Encoded");
+              ImGui::TableSetupColumn("Normal Decoded");
+              ImGui::TableSetupColumn("UV");
+              ImGui::TableHeadersRow();
+
+              const size_t start   = allocs.verticesAlloc.GetOffset() / sizeof(Render::Vertex);
+              const size_t end     = (allocs.verticesAlloc.GetOffset() + allocs.verticesAlloc.GetDataSize()) / sizeof(Render::Vertex);
+              const auto* vertices = reinterpret_cast<const Render::Vertex*>(geometryBufferData_.get());
+              for (size_t i = start; i < end; i++)
+              {
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i - start);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("(%.2f, %.2f, %.2f)", vertices[i].position.x, vertices[i].position.y, vertices[i].position.z);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", vertices[i].normal);
+
+                ImGui::TableNextColumn();
+                auto norm = Math::OctToVec3(vertices[i].normal);
+                ImGui::Text("(%.2f, %.2f, %.2f)", norm.x, norm.y, norm.z);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("(%.2f, %.2f)", vertices[i].texcoord.x, vertices[i].texcoord.y);
+              }
+
+              ImGui::EndTable();
+              ImGui::TreePop();
+            }
+
+            if (forceTree) { ImGui::SetNextItemOpen(forceTree == 1); }
+            if (ImGui::TreeNode("Indices"))
+            {
+              ImGui::BeginTable("indices table", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit);
+              ImGui::TableSetupColumn("Index");
+              ImGui::TableSetupColumn("Offset");
+              ImGui::TableSetupColumn("Vertex index");
+              ImGui::TableHeadersRow();
+
+              const size_t start  = allocs.indicesAlloc.GetOffset() / sizeof(Render::index_t);
+              const size_t end    = (allocs.indicesAlloc.GetOffset() + allocs.indicesAlloc.GetDataSize()) / sizeof(Render::index_t);
+              const auto* indices = reinterpret_cast<const Render::index_t*>(geometryBufferData_.get());
+              for (size_t i = start; i < end; i++)
+              {
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i - start);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", indices[i]);
+              }
+
+              ImGui::EndTable();
+              ImGui::TreePop();
+            }
+            
+            if (forceTree) { ImGui::SetNextItemOpen(forceTree == 1); }
+            if (ImGui::TreeNode("Primitives"))
+            {
+              ImGui::BeginTable("primitives table", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit);
+              ImGui::TableSetupColumn("Index");
+              ImGui::TableSetupColumn("Offset");
+              ImGui::TableSetupColumn("Primitive");
+              ImGui::TableHeadersRow();
+
+              const size_t start     = allocs.primitivesAlloc.GetOffset() / sizeof(Render::primitive_t);
+              const size_t end       = (allocs.primitivesAlloc.GetOffset() + allocs.primitivesAlloc.GetDataSize()) / sizeof(Render::primitive_t);
+              const auto* primitives = reinterpret_cast<const Render::primitive_t*>(geometryBufferData_.get());
+              for (size_t i = start; i < end; i++)
+              {
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i - start);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", (uint32_t)primitives[i]);
+              }
+
+              ImGui::EndTable();
+              ImGui::TreePop();
+            }
+            
+            if (forceTree) { ImGui::SetNextItemOpen(forceTree == 1); }
+            if (ImGui::TreeNode("Original Indices"))
+            {
+              ImGui::BeginTable("original indices table", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit);
+              ImGui::TableSetupColumn("Index");
+              ImGui::TableSetupColumn("Offset");
+              ImGui::TableSetupColumn("Original vertex index");
+              ImGui::TableHeadersRow();
+
+              const size_t start          = allocs.originalIndicesAlloc.GetOffset() / sizeof(Render::index_t);
+              const size_t end            = (allocs.originalIndicesAlloc.GetOffset() + allocs.originalIndicesAlloc.GetDataSize()) / sizeof(Render::index_t);
+              const auto* originalIndices = reinterpret_cast<const Render::primitive_t*>(geometryBufferData_.get());
+              for (size_t i = start; i < end; i++)
+              {
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", i - start);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%u", originalIndices[i]);
+              }
+
+              ImGui::EndTable();
+              ImGui::TreePop();
+            }
+
+            ImGui::TreePop();
+          }
+          ImGui::PopID();
+        }
+        ImGui::TreePop();
+      }
+
+    }
+  }
   ImGui::End();
 }
 
@@ -1717,7 +1978,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
             .vertexBufferAddress = geometryBuffer.GetBuffer().GetDeviceAddress() + meshGeometryAllocs.verticesAlloc.GetOffset(),
             .indexBuffer         = &geometryBuffer.GetBuffer(),
             .indexBufferOffset   = meshGeometryAllocs.originalIndicesAlloc.GetOffset(),
-            .indexCount          = uint32_t(meshGeometryAllocs.originalIndicesAlloc.GetSize() / sizeof(Render::index_t)),
+            .indexCount          = uint32_t(meshGeometryAllocs.originalIndicesAlloc.GetDataSize() / sizeof(Render::index_t)),
             .worldFromObject     = node->globalTransform,
             .materialId          = GetMaterialGpuIndex(materialId),
           });
@@ -1782,6 +2043,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
   GuiDrawMagnifier(viewportContentOffset, {viewportContentSize.x, viewportContentSize.y}, viewportIsHovered);
   GuiDrawDebugWindow(commandBuffer);
   GuiDrawShadowWindow(commandBuffer);
+  GuiDrawGeometryInspector(commandBuffer);
   GuiDrawViewer(commandBuffer);
   GuiDrawMaterialsArray(commandBuffer);
   GuiDrawPerfWindow(commandBuffer);

@@ -28,6 +28,7 @@
 #include <variant>
 #include <vector>
 #include <span>
+#include <memory>
 #include <memory_resource>
 
 // TODO: these structs should come from shared headers rather than copying them
@@ -210,6 +211,7 @@ private:
   void GuiDrawSceneGraphHelper(Scene::Node* node);
   void GuiDrawComponentEditor(VkCommandBuffer commandBuffer);
   void GuiDrawHdrWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawGeometryInspector(VkCommandBuffer commandBuffer);
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
 
@@ -474,8 +476,20 @@ private:
 
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
 
-  bool debugDrawForwardRender_ = false;
+  // Debug
+  bool debugDrawForwardRender_   = false;
+  bool showPerfWindow            = true;
+  bool showHdrWindow             = true;
+  bool showComponentEditorWindow = true;
+  bool showSceneGraphWindow      = true;
+  bool showTextureViewerWindow   = true;
+  bool showShadowWindow          = true;
+  bool showDebugWindow           = true;
+  bool showFsr2Window            = true;
+  bool showMagnifierWindow       = true;
+  bool showGeometryInspector     = false;
   Debug::ForwardRenderer forwardRenderer_;
+  std::unique_ptr<std::byte[]> geometryBufferData_;
 
   // Scene
   Scene::SceneMeshlet scene;

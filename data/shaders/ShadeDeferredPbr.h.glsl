@@ -121,10 +121,12 @@ struct ShadingUniforms
   FVOG_UINT32 shadingInternalColorSpace;
   
   // TODO: temp rt stuff
-  FVOG_UINT32 tlasIndex;
   FVOG_UINT32 materialBufferIndex;
   FVOG_UINT32 instanceBufferIndex;
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  FVOG_UINT32 tlasIndex;
   uint64_t tlasAddress;
+#endif
 };
 
 #endif // SHADE_DEFERRED_PBR_H

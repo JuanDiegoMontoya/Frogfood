@@ -185,12 +185,14 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .depthAttachmentFormat = Frame::gDepthFormat,
       })),
     // TODO: remove
+#ifdef FROGRENDER_RAYTRACING_ENABLE
     testRayTracingPipeline(Pipelines2::TestRayTracingPipeline(*device_)),
     testRayTracingOutput(Fvog::Texture(*device_, {
       .viewType = VK_IMAGE_VIEW_TYPE_2D,
       .format = Fvog::Format::R8G8B8A8_UNORM,
       .extent = { 1920, 1080, 1 },
     })),
+#endif
     forwardRenderer_(*device_),
     tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
     tonyMcMapfaceLut(LoadTonyMcMapfaceTexture(*device_)),
@@ -809,10 +811,12 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   shadowUniformsBuffer.UpdateData(commandBuffer, shadowUniforms);
 
   //shadingUniforms.tlas = tlas.GetAddress();
-  shadingUniforms.tlasIndex = tlas.value().GetResourceHandle().index;
   shadingUniforms.materialBufferIndex = geometryBuffer.GetResourceHandle().index;
   shadingUniforms.instanceBufferIndex = geometryBuffer.GetResourceHandle().index;
-  shadingUniforms.tlasAddress         = tlas.value().GetAddress();
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  shadingUniforms.tlasIndex   = tlas.value().GetResourceHandle().index;
+  shadingUniforms.tlasAddress = tlas.value().GetAddress();
+#endif
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
   ctx.Barrier();
@@ -1432,11 +1436,11 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
   std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetDataSize());
   std::memcpy(geometryBuffer.GetMappedMemory() + originalIndicesAlloc.GetOffset(), meshGeometry.originalIndices.data(), originalIndicesAlloc.GetDataSize());
 
-  auto verticesOffset = verticesAlloc.GetOffset();
-  auto originalIndicesOffset = originalIndicesAlloc.GetOffset();
+  [[maybe_unused]] auto verticesOffset        = verticesAlloc.GetOffset();
+  [[maybe_unused]] auto originalIndicesOffset = originalIndicesAlloc.GetOffset();
 
   auto myId = nextId++;
-  const auto& meshGeometryAlloc = meshGeometryAllocations.emplace(myId,
+  [[maybe_unused]] const auto& meshGeometryAlloc = meshGeometryAllocations.emplace(myId,
     MeshGeometryAllocs{
       .meshletsAlloc   = std::move(meshletAlloc),
       .verticesAlloc   = std::move(verticesAlloc),

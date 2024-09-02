@@ -1,7 +1,9 @@
 #version 460 core
 
+#ifdef FROGRENDER_RAYTRACING_ENABLE
 #extension GL_EXT_ray_query : require
 #extension GL_EXT_ray_tracing_position_fetch : require
+#endif
 
 #define SHADING_PUSH_CONSTANTS
 #include "ShadeDeferredPbr.h.glsl"
@@ -22,7 +24,10 @@
 #define d_perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
 
 FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
+
+#ifdef FROGRENDER_RAYTRACING_ENABLE
 FVOG_DECLARE_ACCELERATION_STRUCTURES;
+#endif
 
 layout(location = 0) in vec2 v_uv;
 
@@ -433,6 +438,7 @@ void main()
     }
   }
 
+#ifdef FROGRENDER_RAYTRACING_ENABLE
   //if (gid == ivec2(0))
     //printf("tlas: %u, %u\n", uint(shadingUniforms.tlas >> 32), uint(shadingUniforms.tlas));
 
@@ -480,10 +486,10 @@ void main()
     }
     else
     {
-      vec3 positions[3];
-      rayQueryGetIntersectionTriangleVertexPositionsEXT(rayQuery, true, positions);
-      o_color.rgb = abs(positions[0] * bary.x + positions[1] * bary.y + positions[2] * bary.z);
-      //o_color.rgb *= baryc;
+      //vec3 positions[3];
+      //rayQueryGetIntersectionTriangleVertexPositionsEXT(rayQuery, true, positions);
+      //o_color.rgb = abs(positions[0] * bary.x + positions[1] * bary.y + positions[2] * bary.z);
+      o_color.rgb *= bary;
     }
 
     //o_color.rgb = normal * .5 + .5;
@@ -493,4 +499,5 @@ void main()
   {
     //o_color.rgb = vec3(0, 1, 0);
   }
+#endif
 }

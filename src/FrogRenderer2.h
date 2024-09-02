@@ -484,8 +484,10 @@ private:
   Fvog::GraphicsPipeline debugRectsPipeline;
 
   // TODO: remove
+#ifdef FROGRENDER_RAYTRACING_ENABLE
   Fvog::RayTracingPipeline testRayTracingPipeline;
   std::optional<Fvog::Texture> testRayTracingOutput;
+#endif
 
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
 

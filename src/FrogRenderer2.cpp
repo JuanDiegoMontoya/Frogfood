@@ -301,6 +301,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/2.0/Box/glTF/Box.gltf", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/curtain.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/triangles.glb", glm::scale(glm::vec3{1})));
     
     std::pmr::set_default_resource(oldResource);
   }
@@ -659,7 +661,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
 
 #ifdef FROGRENDER_RAYTRACING_ENABLE
-  auto tlas = [&]
+  tlas = [&]
   {
     TracyVkZone(tracyVkContext_, commandBuffer, "Build TLAS");
     ZoneScopedN("Build TLAS");
@@ -807,10 +809,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   shadowUniformsBuffer.UpdateData(commandBuffer, shadowUniforms);
 
   //shadingUniforms.tlas = tlas.GetAddress();
-  shadingUniforms.tlasIndex = tlas.GetResourceHandle().index;
+  shadingUniforms.tlasIndex = tlas.value().GetResourceHandle().index;
   shadingUniforms.materialBufferIndex = geometryBuffer.GetResourceHandle().index;
   shadingUniforms.instanceBufferIndex = geometryBuffer.GetResourceHandle().index;
-  shadingUniforms.tlasAddress         = tlas.GetAddress();
+  shadingUniforms.tlasAddress         = tlas.value().GetAddress();
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
   ctx.Barrier();
@@ -1401,6 +1403,12 @@ void FrogRenderer2::OnPathDrop([[maybe_unused]] std::span<const char*> paths)
 Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo meshGeometry)
 {
   ZoneScoped;
+  totalMeshlets += meshGeometry.meshlets.size();
+  totalVertices += meshGeometry.vertices.size();
+  totalRemappedIndices += meshGeometry.remappedIndices.size();
+  totalOriginalIndices += meshGeometry.originalIndices.size();
+  totalPrimitives += meshGeometry.primitives.size();
+
   auto verticesAlloc   = geometryBuffer.Allocate(std::span(meshGeometry.vertices).size_bytes(), sizeof(Render::Vertex));
   auto indicesAlloc    = geometryBuffer.Allocate(std::span(meshGeometry.remappedIndices).size_bytes(), sizeof(Render::index_t));
   auto primitivesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.primitives).size_bytes(), sizeof(Render::primitive_t));
@@ -1428,7 +1436,7 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
   auto originalIndicesOffset = originalIndicesAlloc.GetOffset();
 
   auto myId = nextId++;
-  meshGeometryAllocations.emplace(myId,
+  const auto& meshGeometryAlloc = meshGeometryAllocations.emplace(myId,
     MeshGeometryAllocs{
       .meshletsAlloc   = std::move(meshletAlloc),
       .verticesAlloc   = std::move(verticesAlloc),
@@ -1450,13 +1458,28 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
         }),
 #endif
   });
+
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  totalBlasMemory += meshGeometryAlloc.first->second.blas.GetBuffer().SizeBytes();
+#endif
+
   return {myId};
 }
 
 void FrogRenderer2::UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry)
 {
   ZoneScoped;
-  meshGeometryAllocations.erase(meshGeometry.id);
+  auto it = meshGeometryAllocations.find(meshGeometry.id);
+  assert(it != meshGeometryAllocations.end());
+  totalMeshlets -= it->second.meshletsAlloc.GetDataSize() / sizeof(Render::Meshlet);
+  totalVertices -= it->second.verticesAlloc.GetDataSize() / sizeof(Render::Vertex);
+  totalRemappedIndices -= it->second.indicesAlloc.GetDataSize() / sizeof(Render::index_t);
+  totalOriginalIndices -= it->second.originalIndicesAlloc.GetDataSize() / sizeof(Render::index_t);
+  totalPrimitives -= it->second.primitivesAlloc.GetDataSize() / sizeof(Render::primitive_t);
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  totalBlasMemory -= it->second.blas.GetBuffer().SizeBytes();
+#endif
+  meshGeometryAllocations.erase(it);
 }
 
 Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshGeometryID meshGeometry)
@@ -1531,6 +1554,11 @@ uint32_t FrogRenderer2::GetMaterialGpuIndex(Render::MaterialID material)
   ZoneScoped;
   const auto& alloc = materialAllocations.at(material.id);
   return static_cast<uint32_t>(alloc.materialAlloc.GetOffset() / sizeof(Render::GpuMaterial));
+}
+
+Render::Material& FrogRenderer2::GetMaterial(Render::MaterialID material)
+{
+  return materialAllocations.at(material.id).material;
 }
 
 VkDeviceAddress FrogRenderer2::GetVertexBufferPointerFromMesh(Render::MeshID meshId)

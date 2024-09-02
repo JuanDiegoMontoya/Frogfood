@@ -14,7 +14,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm
-    GIT_TAG        cc98465e3508535ba8c7f6208df934c156a018dc
+    GIT_TAG        1.0.1
 )
 
 FetchContent_Declare(

@@ -3,7 +3,7 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
-#include <glm/gtc/packing.hpp>
+#include <glm/packing.hpp>
 
 #include <cstdint>
 
@@ -96,5 +96,27 @@ namespace Math
   inline glm::vec3 OctToVec3(uint32_t snorm)
   {
     return OctToVec3(glm::unpackSnorm2x16(snorm));
+  }
+
+  inline struct { const char* suffix; double divisor; } BytesToSuffixAndDivisor(uint64_t bytes)
+  {
+    const auto* postfix = "B";
+    double divisor      = 1.0;
+    if (bytes > 1000)
+    {
+      postfix = "KB";
+      divisor = 1000;
+    }
+    if (bytes > 1'000'000)
+    {
+      postfix = "MB";
+      divisor = 1'000'000;
+    }
+    if (bytes > 1'000'000'000)
+    {
+      postfix = "GB";
+      divisor = 1'000'000'000;
+    }
+    return {postfix, divisor};
   }
 } // namespace Math

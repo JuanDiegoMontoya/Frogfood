@@ -2,6 +2,8 @@
 #include "detail/Common.h"
 #include "detail/SamplerCache2.h"
 
+#include "MathUtilities.h"
+
 #include <vk_mem_alloc.h>
 
 #include <volk.h>
@@ -16,28 +18,6 @@ namespace Fvog
 {
   namespace
   {
-    auto BytesToPostfixAndDivisor(uint64_t bytes)
-    {
-      const auto* postfix = "B";
-      double divisor = 1.0;
-      if (bytes > 1000)
-      {
-        postfix = "KB";
-        divisor = 1000;
-      }
-      if (bytes > 1'000'000)
-      {
-        postfix = "MB";
-        divisor = 1'000'000;
-      }
-      if (bytes > 1'000'000'000)
-      {
-        postfix = "GB";
-        divisor = 1'000'000'000;
-      }
-      return std::pair{postfix, divisor};
-    }
-
     constexpr auto deviceTracyHeapName = "GPU usage (Vulkan)";
 
     void VKAPI_CALL DeviceAllocCallback([[maybe_unused]] VmaAllocator VMA_NOT_NULL allocator,
@@ -438,7 +418,7 @@ namespace Fvog
             ZoneScopedN("Destroy VMA buffer");
             VmaAllocationInfo info{};
             vmaGetAllocationInfo(allocator_, bufferAlloc.allocation, &info);
-            auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
+            auto [postfix, divisor] = Math::BytesToSuffixAndDivisor(info.size);
             char buffer[128]{};
             auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
             ZoneText(buffer, size);
@@ -459,7 +439,7 @@ namespace Fvog
             ZoneScopedN("vmaDestroyImage");
             VmaAllocationInfo info{};
             vmaGetAllocationInfo(allocator_, imageAlloc.allocation, &info);
-            auto [postfix, divisor] = BytesToPostfixAndDivisor(info.size);
+            auto [postfix, divisor] = Math::BytesToSuffixAndDivisor(info.size);
             char buffer[128]{};
             auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
             ZoneText(buffer, size);

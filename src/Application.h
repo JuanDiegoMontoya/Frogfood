@@ -12,6 +12,7 @@
 #include <functional>
 #include <optional>
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec2.hpp>

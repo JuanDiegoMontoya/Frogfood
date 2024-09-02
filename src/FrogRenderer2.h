@@ -179,6 +179,8 @@ public:
 
   // Querying
   uint32_t GetMaterialGpuIndex(Render::MaterialID material);
+  Render::Material& GetMaterial(Render::MaterialID material);
+
   // Hacky functions, need better interface for this
   VkDeviceAddress GetVertexBufferPointerFromMesh(Render::MeshID meshId);
   VkDeviceAddress GetOriginalIndexBufferPointerFromMesh(Render::MeshID meshId);
@@ -384,6 +386,13 @@ private:
 #endif
   };
 
+  size_t totalMeshlets = 0;
+  size_t totalVertices = 0;
+  size_t totalRemappedIndices = 0;
+  size_t totalOriginalIndices = 0;
+  size_t totalPrimitives = 0;
+  size_t totalBlasMemory = 0;
+
   struct MeshAllocs
   {
     std::optional<Render::MeshGeometryID> geometryId;
@@ -409,6 +418,9 @@ private:
   Fvog::ManagedBuffer geometryBuffer;
   Fvog::ContiguousManagedBuffer meshletInstancesBuffer;
   Fvog::ContiguousManagedBuffer lightsBuffer;
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  std::optional<Fvog::Tlas> tlas;
+#endif
 
   uint32_t NumMeshletInstances() const noexcept
   {
@@ -422,6 +434,7 @@ private:
 
   uint64_t nextId = 1; // 0 is reserved for "null" IDs
   std::unordered_map<uint64_t, MeshGeometryAllocs> meshGeometryAllocations;
+
   std::unordered_map<uint64_t, MeshAllocs> meshAllocations;
   std::unordered_map<uint64_t, LightAlloc> lightAllocations;
   std::unordered_map<uint64_t, MaterialAlloc> materialAllocations;
@@ -488,6 +501,7 @@ private:
   bool showFsr2Window            = true;
   bool showMagnifierWindow       = true;
   bool showGeometryInspector     = false;
+  bool showMaterialWindow        = true;
   Debug::ForwardRenderer forwardRenderer_;
   std::unique_ptr<std::byte[]> geometryBufferData_;
 
@@ -759,7 +773,7 @@ private:
   struct SunSelected{};
   struct MaterialSelected
   {
-    size_t index;
+    Render::MaterialID material;
   };
   using SelectedThingyType = std::variant<std::monostate, CameraSelected, SunSelected, Scene::Node*, MaterialSelected>;
   SelectedThingyType selectedThingy = std::monostate{};

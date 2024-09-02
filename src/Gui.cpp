@@ -502,6 +502,13 @@ void FrogRenderer2::InitGui()
 
 void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
 {
+  ZoneScoped;
+
+  if (!showMagnifierWindow)
+  {
+    return;
+  }
+
   bool magnifierLock = true;
 
   if (ImGui::IsKeyDown(ImGuiKey_Space) && viewportIsHovered)
@@ -509,8 +516,7 @@ void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 
     magnifierLock = false;
   }
 
-  if (showMagnifierWindow &&
-      ImGui::Begin((ICON_MD_ZOOM_IN " Magnifier: " + std::string(magnifierLock ? "Locked" : "Unlocked") + " (Hold Space to unlock)" + "###mag").c_str(),
+  if (ImGui::Begin((ICON_MD_ZOOM_IN " Magnifier: " + std::string(magnifierLock ? "Locked" : "Unlocked") + " (Hold Space to unlock)" + "###mag").c_str(),
         &showMagnifierWindow,
         ImGuiWindowFlags_NoFocusOnAppearing))
   {
@@ -686,6 +692,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
       ImGui::Checkbox("Debug", &showDebugWindow);
       ImGui::Checkbox("Magnifier", &showMagnifierWindow);
       ImGui::Checkbox("FSR 2", &showFsr2Window);
+      ImGui::Checkbox("Materials", &showMaterialWindow);
       ImGui::Checkbox("Geometry Inspector", &showGeometryInspector);
       ImGui::EndMenu();
     }
@@ -700,7 +707,14 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
 
 void FrogRenderer2::GuiDrawFsrWindow(VkCommandBuffer)
 {
-  if (showFsr2Window && ImGui::Begin(ICON_MD_STAR " FSR 2###fsr2_window", &showFsr2Window, ImGuiWindowFlags_NoFocusOnAppearing))
+  ZoneScoped;
+
+  if (!showFsr2Window)
+  {
+    return;
+  }
+
+  if (ImGui::Begin(ICON_MD_STAR " FSR 2###fsr2_window", &showFsr2Window, ImGuiWindowFlags_NoFocusOnAppearing))
   {
 #ifdef FROGRENDER_FSR2_ENABLE
     if (ImGui::Checkbox("Enable FSR 2", &fsr2Enable))
@@ -748,7 +762,14 @@ void FrogRenderer2::GuiDrawFsrWindow(VkCommandBuffer)
 
 void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
 {
-  if (showDebugWindow && ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window", &showDebugWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  ZoneScoped;
+
+  if (!showDebugWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window", &showDebugWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     // TODO: make this only display available present modes
     const auto items = std::array{"Immediate", "Mailbox", "FIFO"};
@@ -801,8 +822,15 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
 
 void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
 {
+  ZoneScoped;
+
+  if (!showShadowWindow)
+  {
+    return;
+  }
+
   // TODO: pick icon for this window
-  if (showShadowWindow && ImGui::Begin(" Shadow###shadow_window", &showShadowWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  if (ImGui::Begin(" Shadow###shadow_window", &showShadowWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::TextUnformatted("VSM");
     ImGui::SliderFloat("LoD Bias", &vsmUniforms.lodBias, -3, 3, "%.2f");
@@ -855,8 +883,15 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
 
 void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
 {
+  ZoneScoped;
+
+  if (!showTextureViewerWindow)
+  {
+    return;
+  }
+
   // TODO: pick icon for this window (eye?)
-  if (showTextureViewerWindow && ImGui::Begin("Texture Viewer##viewer_window", &showTextureViewerWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  if (ImGui::Begin("Texture Viewer##viewer_window", &showTextureViewerWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     bool selectedTex = false;
 
@@ -945,37 +980,50 @@ void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
 
 void FrogRenderer2::GuiDrawMaterialsArray(VkCommandBuffer)
 {
-#if 0
-  if (ImGui::Begin(" Materials##materials_window"))
+  ZoneScoped;
+
+  if (!showMaterialWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin(" Materials##materials_window", &showMaterialWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::BeginTable("materials", 1, ImGuiTableFlags_RowBg);
     ImGui::TableSetupColumn("mat");
-    for (size_t i = 0; i < scene.materials.size(); i++)
+    for (size_t i = 0; const auto& [id, materialAlloc] : materialAllocations)
     {
       ImGui::PushID((int)i);
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
       bool selected = false;
-      if (auto* p = std::get_if<MaterialSelected>(&selectedThingy); p && p->index == i)
+      if (auto* p = std::get_if<MaterialSelected>(&selectedThingy); p && p->material.id == id)
       {
         selected = true;
       }
-
+      
       if (ImGui::Selectable(("Material " + std::to_string(i)).c_str(), selected))
       {
-        selectedThingy = MaterialSelected{i};
+        selectedThingy = MaterialSelected{id};
       }
       ImGui::PopID();
+      i++;
     }
     ImGui::EndTable();
   }
   ImGui::End();
-#endif
 }
 
 void FrogRenderer2::GuiDrawPerfWindow(VkCommandBuffer)
 {
-  if (showPerfWindow && ImGui::Begin("Performance##perf_window", &showPerfWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  ZoneScoped;
+
+  if (!showPerfWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin("Performance##perf_window", &showPerfWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     for (size_t groupIdx = 0; const auto& statGroup : statGroups)
     {
@@ -1217,7 +1265,14 @@ void FrogRenderer2::GuiDrawSceneGraphHelper(Scene::Node* node)
 
 void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
 {
-  if (showSceneGraphWindow && ImGui::Begin("Scene Graph##scene_graph_window", &showSceneGraphWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  ZoneScoped;
+
+  if (!showSceneGraphWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin("Scene Graph##scene_graph_window", &showSceneGraphWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{});
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{});
@@ -1278,7 +1333,14 @@ void FrogRenderer2::GuiDrawSceneGraph(VkCommandBuffer)
 
 void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
 {
-  if (showComponentEditorWindow && ImGui::Begin("Component Editor###component_editor_window", &showComponentEditorWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  ZoneScoped;
+
+  if (!showComponentEditorWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin("Component Editor###component_editor_window", &showComponentEditorWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{});
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{});
@@ -1440,25 +1502,27 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
         node->MarkDirty();
       }
     }
-
-#if 0
+    
     if (auto* p = std::get_if<MaterialSelected>(&selectedThingy))
     {
-      auto i = p->index;
-
-      auto& gpuMat = scene.materials[i].gpuMaterial;
+      auto& gpuMat = GetMaterial(p->material).gpuMaterial;
+      bool modified = false;
 
       Gui::BeginProperties(Gui::defaultPropertiesFlags, true, 0.55f);
-      Gui::SliderFloat("Alpha Cutoff", &gpuMat.alphaCutoff, 0, 1);
-      Gui::SliderFloat("Metallic Factor", &gpuMat.metallicFactor, 0, 1);
-      Gui::SliderFloat("Roughness Factor", &gpuMat.roughnessFactor, 0, 1);
-      Gui::ColorEdit4("Base Color Factor", &gpuMat.baseColorFactor[0]);
-      Gui::ColorEdit3("Emissive Factor", &gpuMat.emissiveFactor[0]);
-      Gui::DragFloat("Emissive Strength", &gpuMat.emissiveStrength, 0.25f, 0, 10000);
-      Gui::SliderFloat("Normal Scale", &gpuMat.normalXyScale, 0, 1);
+      modified |= Gui::SliderFloat("Alpha Cutoff", &gpuMat.alphaCutoff, 0, 1);
+      modified |= Gui::SliderFloat("Metallic Factor", &gpuMat.metallicFactor, 0, 1);
+      modified |= Gui::SliderFloat("Roughness Factor", &gpuMat.roughnessFactor, 0, 1);
+      modified |= Gui::ColorEdit4("Base Color Factor", &gpuMat.baseColorFactor[0]);
+      modified |= Gui::ColorEdit3("Emissive Factor", &gpuMat.emissiveFactor[0]);
+      modified |= Gui::DragFloat("Emissive Strength", &gpuMat.emissiveStrength, 0.25f, 0, 10000);
+      modified |= Gui::SliderFloat("Normal Scale", &gpuMat.normalXyScale, 0, 1);
       Gui::EndProperties();
+
+      if (modified)
+      {
+        UpdateMaterial(p->material, gpuMat);
+      }
     }
-#endif
     
     ImGui::EndTable();
   }
@@ -1469,7 +1533,12 @@ void FrogRenderer2::GuiDrawHdrWindow(VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
 
-  if (showHdrWindow && ImGui::Begin("HDR###hdr_window", &showHdrWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  if (!showHdrWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin("HDR###hdr_window", &showHdrWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     const auto currentFormatStr = StringifySurfaceFormat(nextSwapchainFormat_);
     if (ImGui::BeginCombo("Surface Format", currentFormatStr.c_str(), ImGuiComboFlags_HeightLarge))
@@ -1596,7 +1665,12 @@ void FrogRenderer2::GuiDrawGeometryInspector(VkCommandBuffer)
 {
   ZoneScoped;
 
-  if (showGeometryInspector && ImGui::Begin("Geometry Inspector###geometry_inspector", &showGeometryInspector, ImGuiWindowFlags_NoFocusOnAppearing))
+  if (!showGeometryInspector)
+  {
+    return;
+  }
+
+  if (ImGui::Begin("Geometry Inspector###geometry_inspector", &showGeometryInspector, ImGuiWindowFlags_NoFocusOnAppearing))
   {
     ImGui::Text("Geometry Buffer");
     Gui::BeginProperties();
@@ -2021,12 +2095,17 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
 
         Gui::Text("Meshlet Instances", "%u", nullptr, NumMeshletInstances());
         Gui::Text("Lights", "%u", nullptr, NumLights());
-#if 0
-        Gui::Text("Meshlets", "%llu", nullptr, scene.meshlets.size());
-        Gui::Text("Indices", "%llu", nullptr, scene.indices.size());
-        Gui::Text("Vertices", "%llu", nullptr, scene.vertices.size());
-        Gui::Text("Primitives", "%llu", nullptr, scene.primitives.size());
-        Gui::Text("Materials", "%llu", nullptr, scene.materials.size());
+        Gui::Text("Meshlets", "%llu", nullptr, totalMeshlets);
+        Gui::Text("Remapped Indices", "%llu", nullptr, totalRemappedIndices);
+        Gui::Text("Original Indices", "%llu", nullptr, totalOriginalIndices);
+        Gui::Text("Vertices", "%llu", nullptr, totalVertices);
+        Gui::Text("Primitives", "%llu", nullptr, totalPrimitives);
+        Gui::Text("Materials", "%llu", nullptr, materialAllocations.size());
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+        auto [tlasSuffix, tlasDivisor] = Math::BytesToSuffixAndDivisor(tlas->GetBuffer().SizeBytes());
+        Gui::Text("Total TLAS Memory", "%.0f %s", nullptr, tlas->GetBuffer().SizeBytes() / tlasDivisor, tlasSuffix);
+        auto [blasSuffix, blasDivisor] = Math::BytesToSuffixAndDivisor(tlas->GetBuffer().SizeBytes());
+        Gui::Text("Total BLAS Memory", "%.0f %s", nullptr, totalBlasMemory / blasDivisor, blasSuffix);
 #endif
         Gui::Text("Camera Position", "%.2f, %.2f, %.2f", nullptr, mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
         Gui::Text("Camera Rotation", "%.3f, %.3f", nullptr, mainCamera.pitch, mainCamera.yaw);

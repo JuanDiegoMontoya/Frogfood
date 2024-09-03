@@ -1323,15 +1323,15 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage, commandBuffer);
 
     ctx.BindComputePipeline(tonemapPipeline);
-    ctx.SetPushConstants(TonemapArguments{
-      .sceneColorIndex = (fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value()).ImageView().GetSampledResourceHandle().index,
-      .noiseIndex = noiseTexture->ImageView().GetSampledResourceHandle().index,
-      .nearestSamplerIndex = nearestSampler.GetResourceHandle().index,
-      .linearClampSamplerIndex = linearClampSampler.GetResourceHandle().index,
-      .exposureIndex = exposureBuffer.GetResourceHandle().index,
-      .tonemapUniformsIndex = tonemapUniformBuffer.GetDeviceBuffer().GetResourceHandle().index,
-      .outputImageIndex = frame.colorLdrWindowRes->ImageView().GetStorageResourceHandle().index,
-      .tonyMcMapfaceIndex = tonyMcMapfaceLut.ImageView().GetSampledResourceHandle().index,
+    ctx.SetPushConstants(shared::TonemapArguments{
+      .sceneColor = (fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value()).ImageView().GetTexture2D(),
+      .noise = noiseTexture->ImageView().GetTexture2D(),
+      .nearestSampler = nearestSampler,
+      .linearClampSampler = linearClampSampler,
+      .exposure = exposureBuffer,
+      .tonemapUniforms = tonemapUniformBuffer.GetDeviceBuffer(),
+      .outputImage = frame.colorLdrWindowRes->ImageView().GetImage2D(),
+      .tonyMcMapface = tonyMcMapfaceLut.ImageView().GetTexture3D(),
     });
     ctx.DispatchInvocations(frame.colorLdrWindowRes.value().GetCreateInfo().extent);
     ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);

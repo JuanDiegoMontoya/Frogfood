@@ -2,6 +2,7 @@
 #include "Device.h"
 #include "TriviallyCopyableByteSpan.h"
 #include "detail/Flags.h"
+#include "shaders/Resources.h.glsl"
 
 #include <vulkan/vulkan_core.h>
 
@@ -85,6 +86,11 @@ namespace Fvog
     const std::string& GetName() const
     {
       return name_;
+    }
+
+    [[nodiscard]] operator shared::Buffer() noexcept
+    {
+      return {descriptorInfo_.value().GpuResource().index};
     }
 
   protected:

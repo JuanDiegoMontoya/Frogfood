@@ -57,6 +57,13 @@
 #extension GL_EXT_samplerless_texture_functions : require // texelFetch on sampled images
 #extension GL_EXT_debug_printf : enable                   // printf
 
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_ray_query : require
+// TODO: Remove. This extension seems to be bugged on AMD drivers as of Sep 2, 2024
+#extension GL_EXT_ray_tracing_position_fetch : require
+#endif
+
 #define NonUniformIndex nonuniformEXT
 #define printf debugPrintfEXT
 
@@ -122,6 +129,9 @@
 
 #define Fvog_image2D(imageIndex) \
   FvogGetStorageImage(image2D, imageIndex)
+  
+#define Fvog_image3D(imageIndex) \
+  FvogGetStorageImage(image3D, imageIndex)
 
 #define Fvog_uimage2D(imageIndex) \
   FvogGetStorageImage(uimage2D, imageIndex)
@@ -132,8 +142,132 @@
 #define Fvog_utexture2D(textureIndex) \
   FvogGetSampledImage(utexture2D, textureIndex)
 
+#define Fvog_texture2D(textureIndex) \
+  FvogGetSampledImage(texture2D, textureIndex)
+
 #define Fvog_texture3D(textureIndex) \
   FvogGetSampledImage(texture3D, textureIndex)
 
-#endif // __cplusplus
+
+#endif // !__cplusplus
+
+// GLSL and C++ definitions
+#define FVOG_DESCRIPTOR_TYPE_BUFFER        1
+#define FVOG_DESCRIPTOR_TYPE_SAMPLED_IMAGE 2 // TODO: should this be broken up into image view types?
+#define FVOG_DESCRIPTOR_TYPE_STORAGE_IMAGE 3 // TODO: see above
+#define FVOG_DESCRIPTOR_TYPE_SAMPLER       4 // TODO: differentiate shadow samplers?
+
+#ifdef __cplusplus
+namespace shared {
+#endif
+
+struct Buffer
+{
+  FVOG_UINT32 bufIdx;
+};
+
+struct Sampler
+{
+  FVOG_UINT32 samplerIdx;
+};
+
+struct Texture2D
+{
+  FVOG_UINT32 texIdx;
+};
+
+struct Texture3D
+{
+  FVOG_UINT32 texIdx;
+};
+
+struct Image2D
+{
+  FVOG_UINT32 imgIdx;
+};
+
+struct Image3D
+{
+  FVOG_UINT32 imgIdx;
+};
+
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+struct AccelerationStructure
+{
+  FVOG_UINT32 tlasIdx;
+};
+#endif
+
+#ifdef __cplusplus
+} // namespace shared
+#endif
+
+
+#ifndef __cplusplus
+
+// Resource declarations
+FVOG_DECLARE_SAMPLERS;
+
+FVOG_DECLARE_SAMPLED_IMAGES(utexture2D);
+FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
+FVOG_DECLARE_SAMPLED_IMAGES(texture3D);
+FVOG_DECLARE_SAMPLED_IMAGES(utexture2DArray);
+
+FVOG_DECLARE_STORAGE_IMAGES(image2D);
+FVOG_DECLARE_STORAGE_IMAGES(image3D);
+FVOG_DECLARE_STORAGE_IMAGES(uimage2DArray);
+
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+FVOG_DECLARE_ACCELERATION_STRUCTURES;
+#endif
+
+vec4 texelFetch(Texture2D tex, ivec2 coord, int level)
+{
+  //ASSERT_MSG(tex.type == FVOG_DESCRIPTOR_TYPE_SAMPLED_IMAGE, "texelFetch: Invalid descriptor type!\n");
+  return texelFetch(Fvog_texture2D(tex.texIdx), coord, level);
+}
+
+vec4 textureLod(Texture2D tex, Sampler sam, vec2 uv, float lod)
+{
+  //ASSERT_MSG(tex.type == FVOG_DESCRIPTOR_TYPE_SAMPLED_IMAGE, "textureLod: Invalid texture descriptor type!\n");
+  //ASSERT_MSG(sam.type == FVOG_DESCRIPTOR_TYPE_SAMPLER, "textureLod: Invalid sampler descriptor type!\n");
+  return textureLod(Fvog_sampler2D(tex.texIdx, sam.samplerIdx), uv, lod);
+}
+
+vec4 textureLod(Texture3D tex, Sampler sam, vec3 uvw, float lod)
+{
+  //ASSERT_MSG(tex.type == FVOG_DESCRIPTOR_TYPE_SAMPLED_IMAGE, "textureLod: Invalid texture descriptor type!\n");
+  //ASSERT_MSG(sam.type == FVOG_DESCRIPTOR_TYPE_SAMPLER, "textureLod: Invalid sampler descriptor type!\n");
+  return textureLod(Fvog_sampler3D(tex.texIdx, sam.samplerIdx), uvw, lod);
+}
+
+ivec2 textureSize(Texture2D tex, int level)
+{
+  //ASSERT_MSG(tex.type == FVOG_DESCRIPTOR_TYPE_SAMPLED_IMAGE, "textureSize: Invalid texture descriptor type!\n");
+  return textureSize(Fvog_texture2D(tex.texIdx), level);
+}
+
+ivec3 textureSize(Texture3D tex, int level)
+{
+  //ASSERT_MSG(tex.type == FVOG_DESCRIPTOR_TYPE_SAMPLED_IMAGE, "textureSize: Invalid texture descriptor type!\n");
+  return textureSize(Fvog_texture3D(tex.texIdx), level);
+}
+
+ivec2 imageSize(Image2D img)
+{
+  return imageSize(Fvog_image2D(img.imgIdx));
+}
+
+ivec3 imageSize(Image3D img)
+{
+  return imageSize(Fvog_image3D(img.imgIdx));
+}
+
+void imageStore(Image2D img, ivec2 coord, vec4 data)
+{
+  imageStore(Fvog_image2D(img.imgIdx), coord, data);
+}
+
+#endif // !__cplusplus
+
 #endif // RESOURCES_H_GLSL

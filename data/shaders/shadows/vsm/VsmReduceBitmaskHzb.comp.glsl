@@ -1,12 +1,7 @@
-#version 450 core
-
-#extension GL_GOOGLE_include_directive : enable
-
 #include "../../Math.h.glsl"
 #include "../../GlobalUniforms.h.glsl"
 #include "VsmCommon.h.glsl"
 
-FVOG_DECLARE_STORAGE_IMAGES(uimage2DArray);
 #define i_srcVsmBitmaskHzb Fvog_uimage2DArray(srcVsmBitmaskHzbIndex)
 #define i_dstVsmBitmaskHzb Fvog_uimage2DArray(dstVsmBitmaskHzbIndex)
 

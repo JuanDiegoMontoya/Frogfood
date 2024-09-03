@@ -1,5 +1,3 @@
-// #version 450 core
-// #extension GL_GOOGLE_include_directive : enable
 #ifndef VSM_COMMON_H
 #define VSM_COMMON_H
 
@@ -62,15 +60,9 @@ FVOG_DECLARE_ARGUMENTS(VsmPushConstants)
 #define PAGE_BACKED_BIT (4u)
 
 ////////////// Resources
-//layout(binding = 0, r32ui) uniform restrict uimage2DArray i_pageTables; // Level 0
-//layout(binding = 1, r32f) uniform restrict image2D i_physicalPages;   // Level 0
-//layout(binding = 10) uniform usampler2DArray s_vsmBitmaskHzb;
-//FVOG_DECLARE_STORAGE_IMAGES(uimage2DArray);
 layout(set = 0, binding = FVOG_STORAGE_IMAGE_BINDING, r32ui) uniform uimage2DArray pageTablesImages[];
 layout(set = 0, binding = FVOG_STORAGE_IMAGE_BINDING, r32f) uniform image2D physicalPagesImages[];
 layout(set = 0, binding = FVOG_STORAGE_IMAGE_BINDING, r32ui) uniform restrict uimage2D physicalPagesOverdrawHeatmapImages[];
-FVOG_DECLARE_SAMPLED_IMAGES(utexture2DArray);
-FVOG_DECLARE_SAMPLERS;
 
 #define i_physicalPagesOverdrawHeatmap physicalPagesOverdrawHeatmapImages[physicalPagesOverdrawIndex]
 #define i_pageTables pageTablesImages[pageTablesIndex]
@@ -187,7 +179,7 @@ bool SampleVsmBitmaskHzb(uint vsmIndex, vec2 uv, int level)
   {
     return true;
   }
-  return bool(textureLod(s_vsmBitmaskHzb, vec3(fract(uv), vsmIndex), level).x);
+  return bool(textureLod(s_vsmBitmaskHzb, vec3(fract(uv), vsmIndex), float(level)).x);
 }
 
 bool CullQuadVsm(vec2 minXY, vec2 maxXY, uint virtualTableIndex)

@@ -1,6 +1,3 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : enable
-//#extension GL_ARB_bindless_texture : require
 #include "VisbufferCommon.h.glsl"
 #include "../Math.h.glsl"
 #include "../Hash.h.glsl"
@@ -12,9 +9,6 @@ layout (location = 3) in vec3 i_objectSpacePos;
 layout (location = 4) in flat uint i_materialId;
 
 layout (location = 0) out uint o_pixel;
-
-FVOG_DECLARE_SAMPLERS;
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 void main()
 {

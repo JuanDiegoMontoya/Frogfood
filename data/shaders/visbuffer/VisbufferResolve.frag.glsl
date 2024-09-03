@@ -1,6 +1,3 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : enable
-
 #include "VisbufferCommon.h.glsl"
 #include "../hzb/HZBCommon.h.glsl"
 
@@ -16,10 +13,6 @@ layout(location = 2) out vec4 o_normalAndFaceNormal;
 layout(location = 3) out vec2 o_smoothVertexNormal;
 layout(location = 4) out vec3 o_emission;
 layout(location = 5) out vec2 o_motion;
-
-FVOG_DECLARE_SAMPLERS;
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
-FVOG_DECLARE_SAMPLED_IMAGES(utexture2D);
 
 struct PartialDerivatives
 {

@@ -1,10 +1,5 @@
 #version 460 core
 
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-#extension GL_EXT_ray_query : require
-#extension GL_EXT_ray_tracing_position_fetch : require
-#endif
-
 #define SHADING_PUSH_CONSTANTS
 #include "ShadeDeferredPbr.h.glsl"
 
@@ -22,12 +17,6 @@
 #include "visbuffer/VisbufferCommon.h.glsl"
 
 #define d_perFrameUniforms perFrameUniformsBuffers[globalUniformsIndex]
-
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
-
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-FVOG_DECLARE_ACCELERATION_STRUCTURES;
-#endif
 
 layout(location = 0) in vec2 v_uv;
 

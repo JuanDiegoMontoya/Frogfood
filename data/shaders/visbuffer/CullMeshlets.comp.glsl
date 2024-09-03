@@ -1,7 +1,3 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : enable
-
-
 #define VISBUFFER_NO_PUSH_CONSTANTS
 #define VSM_NO_PUSH_CONSTANTS
 #include "CullMeshlets.h.glsl"
@@ -53,10 +49,6 @@ void DebugDrawMeshletAabb(in uint meshletInstanceId)
   TryPushDebugAabb(debugAabbBufferIndex, DebugAabb(Vec3ToPacked(aabbCenter), Vec3ToPacked(extent), Vec4ToPacked(color)));
 }
 #endif // ENABLE_DEBUG_DRAWING
-
-//layout (binding = 0) uniform sampler2D s_hzb;
-FVOG_DECLARE_SAMPLERS;
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 FVOG_DECLARE_STORAGE_BUFFERS(restrict CullTrianglesDispatchParams)
 {
@@ -185,6 +177,7 @@ bool CullMeshletFrustum(uint meshletInstanceId, View view)
   const vec3 aabbMin = PackedToVec3(meshlet.aabbMin);
   const vec3 aabbMax = PackedToVec3(meshlet.aabbMax);
   const vec3 aabbCenter = (aabbMin + aabbMax) / 2.0;
+
   const vec3 aabbExtent = aabbMax - aabbCenter;
   const vec3 worldAabbCenter = vec3(transform * vec4(aabbCenter, 1.0));
   const vec3 right = vec3(transform[0]) * aabbExtent.x;

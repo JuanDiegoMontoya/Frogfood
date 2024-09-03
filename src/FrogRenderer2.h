@@ -520,8 +520,8 @@ private:
 
   // Post processing
   std::optional<Fvog::Texture> noiseTexture;
-  Fvog::NDeviceBuffer<TonemapUniforms> tonemapUniformBuffer;
-  TonemapUniforms tonemapUniforms{};
+  Fvog::NDeviceBuffer<shared::TonemapUniforms> tonemapUniformBuffer;
+  shared::TonemapUniforms tonemapUniforms{};
   Fvog::Texture tonyMcMapfaceLut;
   Fvog::Texture calibrateHdrTexture;
   Fvog::ComputePipeline calibrateHdrPipeline;

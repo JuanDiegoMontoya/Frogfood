@@ -2,6 +2,7 @@
 
 #include "BasicTypes2.h"
 #include "Device.h"
+#include "shaders/Resources.h.glsl"
 
 #include <vulkan/vulkan_core.h>
 
@@ -100,9 +101,14 @@ namespace Fvog
       return sampler_;
     }
 
-    Device::DescriptorInfo::ResourceHandle GetResourceHandle() const noexcept
+    [[nodiscard]] Device::DescriptorInfo::ResourceHandle GetResourceHandle() const noexcept
     {
       return descriptorInfo_->GpuResource();
+    }
+
+    [[nodiscard]] operator shared::Sampler() const noexcept
+    {
+      return {descriptorInfo_->GpuResource().index};
     }
 
   private:
@@ -155,6 +161,24 @@ namespace Fvog
     [[nodiscard]] Device::DescriptorInfo::ResourceHandle GetStorageResourceHandle() noexcept
     {
       return storageDescriptorInfo_.value().GpuResource();
+    }
+
+    [[nodiscard]] shared::Texture2D GetTexture2D() noexcept
+    {
+      assert(createInfo_.viewType == VK_IMAGE_VIEW_TYPE_2D);
+      return {sampledDescriptorInfo_.value().GpuResource().index};
+    }
+
+    [[nodiscard]] shared::Texture3D GetTexture3D() noexcept
+    {
+      assert(createInfo_.viewType == VK_IMAGE_VIEW_TYPE_3D);
+      return {sampledDescriptorInfo_.value().GpuResource().index};
+    }
+
+    [[nodiscard]] shared::Image2D GetImage2D() noexcept
+    {
+      assert(createInfo_.viewType == VK_IMAGE_VIEW_TYPE_2D);
+      return {storageDescriptorInfo_.value().GpuResource().index};
     }
 
     [[nodiscard]] TextureCreateInfo GetTextureCreateInfo() const noexcept

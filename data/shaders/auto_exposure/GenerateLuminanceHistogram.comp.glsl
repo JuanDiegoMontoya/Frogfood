@@ -1,12 +1,6 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : enable
-
 #include "AutoExposureCommon.h.glsl"
 #include "../Math.h.glsl"
 #include "../Utility.h.glsl"
-
-//layout(location = 0) uniform sampler2D u_hdrBuffer;
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 uint ColorToBucket(vec3 color)
 {

@@ -1412,7 +1412,7 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
         tonemapUniforms.enableDithering = enableDither;
         if (ImGui::Button("Reset", {-1, 0}))
         {
-          tonemapUniforms = TonemapUniforms{};
+          tonemapUniforms = shared::TonemapUniforms{};
         }
         ImGui::TreePop();
       }

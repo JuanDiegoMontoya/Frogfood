@@ -4,18 +4,22 @@
 #include "../Resources.h.glsl"
 #include "../Color.h.glsl"
 
+#ifdef __cplusplus
+namespace shared {
+#endif
+
 FVOG_DECLARE_ARGUMENTS(TonemapArguments)
 {
-  FVOG_UINT32 sceneColorIndex;
-  FVOG_UINT32 noiseIndex;
-  FVOG_UINT32 nearestSamplerIndex;
-  FVOG_UINT32 linearClampSamplerIndex;
+  Texture2D sceneColor;
+  Texture2D noise;
+  Sampler nearestSampler;
+  Sampler linearClampSampler;
 
-  FVOG_UINT32 exposureIndex;
-  FVOG_UINT32 tonemapUniformsIndex;
-  FVOG_UINT32 outputImageIndex;
+  Buffer exposure;
+  Buffer tonemapUniforms;
+  Image2D outputImage;
 
-  FVOG_UINT32 tonyMcMapfaceIndex;
+  Texture3D tonyMcMapface;
 };
 
 struct AgXMapperSettings
@@ -68,5 +72,9 @@ struct TonemapUniforms
   AgXMapperSettings agx;
   GTMapperSettings gt;
 };
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TONEMAP_AND_DITHER_H

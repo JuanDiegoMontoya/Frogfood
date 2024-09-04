@@ -40,7 +40,7 @@ jobs:
       run: sudo apt-get install gcc-${{ matrix.gccversion }} g++-${{ matrix.gccversion }}
 
     - name: Configure CMake with GCC-${{ matrix.gccversion }}
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_CXX_COMPILER=g++-${{ matrix.gccversion }}
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_CXX_COMPILER=g++-${{ matrix.gccversion }} -DGLFW_BUILD_WAYLAND:BOOL=OFF
       env:
         CC:   gcc-${{ matrix.gccversion }}
         CXX:  g++-${{ matrix.gccversion }}

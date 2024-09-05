@@ -86,7 +86,7 @@ namespace Fvog
     /// @brief Specifies, in texels, the size of rows in the array (for 2D and 3D images). If zero, it is assumed to be tightly packed according to size
     uint32_t rowLength = 0;
 
-    /// @brief Specifies, in texels, the number of rows in the array (for 3D images. If zero, it is assumed to be tightly packed according to size
+    /// @brief Specifies, in texels, the number of rows in the array (for 3D images). If zero, it is assumed to be tightly packed according to size
     uint32_t imageHeight = 0;
   };
 

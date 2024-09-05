@@ -771,6 +771,28 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
 
   if (ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window", &showDebugWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
+    ImGui::SeparatorText("Ambient Occlusion");
+    if (ImGui::RadioButton("None##ao", aoMethod_ == AoMethod::NONE))
+    {
+      aoMethod_ = AoMethod::NONE;
+    }
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Ray Traced##ao", aoMethod_ == AoMethod::RAY_TRACED))
+    {
+      aoMethod_ = AoMethod::RAY_TRACED;
+    }
+
+    if (aoMethod_ == AoMethod::RAY_TRACED)
+    {
+      uint32_t minn = 0;
+      uint32_t maxx = 64;
+      ImGui::Checkbox("Per-frame noise", &aoUsePerFrameRng);
+      ImGui::SliderScalar("AO Rays", ImGuiDataType_U32, &rayTracedAoParams_.numRays, &minn, &maxx, "%u");
+      ImGui::SliderFloat("Ray Length", &rayTracedAoParams_.rayLength, 0.01f, 1000, "%.2fm", ImGuiSliderFlags_Logarithmic);
+    }
+#endif
+
     // TODO: make this only display available present modes
     const auto items = std::array{"Immediate", "Mailbox", "FIFO"};
     auto pMode = static_cast<int>(presentMode);
@@ -812,6 +834,7 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
     ImGui_FlagCheckbox("Show Dirty Pages", &shadingUniforms.debugFlags, VSM_SHOW_DIRTY_PAGES);
     ImGui_FlagCheckbox("Show Overdraw", &shadingUniforms.debugFlags, VSM_SHOW_OVERDRAW);
     ImGui_FlagCheckbox("Blend Normals", &shadingUniforms.debugFlags, BLEND_NORMALS);
+    ImGui_FlagCheckbox("Show AO Only", &shadingUniforms.debugFlags, SHOW_AO_ONLY);
 
     ImGui::Separator();
     ImGui::SliderFloat("Alpha Hash Scale", &globalUniforms.alphaHashScale, 1, 3);

@@ -63,6 +63,8 @@ add_executable(frogRender
     src/Renderables.h
     src/debug/ForwardRenderer.h
     src/debug/ForwardRenderer.cpp
+    src/techniques/ao/RayTracedAO.h
+    src/techniques/ao/RayTracedAO.cpp
 )
 
 if (FROGRENDER_RAYTRACING_ENABLE)

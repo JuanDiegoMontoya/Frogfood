@@ -308,6 +308,7 @@ void main()
   const vec3 smoothNormal = OctToVec3(texelFetch(FvogGetSampledImage(texture2D, gSmoothVertexNormalIndex), gid, 0).xy);
   const float depth = texelFetch(FvogGetSampledImage(texture2D, gDepthIndex), gid, 0).x;
   const vec3 metallicRoughnessAo = texelFetch(FvogGetSampledImage(texture2D, gMetallicRoughnessAoIndex), gid, 0).rgb;
+  const float ao = textureLod(ambientOcclusion, Sampler(nearestSamplerIndex), v_uv, 0).x; // AO could be a 1x1 white texture, so do not use texelFetch (% with texture size would work too)
 
   const vec3 albedo_internal = color_convert_src_to_dst(texelFetch(FvogGetSampledImage(texture2D, gAlbedoIndex), gid, 0).rgb, 
     COLOR_SPACE_sRGB_LINEAR,
@@ -364,7 +365,7 @@ void main()
   surface.reflectance = 0.5;
   surface.f90 = 1.0;
 
-  vec3 finalColor = vec3(.03) * albedo_internal * metallicRoughnessAo.z; // Ambient lighting
+  vec3 finalColor = vec3(.03) * albedo_internal * metallicRoughnessAo.z * ao; // Ambient lighting
 
   float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
   const vec3 sunColor_internal_space = color_convert_src_to_dst(shadingUniforms.sunStrength.rgb,
@@ -427,66 +428,8 @@ void main()
     }
   }
 
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-  //if (gid == ivec2(0))
-    //printf("tlas: %u, %u\n", uint(shadingUniforms.tlas >> 32), uint(shadingUniforms.tlas));
-
-  const vec3 reflectedDir = normalize(reflect(-viewDir, mappedNormal));
-
-  rayQueryEXT rayQuery;
-  rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(shadingUniforms.tlasAddress), 
-    gl_RayFlagsOpaqueEXT,
-    //0xFF, d_perFrameUniforms.cameraPos.xyz, 0.1, -viewDir, 1000);
-    0xFF, fragWorldPos, 0.01, reflectedDir, 1000);
-
-  while (rayQueryProceedEXT(rayQuery))
+  if ((shadingUniforms.debugFlags & SHOW_AO_ONLY) != 0)
   {
-    if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
-    {
-      rayQueryConfirmIntersectionEXT(rayQuery);
-    }
+    o_color.rgb = vec3(ao);
   }
-
-  if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
-  {
-    int primitiveId = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
-    int instanceId = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true);
-    ObjectUniforms obj = TransformBuffers[NonUniformIndex(shadingUniforms.instanceBufferIndex)].transforms[instanceId];
-    Vertex vertex0 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 0]];
-    Vertex vertex1 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 1]];
-    Vertex vertex2 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 2]];
-
-    // The spec is weird and says we get the B and C barycoords, not A and B like one might expect.
-    vec2 baryBC = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
-    vec3 bary = vec3(1.0 - baryBC.x - baryBC.y, baryBC.x, baryBC.y);
-    
-    vec2 uv = PackedToVec2(vertex0.uv) * bary.x + PackedToVec2(vertex1.uv) * bary.y + PackedToVec2(vertex2.uv) * bary.z;
-
-    //vec3 normal = OctToVec3(unpackSnorm2x16(vertex0.normal)) * baryc.x + OctToVec3(unpackSnorm2x16(vertex1.normal)) * baryc.y + OctToVec3(unpackSnorm2x16(vertex2.normal)) * baryc.z;
-
-    GpuMaterial material = MaterialBuffers[NonUniformIndex(shadingUniforms.materialBufferIndex)].materials[obj.materialId];
-
-    if (bool(material.flags & MATERIAL_HAS_BASE_COLOR))
-    {
-      vec4 sampledColor = textureLod(Fvog_sampler2D(material.baseColorTextureIndex, nearestSamplerIndex), uv, 0.0);
-      o_color.rgb *= sampledColor.rgb;
-      //o_color.rgb = vec3(PackedToVec2(vertex0.uv), 0);
-      //o_color.r *= .1;
-    }
-    else
-    {
-      //vec3 positions[3];
-      //rayQueryGetIntersectionTriangleVertexPositionsEXT(rayQuery, true, positions);
-      //o_color.rgb = abs(positions[0] * bary.x + positions[1] * bary.y + positions[2] * bary.z);
-      o_color.rgb *= bary;
-    }
-
-    //o_color.rgb = normal * .5 + .5;
-    //o_color.rgb = vec3(uv, 0);
-  }
-  else
-  {
-    //o_color.rgb = vec3(0, 1, 0);
-  }
-#endif
 }

@@ -7,6 +7,9 @@
 #include "techniques/AutoExposure.h"
 #include "techniques/VirtualShadowMaps.h"
 #include "debug/ForwardRenderer.h"
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+#include "techniques/ao/RayTracedAO.h"
+#endif
 
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
@@ -578,6 +581,22 @@ private:
   Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};
   float vsmFirstClipmapWidth = 10.0f;
   float vsmDirectionalProjectionZLength = 100.0f;
+
+  // Ambient Occlusion (AO)
+  enum class AoMethod
+  {
+    NONE,
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    RAY_TRACED,
+#endif
+  };
+  AoMethod aoMethod_ = AoMethod::NONE;
+  bool aoUsePerFrameRng = true;
+  Fvog::Texture whiteTexture_;
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  Techniques::RayTracedAO rayTracedAo_;
+  Techniques::RayTracedAO::ComputeParams rayTracedAoParams_;
+#endif
 
   // Texture viewer
   struct ViewerUniforms

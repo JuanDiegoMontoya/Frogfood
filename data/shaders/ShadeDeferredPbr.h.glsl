@@ -5,6 +5,9 @@
 #include "Color.h.glsl"
 
 #if defined(__cplusplus) || defined(SHADING_PUSH_CONSTANTS)
+#ifdef __cplusplus
+using namespace shared;
+#endif
 FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
 {
   FVOG_UINT32 globalUniformsIndex;
@@ -18,6 +21,7 @@ FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
   FVOG_UINT32 gSmoothVertexNormalIndex;
   FVOG_UINT32 gEmissionIndex;
   FVOG_UINT32 gMetallicRoughnessAoIndex;
+  Texture2D ambientOcclusion;
   
   FVOG_UINT32 pageTablesIndex;
   FVOG_UINT32 physicalPagesIndex;
@@ -103,6 +107,7 @@ struct ShadowUniforms
 #define VSM_SHOW_DIRTY_PAGES   (1 << 4)
 #define BLEND_NORMALS          (1 << 5)
 #define VSM_SHOW_OVERDRAW      (1 << 6)
+#define SHOW_AO_ONLY           (1 << 7)
 
 struct ShadingUniforms
 {

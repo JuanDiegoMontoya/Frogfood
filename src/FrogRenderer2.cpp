@@ -217,6 +217,10 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
 #endif
       })),
+    whiteTexture_(Fvog::CreateTexture2D(*device_, {1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    rayTracedAo_(*device_),
+#endif
     vsmShadowUniformBuffer(*device_),
     viewerVsmPageTablesPipeline(Pipelines2::ViewerVsm(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
@@ -289,15 +293,16 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     auto sync  = std::pmr::synchronized_pool_resource(&arena);
     std::pmr::set_default_resource(&sync);
 
-    scene.Import(*this, Utility::LoadModelFromFile(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
+    scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/hotel_01.glb", glm::scale(glm::vec3{.125f})));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed_tu.glb", glm::scale(glm::vec3{.5})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Airfield_Ground.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
     //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1})));
@@ -352,6 +357,9 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       stats[i].emplace_back(*device_, statName);
     }
   }
+
+  constexpr auto whiteUnorm8 = glm::u8vec4(255, 255, 255, 255);
+  whiteTexture_.UpdateImageSLOW({.extent = {1, 1, 1}, .data = &whiteUnorm8});
 
   constexpr auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
   vsmTempDepthStencil      = Fvog::CreateTexture2D(*device_, vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
@@ -1086,6 +1094,26 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   ctx.EndRendering();
 
+  // AO pass
+  Fvog::Texture* aoTexture = &whiteTexture_;
+
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  if (aoMethod_ == AoMethod::RAY_TRACED)
+  {
+    rayTracedAoParams_.frameNumber = 0;
+    if (aoUsePerFrameRng)
+    {
+      rayTracedAoParams_.frameNumber = static_cast<uint32_t>(device_->frameNumber);
+    }
+    rayTracedAoParams_.tlas                     = &tlas.value();
+    rayTracedAoParams_.inputDepth               = &frame.gDepth.value();
+    rayTracedAoParams_.inputNormalAndFaceNormal = &frame.gNormalAndFaceNormal.value();
+    rayTracedAoParams_.world_from_clip          = glm::inverse(globalUniforms.viewProj);
+    rayTracedAoParams_.outputSize               = Fvog::Extent2D{renderInternalWidth, renderInternalHeight};
+    aoTexture                                   = &rayTracedAo_.ComputeAO(commandBuffer, rayTracedAoParams_);
+  }
+#endif
+
   ctx.ImageBarrier(*frame.gAlbedo,                  VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
   ctx.ImageBarrier(*frame.gNormalAndFaceNormal,     VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
   ctx.ImageBarrier(*frame.gDepth,                   VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
@@ -1122,6 +1150,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .gSmoothVertexNormalIndex  = frame.gSmoothVertexNormal->ImageView().GetSampledResourceHandle().index,
       .gEmissionIndex            = frame.gEmission->ImageView().GetSampledResourceHandle().index,
       .gMetallicRoughnessAoIndex = frame.gMetallicRoughnessAo->ImageView().GetSampledResourceHandle().index,
+      .ambientOcclusion          = aoTexture->ImageView().GetTexture2D(),
 
       .pageTablesIndex            = vsmPushConstants.pageTablesIndex,
       .physicalPagesIndex         = vsmPushConstants.physicalPagesIndex,

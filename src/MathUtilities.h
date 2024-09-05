@@ -98,25 +98,31 @@ namespace Math
     return OctToVec3(glm::unpackSnorm2x16(snorm));
   }
 
-  inline struct { const char* suffix; double divisor; } BytesToSuffixAndDivisor(uint64_t bytes)
+  struct SuffixAndDivisor
   {
-    const auto* postfix = "B";
+    const char* suffix;
+    double divisor;
+  };
+
+  inline SuffixAndDivisor BytesToSuffixAndDivisor(uint64_t bytes)
+  {
+    const auto* suffix = "B";
     double divisor      = 1.0;
     if (bytes > 1000)
     {
-      postfix = "KB";
+      suffix  = "KB";
       divisor = 1000;
     }
     if (bytes > 1'000'000)
     {
-      postfix = "MB";
+      suffix  = "MB";
       divisor = 1'000'000;
     }
     if (bytes > 1'000'000'000)
     {
-      postfix = "GB";
+      suffix  = "GB";
       divisor = 1'000'000'000;
     }
-    return {postfix, divisor};
+    return {suffix, divisor};
   }
 } // namespace Math

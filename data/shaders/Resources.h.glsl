@@ -21,6 +21,8 @@
 #define FVOG_UVEC3 glm::uvec3
 #define FVOG_UVEC4 glm::uvec4
 
+#define FVOG_UINT64 uint64_t
+
 #define FVOG_MAT4 glm::mat4
 
 #define FVOG_DECLARE_ARGUMENTS(name) \
@@ -42,6 +44,8 @@
 #define FVOG_UVEC2 uvec2
 #define FVOG_UVEC3 uvec3
 #define FVOG_UVEC4 uvec4
+
+#define FVOG_UINT64 uint64_t
 
 #define FVOG_MAT4 mat4
 

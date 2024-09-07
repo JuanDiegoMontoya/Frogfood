@@ -217,6 +217,7 @@ private:
   void GuiDrawComponentEditor(VkCommandBuffer commandBuffer);
   void GuiDrawHdrWindow(VkCommandBuffer commandBuffer);
   void GuiDrawGeometryInspector(VkCommandBuffer commandBuffer);
+  void GuiDrawAoWindow(VkCommandBuffer commandBuffer);
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
 
@@ -282,7 +283,7 @@ private:
   // scene parameters
   float sunElevation = 3.0f;
   float sunAzimuth = 0.3f;
-  float sunStrength = 10;
+  float sunIlluminance = 110'000; // Lux
   glm::vec3 sunColor = {1, 1, 1};
 
   float aspectRatio = 1;
@@ -507,6 +508,7 @@ private:
   bool showMagnifierWindow       = true;
   bool showGeometryInspector     = false;
   bool showMaterialWindow        = true;
+  bool showAoWindow              = true;
   Debug::ForwardRenderer forwardRenderer_;
   std::unique_ptr<std::byte[]> geometryBufferData_;
 
@@ -586,9 +588,7 @@ private:
   enum class AoMethod
   {
     NONE,
-#ifdef FROGRENDER_RAYTRACING_ENABLE
     RAY_TRACED,
-#endif
   };
   AoMethod aoMethod_ = AoMethod::NONE;
   bool aoUsePerFrameRng = true;

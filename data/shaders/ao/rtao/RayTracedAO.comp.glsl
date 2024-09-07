@@ -25,26 +25,6 @@ FVOG_DECLARE_ARGUMENTS(RtaoArguments)
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-const float PI = 3.14159265;
-
-// Stolen from void
-vec3 map_to_unit_sphere(vec2 uv)
-{
-  float cos_theta = 2.0 * uv.x - 1.0;
-  float phi = 2.0 * PI * uv.y;
-  float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
-  float sin_phi = sin(phi);
-  float cos_phi = cos(phi);
-  
-  return vec3(sin_theta * cos_phi, cos_theta, sin_theta * sin_phi);
-}
-
-vec3 map_to_unit_hemisphere_cosine_weighted(vec2 uv, vec3 n)
-{
-  vec3 p = map_to_unit_sphere(uv);
-  return n + p;
-}
-
 void main()
 {
   const ivec2 gid = ivec2(gl_GlobalInvocationID.xy);

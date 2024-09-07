@@ -60,15 +60,19 @@ struct GpuLight
   FVOG_UINT32 _padding;
 };
 
-#define SHADOW_FILTER_PCSS 0
-#define SHADOW_FILTER_SMRT 1
-#define SHADOW_FILTER_NONE 2
+#define SHADOW_MODE_VIRTUAL_SHADOW_MAP 0
+#define SHADOW_MODE_RAY_TRACED         1
+
+#define SHADOW_MAP_FILTER_NONE 0
+#define SHADOW_MAP_FILTER_PCSS 1
+#define SHADOW_MAP_FILTER_SMRT 2
 
 struct ShadowUniforms
 {
 #ifdef __cplusplus
   ShadowUniforms() :
-    shadowFilter(SHADOW_FILTER_PCSS),
+    shadowMode(SHADOW_MODE_VIRTUAL_SHADOW_MAP),
+    shadowMapFilter(SHADOW_MAP_FILTER_PCSS),
 
     pcfSamples(16),
     lightWidth(0.002f), // The sun's real angular radius is about 0.0087 radians.
@@ -80,10 +84,16 @@ struct ShadowUniforms
     stepsPerRay(7),
     rayStepSize(0.1f),
     heightmapThickness(0.5f),
-    sourceAngleRad(0.05f) {}
+    sourceAngleRad(0.05f),
+
+    rtNumSunShadowRays(1),
+    rtSunDiameterRadians(0.0087f),
+    rtTraceLocalLights(false)
+    {}
 #endif
 
-  FVOG_UINT32 shadowFilter;
+  FVOG_UINT32 shadowMode;
+  FVOG_UINT32 shadowMapFilter;
 
   // PCSS
   FVOG_UINT32 pcfSamples;
@@ -98,6 +108,11 @@ struct ShadowUniforms
   FVOG_FLOAT rayStepSize;
   FVOG_FLOAT heightmapThickness;
   FVOG_FLOAT sourceAngleRad;
+
+  // Ray traced
+  FVOG_UINT32 rtNumSunShadowRays;
+  FVOG_FLOAT rtSunDiameterRadians;
+  FVOG_UINT32 rtTraceLocalLights;
 };
 
 #define VSM_SHOW_CLIPMAP_ID    (1 << 0)
@@ -119,7 +134,7 @@ struct ShadingUniforms
 #endif
 
   FVOG_VEC4 sunDir;
-  FVOG_VEC4 sunStrength;
+  FVOG_VEC4 sunIlluminance;
   FVOG_VEC2 random;
   FVOG_UINT32 numberOfLights;
   FVOG_UINT32 debugFlags;

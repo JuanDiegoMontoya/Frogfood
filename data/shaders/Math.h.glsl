@@ -6,7 +6,15 @@
 // Constants
 const float M_PI = 3.141592654;
 
+// From void
+float solid_angle_mapping_PDF(float theta_max)
+{
+  return 1.0 / (2.0 * M_PI * (1.0 - cos(theta_max)));
+}
+
 // Functions
+
+// PDF: solid_angle_mapping_PDF
 vec3 RandVecInCone(vec2 xi, vec3 N, float angle)
 {
   float phi = 2.0 * M_PI * xi.x;
@@ -112,6 +120,24 @@ vec3 TurboColormap(float x)
     dot(v4, kGreenVec4) + dot(v2, kGreenVec2),
     dot(v4, kBlueVec4)  + dot(v2, kBlueVec2)
   );
+}
+
+// Stolen from void
+vec3 map_to_unit_sphere(vec2 uv)
+{
+  float cos_theta = 2.0 * uv.x - 1.0;
+  float phi = 2.0 * M_PI * uv.y;
+  float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+  float sin_phi = sin(phi);
+  float cos_phi = cos(phi);
+  
+  return vec3(sin_theta * cos_phi, cos_theta, sin_theta * sin_phi);
+}
+
+vec3 map_to_unit_hemisphere_cosine_weighted(vec2 uv, vec3 n)
+{
+  vec3 p = map_to_unit_sphere(uv);
+  return n + p;
 }
 
 #endif // MATH_H

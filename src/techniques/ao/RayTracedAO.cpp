@@ -4,6 +4,9 @@
 #include "Fvog/AccelerationStructure.h"
 #include "shaders/ao/rtao/RayTracedAO.comp.glsl"
 
+#include <tracy/Tracy.hpp>
+#include <tracy/TracyVulkan.hpp>
+
 namespace Techniques
 {
   namespace
@@ -39,6 +42,7 @@ namespace Techniques
     }
 
     ctx.ImageBarrierDiscard(aoTexture_.value(), VK_IMAGE_LAYOUT_GENERAL);
+    auto marker = ctx.MakeScopedDebugMarker("Ray Traced AO");
     ctx.BindComputePipeline(rtaoPipeline_);
     ctx.SetPushConstants(RtaoArguments{
       .tlasAddress          = params.tlas->GetAddress(),

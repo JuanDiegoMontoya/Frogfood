@@ -60,7 +60,7 @@ namespace
 
   void ImGui_HoverTooltip(const char* fmt, ...)
   {
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayNormal))
     {
       va_list args;
       va_start(args, fmt);
@@ -608,22 +608,6 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
       ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("View"))
-    {
-      // TODO: Reset window visibility flags (show*Window variables)
-      if (ImGui::MenuItem("Reset layout"))
-      {
-        ImGui::LoadIniSettingsFromDisk(g_defaultIniPath);
-      }
-
-      if (ImGui::MenuItem("Save layout"))
-      {
-        ImGui::SaveIniSettingsToDisk(g_defaultIniPath);
-      }
-
-      ImGui::EndMenu();
-    }
-
     if (ImGui::BeginMenu("Presets"))
     {
       if (ImGui::MenuItem("HDR Test (SDR)"))
@@ -642,7 +626,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
         mainCamera.position            = {-2.12f, 0.75f, -1.68f};
         mainCamera.pitch               = -0.22f;
         mainCamera.yaw                 = 12.85f;
-        sunStrength                    = 0.1f;
+        sunIlluminance                 = 0.1f;
       }
       ImGui_HoverTooltip("Settings:\n"
                          "Surface color space: sRGB_NONLINEAR\n"
@@ -666,7 +650,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
         mainCamera.position            = {-2.12f, 0.75f, -1.68f};
         mainCamera.pitch               = -0.22f;
         mainCamera.yaw                 = 12.85f;
-        sunStrength                    = 0.1f;
+        sunIlluminance                 = 0.1f;
       }
       ImGui_HoverTooltip("Settings:\n"
                          "Surface color space: scRGB_LINEAR or HDR10_ST2084\n"
@@ -684,6 +668,17 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
 
     if (ImGui::BeginMenu("Window"))
     {
+      // TODO: Reset window visibility flags (show*Window variables)
+      if (ImGui::MenuItem("Reset layout"))
+      {
+        ImGui::LoadIniSettingsFromDisk(g_defaultIniPath);
+      }
+
+      if (ImGui::MenuItem("Save layout"))
+      {
+        ImGui::SaveIniSettingsToDisk(g_defaultIniPath);
+      }
+
       ImGui::Checkbox("Performance", &showPerfWindow);
       ImGui::Checkbox("HDR", &showHdrWindow);
       ImGui::Checkbox("Component Editor", &showComponentEditorWindow);
@@ -694,6 +689,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
       ImGui::Checkbox("FSR 2", &showFsr2Window);
       ImGui::Checkbox("Materials", &showMaterialWindow);
       ImGui::Checkbox("Geometry Inspector", &showGeometryInspector);
+      ImGui::Checkbox("Ambient Occlusion", &showAoWindow);
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
@@ -771,28 +767,6 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
 
   if (ImGui::Begin(ICON_FA_SCREWDRIVER_WRENCH " Debug###debug_window", &showDebugWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
-    ImGui::SeparatorText("Ambient Occlusion");
-    if (ImGui::RadioButton("None##ao", aoMethod_ == AoMethod::NONE))
-    {
-      aoMethod_ = AoMethod::NONE;
-    }
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Ray Traced##ao", aoMethod_ == AoMethod::RAY_TRACED))
-    {
-      aoMethod_ = AoMethod::RAY_TRACED;
-    }
-
-    if (aoMethod_ == AoMethod::RAY_TRACED)
-    {
-      uint32_t minn = 0;
-      uint32_t maxx = 64;
-      ImGui::Checkbox("Per-frame noise", &aoUsePerFrameRng);
-      ImGui::SliderScalar("AO Rays", ImGuiDataType_U32, &rayTracedAoParams_.numRays, &minn, &maxx, "%u");
-      ImGui::SliderFloat("Ray Length", &rayTracedAoParams_.rayLength, 0.01f, 1000, "%.2fm", ImGuiSliderFlags_Logarithmic);
-    }
-#endif
-
     // TODO: make this only display available present modes
     const auto items = std::array{"Immediate", "Mailbox", "FIFO"};
     auto pMode = static_cast<int>(presentMode);
@@ -855,51 +829,107 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
   // TODO: pick icon for this window
   if (ImGui::Begin(" Shadow###shadow_window", &showShadowWindow, ImGuiWindowFlags_NoFocusOnAppearing))
   {
-    ImGui::TextUnformatted("VSM");
-    ImGui::SliderFloat("LoD Bias", &vsmUniforms.lodBias, -3, 3, "%.2f");
+    ImGui::SeparatorText("Sun Shadow Method");
+    int shadowMode = shadowUniforms.shadowMode;
+    ImGui::RadioButton("VSM", &shadowMode, SHADOW_MODE_VIRTUAL_SHADOW_MAP);
+    ImGui_HoverTooltip("%s", "Virtual shadow mapping. Generates a detailed, expansive shadow map\n"
+                             "with minimal memory overhead.");
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::BeginDisabled();
+#endif
+    ImGui::SameLine();
+    ImGui::RadioButton("Ray Traced", &shadowMode, SHADOW_MODE_RAY_TRACED);
+    ImGui_HoverTooltip("%s", "Ray traced shadows.\n"
+                             "Expensive, but delivers physically correct results.\n"
+                             "Only available when compiled with FROGRENDER_RAYTRACING_ENABLE.");
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::EndDisabled();
+#endif
+    shadowUniforms.shadowMode = shadowMode;
 
-    if (ImGui::SliderFloat("First Clipmap Width", &vsmFirstClipmapWidth, 1.0f, 100.0f))
+    if (shadowMode == SHADOW_MODE_VIRTUAL_SHADOW_MAP)
     {
-      vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -SphericalToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+      ImGui::SeparatorText("Shadow Map Filter");
+      int shadowMapFilter = shadowUniforms.shadowMapFilter;
+      ImGui::RadioButton("None", &shadowMapFilter, SHADOW_MAP_FILTER_NONE);
+      ImGui_HoverTooltip("%s", "No filtering. Provides hard shadows at a low cost.");
+      ImGui::SameLine();
+      ImGui::RadioButton("PCSS", &shadowMapFilter, SHADOW_MAP_FILTER_PCSS);
+      ImGui_HoverTooltip("%s", "Percentage-closer soft shadows. Provides plausible soft shadows with contact hardening at a low cost.");
+      ImGui::SameLine();
+      ImGui::BeginDisabled();
+      ImGui::RadioButton("SMRT", &shadowMapFilter, SHADOW_MAP_FILTER_SMRT);
+      ImGui_HoverTooltip("%s", "Shadow map ray tracing. Provides more realistic soft shadows with contact hardening at a moderate cost.");
+      ImGui::EndDisabled();
+      shadowUniforms.shadowMapFilter = shadowMapFilter;
     }
-
-    if (ImGui::SliderFloat("Projection Z Length", &vsmDirectionalProjectionZLength, 1.0f, 3000.0f, "%.2f", ImGuiSliderFlags_Logarithmic))
-    {
-      vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -SphericalToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
-    }
-    
-    ImGui_FlagCheckbox("Disable HPB", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS);
-    ImGui_HoverTooltip("The HPB (hierarchical page buffer) is used to cull\nmeshlets and primitives that are not touching an active page.");
-    ImGui_FlagCheckbox("Disable Page Caching", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES);
-    ImGui_HoverTooltip("Page caching reduces the amount of per-frame work\nby only drawing the pages whose visibility changed this frame.");
 
     auto SliderUint = [](const char* label, uint32_t* v, uint32_t v_min, uint32_t v_max) -> bool
     { return ImGui::SliderScalar(label, ImGuiDataType_U32, v, &v_min, &v_max, "%u"); };
 
-    int shadowMode = shadowUniforms.shadowFilter;
-    ImGui::RadioButton("PCSS", &shadowMode, SHADOW_FILTER_PCSS);
-    ImGui::SameLine();
-    ImGui::RadioButton("SMRT", &shadowMode, SHADOW_FILTER_SMRT);
-    ImGui::SameLine();
-    ImGui::RadioButton("None", &shadowMode, SHADOW_FILTER_NONE);
-    shadowUniforms.shadowFilter = shadowMode;
+    if (shadowMode == SHADOW_MODE_VIRTUAL_SHADOW_MAP && ImGui::TreeNode("Virtual Shadow Mapping"))
+    {
+      ImGui::SliderFloat("LoD Bias", &vsmUniforms.lodBias, -3, 3, "%.2f");
 
-    if (shadowMode == 0)
-    {
-      SliderUint("PCF Samples", &shadowUniforms.pcfSamples, 1, 64);
-      ImGui::SliderFloat("Light Width", &shadowUniforms.lightWidth, 0, 0.1f, "%.4f");
-      ImGui::SliderFloat("Max PCF Radius", &shadowUniforms.maxPcfRadius, 0, 0.1f, "%.4f");
-      SliderUint("Blocker Search Samples", &shadowUniforms.blockerSearchSamples, 1, 64);
-      ImGui::SliderFloat("Blocker Search Radius", &shadowUniforms.blockerSearchRadius, 0, 0.1f, "%.4f");
+      if (ImGui::SliderFloat("First Clipmap Width", &vsmFirstClipmapWidth, 1.0f, 100.0f))
+      {
+        vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -SphericalToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+      }
+
+      if (ImGui::SliderFloat("Projection Z Length", &vsmDirectionalProjectionZLength, 1.0f, 3000.0f, "%.2f", ImGuiSliderFlags_Logarithmic))
+      {
+        vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, -SphericalToCartesian(sunElevation, sunAzimuth), vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
+      }
+
+      ImGui_FlagCheckbox("Disable HPB", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_HZB_FORCE_SUCCESS);
+      ImGui_HoverTooltip("The HPB (hierarchical page buffer) is used to cull\nmeshlets and primitives that are not touching an active page.");
+      ImGui_FlagCheckbox("Disable Page Caching", &vsmUniforms.debugFlags, (uint32_t)Techniques::VirtualShadowMaps::DebugFlag::VSM_FORCE_DIRTY_VISIBLE_PAGES);
+      ImGui_HoverTooltip("Page caching reduces the amount of per-frame work\nby only drawing the pages whose visibility changed this frame.");
+      ImGui::TreePop();
     }
-    else if (shadowMode == 1)
+    else if (shadowMode == SHADOW_MODE_RAY_TRACED && ImGui::TreeNode("Ray Tracing"))
     {
-      SliderUint("Shadow Rays", &shadowUniforms.shadowRays, 1, 10);
-      SliderUint("Steps Per Ray", &shadowUniforms.stepsPerRay, 1, 20);
-      ImGui::SliderFloat("Ray Step Size", &shadowUniforms.rayStepSize, 0.01f, 1.0f);
-      ImGui::SliderFloat("Heightmap Thickness", &shadowUniforms.heightmapThickness, 0.05f, 1.0f);
-      ImGui::SliderFloat("Light Spread", &shadowUniforms.sourceAngleRad, 0.001f, 0.3f);
+      SliderUint("Shadow Rays", &shadowUniforms.rtNumSunShadowRays, 1, 64);
+      float angleDeg = glm::degrees(shadowUniforms.rtSunDiameterRadians);
+      ImGui::SliderFloat("Sun Diameter", &angleDeg, 0, 5, "%.2f deg");
+      shadowUniforms.rtSunDiameterRadians = glm::radians(angleDeg);
+      ImGui::TreePop();
     }
+
+    // Include any shadow mapping mode since those can have shadow map filtering.
+    if (shadowMode == SHADOW_MODE_VIRTUAL_SHADOW_MAP)
+    {
+      if (ImGui::TreeNode("Shadow Map Filtering"))
+      {
+        if (shadowUniforms.shadowMapFilter == SHADOW_MAP_FILTER_PCSS)
+        {
+          SliderUint("PCF Samples", &shadowUniforms.pcfSamples, 1, 64);
+          ImGui::SliderFloat("Light Width", &shadowUniforms.lightWidth, 0, 0.1f, "%.4f");
+          ImGui::SliderFloat("Max PCF Radius", &shadowUniforms.maxPcfRadius, 0, 0.1f, "%.4f");
+          SliderUint("Blocker Search Samples", &shadowUniforms.blockerSearchSamples, 1, 64);
+          ImGui::SliderFloat("Blocker Search Radius", &shadowUniforms.blockerSearchRadius, 0, 0.1f, "%.4f");
+        }
+        else if (shadowUniforms.shadowMapFilter == SHADOW_MAP_FILTER_SMRT)
+        {
+          SliderUint("Shadow Rays", &shadowUniforms.shadowRays, 1, 10);
+          SliderUint("Steps Per Ray", &shadowUniforms.stepsPerRay, 1, 20);
+          ImGui::SliderFloat("Ray Step Size", &shadowUniforms.rayStepSize, 0.01f, 1.0f);
+          ImGui::SliderFloat("Heightmap Thickness", &shadowUniforms.heightmapThickness, 0.05f, 1.0f);
+          ImGui::SliderFloat("Light Spread", &shadowUniforms.sourceAngleRad, 0.001f, 0.3f);
+        }
+        ImGui::TreePop();
+      }
+    }
+
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::BeginDisabled();
+#endif
+    bool traceLocalLights = shadowUniforms.rtTraceLocalLights;
+    ImGui::Checkbox("Ray Traced Local Lights", &traceLocalLights);
+    shadowUniforms.rtTraceLocalLights = traceLocalLights;
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::EndDisabled();
+#endif
   }
   ImGui::End();
 }
@@ -1495,7 +1525,9 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       }
 
       Gui::ColorEdit3("Sun Color", &sunColor[0], nullptr, ImGuiColorEditFlags_Float);
-      Gui::SliderFloat("Sun Strength", &sunStrength, 0, 111000, nullptr, "%.2f lx", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+      Gui::SliderFloat("Sun Illuminance", &sunIlluminance, 0, 111000, "111,000 lux: Bright sunlight\n"
+                                                                      "1 lux: Moonlight\n",
+        "%.2f lx", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
 
       Gui::EndProperties();
     }
@@ -1931,6 +1963,48 @@ void FrogRenderer2::GuiDrawGeometryInspector(VkCommandBuffer)
   ImGui::End();
 }
 
+void FrogRenderer2::GuiDrawAoWindow(VkCommandBuffer)
+{
+  ZoneScoped;
+
+  if (!showAoWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin("Ambient Occlusion", &showAoWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  {
+    ImGui::SeparatorText("Method");
+    if (ImGui::RadioButton("None##ao", aoMethod_ == AoMethod::NONE))
+    {
+      aoMethod_ = AoMethod::NONE;
+    }
+    ImGui::SameLine();
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::BeginDisabled();
+#endif
+    if (ImGui::RadioButton("Ray Traced##ao", aoMethod_ == AoMethod::RAY_TRACED))
+    {
+      aoMethod_ = AoMethod::RAY_TRACED;
+    }
+    ImGui_HoverTooltip("Provides the greatest quality at the greatest expense.\n"
+                       "Only available when compiled with FROGRENDER_RAYTRACING_ENABLE.");
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::EndDisabled();
+#else
+    if (aoMethod_ == AoMethod::RAY_TRACED)
+    {
+      uint32_t minn = 0;
+      uint32_t maxx = 64;
+      ImGui::Checkbox("Per-frame noise", &aoUsePerFrameRng);
+      ImGui::SliderScalar("AO Rays", ImGuiDataType_U32, &rayTracedAoParams_.numRays, &minn, &maxx, "%u");
+      ImGui::SliderFloat("Ray Length", &rayTracedAoParams_.rayLength, 0.01f, 1000, "%.2fm", ImGuiSliderFlags_Logarithmic);
+    }
+#endif
+  }
+  ImGui::End();
+}
+
 void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
@@ -2152,4 +2226,5 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
   GuiDrawComponentEditor(commandBuffer);
   GuiDrawHdrWindow(commandBuffer);
   GuiDrawSceneGraph(commandBuffer);
+  GuiDrawAoWindow(commandBuffer);
 }

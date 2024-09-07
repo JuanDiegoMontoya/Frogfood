@@ -283,7 +283,76 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
 
 
 
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+// glslang doesn't like having an acceleration structure as a parameter (it generates invalid spirv)
+// flatNormal: used for shadow offset
+// actualNormal: used for cosine term
+float ShadowSunRayTraced(vec3 worldPos, vec3 dirToSun, vec3 flatNormal, vec3 shadingNormal, float diameterRadians, vec2 noise, uint numRays, uint64_t tlasAddress)
+{
+  if (numRays == 0)
+  {
+    return 0;
+  }
 
+  float visibility = 0.0;
+  for (uint i = 0; i < numRays; i++)
+  {
+    const vec2 xi = fract(noise + Hammersley(i, numRays));
+    const vec3 rayDir = RandVecInCone(xi, dirToSun, diameterRadians);
+
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(tlasAddress), 
+      gl_RayFlagsOpaqueEXT,
+      0xFF, worldPos + flatNormal * .001, 0.001, rayDir, 10000);
+      
+    while (rayQueryProceedEXT(rayQuery))
+    {
+      if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
+      {
+        rayQueryConfirmIntersectionEXT(rayQuery);
+      }
+    }
+
+    if (!(rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT))
+    {
+      const float cosTheta = clamp(dot(rayDir, shadingNormal), 0.0, 1.0);
+      visibility += cosTheta;
+    }
+  }
+
+  return visibility / numRays;
+}
+
+vec3 LocalLightIntensityRayTraced(vec3 viewDir, Surface surface, uint64_t tlasAddress)
+{
+  vec3 color = { 0, 0, 0 };
+
+  for (uint i = 0; i < shadingUniforms.numberOfLights; i++)
+  {
+    GpuLight light = d_lightBuffer.lights[i];
+
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(tlasAddress), 
+      gl_RayFlagsOpaqueEXT,
+      0xFF, surface.position + surface.normal * .01, 0.001, normalize(light.position - surface.position), distance(light.position, surface.position));
+      
+    while (rayQueryProceedEXT(rayQuery))
+    {
+      if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
+      {
+        rayQueryConfirmIntersectionEXT(rayQuery);
+      }
+    }
+
+    if (!(rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT))
+    {
+      color += EvaluatePunctualLight(viewDir, light, surface, shadingUniforms.shadingInternalColorSpace);
+    }
+  }
+
+  return color;
+}
+#endif
 
 vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 {
@@ -327,20 +396,45 @@ void main()
 
 
 
-  // ShadowVsm is only used for debugging
-  ShadowVsmOut shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
-  float shadowSun = shadowVsm.shadow;
-
-  if (shadowUniforms.shadowFilter == SHADOW_FILTER_PCSS)
-  {
-    shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal);
-  }
-
-
-
-
+  float shadowSun = 0;
 
   vec3 normal = mappedNormal;
+
+  const float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
+
+  // shadowVsm is only used for debugging.
+  ShadowVsmOut shadowVsm;
+  if (shadowUniforms.shadowMode == SHADOW_MODE_VIRTUAL_SHADOW_MAP)
+  {
+    shadowVsm = ShadowVsm(fragWorldPos, flatNormal);
+    if (shadowUniforms.shadowMapFilter == SHADOW_MAP_FILTER_NONE)
+    {
+      shadowSun = shadowVsm.shadow * NoL_sun;
+    }
+    else if (shadowUniforms.shadowMapFilter == SHADOW_MAP_FILTER_PCSS)
+    {
+      shadowSun = ShadowVsmPcss(fragWorldPos, flatNormal) * NoL_sun;
+    }
+    else if (shadowUniforms.shadowMapFilter == SHADOW_MAP_FILTER_SMRT)
+    {
+      ASSERT_MSG(false, "SMRT is not implemented\n");
+    }
+  }
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  else if (shadowUniforms.shadowMode == SHADOW_MODE_RAY_TRACED)
+  {
+    uint randState = PCG_Hash(PCG_Hash(gid.y + PCG_Hash(gid.x)));
+    const vec2 noise = shadingUniforms.random + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1));
+    shadowSun = ShadowSunRayTraced(fragWorldPos,
+                  -shadingUniforms.sunDir.xyz,
+                  flatNormal,
+                  normal,
+                  shadowUniforms.rtSunDiameterRadians,
+                  noise,
+                  shadowUniforms.rtNumSunShadowRays,
+                  shadingUniforms.tlasAddress);
+  }
+#endif
 
   if ((shadingUniforms.debugFlags & BLEND_NORMALS) != 0)
   {
@@ -367,12 +461,22 @@ void main()
 
   vec3 finalColor = vec3(.03) * albedo_internal * metallicRoughnessAo.z * ao; // Ambient lighting
 
-  float NoL_sun = clamp(dot(normal, -shadingUniforms.sunDir.xyz), 0.0, 1.0);
-  const vec3 sunColor_internal_space = color_convert_src_to_dst(shadingUniforms.sunStrength.rgb,
+  const vec3 sunColor_internal_space = color_convert_src_to_dst(shadingUniforms.sunIlluminance.rgb,
     COLOR_SPACE_sRGB_LINEAR,
     shadingUniforms.shadingInternalColorSpace);
-  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * sunColor_internal_space * NoL_sun * shadowSun;
-  finalColor += LocalLightIntensity(viewDir, surface);
+  // Treat sun solid angle as constant 0.5 degrees for PDF. Otherwise, changing the diameter of the sun will change the scene brightness.
+  // That is realistic because the sun's intensity is defined as lux (lm/m^2), but it's annoying to work with.
+  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * sunColor_internal_space * shadowSun / solid_angle_mapping_PDF(radians(0.5));
+  #ifdef FROGRENDER_RAYTRACING_ENABLE
+  if (shadowUniforms.rtTraceLocalLights == 1)
+  {
+    finalColor += LocalLightIntensityRayTraced(viewDir, surface, shadingUniforms.tlasAddress);
+  }
+  else
+  #endif
+  {
+    finalColor += LocalLightIntensity(viewDir, surface);
+  }
   finalColor += emission_internal;
 
   o_color = finalColor;

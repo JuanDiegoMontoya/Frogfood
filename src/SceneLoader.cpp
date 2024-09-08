@@ -27,7 +27,7 @@
 #include <stb_image.h>
 
 #include <fastgltf/glm_element_traits.hpp>
-#include <fastgltf/parser.hpp>
+#include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
 
@@ -244,22 +244,21 @@ namespace Utility
         
               return MakeRawImageData(fileData.first.get(), fileData.second, filePath->mimeType, image.name);
             }
-        
-            if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
+            if (const auto* array = std::get_if<fastgltf::sources::Array>(&image.data))
             {
-              return MakeRawImageData(vector->bytes.data(), vector->bytes.size(), vector->mimeType, image.name);
+              return MakeRawImageData(array->bytes.data(), array->bytes.size(), array->mimeType, image.name);
             }
-        
             if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
             {
               auto& bufferView = asset.bufferViews[view->bufferViewIndex];
               auto& buffer = asset.buffers[bufferView.bufferIndex];
-              if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&buffer.data))
+              if (const auto* array = std::get_if<fastgltf::sources::Array>(&buffer.data))
               {
-                return MakeRawImageData(vector->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
+                return MakeRawImageData(array->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
               }
             }
             
+            assert(0);
             return RawImageData{};
           }();
         
@@ -316,7 +315,6 @@ namespace Utility
             else
             {
               // Use the format that the image is already in
-              //rawImage.formatIfKtx = VkBcFormatToFwog(ktx->vkFormat);
               rawImage.formatIfKtx = Fvog::detail::VkToFormat(static_cast<VkFormat>(ktx->vkFormat));
             }
         
@@ -400,7 +398,7 @@ namespace Utility
               [&](const ImageUploadInfo& imageUpload)
               { std::memcpy(static_cast<std::byte*>(stagingBuffer.GetMappedMemory()) + imageUpload.bufferOffset, imageUpload.data, imageUpload.size); });
           }
-
+          
           for (const auto& imageUpload : imageUploadInfos)
           {
             vkCmdCopyBufferToImage2(commandBuffer, Fvog::detail::Address(VkCopyBufferToImageInfo2{
@@ -564,7 +562,7 @@ namespace Utility
     {
       glm::mat4 transform{1};
 
-      if (auto* trs = std::get_if<fastgltf::Node::TRS>(&node.transform))
+      if (auto* trs = std::get_if<fastgltf::TRS>(&node.transform))
       {
         // Note: do not use glm::make_quat because glm and glTF use different quaternion component layouts (wxyz vs xyzw)!
         auto rotation = glm::quat{trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
@@ -576,7 +574,7 @@ namespace Utility
         // T * R * S
         transform = glm::scale(glm::translate(translation) * rotationMat, scale);
       }
-      else if (auto* mat = std::get_if<fastgltf::Node::TransformMatrix>(&node.transform))
+      else if (auto* mat = std::get_if<fastgltf::math::fmat4x4>(&node.transform))
       {
         transform = glm::make_mat4(mat->data());
       }
@@ -737,7 +735,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_OCCLUSION_TEXTURE;
         const auto& occlusionTexture     = model.textures[loaderMaterial.occlusionTexture->textureIndex];
-        auto& image                      = images[occlusionTexture.imageIndex.value()];
+        auto& image                      = images[(occlusionTexture.imageIndex ? occlusionTexture.imageIndex : occlusionTexture.basisuImageIndex).value()];
         auto name                        = occlusionTexture.name.empty() ? "Occlusion" : occlusionTexture.name;
         auto view                        = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.occlusionTextureSampler = {
@@ -752,7 +750,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_EMISSION_TEXTURE;
         const auto& emissiveTexture     = model.textures[loaderMaterial.emissiveTexture->textureIndex];
-        auto& image                     = images[emissiveTexture.imageIndex.value()];
+        auto& image                     = images[(emissiveTexture.imageIndex ? emissiveTexture.imageIndex : emissiveTexture.basisuImageIndex).value()];
         auto name                       = emissiveTexture.name.empty() ? "Emissive" : emissiveTexture.name;
         auto view                       = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
         material.emissiveTextureSampler = {
@@ -767,7 +765,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_NORMAL_TEXTURE;
         const auto& normalTexture     = model.textures[loaderMaterial.normalTexture->textureIndex];
-        auto& image                   = images[normalTexture.imageIndex.value()];
+        auto& image                   = images[(normalTexture.imageIndex ? normalTexture.imageIndex : normalTexture.basisuImageIndex).value()];
         auto name                     = normalTexture.name.empty() ? "Normal Map" : normalTexture.name;
         auto view                     = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.normalTextureSampler = {
@@ -783,7 +781,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
         const auto& baseColorTexture  = model.textures[loaderMaterial.pbrData.baseColorTexture->textureIndex];
-        auto& image                   = images[baseColorTexture.imageIndex.value()];
+        auto& image                   = images[(baseColorTexture.imageIndex ? baseColorTexture.imageIndex : baseColorTexture.basisuImageIndex).value()];
         auto name                     = baseColorTexture.name.empty() ? "Base Color" : baseColorTexture.name;
         auto view                     = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
         material.albedoTextureSampler = {
@@ -798,7 +796,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE;
         const auto& metallicRoughnessTexture     = model.textures[loaderMaterial.pbrData.metallicRoughnessTexture->textureIndex];
-        auto& image                              = images[metallicRoughnessTexture.imageIndex.value()];
+        auto& image                              = images[(metallicRoughnessTexture.imageIndex ? metallicRoughnessTexture.imageIndex : metallicRoughnessTexture.basisuImageIndex).value()];
         auto name                                = metallicRoughnessTexture.name.empty() ? "MetallicRoughness" : metallicRoughnessTexture.name;
         auto view                                = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.metallicRoughnessTextureSampler = {
@@ -814,7 +812,7 @@ namespace Utility
       material.gpuMaterial.roughnessFactor  = loaderMaterial.pbrData.roughnessFactor;
       material.gpuMaterial.emissiveFactor   = glm::make_vec3(loaderMaterial.emissiveFactor.data());
       material.gpuMaterial.alphaCutoff      = loaderMaterial.alphaCutoff;
-      material.gpuMaterial.emissiveStrength = loaderMaterial.emissiveStrength.value_or(1.0f);
+      material.gpuMaterial.emissiveStrength = loaderMaterial.emissiveStrength;
       materials.emplace_back(std::move(material));
     }
 
@@ -858,22 +856,22 @@ namespace Utility
       constexpr auto gltfExtensions = Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization | Extensions::EXT_meshopt_compression |
                                       Extensions::KHR_lights_punctual | Extensions::KHR_materials_emissive_strength;
       auto parser = fastgltf::Parser(gltfExtensions);
-
-      auto data = fastgltf::GltfDataBuffer();
-      data.loadFromFile(path);
-
-      constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages | fastgltf::Options::LoadGLBBuffers;
-      if (isBinary)
+      
+      auto dataBuffer = fastgltf::GltfDataBuffer::FromPath(path);
+      if (dataBuffer.error() != fastgltf::Error::None)
       {
-        return parser.loadBinaryGLTF(&data, path.parent_path(), options);
+        std::cout << "fastgltf: failed to load data buffer. Reason: " << fastgltf::getErrorMessage(dataBuffer.error()) << '\n';
+        return dataBuffer.error();
       }
 
-      return parser.loadGLTF(&data, path.parent_path(), options);
+      constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages;
+      
+      return parser.loadGltf(dataBuffer.get(), path.parent_path(), options);
     }();
 
-    if (auto err = maybeAsset.error(); err != fastgltf::Error::None)
+    if (maybeAsset.error() != fastgltf::Error::None)
     {
-      std::cout << "glTF error: " << static_cast<uint64_t>(err) << '\n';
+      std::cout << "fastgltf: failed to load glTF. Reason: " << fastgltf::getErrorMessage(maybeAsset.error()) << '\n';
       return std::nullopt;
     }
 
@@ -908,12 +906,12 @@ namespace Utility
     std::stack<StackElement> nodeStack;
 
     // Create the root node for this scene
-    std::array<float, 16> rootTransformArray{};
+    auto rootTransformArray = fastgltf::math::fmat4x4{};
     std::copy_n(&rootTransform[0][0], 16, rootTransformArray.data());
-    std::array<float, 3> rootScaleArray{};
-    std::array<float, 4> rootRotationArray{};
-    std::array<float, 3> rootTranslationArray{};
-    fastgltf::decomposeTransformMatrix(rootTransformArray, rootScaleArray, rootRotationArray, rootTranslationArray);
+    auto rootScaleArray       = fastgltf::math::fvec3{};
+    auto rootRotationArray    = fastgltf::math::fquat{};
+    auto rootTranslationArray = fastgltf::math::fvec3{};
+    fastgltf::math::decomposeTransformMatrix(rootTransformArray, rootScaleArray, rootRotationArray, rootTranslationArray);
     const auto rootTranslation = glm::make_vec3(rootTranslationArray.data());
     const auto rootRotation = glm::quat{rootRotationArray[3], rootRotationArray[0], rootRotationArray[1], rootRotationArray[2]};
     const auto rootScale = glm::make_vec3(rootScaleArray.data());
@@ -942,15 +940,15 @@ namespace Utility
 
         const glm::mat4 localTransform = NodeToMat4(*gltfNode);
 
-        std::array<float, 16> localTransformArray{};
+        auto localTransformArray = fastgltf::math::fmat4x4{};
         std::copy_n(&localTransform[0][0], 16, localTransformArray.data());
-        std::array<float, 3> scaleArray{};
-        std::array<float, 4> rotationArray{};
-        std::array<float, 3> translationArray{};
+        auto scaleArray       = fastgltf::math::fvec3{};
+        auto rotationArray    = fastgltf::math::fquat{};
+        auto translationArray = fastgltf::math::fvec3{};
 
         {
           ZoneScopedN("Decompose transform matrix");
-          fastgltf::decomposeTransformMatrix(localTransformArray, scaleArray, rotationArray, translationArray);
+          fastgltf::math::decomposeTransformMatrix(localTransformArray, scaleArray, rotationArray, translationArray);
         }
 
         node->translation = glm::make_vec3(translationArray.data());
@@ -976,7 +974,7 @@ namespace Utility
             AccessorIndices accessorIndices;
             if (auto it = primitive.findAttribute("POSITION"); it != primitive.attributes.end())
             {
-              accessorIndices.positionsIndex = it->second;
+              accessorIndices.positionsIndex = it->accessorIndex;
             }
             else
             {
@@ -986,7 +984,7 @@ namespace Utility
 
             if (auto it = primitive.findAttribute("NORMAL"); it != primitive.attributes.end())
             {
-              accessorIndices.normalsIndex = it->second;
+              accessorIndices.normalsIndex = it->accessorIndex;
             }
             else
             {
@@ -997,7 +995,7 @@ namespace Utility
 
             if (auto it = primitive.findAttribute("TEXCOORD_0"); it != primitive.attributes.end())
             {
-              accessorIndices.texcoordsIndex = it->second;
+              accessorIndices.texcoordsIndex = it->accessorIndex;
             }
             else
             {
@@ -1005,7 +1003,7 @@ namespace Utility
             }
 
             assert(primitive.indicesAccessor.has_value() && "Non-indexed meshes are not supported");
-            accessorIndices.indicesIndex = primitive.indicesAccessor;
+            accessorIndices.indicesIndex = primitive.indicesAccessor.value();
 
             size_t rawMeshIndex = uniqueAccessorCombinations.size();
 
@@ -1023,11 +1021,15 @@ namespace Utility
               rawMeshIndex = it->second;
             }
 
-            auto materialId = primitive.materialIndex;
+            auto materialId = std::optional<size_t>();
 
-            if (skipMaterials)
+            if (skipMaterials || !primitive.materialIndex)
             {
               materialId = std::nullopt;
+            }
+            else
+            {
+              materialId = primitive.materialIndex.value();
             }
 
             node->meshes.emplace_back(rawMeshIndex, materialId);

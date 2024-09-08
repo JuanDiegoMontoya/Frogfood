@@ -6,6 +6,7 @@
 #include <tracy/Tracy.hpp>
 
 #include "fastgltf/util.hpp"
+#include <fastgltf/types.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace Scene
@@ -190,12 +191,12 @@ namespace Scene
         {
           auto gpuLight = node->light;
 
-          std::array<float, 16> globalTransformArray{};
+          auto globalTransformArray = fastgltf::math::fmat4x4{};
           std::copy_n(&globalTransform[0][0], 16, globalTransformArray.data());
-          std::array<float, 3> scaleArray{};
-          std::array<float, 4> rotationArray{};
-          std::array<float, 3> translationArray{};
-          fastgltf::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
+          auto scaleArray = fastgltf::math::fvec3{};
+          auto rotationArray = fastgltf::math::fquat{};
+          auto translationArray = fastgltf::math::fvec3{};
+          fastgltf::math::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
 
           glm::quat rotation    = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
           glm::vec3 translation = glm::make_vec3(translationArray.data());

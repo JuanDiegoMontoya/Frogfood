@@ -20,7 +20,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     fastgltf
     GIT_REPOSITORY https://github.com/spnda/fastgltf.git
-    GIT_TAG        c15b151c204de0af45c97940a0750c3169407752
+    GIT_TAG        af0e3ca17439623c1403f56dafff41cc94fed023
 )
 
 FetchContent_Declare(

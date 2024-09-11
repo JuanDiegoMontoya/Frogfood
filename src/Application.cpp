@@ -340,13 +340,13 @@ Application::Application(const CreateInfo& createInfo)
   // device
   {
     ZoneScopedN("Create Device");
-    device_.emplace(instance_, surface);
+    Fvog::CreateDevice(instance_, surface);
   }
   
   // swapchain
   {
     ZoneScopedN("Create Swapchain");
-    swapchain_ = MakeVkbSwapchain(device_->device_,
+    swapchain_ = MakeVkbSwapchain(Fvog::GetDevice().device_,
       windowFramebufferWidth,
       windowFramebufferHeight,
       presentMode,
@@ -355,21 +355,21 @@ Application::Application(const CreateInfo& createInfo)
       swapchainFormat_);
 
     swapchainImages_     = swapchain_.get_images().value();
-    swapchainImageViews_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainFormat_.format);
+    swapchainImageViews_ = MakeSwapchainImageViews(Fvog::GetDevice().device_, swapchainImages_, swapchainFormat_.format);
 
     // Get available formats for this surface
     uint32_t surfaceFormatCount{};
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device_->physicalDevice_, surface, &surfaceFormatCount, nullptr);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(Fvog::GetDevice().physicalDevice_, surface, &surfaceFormatCount, nullptr);
     availableSurfaceFormats_.resize(surfaceFormatCount);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device_->physicalDevice_, surface, &surfaceFormatCount, availableSurfaceFormats_.data());
+    vkGetPhysicalDeviceSurfaceFormatsKHR(Fvog::GetDevice().physicalDevice_, surface, &surfaceFormatCount, availableSurfaceFormats_.data());
   }
 
   glslang::InitializeProcess();
   destroyList_.Push([] { glslang::FinalizeProcess(); });
 
   // Initialize Tracy
-  tracyVkContext_ = TracyVkContextHostCalibrated(device_->physicalDevice_,
-                                                 device_->device_,
+  tracyVkContext_ = TracyVkContextHostCalibrated(Fvog::GetDevice().physicalDevice_,
+                                                 Fvog::GetDevice().device_,
                                                  vkResetQueryPool,
                                                  vkGetPhysicalDeviceCalibrateableTimeDomainsEXT,
                                                  vkGetCalibratedTimestampsEXT);
@@ -384,7 +384,7 @@ Application::Application(const CreateInfo& createInfo)
   destroyList_.Push([] { ImGui_ImplGlfw_Shutdown(); });
 
   // ImGui may create many sets, but each will only have one combined image sampler
-  vkCreateDescriptorPool(device_->device_, Fvog::detail::Address(VkDescriptorPoolCreateInfo{
+  vkCreateDescriptorPool(Fvog::GetDevice().device_, Fvog::detail::Address(VkDescriptorPoolCreateInfo{
     .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
     .flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
     .maxSets = 1234, // TODO: make this constant a variable
@@ -393,14 +393,13 @@ Application::Application(const CreateInfo& createInfo)
   }), nullptr, &imguiDescriptorPool_);
 
   auto imguiVulkanInitInfo = ImGui_ImplFvog_InitInfo{
-    .Instance = instance_,
-    .PhysicalDevice = device_->physicalDevice_,
-    .Device = &device_.value(),
-    .QueueFamily = device_->graphicsQueueFamilyIndex_,
-    .Queue = device_->graphicsQueue_,
-    .DescriptorPool = imguiDescriptorPool_,
-    .MinImageCount = swapchain_.image_count,
-    .ImageCount = swapchain_.image_count,
+    .Instance        = instance_,
+    .PhysicalDevice  = Fvog::GetDevice().physicalDevice_,
+    .QueueFamily     = Fvog::GetDevice().graphicsQueueFamilyIndex_,
+    .Queue           = Fvog::GetDevice().graphicsQueue_,
+    .DescriptorPool  = imguiDescriptorPool_,
+    .MinImageCount   = swapchain_.image_count,
+    .ImageCount      = swapchain_.image_count,
     .CheckVkResultFn = Fvog::detail::CheckVkResult,
   };
 
@@ -418,7 +417,7 @@ Application::~Application()
   // Must happen before device is destroyed, thus cannot go in the destroy list
   ImGui_ImplFvog_Shutdown();
 
-  vkDestroyDescriptorPool(device_->device_, imguiDescriptorPool_, nullptr);
+  vkDestroyDescriptorPool(Fvog::GetDevice().device_, imguiDescriptorPool_, nullptr);
 
   DestroyVkContext(tracyVkContext_);
 
@@ -426,7 +425,7 @@ Application::~Application()
 
   for (auto view : swapchainImageViews_)
   {
-    vkDestroyImageView(device_->device_, view, nullptr);
+    vkDestroyImageView(Fvog::GetDevice().device_, view, nullptr);
   }
 }
 
@@ -438,28 +437,28 @@ void Application::Draw()
   timeOfLastDraw = glfwGetTime();
   auto dtDraw = timeOfLastDraw - prevTime;
 
-  device_->frameNumber++;
-  auto& currentFrameData = device_->GetCurrentFrameData();
+  Fvog::GetDevice().frameNumber++;
+  auto& currentFrameData = Fvog::GetDevice().GetCurrentFrameData();
 
   {
     ZoneScopedN("vkWaitSemaphores (graphics queue timeline)");
-    vkWaitSemaphores(device_->device_, Fvog::detail::Address(VkSemaphoreWaitInfo{
+    vkWaitSemaphores(Fvog::GetDevice().device_, Fvog::detail::Address(VkSemaphoreWaitInfo{
       .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
       .semaphoreCount = 1,
-      .pSemaphores = &device_->graphicsQueueTimelineSemaphore_,
+      .pSemaphores = &Fvog::GetDevice().graphicsQueueTimelineSemaphore_,
       .pValues = &currentFrameData.renderTimelineSemaphoreWaitValue,
     }), UINT64_MAX);
   }
 
   // Garbage collection
-  device_->FreeUnusedResources();
+  Fvog::GetDevice().FreeUnusedResources();
   
   uint32_t swapchainImageIndex{};
 
   {
     // https://gist.github.com/nanokatze/bb03a486571e13a7b6a8709368bd87cf#file-handling-window-resize-md
     ZoneScopedN("vkAcquireNextImage2KHR");
-    if (auto acquireResult = vkAcquireNextImage2KHR(device_->device_, Fvog::detail::Address(VkAcquireNextImageInfoKHR{
+    if (auto acquireResult = vkAcquireNextImage2KHR(Fvog::GetDevice().device_, Fvog::detail::Address(VkAcquireNextImageInfoKHR{
       .sType = VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
       .swapchain = swapchain_,
       .timeout = static_cast<uint64_t>(-1),
@@ -484,7 +483,7 @@ void Application::Draw()
 
   {
     ZoneScopedN("vkResetCommandPool");
-    Fvog::detail::CheckVkResult(vkResetCommandPool(device_->device_, currentFrameData.commandPool, 0));
+    Fvog::detail::CheckVkResult(vkResetCommandPool(Fvog::GetDevice().device_, currentFrameData.commandPool, 0));
   }
 
   {
@@ -495,7 +494,7 @@ void Application::Draw()
     })));
   }
 
-  auto ctx = Fvog::Context(*device_, commandBuffer);
+  auto ctx = Fvog::Context(commandBuffer);
 
   {
     ZoneScopedN("Begin ImGui frame");
@@ -560,8 +559,8 @@ void Application::Draw()
       const auto queueSubmitSignalSemaphores = std::array{
         VkSemaphoreSubmitInfo{
           .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-          .semaphore = device_->graphicsQueueTimelineSemaphore_,
-          .value = device_->frameNumber,
+          .semaphore = Fvog::GetDevice().graphicsQueueTimelineSemaphore_,
+          .value = Fvog::GetDevice().frameNumber,
           .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
         },
         VkSemaphoreSubmitInfo{
@@ -571,7 +570,7 @@ void Application::Draw()
         }};
 
       Fvog::detail::CheckVkResult(vkQueueSubmit2(
-        device_->graphicsQueue_,
+        Fvog::GetDevice().graphicsQueue_,
         1,
         Fvog::detail::Address(VkSubmitInfo2{
           .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
@@ -592,12 +591,12 @@ void Application::Draw()
         VK_NULL_HANDLE)
       );
 
-      currentFrameData.renderTimelineSemaphoreWaitValue = device_->frameNumber;
+      currentFrameData.renderTimelineSemaphoreWaitValue = Fvog::GetDevice().frameNumber;
     }
 
     {
       ZoneScopedN("Present");
-      if (auto presentResult = vkQueuePresentKHR(device_->graphicsQueue_, Fvog::detail::Address(VkPresentInfoKHR{
+      if (auto presentResult = vkQueuePresentKHR(Fvog::GetDevice().graphicsQueue_, Fvog::detail::Address(VkPresentInfoKHR{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &currentFrameData.renderSemaphore,
@@ -738,14 +737,14 @@ void Application::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_un
 
   {
     ZoneScopedN("Device Wait Idle");
-    vkDeviceWaitIdle(device_->device_);
+    vkDeviceWaitIdle(Fvog::GetDevice().device_);
   }
 
   const auto oldSwapchain = swapchain_;
 
   {
     ZoneScopedN("Create New Swapchain");
-    swapchain_ = MakeVkbSwapchain(device_->device_,
+    swapchain_ = MakeVkbSwapchain(Fvog::GetDevice().device_,
                                   windowFramebufferWidth,
                                   windowFramebufferHeight,
                                   presentMode,
@@ -762,12 +761,12 @@ void Application::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_un
 
     for (auto view : swapchainImageViews_)
     {
-      vkDestroyImageView(device_->device_, view, nullptr);
+      vkDestroyImageView(Fvog::GetDevice().device_, view, nullptr);
     }
   }
 
   swapchainImages_ = swapchain_.get_images().value();
-  swapchainImageViews_ = MakeSwapchainImageViews(device_->device_, swapchainImages_, swapchainFormat_.format);
+  swapchainImageViews_ = MakeSwapchainImageViews(Fvog::GetDevice().device_, swapchainImages_, swapchainFormat_.format);
 
   swapchainOk = true;
   

@@ -696,4 +696,25 @@ namespace Fvog
   {
     freeSlots_.push(index);
   }
+
+  namespace
+  {
+    Device* gDevice = nullptr;
+  }
+
+  void CreateDevice(vkb::Instance& instance, VkSurfaceKHR surface)
+  {
+    gDevice = new Device(instance, surface);
+  }
+
+  Device& GetDevice()
+  {
+    assert(gDevice);
+    return *gDevice;
+  }
+
+  void DestroyDevice()
+  {
+    delete gDevice;
+  }
 } // namespace Fvog

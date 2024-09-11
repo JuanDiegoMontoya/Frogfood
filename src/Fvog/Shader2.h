@@ -39,10 +39,10 @@ namespace Fvog
     /// @param source A GLSL source string
     /// @throws ShaderCompilationException if the shader is malformed
     // Already-processed source constructor
-    explicit Shader(VkDevice device, PipelineStage stage, std::string_view source, std::string name = {});
+    explicit Shader(PipelineStage stage, std::string_view source, std::string name = {});
 
     // Path constructor (uses glslang include handling)
-    explicit Shader(VkDevice device, PipelineStage stage, const std::filesystem::path& path, std::string name = {});
+    explicit Shader(PipelineStage stage, const std::filesystem::path& path, std::string name = {});
     Shader(const Shader&) = delete;
     Shader(Shader&& old) noexcept;
     Shader& operator=(const Shader&) = delete;
@@ -62,8 +62,8 @@ namespace Fvog
     }
 
   private:
-    void Initialize(VkDevice device, const detail::ShaderCompileInfo& info);
-    VkDevice device_;
+    void Initialize(const detail::ShaderCompileInfo& info);
+
     VkShaderModule shaderModule_;
     Extent3D workgroupSize_{};
     std::string name_;

@@ -192,10 +192,10 @@ namespace Fvog
   {
   public:
     /// @throws PipelineCompilationException
-    explicit GraphicsPipeline(Device& device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info);
+    explicit GraphicsPipeline(VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info);
     
     // Constructs pipeline with default pipeline layout (bindless)
-    explicit GraphicsPipeline(Device& device, const GraphicsPipelineInfo& info);
+    explicit GraphicsPipeline(const GraphicsPipelineInfo& info);
     ~GraphicsPipeline();
     GraphicsPipeline(GraphicsPipeline&& old) noexcept;
     GraphicsPipeline& operator=(GraphicsPipeline&& old) noexcept;
@@ -212,7 +212,6 @@ namespace Fvog
     }
 
   private:
-    Fvog::Device* device_{};
     VkPipeline pipeline_{};
     std::string name_;
   };
@@ -222,10 +221,10 @@ namespace Fvog
   {
   public:
     /// @throws PipelineCompilationException
-    explicit ComputePipeline(Device& device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info);
+    explicit ComputePipeline(VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info);
 
     // Constructs pipeline with default pipeline layout (bindless)
-    explicit ComputePipeline(Device& device, const ComputePipelineInfo& info);
+    explicit ComputePipeline(const ComputePipelineInfo& info);
     ~ComputePipeline();
     ComputePipeline(ComputePipeline&& old) noexcept;
     ComputePipeline& operator=(ComputePipeline&& old) noexcept;
@@ -244,7 +243,6 @@ namespace Fvog
     }
 
   private:
-    Device* device_{};
     VkPipeline pipeline_{};
     Extent3D workgroupSize_;
     std::string name_;
@@ -253,9 +251,9 @@ namespace Fvog
   class RayTracingPipeline
   {
   public:
-    explicit RayTracingPipeline(Device& device, VkPipelineLayout pipelineLayout, const RayTracingPipelineInfo& info);
+    explicit RayTracingPipeline(VkPipelineLayout pipelineLayout, const RayTracingPipelineInfo& info);
 
-    explicit RayTracingPipeline(Device& device, const RayTracingPipelineInfo& info);
+    explicit RayTracingPipeline(const RayTracingPipelineInfo& info);
     ~RayTracingPipeline();
     RayTracingPipeline(RayTracingPipeline&& old) noexcept;
     RayTracingPipeline& operator=(RayTracingPipeline&& old) noexcept;
@@ -285,7 +283,6 @@ namespace Fvog
     }
 
   private:
-    Device* device_{};
     VkPipeline pipeline_{};
     ShaderBindingTable shaderBindingTable_{};
     std::string name_;

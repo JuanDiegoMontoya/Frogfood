@@ -15,9 +15,8 @@
 
 namespace Fvog
 {
-  Buffer::Buffer(Device& device, const BufferCreateInfo& createInfo, std::string name)
-    : device_(&device),
-      createInfo_(createInfo),
+  Buffer::Buffer(const BufferCreateInfo& createInfo, std::string name)
+    : createInfo_(createInfo),
       name_(std::move(name))
   {
     using namespace detail;
@@ -59,7 +58,7 @@ namespace Fvog
     auto size = std::max(createInfo.size, VkDeviceSize(1));
     auto allocationInfo = VmaAllocationInfo{};
     CheckVkResult(vmaCreateBuffer(
-      device_->allocator_,
+      Fvog::GetDevice().allocator_,
       Address(VkBufferCreateInfo{
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = size,
@@ -77,7 +76,8 @@ namespace Fvog
 
 
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_BUFFER,
       .objectHandle = reinterpret_cast<uint64_t>(buffer_),
@@ -86,14 +86,15 @@ namespace Fvog
 
     mappedMemory_ = allocationInfo.pMappedData;
     
-    deviceAddress_ = vkGetBufferDeviceAddress(device_->device_, Address(VkBufferDeviceAddressInfo{
+    deviceAddress_ = vkGetBufferDeviceAddress(Fvog::GetDevice().device_,
+      Address(VkBufferDeviceAddressInfo{
       .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
       .buffer = buffer_,
     }));
 
     if (!(createInfo.flag & BufferFlagThingy::NO_DESCRIPTOR))
     {
-      descriptorInfo_ = device_->AllocateStorageBufferDescriptor(buffer_);
+      descriptorInfo_ = Fvog::GetDevice().AllocateStorageBufferDescriptor(buffer_);
     }
   }
 
@@ -101,13 +102,12 @@ namespace Fvog
   {
     if (buffer_ != VK_NULL_HANDLE)
     {
-      device_->bufferDeletionQueue_.emplace_back(device_->frameNumber, allocation_, buffer_, std::move(name_));
+      Fvog::GetDevice().bufferDeletionQueue_.emplace_back(Fvog::GetDevice().frameNumber, allocation_, buffer_, std::move(name_));
     }
   }
 
   Buffer::Buffer(Buffer&& old) noexcept
-    : device_(std::exchange(old.device_, nullptr)),
-      createInfo_(std::exchange(old.createInfo_, {})),
+    : createInfo_(std::exchange(old.createInfo_, {})),
       buffer_(std::exchange(old.buffer_, VK_NULL_HANDLE)),
       allocation_(std::exchange(old.allocation_, nullptr)),
       mappedMemory_(std::exchange(old.mappedMemory_, nullptr)),
@@ -128,7 +128,7 @@ namespace Fvog
   void Buffer::UpdateDataExpensive(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes)
   {
     ZoneScoped;
-    auto stagingBuffer = Buffer(*device_, {.size = data.size_bytes(), .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE | BufferFlagThingy::NO_DESCRIPTOR}, "Staging Buffer (UpdateDataExpensive)");
+    auto stagingBuffer = Buffer({.size = data.size_bytes(), .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE | BufferFlagThingy::NO_DESCRIPTOR}, "Staging Buffer (UpdateDataExpensive)");
     UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, *this);
   }
 
@@ -191,8 +191,9 @@ namespace Fvog
   {
     if (allocator_ && allocation_)
     {
-      device_->genericDeletionQueue_.emplace_back(
-        [allocator = allocator_, allocation = allocation_, frameOfLastUse = device_->frameNumber](uint64_t value) -> bool {
+      Fvog::GetDevice().genericDeletionQueue_.emplace_back(
+        [allocator = allocator_, allocation = allocation_, frameOfLastUse = Fvog::GetDevice().frameNumber](uint64_t value) -> bool
+        {
           if (value >= frameOfLastUse)
           {
             vmaVirtualFree(allocator, allocation);
@@ -204,8 +205,7 @@ namespace Fvog
   }
 
   ManagedBuffer::Alloc::Alloc(Alloc&& old) noexcept
-    : device_(std::exchange(old.device_, nullptr)),
-      allocator_(std::exchange(old.allocator_, nullptr)),
+    : allocator_(std::exchange(old.allocator_, nullptr)),
       allocation_(std::exchange(old.allocation_, nullptr)),
       offset_(std::exchange(old.offset_, 0)),
       allocSize_(std::exchange(old.allocSize_, 0)),
@@ -238,9 +238,8 @@ namespace Fvog
 
   // TODO: Instances of this buffer will probably be huge (>256MB), so the map flag will require ReBAR on the user's system.
   // An upload system using staging buffers and buffer copies should be used instead.
-  ManagedBuffer::ManagedBuffer(Device& device, size_t bufferSize, std::string name)
-    : device_(&device),
-      buffer_(device, {.size = bufferSize, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE}, std::move(name))
+  ManagedBuffer::ManagedBuffer(size_t bufferSize, std::string name)
+    : buffer_({.size = bufferSize, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE}, std::move(name))
   {
     detail::CheckVkResult(vmaCreateVirtualBlock(detail::Address(VmaVirtualBlockCreateInfo{
       .size = bufferSize,
@@ -253,8 +252,7 @@ namespace Fvog
   }
 
   ManagedBuffer::ManagedBuffer(ManagedBuffer&& old) noexcept
-    : device_(std::exchange(old.device_, nullptr)),
-      buffer_(std::move(old.buffer_)),
+    : buffer_(std::move(old.buffer_)),
       allocator(std::exchange(old.allocator, nullptr))
   {
   }
@@ -293,12 +291,11 @@ namespace Fvog
     offset += offsetAmount;
     size -= offsetAmount;
     assert(offset % alignment == 0);
-    return Alloc(*device_, allocator, allocation, offset, size, dataSize);
+    return Alloc(allocator, allocation, offset, size, dataSize);
   }
 
-  ContiguousManagedBuffer::ContiguousManagedBuffer(Device& device, size_t bufferSize, std::string name)
-    : device_(&device),
-      buffer_(device, {.size = bufferSize}, std::move(name)),
+  ContiguousManagedBuffer::ContiguousManagedBuffer(size_t bufferSize, std::string name)
+    : buffer_({.size = bufferSize}, std::move(name)),
       currentSize_(0)
   {
   }
@@ -316,7 +313,7 @@ namespace Fvog
   void ContiguousManagedBuffer::Free(Alloc allocation, VkCommandBuffer commandBuffer)
   {
     // Copy allocation.size bytes from the end of buffer_ to freed allocation, then pop.
-    auto ctx = Context(*device_, commandBuffer);
+    auto ctx = Context(commandBuffer);
     ctx.Barrier();
     ctx.CopyBuffer(buffer_, buffer_, {
       .srcOffset = currentSize_ - allocation.size,

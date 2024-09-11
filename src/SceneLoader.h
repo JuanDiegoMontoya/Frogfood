@@ -63,7 +63,7 @@ namespace Utility
   inline constexpr auto maxMeshletPrimitives = 64u;
   inline constexpr auto meshletConeWeight = 0.0f;
 
-  [[nodiscard]] LoadModelResultA LoadModelFromFile(Fvog::Device& device,
+  [[nodiscard]] LoadModelResultA LoadModelFromFile(
     const std::filesystem::path& fileName,
     const glm::mat4& rootTransform,
     bool skipMaterials = false);

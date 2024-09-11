@@ -11,11 +11,11 @@ namespace Techniques
 {
   namespace
   {
-    Fvog::ComputePipeline CreateRtaoPipeline(Fvog::Device& device)
+    Fvog::ComputePipeline CreateRtaoPipeline()
     {
-      auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/ao/rtao/RayTracedAO.comp.glsl");
+      auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/ao/rtao/RayTracedAO.comp.glsl");
 
-      return Fvog::ComputePipeline(device,
+      return Fvog::ComputePipeline(
         {
           .name   = "Ray Traced AO",
           .shader = &cs,
@@ -23,9 +23,8 @@ namespace Techniques
     }
   }
 
-  RayTracedAO::RayTracedAO(Fvog::Device& device)
-    : device_(&device),
-      rtaoPipeline_(CreateRtaoPipeline(device))
+  RayTracedAO::RayTracedAO()
+    : rtaoPipeline_(CreateRtaoPipeline())
   {
   }
 
@@ -34,11 +33,11 @@ namespace Techniques
     assert(params.tlas);
     assert(params.inputDepth);
 
-    auto ctx = Fvog::Context(*device_, commandBuffer);
+    auto ctx = Fvog::Context(commandBuffer);
 
     if (!aoTexture_ || Fvog::Extent2D(aoTexture_->GetCreateInfo().extent) != params.outputSize)
     {
-      aoTexture_ = Fvog::CreateTexture2D(*device_, params.outputSize, Fvog::Format::R16_UNORM, Fvog::TextureUsage::GENERAL, "AO Texture");
+      aoTexture_ = Fvog::CreateTexture2D(params.outputSize, Fvog::Format::R16_UNORM, Fvog::TextureUsage::GENERAL, "AO Texture");
     }
 
     ctx.ImageBarrierDiscard(aoTexture_.value(), VK_IMAGE_LAYOUT_GENERAL);

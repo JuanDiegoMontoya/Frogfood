@@ -188,12 +188,6 @@ public:
   VkDeviceAddress GetVertexBufferPointerFromMesh(Render::MeshID meshId);
   VkDeviceAddress GetOriginalIndexBufferPointerFromMesh(Render::MeshID meshId);
 
-  // Oh man oh jeez
-  Fvog::Device& GetDevice()
-  {
-    return *device_;
-  }
-
 private:
   struct ViewParams;
 
@@ -746,8 +740,8 @@ private:
 
   struct StatInfo
   {
-    explicit StatInfo(Fvog::Device& device, std::string name)
-      : timer(device, Fvog::Device::frameOverlap, std::move(name))
+    explicit StatInfo(std::string name)
+      : timer(Fvog::Device::frameOverlap, std::move(name))
     {
     }
 

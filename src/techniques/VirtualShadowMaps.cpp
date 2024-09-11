@@ -17,75 +17,73 @@ namespace Techniques::VirtualShadowMaps
 {
   namespace
   {
-    Fvog::ComputePipeline CreateResetPageVisibilityPipeline(Fvog::Device& device)
+    Fvog::ComputePipeline CreateResetPageVisibilityPipeline()
     {
-      auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmResetPageVisibility.comp.glsl");
+      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmResetPageVisibility.comp.glsl");
 
-      return Fvog::ComputePipeline(device, {
+      return Fvog::ComputePipeline({
         .shader = &comp,
       });
     }
 
-    Fvog::ComputePipeline CreateMarkVisiblePipeline(Fvog::Device& device)
+    Fvog::ComputePipeline CreateMarkVisiblePipeline()
     {
-      auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmMarkVisiblePages.comp.glsl");
+      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmMarkVisiblePages.comp.glsl");
 
-      return Fvog::ComputePipeline(device, {
+      return Fvog::ComputePipeline({
         .shader = &comp,
       });
     }
 
-    Fvog::ComputePipeline CreateAllocatorPipeline(Fvog::Device& device)
+    Fvog::ComputePipeline CreateAllocatorPipeline()
     {
-      auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmAllocatePages.comp.glsl");
+      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmAllocatePages.comp.glsl");
 
-      return Fvog::ComputePipeline(device, {
+      return Fvog::ComputePipeline({
         .shader = &comp,
       });
     }
 
-    Fvog::ComputePipeline CreateListDirtyPagesPipeline(Fvog::Device& device)
+    Fvog::ComputePipeline CreateListDirtyPagesPipeline()
     {
-      auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmListDirtyPages.comp.glsl");
+      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmListDirtyPages.comp.glsl");
 
-      return Fvog::ComputePipeline(device, {
+      return Fvog::ComputePipeline({
         .shader = &comp,
       });
     }
 
-    Fvog::ComputePipeline CreateClearDirtyPagesPipeline(Fvog::Device& device)
+    Fvog::ComputePipeline CreateClearDirtyPagesPipeline()
     {
-      auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmClearDirtyPages.comp.glsl");
+      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmClearDirtyPages.comp.glsl");
 
-      return Fvog::ComputePipeline(device, {
+      return Fvog::ComputePipeline({
         .shader = &comp,
       });
     }
 
-    Fvog::ComputePipeline CreateFreeNonVisiblePagesPipeline(Fvog::Device& device)
+    Fvog::ComputePipeline CreateFreeNonVisiblePagesPipeline()
     {
-      auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmFreeNonVisiblePages.comp.glsl");
+      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmFreeNonVisiblePages.comp.glsl");
 
-      return Fvog::ComputePipeline(device, {
+      return Fvog::ComputePipeline({
         .shader = &comp,
       });
     }
 
-    Fvog::ComputePipeline CreateReduceVsmHzbPipeline(Fvog::Device& device)
+    Fvog::ComputePipeline CreateReduceVsmHzbPipeline()
     {
-      auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmReduceBitmaskHzb.comp.glsl");
+      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmReduceBitmaskHzb.comp.glsl");
 
-      return Fvog::ComputePipeline(device, {
+      return Fvog::ComputePipeline({
         .shader = &comp,
       });
     }
   }
 
-  Context::Context(Fvog::Device& device, const CreateInfo& createInfo)
-    : device_(&device),
-      freeLayersBitmask_(size_t(std::ceil(float(createInfo.maxVsms) / 32)), 0xFFFFFFu),
-      pageTables_(device,
-        Fvog::TextureCreateInfo{
+  Context::Context(const CreateInfo& createInfo)
+    : freeLayersBitmask_(size_t(std::ceil(float(createInfo.maxVsms) / 32)), 0xFFFFFFu),
+      pageTables_(Fvog::TextureCreateInfo{
           .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
           .format = Fvog::Format::R32_UINT, // Ideally 16 bits, but image atomics are limited to 32-bit integer types
           .extent = Fvog::Extent3D{pageTableSize, pageTableSize, 1},
@@ -93,8 +91,7 @@ namespace Techniques::VirtualShadowMaps
           .arrayLayers = ((createInfo.maxVsms + 31) / 32) * 32, // Round up to the nearest multiple of 32 so we don't have any overflowing bits
         },
         "VSM Page Tables"),
-      vsmBitmaskHzb_(device,
-        Fvog::TextureCreateInfo{
+      vsmBitmaskHzb_(Fvog::TextureCreateInfo{
           .viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY,
           .format = Fvog::Format::R8_UINT,
           .extent = pageTables_.GetCreateInfo().extent,
@@ -102,8 +99,7 @@ namespace Techniques::VirtualShadowMaps
           .arrayLayers = pageTables_.GetCreateInfo().arrayLayers,
         },
         "VSM Bitmask HZB"),
-      physicalPages_(device,
-        Fvog::TextureCreateInfo{
+      physicalPages_(Fvog::TextureCreateInfo{
           .viewType = VK_IMAGE_VIEW_TYPE_2D,
           .format = Fvog::Format::R32_SFLOAT,
           .extent = {(uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize, (uint32_t)std::ceil(std::sqrt(createInfo.numPages)) * pageSize, 1},
@@ -112,28 +108,28 @@ namespace Techniques::VirtualShadowMaps
         },
         "VSM Physical Pages"),
       physicalPagesUint_(physicalPages_.CreateFormatView(Fvog::Format::R32_UINT)),
-      physicalPagesOverdrawHeatmap_(Fvog::CreateTexture2D(device,
+      physicalPagesOverdrawHeatmap_(Fvog::CreateTexture2D(
         {physicalPages_.GetCreateInfo().extent.width, physicalPages_.GetCreateInfo().extent.height},
         Fvog::Format::R32_UINT,
         Fvog::TextureUsage::GENERAL,
         "VSM Physical Pages Heatmap")),
-      visiblePagesBitmask_(device, {sizeof(uint32_t) * createInfo.numPages / 32}, "Visible Pages Bitmask"),
-      uniformBuffer_(device, {}, "VSM Uniforms"),
-      pageAllocRequests_(device, {sizeof(PageAllocRequest) * (createInfo.numPages + 1)}, "Page Alloc Requests"),
-      pagesToClear_(device, {sizeof(uint32_t) + sizeof(uint32_t) * createInfo.numPages}, "Pages to Clear"),
-      pageClearDispatchParams_(device, {}, "Page Clear Dispatch Params"),
-      resetPageVisibility_(CreateResetPageVisibilityPipeline(device)),
-      allocatePages_(CreateAllocatorPipeline(device)),
-      markVisiblePages_(CreateMarkVisiblePipeline(device)),
-      listDirtyPages_(CreateListDirtyPagesPipeline(device)),
-      clearDirtyPages_(CreateClearDirtyPagesPipeline(device)),
-      freeNonVisiblePages_(CreateFreeNonVisiblePagesPipeline(device)),
+      visiblePagesBitmask_({sizeof(uint32_t) * createInfo.numPages / 32}, "Visible Pages Bitmask"),
+      uniformBuffer_({}, "VSM Uniforms"),
+      pageAllocRequests_({sizeof(PageAllocRequest) * (createInfo.numPages + 1)}, "Page Alloc Requests"),
+      pagesToClear_({sizeof(uint32_t) + sizeof(uint32_t) * createInfo.numPages}, "Pages to Clear"),
+      pageClearDispatchParams_({}, "Page Clear Dispatch Params"),
+      resetPageVisibility_(CreateResetPageVisibilityPipeline()),
+      allocatePages_(CreateAllocatorPipeline()),
+      markVisiblePages_(CreateMarkVisiblePipeline()),
+      listDirtyPages_(CreateListDirtyPagesPipeline()),
+      clearDirtyPages_(CreateClearDirtyPagesPipeline()),
+      freeNonVisiblePages_(CreateFreeNonVisiblePagesPipeline()),
       // reducePhysicalPages_(CreateReducePhysicalPipeline()),
       // reduceVirtualPages_(CreateReduceVirtualPipeline()),
-      reduceVsmHzb_(CreateReduceVsmHzbPipeline(device))
+      reduceVsmHzb_(CreateReduceVsmHzbPipeline())
   {
-    device.ImmediateSubmit([this](VkCommandBuffer cmd) {
-      auto ctx = Fvog::Context(*device_, cmd);
+    Fvog::GetDevice().ImmediateSubmit([this](VkCommandBuffer cmd) {
+      auto ctx = Fvog::Context(cmd);
       // Clear every page mapping to zero
       ctx.ImageBarrierDiscard(pageTables_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
       ctx.ImageBarrierDiscard(physicalPages_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -151,7 +147,7 @@ namespace Techniques::VirtualShadowMaps
    */
   void Context::UpdateUniforms(VkCommandBuffer cmd, const VsmGlobalUniforms& uniforms)
   {
-    auto ctx = Fvog::Context(*device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     ctx.TeenyBufferUpdate(uniformBuffer_, uniforms);
   }
 
@@ -189,7 +185,7 @@ namespace Techniques::VirtualShadowMaps
   // Should make it take a list of VSM indices to reset
   void Context::ResetPageVisibility(VkCommandBuffer cmd)
   {
-    auto ctx = Fvog::Context(*device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Reset Page Visibility");
     
     ctx.ImageBarrier(pageTables_, VK_IMAGE_LAYOUT_GENERAL);
@@ -222,7 +218,7 @@ namespace Techniques::VirtualShadowMaps
   // TODO: See TODO for ResetPageVisibility (should allow batching updates instead of operating on whole VSM every time)
   void Context::FreeNonVisiblePages(VkCommandBuffer cmd)
   {
-    auto ctx = Fvog::Context(*device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Free Non-Visible Pages");
 
     ctx.Barrier(); // Appease sync val
@@ -252,7 +248,7 @@ namespace Techniques::VirtualShadowMaps
    */
   void Context::AllocateRequestedPages(VkCommandBuffer cmd)
   {
-    auto ctx = Fvog::Context(*device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Allocate Pages");
 
     auto pushConstants = GetPushConstants();
@@ -283,7 +279,7 @@ namespace Techniques::VirtualShadowMaps
    */
   void Context::ClearDirtyPages(VkCommandBuffer cmd)
   {
-    auto ctx = Fvog::Context(*device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Enqueue and Clear Dirty Pages");
 
     ctx.Barrier();
@@ -352,7 +348,7 @@ namespace Techniques::VirtualShadowMaps
     : context_(createInfo.context),
       numClipmaps_(createInfo.numClipmaps),
       virtualExtent_(createInfo.virtualExtent),
-      clipmapUniformsBuffer_(*createInfo.context.device_, {}, "Directional VSM Uniforms")
+      clipmapUniformsBuffer_({}, "Directional VSM Uniforms")
   {
     uniforms_.numClipmaps = createInfo.numClipmaps;
 
@@ -384,7 +380,7 @@ namespace Techniques::VirtualShadowMaps
    */
   void DirectionalVirtualShadowMap::MarkVisiblePages(VkCommandBuffer cmd, Fvog::Texture& gDepth, Fvog::Buffer& globalUniforms)
   {
-    auto ctx = Fvog::Context(*context_.device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Mark Visible Pages");
 
     ctx.Barrier();
@@ -415,7 +411,7 @@ namespace Techniques::VirtualShadowMaps
    */
   void DirectionalVirtualShadowMap::UpdateExpensive(VkCommandBuffer cmd, glm::vec3 worldOffset, glm::vec3 direction, float firstClipmapWidth, float projectionZLength)
   {
-    auto ctx = Fvog::Context(*context_.device_, cmd);
+    auto ctx = Fvog::Context(cmd);
 
     ctx.Barrier();
 
@@ -450,7 +446,7 @@ namespace Techniques::VirtualShadowMaps
    */
   void DirectionalVirtualShadowMap::UpdateOffset(VkCommandBuffer cmd, glm::vec3 worldOffset)
   {
-    auto ctx = Fvog::Context(*context_.device_, cmd);
+    auto ctx = Fvog::Context(cmd);
 
     ctx.Barrier();
 
@@ -488,7 +484,7 @@ namespace Techniques::VirtualShadowMaps
    */
   void DirectionalVirtualShadowMap::GenerateBitmaskHzb(VkCommandBuffer cmd)
   {
-    auto ctx = Fvog::Context(*context_.device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     auto marker = ctx.MakeScopedDebugMarker("VSM Generate Bitmap HZB");
 
     ctx.ImageBarrier(context_.pageTables_, VK_IMAGE_LAYOUT_GENERAL);

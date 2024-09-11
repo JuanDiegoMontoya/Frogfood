@@ -9,41 +9,40 @@
 
 namespace Techniques
 {
-  static Fvog::ComputePipeline CreateBloomDownsampleLowPassPipeline(Fvog::Device& device)
+  static Fvog::ComputePipeline CreateBloomDownsampleLowPassPipeline()
   {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsampleLowPass.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsampleLowPass.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "Bloom Downsample (low-pass)",
       .shader = &cs,
     });
   }
 
-  static Fvog::ComputePipeline CreateBloomDownsamplePipeline(Fvog::Device& device)
+  static Fvog::ComputePipeline CreateBloomDownsamplePipeline()
   {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsample.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsample.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "Bloom Downsample",
       .shader = &cs,
     });
   }
 
-  static Fvog::ComputePipeline CreateBloomUpsamplePipeline(Fvog::Device& device)
+  static Fvog::ComputePipeline CreateBloomUpsamplePipeline()
   {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomUpsample.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomUpsample.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "Bloom Upsample",
       .shader = &cs,
     });
   }
 
-  Bloom::Bloom(Fvog::Device& device)
-    : device_(&device),
-      downsampleLowPassPipeline(CreateBloomDownsampleLowPassPipeline(device)),
-      downsamplePipeline(CreateBloomDownsamplePipeline(device)),
-      upsamplePipeline(CreateBloomUpsamplePipeline(device))
+  Bloom::Bloom()
+    : downsampleLowPassPipeline(CreateBloomDownsampleLowPassPipeline()),
+      downsamplePipeline(CreateBloomDownsamplePipeline()),
+      upsamplePipeline(CreateBloomUpsamplePipeline())
   {
   }
 
@@ -51,7 +50,7 @@ namespace Techniques
   {
     assert(params.passes <= params.scratchTexture.GetCreateInfo().mipLevels && "Bloom target is too small for the number of passes");
     
-    auto linearSampler = Fvog::Sampler(*device_, {
+    auto linearSampler = Fvog::Sampler({
       .magFilter = VK_FILTER_LINEAR,
       .minFilter = VK_FILTER_LINEAR,
       .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
@@ -59,7 +58,7 @@ namespace Techniques
       .addressModeV = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
     }, "Linear Mirror Sampler");
 
-    auto ctx = Fvog::Context(*device_, commandBuffer);
+    auto ctx = Fvog::Context(commandBuffer);
     auto marker = ctx.MakeScopedDebugMarker("Bloom");
 
     ctx.ImageBarrier(params.target, VK_IMAGE_LAYOUT_GENERAL);

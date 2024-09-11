@@ -159,7 +159,7 @@ namespace Fvog
   class Context
   {
   public:
-    Context(Device& device, VkCommandBuffer commandBuffer);
+    Context(VkCommandBuffer commandBuffer);
 
     void BeginRendering(const RenderInfo& renderInfo) const;
     void EndRendering() const;
@@ -219,7 +219,6 @@ namespace Fvog
     ScopedDebugMarker MakeScopedDebugMarker(const char* message, std::array<float, 4> color = {1, 1, 1, 1}) const;
 
   private:
-    Fvog::Device* device_{};
     VkCommandBuffer commandBuffer_{};
     mutable const ComputePipeline* boundComputePipeline_{};
     mutable const RayTracingPipeline* boundRayTracingPipeline_{}; // TODO: feels dirty idk

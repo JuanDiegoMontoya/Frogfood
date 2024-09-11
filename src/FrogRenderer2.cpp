@@ -33,7 +33,7 @@ using namespace Fvog::detail;
   const auto CONCAT(gpu_timer_, __LINE__) = stats[(int)(statGroup)][statEnum].MakeScopedTimer(commandBuffer); \
   TracyVkZoneTransient(tracyVkContext_, CONCAT(asdf, __LINE__), commandBuffer, statGroups[(int)(statGroup)].statNames[statEnum], true) 
 
-static Fvog::Texture LoadTonyMcMapfaceTexture(Fvog::Device& device)
+static Fvog::Texture LoadTonyMcMapfaceTexture()
 {
   int x{};
   int y{};
@@ -48,8 +48,7 @@ static Fvog::Texture LoadTonyMcMapfaceTexture(Fvog::Device& device)
   {
     throw std::runtime_error("Texture had invalid dimensions");
   }
-  auto texture = Fvog::Texture(device,
-    {
+  auto texture = Fvog::Texture({
       .viewType = VK_IMAGE_VIEW_TYPE_3D,
       .format   = Fvog::Format::R8G8B8A8_UNORM,
       .extent   = {dim, dim, dim},
@@ -139,23 +138,23 @@ static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invVie
 FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   : Application(createInfo),
     // Create constant-size buffers
-    globalUniformsBuffer(*device_, 1, "Global Uniforms"),
-    shadingUniformsBuffer(*device_, 1, "Shading Uniforms"),
-    shadowUniformsBuffer(*device_, 1, "Shadow Uniforms"),
-    geometryBuffer(*device_, 1'000'000'000, "Geometry Buffer"),
-    meshletInstancesBuffer(*device_, 100'000'000 * sizeof(Render::MeshletInstance), "Meshlet Instances Buffer"),
-    lightsBuffer(*device_, 1'000 * sizeof(GpuLight), "Light Buffer"),
+    globalUniformsBuffer(1, "Global Uniforms"),
+    shadingUniformsBuffer(1, "Shading Uniforms"),
+    shadowUniformsBuffer(1, "Shadow Uniforms"),
+    geometryBuffer(1'000'000'000, "Geometry Buffer"),
+    meshletInstancesBuffer(100'000'000 * sizeof(Render::MeshletInstance), "Meshlet Instances Buffer"),
+    lightsBuffer(1'000 * sizeof(GpuLight), "Light Buffer"),
     // Create the pipelines used in the application
-    cullMeshletsPipeline(Pipelines2::CullMeshlets(*device_)),
-    cullTrianglesPipeline(Pipelines2::CullTriangles(*device_)),
-    hzbCopyPipeline(Pipelines2::HzbCopy(*device_)),
-    hzbReducePipeline(Pipelines2::HzbReduce(*device_)),
-    visbufferPipeline(Pipelines2::Visbuffer(*device_,
+    cullMeshletsPipeline(Pipelines2::CullMeshlets()),
+    cullTrianglesPipeline(Pipelines2::CullTriangles()),
+    hzbCopyPipeline(Pipelines2::HzbCopy()),
+    hzbReducePipeline(Pipelines2::HzbReduce()),
+    visbufferPipeline(Pipelines2::Visbuffer(
       {
         .colorAttachmentFormats = {{Frame::visbufferFormat}},
         .depthAttachmentFormat  = Frame::gDepthFormat,
       })),
-    visbufferResolvePipeline(Pipelines2::VisbufferResolve(*device_,
+    visbufferResolvePipeline(Pipelines2::VisbufferResolve(
       {
         .colorAttachmentFormats = {{
           Frame::gAlbedoFormat,
@@ -166,42 +165,39 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
           Frame::gMotionFormat,
         }},
       })),
-    shadingPipeline(Pipelines2::Shading(*device_, {.colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},})),
-    tonemapPipeline(Pipelines2::Tonemap(*device_)),
-    debugTexturePipeline(Pipelines2::DebugTexture(*device_, {.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},})),
-    debugLinesPipeline(Pipelines2::DebugLines(*device_,
-      {
+    shadingPipeline(Pipelines2::Shading({.colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},})),
+    tonemapPipeline(Pipelines2::Tonemap()),
+    debugTexturePipeline(Pipelines2::DebugTexture({.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},})),
+    debugLinesPipeline(Pipelines2::DebugLines({
         .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
         .depthAttachmentFormat = Frame::gDepthFormat,
       })),
-    debugAabbsPipeline(Pipelines2::DebugAabbs(*device_,
-      {
+    debugAabbsPipeline(Pipelines2::DebugAabbs({
         .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
         .depthAttachmentFormat = Frame::gDepthFormat,
       })),
-    debugRectsPipeline(Pipelines2::DebugRects(*device_,
-      {
+    debugRectsPipeline(Pipelines2::DebugRects({
         .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
         .depthAttachmentFormat = Frame::gDepthFormat,
       })),
     // TODO: remove
 #ifdef FROGRENDER_RAYTRACING_ENABLE
-    testRayTracingPipeline(Pipelines2::TestRayTracingPipeline(*device_)),
-    testRayTracingOutput(Fvog::Texture(*device_, {
+    testRayTracingPipeline(Pipelines2::TestRayTracingPipeline()),
+    testRayTracingOutput(Fvog::Texture({
       .viewType = VK_IMAGE_VIEW_TYPE_2D,
       .format = Fvog::Format::R8G8B8A8_UNORM,
       .extent = { 1920, 1080, 1 },
     })),
 #endif
-    forwardRenderer_(*device_),
-    tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
-    tonyMcMapfaceLut(LoadTonyMcMapfaceTexture(*device_)),
-    calibrateHdrTexture(Fvog::CreateTexture2D(*device_, {2, 2}, Fvog::Format::A2R10G10B10_UNORM, Fvog::TextureUsage::GENERAL, "HDR Calibration Texture")),
-    calibrateHdrPipeline(Pipelines2::CalibrateHdr(*device_)),
-    bloom(*device_),
-    autoExposure(*device_),
-    exposureBuffer(*device_, {}, "Exposure"),
-    vsmContext(*device_, {
+    forwardRenderer_(),
+    tonemapUniformBuffer(1, "Tonemap Uniforms"),
+    tonyMcMapfaceLut(LoadTonyMcMapfaceTexture()),
+    calibrateHdrTexture(Fvog::CreateTexture2D({2, 2}, Fvog::Format::A2R10G10B10_UNORM, Fvog::TextureUsage::GENERAL, "HDR Calibration Texture")),
+    calibrateHdrPipeline(Pipelines2::CalibrateHdr()),
+    bloom(),
+    autoExposure(),
+    exposureBuffer({}, "Exposure"),
+    vsmContext({
       .maxVsms = 64,
       .pageSize = {Techniques::VirtualShadowMaps::pageSize, Techniques::VirtualShadowMaps::pageSize},
       .numPages = 1024,
@@ -211,23 +207,21 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
       .numClipmaps = 10,
     }),
-    vsmShadowPipeline(Pipelines2::ShadowVsm(*device_,
-      {
+    vsmShadowPipeline(Pipelines2::ShadowVsm({
 #if VSM_USE_TEMP_ZBUFFER
         .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
 #endif
       })),
-    whiteTexture_(Fvog::CreateTexture2D(*device_, {1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
+    whiteTexture_(Fvog::CreateTexture2D({1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
 #ifdef FROGRENDER_RAYTRACING_ENABLE
-    rayTracedAo_(*device_),
+    rayTracedAo_(),
 #endif
-    vsmShadowUniformBuffer(*device_),
-    viewerVsmPageTablesPipeline(Pipelines2::ViewerVsm(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmBitmaskHzbPipeline(Pipelines2::ViewerVsmBitmaskHzb(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmPhysicalPagesOverdrawPipeline(Pipelines2::ViewerVsmPhysicalPagesOverdraw(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    nearestSampler(*device_,
-      {
+    vsmShadowUniformBuffer(),
+    viewerVsmPageTablesPipeline(Pipelines2::ViewerVsm({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
+    viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
+    viewerVsmBitmaskHzbPipeline(Pipelines2::ViewerVsmBitmaskHzb({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
+    viewerVsmPhysicalPagesOverdrawPipeline(Pipelines2::ViewerVsmPhysicalPagesOverdraw({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
+    nearestSampler({
         .magFilter    = VK_FILTER_NEAREST,
         .minFilter    = VK_FILTER_NEAREST,
         .mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
@@ -236,8 +230,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
       },
       "Nearest"),
-    linearMipmapSampler(*device_,
-      {
+    linearMipmapSampler({
         .magFilter     = VK_FILTER_LINEAR,
         .minFilter     = VK_FILTER_LINEAR,
         .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -247,8 +240,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .maxAnisotropy = 16,
       },
       "Linear Mipmap"),
-    linearClampSampler(*device_,
-      {
+    linearClampSampler({
         .magFilter     = VK_FILTER_LINEAR,
         .minFilter     = VK_FILTER_LINEAR,
         .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -257,8 +249,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
       },
       "Linear Clamp"),
-    hzbSampler(*device_,
-      {
+    hzbSampler({
         .magFilter    = VK_FILTER_NEAREST,
         .minFilter    = VK_FILTER_NEAREST,
         .mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
@@ -274,7 +265,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   int y = 0;
   const auto noise = stbi_load("textures/bluenoise32.png", &x, &y, nullptr, 4);
   assert(noise);
-  noiseTexture = Fvog::CreateTexture2D(*device_, {static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "Noise");
+  noiseTexture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "Noise");
   noiseTexture->UpdateImageSLOW({
     .extent = {static_cast<uint32_t>(x), static_cast<uint32_t>(y)},
     .data = noise,
@@ -293,39 +284,39 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     auto sync  = std::pmr::synchronized_pool_resource(&arena);
     std::pmr::set_default_resource(&sync);
 
-    scene.Import(*this, Utility::LoadModelFromFile(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
+    scene.Import(*this, Utility::LoadModelFromFile("models/simple_scene.glb", glm::scale(glm::vec3{.5})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/hotel_01.glb", glm::scale(glm::vec3{.125f})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed_tu.glb", glm::scale(glm::vec3{.5})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/hotel_01.glb", glm::scale(glm::vec3{.125f})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed_tu.glb", glm::scale(glm::vec3{.5})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Airfield_Ground.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Airfield_Ground.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/2.0/Box/glTF/Box.gltf", glm::scale(glm::vec3{1})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/curtain.glb", glm::scale(glm::vec3{1})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/triangles.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/2.0/Box/glTF/Box.gltf", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/curtain.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/triangles.glb", glm::scale(glm::vec3{1})));
     
     std::pmr::set_default_resource(oldResource);
   }
 
-  meshletIndirectCommand = Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>(*device_, {}, "Meshlet Indirect Command");
-  cullTrianglesDispatchParams = Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>(*device_, {}, "Cull Triangles Dispatch Params");
-  viewBuffer = Fvog::TypedBuffer<ViewParams>(*device_, {}, "View Data");
+  meshletIndirectCommand = Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>({}, "Meshlet Indirect Command");
+  cullTrianglesDispatchParams = Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>({}, "Cull Triangles Dispatch Params");
+  viewBuffer = Fvog::TypedBuffer<ViewParams>({}, "View Data");
 
-  debugGpuAabbsBuffer = Fvog::Buffer(*device_, {sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Aabb) * 100'000}, "Debug GPU AABBs");
+  debugGpuAabbsBuffer = Fvog::Buffer({sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Aabb) * 100'000}, "Debug GPU AABBs");
 
-  debugGpuRectsBuffer = Fvog::Buffer(*device_, {sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Rect) * 100'000}, "Debug GPU Rects");
+  debugGpuRectsBuffer = Fvog::Buffer({sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Rect) * 100'000}, "Debug GPU Rects");
 
-  device_->ImmediateSubmit(
+  Fvog::GetDevice().ImmediateSubmit(
     [this](VkCommandBuffer commandBuffer)
     {
-      auto ctx = Fvog::Context(*device_, commandBuffer);
+      auto ctx = Fvog::Context(commandBuffer);
 
       // Reset the instance count of the debug draw buffers
       auto aabbCommand = Fvog::DrawIndirectCommand{
@@ -354,7 +345,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   {
     for (auto statName : statGroups[i].statNames)
     {
-      stats[i].emplace_back(*device_, statName);
+      stats[i].emplace_back(statName);
     }
   }
 
@@ -362,7 +353,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   whiteTexture_.UpdateImageSLOW({.extent = {1, 1, 1}, .data = &whiteUnorm8});
 
   constexpr auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
-  vsmTempDepthStencil      = Fvog::CreateTexture2D(*device_, vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
+  vsmTempDepthStencil      = Fvog::CreateTexture2D(vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
 
   OnFramebufferResize(windowFramebufferWidth, windowFramebufferHeight);
   // The main loop might invoke the resize callback (which in turn causes a redraw) on the first frame, and OnUpdate produces
@@ -373,14 +364,14 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
 FrogRenderer2::~FrogRenderer2()
 {
-  vkDeviceWaitIdle(device_->device_);
+  vkDeviceWaitIdle(Fvog::GetDevice().device_);
 
   meshGeometryAllocations.clear();
   meshAllocations.clear();
   lightAllocations.clear();
   materialAllocations.clear();
 
-  device_->FreeUnusedResources();
+  Fvog::GetDevice().FreeUnusedResources();
 
 #if FROGRENDER_FSR2_ENABLE
   if (!fsr2FirstInit)
@@ -401,7 +392,7 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
     if (!fsr2FirstInit)
     {
       // TODO: get rid of this stinky
-      vkDeviceWaitIdle(device_->device_);
+      vkDeviceWaitIdle(Fvog::GetDevice().device_);
       ffxFsr2ContextDestroy(&fsr2Context);
     }
 
@@ -413,7 +404,7 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
                FFX_FSR2_ENABLE_DEPTH_INVERTED,
       .maxRenderSize = {renderInternalWidth, renderInternalHeight},
       .displaySize = {newWidth, newHeight},
-      .device = ffxGetDeviceVK(device_->device_),
+      .device        = ffxGetDeviceVK(Fvog::GetDevice().device_),
       .fpMessage =
         [](FfxFsr2MsgType type, const wchar_t* message)
       {
@@ -426,18 +417,18 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
       },
     };
 
-    auto scratchMemorySize = ffxFsr2GetScratchMemorySizeVK(device_->physicalDevice_, vkEnumerateDeviceExtensionProperties);
+    auto scratchMemorySize = ffxFsr2GetScratchMemorySizeVK(Fvog::GetDevice().physicalDevice_, vkEnumerateDeviceExtensionProperties);
     fsr2ScratchMemory = std::make_unique<char[]>(scratchMemorySize);
     ffxFsr2GetInterfaceVK(&contextDesc.callbacks,
-                          fsr2ScratchMemory.get(),
-                          scratchMemorySize,
-                          device_->physicalDevice_,
-                          vkGetDeviceProcAddr,
-                          vkGetPhysicalDeviceMemoryProperties,
-                          vkGetPhysicalDeviceProperties2,
-                          vkGetPhysicalDeviceFeatures2,
-                          vkEnumerateDeviceExtensionProperties,
-                          vkGetPhysicalDeviceProperties);
+      fsr2ScratchMemory.get(),
+      scratchMemorySize,
+      Fvog::GetDevice().physicalDevice_,
+      vkGetDeviceProcAddr,
+      vkGetPhysicalDeviceMemoryProperties,
+      vkGetPhysicalDeviceProperties2,
+      vkGetPhysicalDeviceFeatures2,
+      vkEnumerateDeviceExtensionProperties,
+      vkGetPhysicalDeviceProperties);
     ffxFsr2ContextCreate(&fsr2Context, &contextDesc);
   }
   else
@@ -457,38 +448,38 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   constexpr auto usage = Fvog::TextureUsage::ATTACHMENT_READ_ONLY;
 
   // Visibility buffer textures
-  frame.visbuffer = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::visbufferFormat, usage, "visbuffer");
+  frame.visbuffer = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::visbufferFormat, usage, "visbuffer");
 
   {
     const uint32_t hzbWidth = Math::PreviousPower2(renderInternalWidth);
     const uint32_t hzbHeight = Math::PreviousPower2(renderInternalHeight);
     const uint32_t hzbMips = 1 + static_cast<uint32_t>(glm::floor(glm::log2(static_cast<float>(glm::max(hzbWidth, hzbHeight)))));
-    frame.hzb = Fvog::CreateTexture2DMip(*device_, {hzbWidth, hzbHeight}, Frame::hzbFormat, hzbMips, Fvog::TextureUsage::GENERAL, "HZB");
-    device_->ImmediateSubmit(
+    frame.hzb = Fvog::CreateTexture2DMip({hzbWidth, hzbHeight}, Frame::hzbFormat, hzbMips, Fvog::TextureUsage::GENERAL, "HZB");
+    Fvog::GetDevice().ImmediateSubmit(
       [&, this](VkCommandBuffer cmd)
       {
-        auto ctx = Fvog::Context(*device_, cmd);
+        auto ctx = Fvog::Context(cmd);
         ctx.ImageBarrierDiscard(*frame.hzb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         ctx.ClearTexture(*frame.hzb, {.color = {FAR_DEPTH}});
       });
   }
 
   // Create gbuffer textures and render info
-  frame.gAlbedo = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gAlbedoFormat, usage, "gAlbedo");
-  frame.gMetallicRoughnessAo = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gMetallicRoughnessAoFormat, usage, "gMetallicRoughnessAo");
-  frame.gNormalAndFaceNormal = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormalAndFaceNormal");
-  frame.gSmoothVertexNormal = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gSmoothVertexNormalFormat, usage, "gSmoothVertexNormal");
-  frame.gEmission = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gEmissionFormat, usage, "gEmission");
-  frame.gDepth = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gDepthFormat, usage, "gDepth");
-  frame.gMotion = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gMotionFormat, usage, "gMotion");
-  frame.gNormaAndFaceNormallPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormaAndFaceNormallPrev");
-  frame.gDepthPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gDepthPrevFormat, usage, "gDepthPrev");
+  frame.gAlbedo = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gAlbedoFormat, usage, "gAlbedo");
+  frame.gMetallicRoughnessAo = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gMetallicRoughnessAoFormat, usage, "gMetallicRoughnessAo");
+  frame.gNormalAndFaceNormal = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormalAndFaceNormal");
+  frame.gSmoothVertexNormal = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gSmoothVertexNormalFormat, usage, "gSmoothVertexNormal");
+  frame.gEmission = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gEmissionFormat, usage, "gEmission");
+  frame.gDepth = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gDepthFormat, usage, "gDepth");
+  frame.gMotion = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gMotionFormat, usage, "gMotion");
+  frame.gNormaAndFaceNormallPrev = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormaAndFaceNormallPrev");
+  frame.gDepthPrev = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gDepthPrevFormat, usage, "gDepthPrev");
   // The reamining are general so they can be written to in postprocessing passes via compute
-  frame.colorHdrRenderRes = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::colorHdrRenderResFormat, Fvog::TextureUsage::GENERAL, "colorHdrRenderRes");
-  frame.colorHdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorHdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorHdrWindowRes");
-  frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip(*device_, {newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, Fvog::TextureUsage::GENERAL, "colorHdrBloomScratchBuffer");
-  frame.colorLdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorLdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorLdrWindowRes");
-  frame.gReactiveMask = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gReactiveMaskFormat, Fvog::TextureUsage::GENERAL, "Reactive Mask");
+  frame.colorHdrRenderRes = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::colorHdrRenderResFormat, Fvog::TextureUsage::GENERAL, "colorHdrRenderRes");
+  frame.colorHdrWindowRes = Fvog::CreateTexture2D({newWidth, newHeight}, Frame::colorHdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorHdrWindowRes");
+  frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip({newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, Fvog::TextureUsage::GENERAL, "colorHdrBloomScratchBuffer");
+  frame.colorLdrWindowRes = Fvog::CreateTexture2D({newWidth, newHeight}, Frame::colorLdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorLdrWindowRes");
+  frame.gReactiveMask = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gReactiveMaskFormat, Fvog::TextureUsage::GENERAL, "Reactive Mask");
 
   // Create debug views with alpha swizzle set to one so they can be seen in ImGui
   frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
@@ -497,12 +488,11 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   frame.gNormalSwizzled = frame.gNormalAndFaceNormal->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
   frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
 
-  frame.forwardRenderTarget = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Fvog::Format::R8G8B8A8_SRGB, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Forward Render Target");
+  frame.forwardRenderTarget = Fvog::CreateTexture2D({newWidth, newHeight}, Fvog::Format::R8G8B8A8_SRGB, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Forward Render Target");
   frame.forwardRenderTargetSwizzled = frame.forwardRenderTarget->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
 
   // TODO: only recreate if the swapchain format changed
-  debugTexturePipeline = Pipelines2::DebugTexture(*device_,
-    {
+  debugTexturePipeline = Pipelines2::DebugTexture({
       .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},
     });
 }
@@ -545,7 +535,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
 {
   ZoneScoped;
   TracyVkZoneTransient(tracyVkContext_, tracyProfileVar, commandBuffer, name.data(), true);
-  auto ctx = Fvog::Context(*device_, commandBuffer);
+  auto ctx = Fvog::Context(commandBuffer);
   auto marker = ctx.MakeScopedDebugMarker(name.data(), {.5f, .5f, 1.0f, 1.0f});
 
   ctx.Barrier();
@@ -614,7 +604,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 {
   ZoneScoped;
   
-  if (device_->frameNumber == 1)
+  if (Fvog::GetDevice().frameNumber == 1)
   {
     dt = 0.016;
   }
@@ -627,11 +617,11 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   shadingUniforms.sunDir = glm::vec4(SphericalToCartesian(sunElevation, sunAzimuth), 0);
   shadingUniforms.sunIlluminance = glm::vec4{sunIlluminance * sunColor, 0};
   {
-    uint32_t state         = static_cast<uint32_t>(device_->frameNumber);
+    uint32_t state         = static_cast<uint32_t>(Fvog::GetDevice().frameNumber);
     shadingUniforms.random = {PCG::RandFloat(state), PCG::RandFloat(state)};
   }
 
-  auto ctx = Fvog::Context(*device_, commandBuffer);
+  auto ctx = Fvog::Context(commandBuffer);
 
   const auto baseBias = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
   const float fsr2LodBias = std::round(baseBias * 100) / 100;
@@ -683,12 +673,11 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     }
 
     auto tlasInstances =
-      Fvog::TypedBuffer<Fvog::TlasInstance>(*device_, {(uint32_t)instances.size(), Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE}, "TLAS Instances Buffer");
+      Fvog::TypedBuffer<Fvog::TlasInstance>({(uint32_t)instances.size(), Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE}, "TLAS Instances Buffer");
 
     std::memcpy(tlasInstances.GetMappedMemory(), instances.data(), sizeof(Fvog::TlasInstance) * instances.size());
 
-    return Fvog::Tlas(*device_,
-      Fvog::TlasCreateInfo{
+    return Fvog::Tlas(Fvog::TlasCreateInfo{
         .commandBuffer = commandBuffer,
         .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
         .buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
@@ -707,17 +696,17 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   const auto maxIndices = glm::min(1'000'000'000u, NumMeshletInstances() * Utility::maxMeshletPrimitives * 3);
   if (!instancedMeshletBuffer || instancedMeshletBuffer->Size() < maxIndices)
   {
-    instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>(*device_, {.count = maxIndices}, "Instanced Meshlets");
+    instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>({.count = maxIndices}, "Instanced Meshlets");
   }
 
   if (!persistentVisibleMeshletIds || persistentVisibleMeshletIds->Size() < NumMeshletInstances())
   {
-    persistentVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = std::max(1u, NumMeshletInstances())}, "Persistent Visible Meshlet IDs");
+    persistentVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>({.count = std::max(1u, NumMeshletInstances())}, "Persistent Visible Meshlet IDs");
   }
 
   if (!transientVisibleMeshletIds || transientVisibleMeshletIds->Size() < NumMeshletInstances())
   {
-    transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = std::max(1u, NumMeshletInstances())}, "Transient Visible Meshlet IDs");
+    transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>({.count = std::max(1u, NumMeshletInstances())}, "Transient Visible Meshlet IDs");
   }
 
   // Clear debug buffers
@@ -727,10 +716,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   vkCmdBindDescriptorSets(
     commandBuffer,
     VK_PIPELINE_BIND_POINT_COMPUTE,
-    device_->defaultPipelineLayout,
+    Fvog::GetDevice().defaultPipelineLayout,
     0,
     1,
-    &device_->descriptorSet_,
+    &Fvog::GetDevice().descriptorSet_,
     0,
     nullptr);
 
@@ -738,10 +727,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   vkCmdBindDescriptorSets(
     commandBuffer,
     VK_PIPELINE_BIND_POINT_GRAPHICS,
-    device_->defaultPipelineLayout,
+    Fvog::GetDevice().defaultPipelineLayout,
     0,
     1,
-    &device_->descriptorSet_,
+    &Fvog::GetDevice().descriptorSet_,
     0,
     nullptr);
 
@@ -756,7 +745,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
 
   
-  const auto materialSampler = Fvog::Sampler(*device_, {
+  const auto materialSampler = Fvog::Sampler({
     .magFilter = VK_FILTER_LINEAR,
     .minFilter = VK_FILTER_LINEAR,
     .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -767,7 +756,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     .maxAnisotropy = 16.0f,
   });
   
-  const auto jitterOffset = fsr2Enable ? GetJitterOffset((uint32_t)device_->frameNumber, renderInternalWidth, renderInternalHeight, renderOutputWidth) : glm::vec2{};
+  const auto jitterOffset = fsr2Enable ? GetJitterOffset((uint32_t)Fvog::GetDevice().frameNumber, renderInternalWidth, renderInternalHeight, renderOutputWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
   //const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
   const auto projUnjittered = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
@@ -777,7 +766,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   const auto viewProj = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 
-  if (device_->frameNumber == 1)
+  if (Fvog::GetDevice().frameNumber == 1)
   {
     vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, glm::vec3{-shadingUniforms.sunDir}, vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
   }
@@ -786,7 +775,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     vsmSun.UpdateOffset(commandBuffer, mainCamera.position);
   }
 
-  globalUniforms.oldViewProjUnjittered = device_->frameNumber == 1 ? viewProjUnjittered : globalUniforms.viewProjUnjittered;
+  globalUniforms.oldViewProjUnjittered = Fvog::GetDevice().frameNumber == 1 ? viewProjUnjittered : globalUniforms.viewProjUnjittered;
 
   auto mainView = ViewParams{
     .oldViewProj = globalUniforms.oldViewProjUnjittered,
@@ -817,8 +806,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   globalUniformsBuffer.UpdateData(commandBuffer, globalUniforms);
 
   shadowUniformsBuffer.UpdateData(commandBuffer, shadowUniforms);
-
-  //shadingUniforms.tlas = tlas.GetAddress();
+  
   shadingUniforms.materialBufferIndex = geometryBuffer.GetResourceHandle().index;
   shadingUniforms.instanceBufferIndex = geometryBuffer.GetResourceHandle().index;
 #ifdef FROGRENDER_RAYTRACING_ENABLE
@@ -1104,7 +1092,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     rayTracedAoParams_.frameNumber = 0;
     if (aoUsePerFrameRng)
     {
-      rayTracedAoParams_.frameNumber = static_cast<uint32_t>(device_->frameNumber);
+      rayTracedAoParams_.frameNumber = static_cast<uint32_t>(Fvog::GetDevice().frameNumber);
     }
     rayTracedAoParams_.tlas                     = &tlas.value();
     rayTracedAoParams_.inputDepth               = &frame.gDepth.value();
@@ -1186,7 +1174,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   {
     if (!lineVertexBuffer || lineVertexBuffer->Size() < debugLines.size() * sizeof(Debug::Line))
     {
-      lineVertexBuffer.emplace(*device_, (uint32_t)debugLines.size(), "Debug Lines");
+      lineVertexBuffer.emplace((uint32_t)debugLines.size(), "Debug Lines");
     }
     lineVertexBuffer->UpdateData(commandBuffer, debugLines);
   }
@@ -1270,44 +1258,44 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     float jitterX{};
     float jitterY{};
-    ffxFsr2GetJitterOffset(&jitterX, &jitterY, (int32_t)device_->frameNumber, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
+    ffxFsr2GetJitterOffset(&jitterX, &jitterY, (int32_t)Fvog::GetDevice().frameNumber, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
 
     FfxFsr2DispatchDescription dispatchDesc{
-      .commandList = ffxGetCommandListVK(commandBuffer),
-      .color = ffxGetTextureResourceVK(&fsr2Context,
-                                       frame.colorHdrRenderRes->Image(),
-                                       frame.colorHdrRenderRes->ImageView(),
-                                       renderInternalWidth,
-                                       renderInternalHeight,
-                                       Fvog::detail::FormatToVk(frame.colorHdrRenderRes->GetCreateInfo().format)),
-      .depth = ffxGetTextureResourceVK(&fsr2Context,
-                                       frame.gDepth->Image(),
-                                       frame.gDepth->ImageView(),
-                                       renderInternalWidth,
-                                       renderInternalHeight,
-                                       Fvog::detail::FormatToVk(frame.gDepth->GetCreateInfo().format)),
-      .motionVectors = ffxGetTextureResourceVK(&fsr2Context,
-                                               frame.gMotion->Image(),
-                                               frame.gMotion->ImageView(),
-                                               renderInternalWidth,
-                                               renderInternalHeight,
-                                               Fvog::detail::FormatToVk(frame.gMotion->GetCreateInfo().format)),
-      .exposure = {},
-      .reactive = ffxGetTextureResourceVK(&fsr2Context,
-                                          frame.gReactiveMask->Image(),
-                                          frame.gReactiveMask->ImageView(),
-                                          renderInternalWidth,
-                                          renderInternalHeight,
-                                          Fvog::detail::FormatToVk(frame.gReactiveMask->GetCreateInfo().format)),
+      .commandList                = ffxGetCommandListVK(commandBuffer),
+      .color                      = ffxGetTextureResourceVK(&fsr2Context,
+        frame.colorHdrRenderRes->Image(),
+        frame.colorHdrRenderRes->ImageView(),
+        renderInternalWidth,
+        renderInternalHeight,
+        Fvog::detail::FormatToVk(frame.colorHdrRenderRes->GetCreateInfo().format)),
+      .depth                      = ffxGetTextureResourceVK(&fsr2Context,
+        frame.gDepth->Image(),
+        frame.gDepth->ImageView(),
+        renderInternalWidth,
+        renderInternalHeight,
+        Fvog::detail::FormatToVk(frame.gDepth->GetCreateInfo().format)),
+      .motionVectors              = ffxGetTextureResourceVK(&fsr2Context,
+        frame.gMotion->Image(),
+        frame.gMotion->ImageView(),
+        renderInternalWidth,
+        renderInternalHeight,
+        Fvog::detail::FormatToVk(frame.gMotion->GetCreateInfo().format)),
+      .exposure                   = {},
+      .reactive                   = ffxGetTextureResourceVK(&fsr2Context,
+        frame.gReactiveMask->Image(),
+        frame.gReactiveMask->ImageView(),
+        renderInternalWidth,
+        renderInternalHeight,
+        Fvog::detail::FormatToVk(frame.gReactiveMask->GetCreateInfo().format)),
       .transparencyAndComposition = {},
-      .output = ffxGetTextureResourceVK(&fsr2Context,
-                                        frame.colorHdrWindowRes->Image(),
-                                        frame.colorHdrWindowRes->ImageView(),
-                                        renderOutputWidth,
-                                        renderOutputHeight,
-                                        Fvog::detail::FormatToVk(frame.colorHdrWindowRes->GetCreateInfo().format)),
-      .jitterOffset = {jitterX, jitterY},
-      .motionVectorScale = {float(renderInternalWidth), float(renderInternalHeight)},
+      .output                     = ffxGetTextureResourceVK(&fsr2Context,
+        frame.colorHdrWindowRes->Image(),
+        frame.colorHdrWindowRes->ImageView(),
+        renderOutputWidth,
+        renderOutputHeight,
+        Fvog::detail::FormatToVk(frame.colorHdrWindowRes->GetCreateInfo().format)),
+      .jitterOffset               = {jitterX, jitterY},
+      .motionVectorScale          = {float(renderInternalWidth), float(renderInternalHeight)},
       .renderSize = {renderInternalWidth, renderInternalHeight},
       .enableSharpening = fsr2Sharpness != 0,
       .sharpness = fsr2Sharpness,
@@ -1326,7 +1314,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     }
 
     // Re-apply states that application assumes
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, device_->defaultPipelineLayout, 0, 1, &device_->descriptorSet_, 0, nullptr);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
     *frame.colorHdrWindowRes->currentLayout = VK_IMAGE_LAYOUT_GENERAL;
   }
 #endif
@@ -1408,10 +1396,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   vkCmdBindDescriptorSets(
     commandBuffer,
     VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-    device_->defaultPipelineLayout,
+    Fvog::GetDevice().defaultPipelineLayout,
     0,
     1,
-    &device_->descriptorSet_,
+    &Fvog::GetDevice().descriptorSet_,
     0,
     nullptr);
 
@@ -1430,7 +1418,7 @@ void FrogRenderer2::OnPathDrop([[maybe_unused]] std::span<const char*> paths)
   ZoneScoped;
   for (const auto& path : paths)
   {
-    scene.Import(*this, Utility::LoadModelFromFile(*device_, path, glm::identity<glm::mat4>()));
+    scene.Import(*this, Utility::LoadModelFromFile(path, glm::identity<glm::mat4>()));
   }
 }
 
@@ -1478,8 +1466,7 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
       .primitivesAlloc = std::move(primitivesAlloc),
       .originalIndicesAlloc = std::move(originalIndicesAlloc),
 #ifdef FROGRENDER_RAYTRACING_ENABLE
-      .blas = Fvog::Blas(*device_,
-        Fvog::BlasCreateInfo{
+      .blas = Fvog::Blas(Fvog::BlasCreateInfo{
           .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
           .buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
           .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
@@ -1610,7 +1597,7 @@ VkDeviceAddress FrogRenderer2::GetOriginalIndexBufferPointerFromMesh(Render::Mes
 void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
-  auto ctx = Fvog::Context(*device_, commandBuffer);
+  auto ctx = Fvog::Context(commandBuffer);
 
   ctx.Barrier();
 
@@ -1674,8 +1661,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   // TODO: This should be a scatter-write compute shader
   if (!meshletInstancesUploads.empty())
   {
-    auto uploadBuffer = Fvog::TypedBuffer<Render::MeshletInstance>(*device_,
-      {
+    auto uploadBuffer = Fvog::TypedBuffer<Render::MeshletInstance>({
         .count = (uint32_t)meshletInstances.size(),
         .flag  = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE | Fvog::BufferFlagThingy::NO_DESCRIPTOR,
       },

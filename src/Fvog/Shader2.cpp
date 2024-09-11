@@ -1,6 +1,7 @@
 #include "Shader2.h"
 #include "detail/Common.h"
 #include "TriviallyCopyableByteSpan.h"
+#include "Device.h"
 
 #include <volk.h>
 
@@ -155,7 +156,7 @@ namespace Fvog
 #endif
       );
       shader.setOverrideVersion(460);
-      shader.setDebugInfo(true);
+      //shader.setDebugInfo(true);
 
       bool parseResult;
       {
@@ -207,8 +208,8 @@ namespace Fvog
         .generateDebugInfo = true,
         .stripDebugInfo = false,
         .disableOptimizer = true,
-        .emitNonSemanticShaderDebugInfo = true,
-        .emitNonSemanticShaderDebugSource = true,
+        //.emitNonSemanticShaderDebugInfo = true,
+        //.emitNonSemanticShaderDebugSource = true,
       };
 
       {
@@ -230,14 +231,13 @@ namespace Fvog
     }
   } // namespace
 
-  void Shader::Initialize(VkDevice device, const detail::ShaderCompileInfo& info)
+  void Shader::Initialize(const detail::ShaderCompileInfo& info)
   {
     using namespace detail;
     ZoneScoped;
     
     CheckVkResult(
-      vkCreateShaderModule(
-        device,
+      vkCreateShaderModule(Fvog::GetDevice().device_,
         Address(VkShaderModuleCreateInfo{
           .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
           .codeSize = info.binarySpv.size() * sizeof(uint32_t),
@@ -249,7 +249,8 @@ namespace Fvog
     workgroupSize_ = info.workgroupSize_;
     
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_SHADER_MODULE,
       .objectHandle = reinterpret_cast<uint64_t>(shaderModule_),
@@ -257,29 +258,26 @@ namespace Fvog
     }));
   }
 
-  Shader::Shader(VkDevice device, PipelineStage stage, std::string_view source, std::string name)
-    : device_(device),
-      name_(std::move(name))
+  Shader::Shader(PipelineStage stage, std::string_view source, std::string name)
+    : name_(std::move(name))
   {
     ZoneScoped;
     ZoneNamed(_, true);
     ZoneNameV(_, name_.data(), name_.size());
-    Initialize(device, CompileShaderToSpirv(PipelineStageToVK(stage), source, nullptr));
+    Initialize(CompileShaderToSpirv(PipelineStageToVK(stage), source, nullptr));
   }
   
-  Shader::Shader(VkDevice device, PipelineStage stage, const std::filesystem::path& path, std::string name)
-    : device_(device),
-      name_(std::move(name))
+  Shader::Shader(PipelineStage stage, const std::filesystem::path& path, std::string name)
+    : name_(std::move(name))
   {
     ZoneScoped;
     ZoneNamed(_, true);
     ZoneNameV(_, name_.data(), name_.size());
-    Initialize(device, CompileShaderToSpirv(PipelineStageToVK(stage), LoadFile(path), detail::Address(IncludeHandler(path))));
+    Initialize(CompileShaderToSpirv(PipelineStageToVK(stage), LoadFile(path), detail::Address(IncludeHandler(path))));
   }
 
   Shader::Shader(Shader&& old) noexcept
-    : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
-      shaderModule_(std::exchange(old.shaderModule_, VK_NULL_HANDLE)),
+    : shaderModule_(std::exchange(old.shaderModule_, VK_NULL_HANDLE)),
       workgroupSize_(std::exchange(old.workgroupSize_, {})),
       name_(std::move(old.name_))
   {}
@@ -294,9 +292,9 @@ namespace Fvog
 
   Shader::~Shader()
   {
-    if (device_)
+    if (shaderModule_ != VK_NULL_HANDLE)
     {
-      vkDestroyShaderModule(device_, shaderModule_, nullptr);
+      vkDestroyShaderModule(Fvog::GetDevice().device_, shaderModule_, nullptr);
     }
   }
 }

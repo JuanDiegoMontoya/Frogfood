@@ -7,7 +7,7 @@
 
 namespace Fvog
 {
-  Blas::Blas(Device& device, const BlasCreateInfo& createInfo, std::string name) : createInfo_(createInfo), device_(&device)
+  Blas::Blas(const BlasCreateInfo& createInfo, std::string name) : createInfo_(createInfo)
   {
     assert(createInfo.numIndices >= 3);
     //assert(createInfo.numIndices % 3 == 0);
@@ -51,9 +51,9 @@ namespace Fvog
     VkAccelerationStructureBuildSizesInfoKHR buildSizeInfo = {
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
     };
-    vkGetAccelerationStructureBuildSizesKHR(device.device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &primitiveCount, &buildSizeInfo);
+    vkGetAccelerationStructureBuildSizesKHR(Fvog::GetDevice().device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &primitiveCount, &buildSizeInfo);
 
-    Buffer blasBuffer(device,
+    Buffer blasBuffer(
       BufferCreateInfo{
         .size = buildSizeInfo.accelerationStructureSize,
         .flag = BufferFlagThingy::NO_DESCRIPTOR,
@@ -68,16 +68,16 @@ namespace Fvog
     };
 
     VkAccelerationStructureKHR blas;
-    detail::CheckVkResult(vkCreateAccelerationStructureKHR(device.device_, &blasInfo, nullptr, &blas));
+    detail::CheckVkResult(vkCreateAccelerationStructureKHR(Fvog::GetDevice().device_, &blasInfo, nullptr, &blas));
 
-    Buffer scratchBuildBuffer(device,
+    Buffer scratchBuildBuffer(
       BufferCreateInfo{
         .size = buildSizeInfo.buildScratchSize,
         .flag = BufferFlagThingy::NO_DESCRIPTOR,
       },
       name + " BLAS Scratch Buffer");
 
-    device_->ImmediateSubmit(
+    Fvog::GetDevice().ImmediateSubmit(
       [&](VkCommandBuffer commandBuffer)
       {
         buildInfo.dstAccelerationStructure = blas;
@@ -121,20 +121,26 @@ namespace Fvog
       };
 
       VkQueryPool compactedSizeQuery;
-      detail::CheckVkResult(vkCreateQueryPool(device.device_, &queryPoolInfo, nullptr, &compactedSizeQuery));
+      detail::CheckVkResult(vkCreateQueryPool(Fvog::GetDevice().device_, &queryPoolInfo, nullptr, &compactedSizeQuery));
 
-      device.ImmediateSubmit(
+      Fvog::GetDevice().ImmediateSubmit(
         [&](VkCommandBuffer commandBuffer)
         {
           vkCmdResetQueryPool(commandBuffer, compactedSizeQuery, 0, 1);
           vkCmdWriteAccelerationStructuresPropertiesKHR(commandBuffer, 1, &blas, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, compactedSizeQuery, 0);
         });
       uint64_t compactedSize;
-      detail::CheckVkResult(
-        vkGetQueryPoolResults(device.device_, compactedSizeQuery, 0, 1, sizeof(uint64_t), &compactedSize, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
-      vkDestroyQueryPool(device.device_, compactedSizeQuery, nullptr);
+      detail::CheckVkResult(vkGetQueryPoolResults(Fvog::GetDevice().device_,
+        compactedSizeQuery,
+        0,
+        1,
+        sizeof(uint64_t),
+        &compactedSize,
+        sizeof(uint64_t),
+        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+      vkDestroyQueryPool(Fvog::GetDevice().device_, compactedSizeQuery, nullptr);
 
-      Buffer compactBlasBuffer(device,
+      Buffer compactBlasBuffer(
         BufferCreateInfo{
           .size = compactedSize,
           .flag = BufferFlagThingy::NO_DESCRIPTOR,
@@ -149,9 +155,9 @@ namespace Fvog
       };
 
       VkAccelerationStructureKHR compactBlas;
-      detail::CheckVkResult(vkCreateAccelerationStructureKHR(device.device_, &compactBlasInfo, nullptr, &compactBlas));
+      detail::CheckVkResult(vkCreateAccelerationStructureKHR(Fvog::GetDevice().device_, &compactBlasInfo, nullptr, &compactBlas));
 
-      device.ImmediateSubmit(
+      Fvog::GetDevice().ImmediateSubmit(
         [&](VkCommandBuffer commandBuffer)
         {
           vkCmdPipelineBarrier2(commandBuffer,
@@ -186,7 +192,7 @@ namespace Fvog
             }));
         });
 
-      vkDestroyAccelerationStructureKHR(device.device_, blas, nullptr);
+      vkDestroyAccelerationStructureKHR(Fvog::GetDevice().device_, blas, nullptr);
       blasBuffer = std::move(compactBlasBuffer);
       blas = compactBlas;
     }
@@ -197,9 +203,9 @@ namespace Fvog
       .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
       .accelerationStructure = blas,
     };
-    address_ = vkGetAccelerationStructureDeviceAddressKHR(device.device_, &addressInfo);
+    address_ = vkGetAccelerationStructureDeviceAddressKHR(Fvog::GetDevice().device_, &addressInfo);
 
-    vkSetDebugUtilsObjectNameEXT(device_->device_,
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
       detail::Address(VkDebugUtilsObjectNameInfoEXT{
         .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
         .objectType   = VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR,
@@ -214,7 +220,7 @@ namespace Fvog
     if (handle_)
     {
       // TODO: Move to deletion queue
-      vkDestroyAccelerationStructureKHR(device_->device_, handle_, nullptr);
+      vkDestroyAccelerationStructureKHR(Fvog::GetDevice().device_, handle_, nullptr);
     }
   }
 
@@ -222,8 +228,7 @@ namespace Fvog
     : handle_(std::exchange(other.handle_, {})),
       buffer_(std::move(other.buffer_)),
       address_(std::exchange(other.address_, {})),
-      createInfo_(std::exchange(other.createInfo_, {})),
-      device_(std::exchange(other.device_, nullptr))
+      createInfo_(std::exchange(other.createInfo_, {}))
   {
   }
 
@@ -237,7 +242,7 @@ namespace Fvog
     return *new (this) Blas(std::move(other));
   }
 
-  Tlas::Tlas(Device& device, const TlasCreateInfo& createInfo, std::string name) : createInfo_(createInfo), device_(&device)
+  Tlas::Tlas(const TlasCreateInfo& createInfo, std::string name) : createInfo_(createInfo)
   {
     const VkAccelerationStructureGeometryKHR geometryInfo = {
       .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
@@ -265,9 +270,9 @@ namespace Fvog
     VkAccelerationStructureBuildSizesInfoKHR buildSizeInfo = {
       .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
     };
-    vkGetAccelerationStructureBuildSizesKHR(device.device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &instanceCount, &buildSizeInfo);
+    vkGetAccelerationStructureBuildSizesKHR(Fvog::GetDevice().device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &instanceCount, &buildSizeInfo);
 
-    Buffer tlasBuffer(device,
+    Buffer tlasBuffer(
       BufferCreateInfo{
         .size = buildSizeInfo.accelerationStructureSize,
         .flag = BufferFlagThingy::NO_DESCRIPTOR,
@@ -282,16 +287,16 @@ namespace Fvog
     };
 
     VkAccelerationStructureKHR tlas;
-    detail::CheckVkResult(vkCreateAccelerationStructureKHR(device.device_, &tlasInfo, nullptr, &tlas));
+    detail::CheckVkResult(vkCreateAccelerationStructureKHR(Fvog::GetDevice().device_, &tlasInfo, nullptr, &tlas));
 
-    Buffer scratchBuildBuffer(device,
+    Buffer scratchBuildBuffer(
       BufferCreateInfo{
         .size = buildSizeInfo.buildScratchSize,
         .flag = BufferFlagThingy::NO_DESCRIPTOR,
       },
       name + " TLAS Scratch Buffer");
 
-    device_->ImmediateSubmit(
+    Fvog::GetDevice().ImmediateSubmit(
       [&](VkCommandBuffer commandBuffer)
       {
         buildInfo.dstAccelerationStructure = tlas;
@@ -335,20 +340,26 @@ namespace Fvog
       };
 
       VkQueryPool compactedSizeQuery;
-      detail::CheckVkResult(vkCreateQueryPool(device.device_, &queryPoolInfo, nullptr, &compactedSizeQuery));
+      detail::CheckVkResult(vkCreateQueryPool(Fvog::GetDevice().device_, &queryPoolInfo, nullptr, &compactedSizeQuery));
 
-      device.ImmediateSubmit(
+      Fvog::GetDevice().ImmediateSubmit(
         [&](VkCommandBuffer commandBuffer)
         {
           vkCmdResetQueryPool(commandBuffer, compactedSizeQuery, 0, 1);
           vkCmdWriteAccelerationStructuresPropertiesKHR(commandBuffer, 1, &tlas, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, compactedSizeQuery, 0);
         });
       uint64_t compactedSize;
-      detail::CheckVkResult(
-        vkGetQueryPoolResults(device.device_, compactedSizeQuery, 0, 1, sizeof(uint64_t), &compactedSize, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
-      vkDestroyQueryPool(device.device_, compactedSizeQuery, nullptr);
+      detail::CheckVkResult(vkGetQueryPoolResults(Fvog::GetDevice().device_,
+        compactedSizeQuery,
+        0,
+        1,
+        sizeof(uint64_t),
+        &compactedSize,
+        sizeof(uint64_t),
+        VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+      vkDestroyQueryPool(Fvog::GetDevice().device_, compactedSizeQuery, nullptr);
 
-      Buffer compactTlasBuffer(device,
+      Buffer compactTlasBuffer(
         BufferCreateInfo{
           .size = compactedSize,
           .flag = BufferFlagThingy::NO_DESCRIPTOR,
@@ -363,9 +374,9 @@ namespace Fvog
       };
 
       VkAccelerationStructureKHR compactTlas;
-      detail::CheckVkResult(vkCreateAccelerationStructureKHR(device.device_, &compactTlasInfo, nullptr, &compactTlas));
+      detail::CheckVkResult(vkCreateAccelerationStructureKHR(Fvog::GetDevice().device_, &compactTlasInfo, nullptr, &compactTlas));
 
-      device.ImmediateSubmit(
+      Fvog::GetDevice().ImmediateSubmit(
         [&](VkCommandBuffer commandBuffer)
         {
           vkCmdPipelineBarrier2(commandBuffer,
@@ -399,7 +410,7 @@ namespace Fvog
             }));
         });
 
-      vkDestroyAccelerationStructureKHR(device.device_, tlas, nullptr);
+      vkDestroyAccelerationStructureKHR(Fvog::GetDevice().device_, tlas, nullptr);
       tlasBuffer = std::move(compactTlasBuffer);
       tlas = compactTlas;
     }
@@ -410,9 +421,9 @@ namespace Fvog
       .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
       .accelerationStructure = tlas,
     };
-    address_ = vkGetAccelerationStructureDeviceAddressKHR(device.device_, &addressInfo);
+    address_ = vkGetAccelerationStructureDeviceAddressKHR(Fvog::GetDevice().device_, &addressInfo);
 
-    vkSetDebugUtilsObjectNameEXT(device_->device_,
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
       detail::Address(VkDebugUtilsObjectNameInfoEXT{
         .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
         .objectType   = VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR,
@@ -421,19 +432,19 @@ namespace Fvog
       }));
     handle_ = tlas;
 
-    descriptorInfo_ = device_->AllocateAccelerationStructureDescriptor(tlas);
+    descriptorInfo_ = Fvog::GetDevice().AllocateAccelerationStructureDescriptor(tlas);
   }
 
   Tlas::~Tlas()
   {
     if (handle_)
     {
-      device_->genericDeletionQueue_.emplace_back(
-        [device = device_, handle = handle_, frameOfLastUse = device_->frameNumber](uint64_t value) -> bool
+      Fvog::GetDevice().genericDeletionQueue_.emplace_back(
+        [handle = handle_, frameOfLastUse = Fvog::GetDevice().frameNumber](uint64_t value) -> bool
         {
           if (value >= frameOfLastUse)
           {
-            vkDestroyAccelerationStructureKHR(device->device_, handle, nullptr);
+            vkDestroyAccelerationStructureKHR(Fvog::GetDevice().device_, handle, nullptr);
             return true;
           }
           return false;
@@ -446,8 +457,7 @@ namespace Fvog
       buffer_(std::move(other.buffer_)),
       address_(std::exchange(other.address_, {})),
       descriptorInfo_(std::move(other.descriptorInfo_)),
-      createInfo_(std::exchange(other.createInfo_, {})),
-      device_(std::exchange(other.device_, nullptr))
+      createInfo_(std::exchange(other.createInfo_, {}))
   {
   }
 

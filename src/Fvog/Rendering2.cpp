@@ -39,9 +39,8 @@ namespace Fvog
     return {};
   }
 
-  Context::Context(Device& device, VkCommandBuffer commandBuffer)
-    : device_(&device),
-      commandBuffer_(commandBuffer)
+  Context::Context(VkCommandBuffer commandBuffer)
+    : commandBuffer_(commandBuffer)
   {}
 
   void Context::BeginRendering(const RenderInfo& renderInfo) const
@@ -425,7 +424,7 @@ namespace Fvog
   void Context::SetPushConstants(TriviallyCopyableByteSpan values, uint32_t offset) const
   {
     ZoneScoped;
-    vkCmdPushConstants(commandBuffer_, device_->defaultPipelineLayout, VK_SHADER_STAGE_ALL, offset, static_cast<uint32_t>(values.size_bytes()), values.data());
+    vkCmdPushConstants(commandBuffer_, Fvog::GetDevice().defaultPipelineLayout, VK_SHADER_STAGE_ALL, offset, static_cast<uint32_t>(values.size_bytes()), values.data());
   }
 
   ScopedDebugMarker::ScopedDebugMarker(VkCommandBuffer commandBuffer, const char* message, std::array<float, 4> color)

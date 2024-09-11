@@ -18,15 +18,14 @@ namespace Fvog
   class TimerQueryAsync
   {
   public:
-    TimerQueryAsync(Device& device, uint32_t N, std::string name);
+    TimerQueryAsync(uint32_t N, std::string name);
     ~TimerQueryAsync();
 
     TimerQueryAsync(const TimerQueryAsync&)            = delete;
     TimerQueryAsync& operator=(const TimerQueryAsync&) = delete;
 
     TimerQueryAsync(TimerQueryAsync&& old) noexcept
-      : device_(std::exchange(old.device_, nullptr)),
-        queryPool_(std::exchange(old.queryPool_, nullptr)),
+      : queryPool_(std::exchange(old.queryPool_, nullptr)),
         start_(std::exchange(old.start_, 0)),
         count_(std::exchange(old.count_, 0)),
         capacity_(std::exchange(old.capacity_, 0)),
@@ -57,7 +56,6 @@ namespace Fvog
     [[nodiscard]] std::optional<uint64_t> PopTimestamp();
 
   private:
-    Device* device_;
     VkQueryPool queryPool_;
     uint32_t start_{}; // next timer to be used for measurement
     uint32_t count_{}; // number of timers 'buffered', ie measurement was started by result not read yet

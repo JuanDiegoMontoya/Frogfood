@@ -10,35 +10,34 @@
 
 namespace Techniques
 {
-  static Fvog::ComputePipeline CreateGenerateLuminanceHistogramPipeline(Fvog::Device& device)
+  static Fvog::ComputePipeline CreateGenerateLuminanceHistogramPipeline()
   {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/GenerateLuminanceHistogram.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/GenerateLuminanceHistogram.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "Generate Luminance Histogram",
       .shader = &cs,
     });
   }
 
-  static Fvog::ComputePipeline CreateResolveLuminanceHistogramPipeline(Fvog::Device& device)
+  static Fvog::ComputePipeline CreateResolveLuminanceHistogramPipeline()
   {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/ResolveLuminanceHistogram.comp.glsl");
+    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/ResolveLuminanceHistogram.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "Resolve Luminance Histogram",
       .shader = &cs,
     });
   }
 
-  AutoExposure::AutoExposure(Fvog::Device& device)
-    : device_(&device),
-      dataBuffer_(device, 1, "Auto Exposure Data"),
-      generateLuminanceHistogramPipeline_(CreateGenerateLuminanceHistogramPipeline(device)),
-      resolveLuminanceHistogramPipeline_(CreateResolveLuminanceHistogramPipeline(device))
+  AutoExposure::AutoExposure()
+    : dataBuffer_(1, "Auto Exposure Data"),
+      generateLuminanceHistogramPipeline_(CreateGenerateLuminanceHistogramPipeline()),
+      resolveLuminanceHistogramPipeline_(CreateResolveLuminanceHistogramPipeline())
   {
     // Initialize buckets to zero
     //dataBuffer_.FillData();
-    device.ImmediateSubmit(
+    Fvog::GetDevice().ImmediateSubmit(
       [this](VkCommandBuffer cmd) {
         vkCmdFillBuffer(cmd, dataBuffer_.GetDeviceBuffer().Handle(), 0, VK_WHOLE_SIZE, 0);
       });
@@ -46,7 +45,7 @@ namespace Techniques
 
   void AutoExposure::Apply(VkCommandBuffer cmd, const ApplyParams& params)
   {
-    auto ctx = Fvog::Context(*device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     auto d = ctx.MakeScopedDebugMarker("Auto Exposure");
 
     auto uniforms = AutoExposureUniforms{

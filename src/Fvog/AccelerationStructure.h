@@ -59,7 +59,7 @@ namespace Fvog
   class Blas
   {
   public:
-    explicit Blas(Device& device, const BlasCreateInfo& createInfo, std::string name = {});
+    explicit Blas(const BlasCreateInfo& createInfo, std::string name = {});
     ~Blas();
 
     Blas(const Blas& other)            = delete;
@@ -95,7 +95,6 @@ namespace Fvog
     VkDeviceSize address_;
 
     BlasCreateInfo createInfo_;
-    Device* device_;
   };
 
   struct TlasInstance
@@ -122,7 +121,7 @@ namespace Fvog
   class Tlas
   {
   public:
-    Tlas(Device& device, const TlasCreateInfo& createInfo, std::string name = {});
+    Tlas(const TlasCreateInfo& createInfo, std::string name = {});
     ~Tlas();
 
     Tlas(const Tlas& other)            = delete;
@@ -164,6 +163,5 @@ namespace Fvog
     std::optional<Device::DescriptorInfo> descriptorInfo_;
 
     TlasCreateInfo createInfo_;
-    Device* device_;
   };
 } // namespace Fvog

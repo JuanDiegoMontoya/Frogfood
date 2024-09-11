@@ -18,7 +18,7 @@ namespace Techniques
   class AutoExposure
   {
   public:
-    explicit AutoExposure(Fvog::Device& device);
+    explicit AutoExposure();
 
     struct ApplyParams
     {
@@ -67,8 +67,7 @@ namespace Techniques
       AutoExposureUniforms uniforms;
       uint32_t histogramBuckets[numBuckets];
     };
-
-    Fvog::Device* device_{};
+    
     Fvog::NDeviceBuffer<AutoExposureBufferData> dataBuffer_;
 
     Fvog::ComputePipeline generateLuminanceHistogramPipeline_;

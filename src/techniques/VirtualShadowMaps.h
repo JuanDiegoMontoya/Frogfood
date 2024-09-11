@@ -51,7 +51,7 @@ namespace Techniques::VirtualShadowMaps
       uint32_t numPages{};
     };
 
-    explicit Context(Fvog::Device& device, const CreateInfo& createInfo);
+    explicit Context(const CreateInfo& createInfo);
 
     struct VsmGlobalUniforms
     {
@@ -78,8 +78,6 @@ namespace Techniques::VirtualShadowMaps
     //void BindResourcesForCulling(VkCommandBuffer cmd);
 
     VsmPushConstants GetPushConstants();
-
-    Fvog::Device* device_{};
 
   private:
     friend class DirectionalVirtualShadowMap;

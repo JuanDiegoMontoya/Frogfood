@@ -98,7 +98,6 @@ protected:
   // destroyList will be the last object to be automatically destroyed after the destructor returns
   DestroyList destroyList_;
   vkb::Instance instance_{};
-  std::optional<Fvog::Device> device_;
   VkSurfaceKHR surface_{};
   VkDescriptorPool imguiDescriptorPool_{};
   vkb::Swapchain swapchain_{};

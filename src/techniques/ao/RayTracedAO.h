@@ -18,7 +18,7 @@ namespace Techniques
   class RayTracedAO
   {
   public:
-    RayTracedAO(Fvog::Device& device);
+    RayTracedAO();
 
     struct ComputeParams
     {
@@ -37,7 +37,6 @@ namespace Techniques
     [[nodiscard]] Fvog::Texture& ComputeAO(VkCommandBuffer commandBuffer, const ComputeParams& params);
 
   private:
-    Fvog::Device* device_{};
     Fvog::ComputePipeline rtaoPipeline_;
     std::optional<Fvog::Texture> aoTexture_;
   };

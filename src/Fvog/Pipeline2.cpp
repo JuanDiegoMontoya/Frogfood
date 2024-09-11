@@ -17,9 +17,8 @@
 
 namespace Fvog
 {
-  GraphicsPipeline::GraphicsPipeline(Device& device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info)
-    : device_(&device),
-      name_(info.name)
+  GraphicsPipeline::GraphicsPipeline(VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info)
+    : name_(info.name)
   {
     using namespace detail;
     ZoneScoped;
@@ -72,8 +71,7 @@ namespace Fvog
       colorAttachmentFormatsVk[i] = detail::FormatToVk(info.renderTargetFormats.colorAttachmentFormats[i]);
     }
 
-    CheckVkResult(vkCreateGraphicsPipelines(
-      device.device_,
+    CheckVkResult(vkCreateGraphicsPipelines(Fvog::GetDevice().device_,
       nullptr,
       1,
       Address(VkGraphicsPipelineCreateInfo{
@@ -153,7 +151,8 @@ namespace Fvog
       &pipeline_));
 
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_PIPELINE,
       .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
@@ -161,20 +160,21 @@ namespace Fvog
     }));
   }
 
-  GraphicsPipeline::GraphicsPipeline(Device& device, const GraphicsPipelineInfo& info)
-    : GraphicsPipeline(device, device.defaultPipelineLayout, info)
+  GraphicsPipeline::GraphicsPipeline(const GraphicsPipelineInfo& info)
+    : GraphicsPipeline(Fvog::GetDevice().defaultPipelineLayout, info)
   {}
 
   GraphicsPipeline::~GraphicsPipeline()
   {
     // TODO: put this into a queue for delayed deletion
-    if (device_)
+    if (pipeline_ != VK_NULL_HANDLE)
     {
-      device_->genericDeletionQueue_.emplace_back(
-        [device = device_, pipeline = pipeline_, frameOfLastUse = device_->frameNumber](uint64_t value) -> bool {
+      Fvog::GetDevice().genericDeletionQueue_.emplace_back(
+        [pipeline = pipeline_, frameOfLastUse = Fvog::GetDevice().frameNumber](uint64_t value) -> bool
+        {
           if (value >= frameOfLastUse)
           {
-            vkDestroyPipeline(device->device_, pipeline, nullptr);
+            vkDestroyPipeline(Fvog::GetDevice().device_, pipeline, nullptr);
             return true;
           }
           return false;
@@ -183,8 +183,7 @@ namespace Fvog
   }
 
   GraphicsPipeline::GraphicsPipeline(GraphicsPipeline&& old) noexcept
-    : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
-      pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
+    : pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
       name_(std::move(old.name_))
   {}
 
@@ -196,9 +195,8 @@ namespace Fvog
     return *new (this) GraphicsPipeline(std::move(old));
   }
 
-  ComputePipeline::ComputePipeline(Device& device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info)
-    : device_(&device),
-      workgroupSize_(info.shader->WorkgroupSize()),
+  ComputePipeline::ComputePipeline(VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info)
+    : workgroupSize_(info.shader->WorkgroupSize()),
       name_(info.name)
   {
     using namespace detail;
@@ -206,8 +204,7 @@ namespace Fvog
     ZoneNamed(_, true);
     ZoneNameV(_, name_.data(), name_.size());
 
-    CheckVkResult(vkCreateComputePipelines(
-      device_->device_,
+    CheckVkResult(vkCreateComputePipelines(Fvog::GetDevice().device_,
       nullptr,
       1,
       Address(VkComputePipelineCreateInfo{
@@ -224,7 +221,8 @@ namespace Fvog
       &pipeline_));
 
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_PIPELINE,
       .objectHandle = reinterpret_cast<uint64_t>(pipeline_),
@@ -232,22 +230,21 @@ namespace Fvog
     }));
   }
 
-  ComputePipeline::ComputePipeline(Device& device, const ComputePipelineInfo& info)
-    : ComputePipeline(device, device.defaultPipelineLayout, info)
+  ComputePipeline::ComputePipeline(const ComputePipelineInfo& info)
+    : ComputePipeline(Fvog::GetDevice().defaultPipelineLayout, info)
   {}
 
   ComputePipeline::~ComputePipeline()
   {
     // TODO: put this into a queue for delayed deletion
-    if (device_)
+    if (pipeline_ != VK_NULL_HANDLE)
     {
-      vkDestroyPipeline(device_->device_, pipeline_, nullptr);
+      vkDestroyPipeline(Fvog::GetDevice().device_, pipeline_, nullptr);
     }
   }
 
   ComputePipeline::ComputePipeline(ComputePipeline&& old) noexcept
-    : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
-      pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
+    : pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
       workgroupSize_(std::exchange(old.workgroupSize_, {})),
       name_(std::move(old.name_))
   {}
@@ -265,8 +262,8 @@ namespace Fvog
     return workgroupSize_;
   }
 
-  RayTracingPipeline::RayTracingPipeline(Device& device, VkPipelineLayout pipelineLayout, const RayTracingPipelineInfo& info)
-    : device_(&device), name_(info.name)
+  RayTracingPipeline::RayTracingPipeline(VkPipelineLayout pipelineLayout, const RayTracingPipelineInfo& info)
+    : name_(info.name)
   {
     using namespace detail;
     ZoneScoped;
@@ -355,7 +352,7 @@ namespace Fvog
       rayTracingGroups.emplace_back(hitGroupInfo);
     }
 
-    CheckVkResult(vkCreateRayTracingPipelinesKHR(device.device_,
+    CheckVkResult(vkCreateRayTracingPipelinesKHR(Fvog::GetDevice().device_,
       nullptr,
       nullptr,
       1,
@@ -371,7 +368,7 @@ namespace Fvog
       nullptr,
       &pipeline_));
 
-    vkSetDebugUtilsObjectNameEXT(device.device_,
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
       detail::Address(VkDebugUtilsObjectNameInfoEXT{
         .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
         .objectType   = VK_OBJECT_TYPE_PIPELINE,
@@ -383,7 +380,7 @@ namespace Fvog
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingProperties{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR,
     };
-    vkGetPhysicalDeviceProperties2(device.physicalDevice_,
+    vkGetPhysicalDeviceProperties2(Fvog::GetDevice().physicalDevice_,
       Address(VkPhysicalDeviceProperties2{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
         .pNext = &rayTracingProperties,
@@ -396,8 +393,7 @@ namespace Fvog
 
     // We don't want the aligned size here as the data returned is packed
     std::vector<uint8_t> shaderGroupHandles(rayTracingGroups.size() * rayTracingProperties.shaderGroupHandleSize);
-    CheckVkResult(vkGetRayTracingShaderGroupHandlesKHR(
-      device.device_,
+    CheckVkResult(vkGetRayTracingShaderGroupHandlesKHR(Fvog::GetDevice().device_,
       pipeline_,
       0,
       static_cast<uint32_t>(rayTracingGroups.size()),
@@ -425,9 +421,11 @@ namespace Fvog
       .size = AlignUp(shaderHandleSize * info.hitGroups.size(), shaderHandleBaseAlignment),
     };
 
-    Buffer shaderBindingTableBuffer(device,
-      BufferCreateInfo{.size = rayGenRegion.size + missRegion.size + hitGroupRegion.size,
-        .flag                = BufferFlagThingy::NO_DESCRIPTOR | BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE},
+    Buffer shaderBindingTableBuffer(
+      BufferCreateInfo{
+        .size = rayGenRegion.size + missRegion.size + hitGroupRegion.size,
+        .flag = BufferFlagThingy::NO_DESCRIPTOR | BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE,
+      },
       info.name + "ShaderBindingTable");
 
     auto* shaderHandleBasePtr       = shaderGroupHandles.data();
@@ -461,22 +459,21 @@ namespace Fvog
     shaderBindingTable_.hitGroupRegion = hitGroupRegion;
   }
 
-  RayTracingPipeline::RayTracingPipeline(Device& device, const RayTracingPipelineInfo& info)
-    : RayTracingPipeline(device, device.defaultPipelineLayout, info)
+  RayTracingPipeline::RayTracingPipeline(const RayTracingPipelineInfo& info)
+    : RayTracingPipeline(Fvog::GetDevice().defaultPipelineLayout, info)
   {}
 
   RayTracingPipeline::~RayTracingPipeline()
   {
     // TODO: put this into a queue for delayed deletion
-    if (device_)
+    if (pipeline_ != VK_NULL_HANDLE)
     {
-      vkDestroyPipeline(device_->device_, pipeline_, nullptr);
+      vkDestroyPipeline(Fvog::GetDevice().device_, pipeline_, nullptr);
     }
   }
 
   RayTracingPipeline::RayTracingPipeline(RayTracingPipeline&& old) noexcept
-    : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
-      pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
+    : pipeline_(std::exchange(old.pipeline_, VK_NULL_HANDLE)),
       shaderBindingTable_(std::move(old.shaderBindingTable_)),
       name_(std::move(old.name_))
   {

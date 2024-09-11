@@ -94,7 +94,7 @@ namespace Fvog
   {
   public:
     // Note: name MAY be ignored if samplerState matches a cached entry
-    explicit Sampler(Device& device, const SamplerCreateInfo& samplerState, std::string name = {});
+    explicit Sampler(const SamplerCreateInfo& samplerState, std::string name = {});
     
     [[nodiscard]] VkSampler Handle() const noexcept
     {
@@ -125,7 +125,7 @@ namespace Fvog
   class TextureView
   {
   public:
-    explicit TextureView(Device& device, const Texture& texture, const TextureViewCreateInfo& createInfo, std::string name = {});
+    explicit TextureView(const Texture& texture, const TextureViewCreateInfo& createInfo, std::string name = {});
     ~TextureView();
 
     TextureView(const TextureView&) = delete;
@@ -195,7 +195,6 @@ namespace Fvog
     VkImageLayout* currentLayout{};
 
   private:
-    Device* device_{};
     TextureViewCreateInfo createInfo_{};
     VkImageView imageView_{};
     std::optional<Device::DescriptorInfo> sampledDescriptorInfo_;
@@ -212,7 +211,7 @@ namespace Fvog
   {
   public:
     // Verbose constructor
-    explicit Texture(Device& device, const TextureCreateInfo& createInfo, std::string name = {});
+    explicit Texture(const TextureCreateInfo& createInfo, std::string name = {});
     ~Texture();
 
     [[nodiscard]] TextureView CreateFormatView(Format format, std::string name = {}) const;
@@ -257,7 +256,6 @@ namespace Fvog
     std::unique_ptr<VkImageLayout> currentLayout{};
 
   private:
-    Device* device_{};
     TextureCreateInfo createInfo_{};
     VkImage image_{};
     std::optional<TextureView> textureView_;
@@ -267,6 +265,6 @@ namespace Fvog
   };
 
   // convenience functions
-  [[nodiscard]] Texture CreateTexture2D(Device& device, VkExtent2D size, Format format, TextureUsage usage, std::string name = {});
-  [[nodiscard]] Texture CreateTexture2DMip(Device& device, VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, std::string name = {});
+  [[nodiscard]] Texture CreateTexture2D(VkExtent2D size, Format format, TextureUsage usage, std::string name = {});
+  [[nodiscard]] Texture CreateTexture2DMip(VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, std::string name = {});
 }

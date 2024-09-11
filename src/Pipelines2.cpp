@@ -12,52 +12,52 @@
 
 namespace Pipelines2
 {
-  Fvog::ComputePipeline CullMeshlets(Fvog::Device& device)
+  Fvog::ComputePipeline CullMeshlets()
   {
-    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/CullMeshlets.comp.glsl");
+    auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/CullMeshlets.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "Cull Meshlets",
       .shader = &comp,
     });
   }
 
-  Fvog::ComputePipeline CullTriangles(Fvog::Device& device)
+  Fvog::ComputePipeline CullTriangles()
   {
-    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/CullTriangles.comp.glsl");
+    auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/visbuffer/CullTriangles.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "Cull Triangles",
       .shader = &comp,
     });
   }
 
-  Fvog::ComputePipeline HzbCopy(Fvog::Device& device)
+  Fvog::ComputePipeline HzbCopy()
   {
-    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBCopy.comp.glsl");
+    auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBCopy.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "HZB Copy",
       .shader = &comp,
     });
   }
 
-  Fvog::ComputePipeline HzbReduce(Fvog::Device& device)
+  Fvog::ComputePipeline HzbReduce()
   {
-    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBReduce.comp.glsl");
+    auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/hzb/HZBReduce.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "HZB Reduce",
       .shader = &comp,
     });
   }
 
-  Fvog::GraphicsPipeline Visbuffer(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline Visbuffer(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/visbuffer/Visbuffer.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/Visbuffer.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/visbuffer/Visbuffer.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/Visbuffer.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Visbuffer",
       .vertexShader = &vs,
       .fragmentShader = &fs,
@@ -73,12 +73,12 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline VisbufferResolve(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline VisbufferResolve(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/visbuffer/VisbufferResolve.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/VisbufferResolve.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/visbuffer/VisbufferResolve.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/visbuffer/VisbufferResolve.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Visbuffer Resolve",
       .vertexShader = &vs,
       .fragmentShader = &fs,
@@ -88,12 +88,12 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline Shading(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline Shading(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/ShadeDeferredPbr.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/ShadeDeferredPbr.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Shading",
       .vertexShader = &vs,
       .fragmentShader = &fs,
@@ -102,33 +102,32 @@ namespace Pipelines2
     });
   }
 
-  Fvog::ComputePipeline Tonemap(Fvog::Device& device)
+  Fvog::ComputePipeline Tonemap()
   {
-    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/post/TonemapAndDither.comp.glsl");
+    auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/post/TonemapAndDither.comp.glsl");
 
-    return Fvog::ComputePipeline(device, {
+    return Fvog::ComputePipeline({
       .name = "Tonemap and dither",
       .shader = &comp,
     });
   }
 
-  Fvog::ComputePipeline CalibrateHdr(Fvog::Device& device)
+  Fvog::ComputePipeline CalibrateHdr()
   {
-    auto comp = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/CalibrateHdr.comp.glsl");
+    auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/CalibrateHdr.comp.glsl");
 
-    return Fvog::ComputePipeline(device,
-      {
+    return Fvog::ComputePipeline({
         .name   = "Calibrate HDR",
         .shader = &comp,
       });
   }
 
-  Fvog::GraphicsPipeline DebugTexture(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline DebugTexture(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/Texture.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/Texture.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Debug Texture",
       .vertexShader = &vs,
       .fragmentShader = &fs,
@@ -137,11 +136,11 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline ShadowMain(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline ShadowMain(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Shadow Main",
       .vertexShader = &vs,
       .fragmentShader = nullptr,
@@ -155,12 +154,12 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline ShadowVsm(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline ShadowVsm(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/shadows/vsm/VsmShadow.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/shadows/ShadowMain.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/shadows/vsm/VsmShadow.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Shadow VSM",
       .vertexShader = &vs,
       .fragmentShader = &fs,
@@ -177,10 +176,10 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline DebugLines(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline DebugLines(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/debug/Debug.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/debug/Debug.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
 
     //auto positionBinding = Fvog::VertexInputBindingDescription{
     //  .location = 0,
@@ -198,7 +197,7 @@ namespace Pipelines2
 
     //auto bindings = {positionBinding, colorBinding};
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Debug Lines",
       .vertexShader = &vs,
       .fragmentShader = &fs,
@@ -215,10 +214,10 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline DebugAabbs(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline DebugAabbs(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugAabb.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugAabb.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
 
     auto blend0 = Fvog::ColorBlendAttachmentState{
       .blendEnable = true,
@@ -232,7 +231,7 @@ namespace Pipelines2
 
     auto blends = {blend0, blend1};
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Indirect Debug AABBs",
       .vertexShader = &vs,
       .fragmentShader = &fs,
@@ -258,10 +257,10 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline DebugRects(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline DebugRects(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugRect.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/debug/DebugRect.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/VertexColor.frag.glsl");
 
     auto blend0 = Fvog::ColorBlendAttachmentState{
       .blendEnable = true,
@@ -275,7 +274,7 @@ namespace Pipelines2
 
     auto blends = {blend0, blend1};
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .name = "Indirect Debug Rects",
       .vertexShader = &vs,
       .fragmentShader = &fs,
@@ -299,12 +298,12 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline ViewerVsm(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline ViewerVsm(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmDebugPageTable.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmDebugPageTable.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
@@ -312,12 +311,12 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline ViewerVsmPhysicalPages(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline ViewerVsmPhysicalPages(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmPhysicalPages.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmPhysicalPages.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
@@ -325,12 +324,12 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline ViewerVsmBitmaskHzb(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline ViewerVsmBitmaskHzb(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmBitmaskHzb.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmBitmaskHzb.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .vertexShader = &vs,
       .fragmentShader = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
@@ -338,12 +337,12 @@ namespace Pipelines2
     });
   }
 
-  Fvog::GraphicsPipeline ViewerVsmPhysicalPagesOverdraw(Fvog::Device& device, const Fvog::RenderTargetFormats& renderTargetFormats)
+  Fvog::GraphicsPipeline ViewerVsmPhysicalPagesOverdraw(const Fvog::RenderTargetFormats& renderTargetFormats)
   {
-    auto vs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
-    auto fs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmOverdrawHeatmap.frag.glsl");
+    auto vs = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/FullScreenTri.vert.glsl");
+    auto fs = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/viewer/VsmOverdrawHeatmap.frag.glsl");
 
-    return Fvog::GraphicsPipeline(device, {
+    return Fvog::GraphicsPipeline({
       .vertexShader       = &vs,
       .fragmentShader     = &fs,
       .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
@@ -351,10 +350,10 @@ namespace Pipelines2
     });
   }
 
-  Fvog::RayTracingPipeline TestRayTracingPipeline(Fvog::Device& device)
+  Fvog::RayTracingPipeline TestRayTracingPipeline()
   {
-    auto rayGen = LoadShaderWithIncludes2(device, Fvog::PipelineStage::RAYGEN_SHADER, "shaders/raytracing/Test.rgen.glsl");
-    return Fvog::RayTracingPipeline(device, {
+    auto rayGen = LoadShaderWithIncludes2(Fvog::PipelineStage::RAYGEN_SHADER, "shaders/raytracing/Test.rgen.glsl");
+    return Fvog::RayTracingPipeline({
       .name = "Test RayTracingPipeline",
       .rayGenShader = &rayGen,
     });

@@ -20,7 +20,7 @@ namespace Debug
   class ForwardRenderer
   {
   public:
-    explicit ForwardRenderer(Fvog::Device& device);
+    explicit ForwardRenderer();
 
     ForwardRenderer(const ForwardRenderer&) = delete;
     ForwardRenderer& operator=(const ForwardRenderer&) = delete;
@@ -56,8 +56,6 @@ namespace Debug
       uint32_t materialBufferIndex;
       uint32_t samplerIndex;
     };
-
-    Fvog::Device* device_{};
 
     // Pipeline is recreated if last RT format doesn't match
     Fvog::Format lastRenderTargetFormat = Fvog::Format::UNDEFINED;

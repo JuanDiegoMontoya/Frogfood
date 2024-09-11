@@ -483,21 +483,21 @@ void FrogRenderer2::InitGui()
   style.WindowMenuButtonPosition        = ImGuiDir_None;
   style.IndentSpacing                   = 15;
 
-  guiIcons.emplace("icon_object", LoadTextureShrimple(*device_, "textures/icons/icon_object.png"));
+  guiIcons.emplace("icon_object", LoadTextureShrimple("textures/icons/icon_object.png"));
   //guiIcons.emplace("icon_object", LoadTextureShrimple(*device_, "textures/icons/icon_mesh_cube.png"));
-  guiIcons.emplace("icon_camera", LoadTextureShrimple(*device_, "textures/icons/icon_camera.png"));
-  guiIcons.emplace("icon_sun", LoadTextureShrimple(*device_, "textures/icons/icon_sun.png"));
-  guiIcons.emplace("chroma_scope", LoadTextureShrimple(*device_, "textures/icons/icon_chroma_scope.png"));
-  guiIcons.emplace("rgb", LoadTextureShrimple(*device_, "textures/icons/icon_rgb.png"));
-  guiIcons.emplace("camera_flash", LoadTextureShrimple(*device_, "textures/icons/icon_camera_flash.png"));
-  guiIcons.emplace("particles", LoadTextureShrimple(*device_, "textures/icons/particles.png"));
-  guiIcons.emplace("ease_in_out", LoadTextureShrimple(*device_, "textures/icons/ease_in_out.png"));
-  guiIcons.emplace("histogram", LoadTextureShrimple(*device_, "textures/icons/histogram.png"));
-  guiIcons.emplace("curve", LoadTextureShrimple(*device_, "textures/icons/curve.png"));
-  guiIcons.emplace("scene", LoadTextureShrimple(*device_, "textures/icons/scene.png"));
-  guiIcons.emplace("lattice", LoadTextureShrimple(*device_, "textures/icons/lattice.png"));
-  guiIcons.emplace("lamp_spot", LoadTextureShrimple(*device_, "textures/icons/lamp_spot.png"));
-  guiIcons.emplace("lamp_point", LoadTextureShrimple(*device_, "textures/icons/lamp_point.png"));
+  guiIcons.emplace("icon_camera", LoadTextureShrimple("textures/icons/icon_camera.png"));
+  guiIcons.emplace("icon_sun", LoadTextureShrimple("textures/icons/icon_sun.png"));
+  guiIcons.emplace("chroma_scope", LoadTextureShrimple("textures/icons/icon_chroma_scope.png"));
+  guiIcons.emplace("rgb", LoadTextureShrimple("textures/icons/icon_rgb.png"));
+  guiIcons.emplace("camera_flash", LoadTextureShrimple("textures/icons/icon_camera_flash.png"));
+  guiIcons.emplace("particles", LoadTextureShrimple("textures/icons/particles.png"));
+  guiIcons.emplace("ease_in_out", LoadTextureShrimple("textures/icons/ease_in_out.png"));
+  guiIcons.emplace("histogram", LoadTextureShrimple("textures/icons/histogram.png"));
+  guiIcons.emplace("curve", LoadTextureShrimple("textures/icons/curve.png"));
+  guiIcons.emplace("scene", LoadTextureShrimple("textures/icons/scene.png"));
+  guiIcons.emplace("lattice", LoadTextureShrimple("textures/icons/lattice.png"));
+  guiIcons.emplace("lamp_spot", LoadTextureShrimple("textures/icons/lamp_spot.png"));
+  guiIcons.emplace("lamp_point", LoadTextureShrimple("textures/icons/lamp_point.png"));
 }
 
 void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
@@ -993,8 +993,7 @@ void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
 
     if (selectedTex)
     {
-      viewerOutputTexture = Fvog::CreateTexture2D(*device_,
-                                                  {viewerCurrentTexture->GetCreateInfo().extent.width, viewerCurrentTexture->GetCreateInfo().extent.height},
+      viewerOutputTexture = Fvog::CreateTexture2D({viewerCurrentTexture->GetCreateInfo().extent.width, viewerCurrentTexture->GetCreateInfo().extent.height},
                                                   Fvog::Format::R8G8B8A8_UNORM,
                                                   Fvog::TextureUsage::ATTACHMENT_READ_ONLY);
     }
@@ -1006,7 +1005,7 @@ void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
       viewerUniforms.textureIndex = viewerCurrentTexture->ImageView().GetSampledResourceHandle().index;
       viewerUniforms.samplerIndex = nearestSampler.GetResourceHandle().index;
 
-      auto ctx = Fvog::Context(*device_, commandBuffer);
+      auto ctx = Fvog::Context(commandBuffer);
 
       ctx.ImageBarrier(*viewerCurrentTexture, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
       ctx.ImageBarrierDiscard(*viewerOutputTexture, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -1682,7 +1681,7 @@ void FrogRenderer2::GuiDrawHdrWindow(VkCommandBuffer commandBuffer)
     Gui::EndProperties();
 
     // Draw texture for calibrating HDR
-    auto ctx = Fvog::Context(*device_, commandBuffer);
+    auto ctx = Fvog::Context(commandBuffer);
 
     ctx.ImageBarrierDiscard(calibrateHdrTexture, VK_IMAGE_LAYOUT_GENERAL);
     ctx.BindComputePipeline(calibrateHdrPipeline);
@@ -1693,7 +1692,7 @@ void FrogRenderer2::GuiDrawHdrWindow(VkCommandBuffer commandBuffer)
     ctx.DispatchInvocations(calibrateHdrTexture.GetCreateInfo().extent);
     ctx.Barrier();
 
-    auto nearestRepeatSampler = Fvog::Sampler(*device_, Fvog::SamplerCreateInfo{
+    auto nearestRepeatSampler = Fvog::Sampler(Fvog::SamplerCreateInfo{
       .magFilter = VK_FILTER_NEAREST,
       .minFilter = VK_FILTER_NEAREST,
       .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
@@ -1739,10 +1738,10 @@ void FrogRenderer2::GuiDrawGeometryInspector(VkCommandBuffer)
     {
       geometryBufferData_ = std::make_unique_for_overwrite<std::byte[]>(geometryBuffer.GetBuffer().SizeBytes());
 
-      auto tempBuffer = Fvog::Buffer(*device_, {.size = geometryBuffer.GetBuffer().SizeBytes(), .flag = Fvog::BufferFlagThingy::MAP_RANDOM_ACCESS});
-      device_->ImmediateSubmit(
+      auto tempBuffer = Fvog::Buffer({.size = geometryBuffer.GetBuffer().SizeBytes(), .flag = Fvog::BufferFlagThingy::MAP_RANDOM_ACCESS});
+      Fvog::GetDevice().ImmediateSubmit(
         [&](VkCommandBuffer cmd) {
-          auto ctx = Fvog::Context(*device_, cmd);
+          auto ctx = Fvog::Context(cmd);
           ctx.CopyBuffer(geometryBuffer.GetBuffer(), tempBuffer, {.size = geometryBuffer.GetBuffer().SizeBytes()});
         });
       std::memcpy(geometryBufferData_.get(), tempBuffer.GetMappedMemory(), geometryBuffer.GetBuffer().SizeBytes());
@@ -2037,24 +2036,24 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
 
   ImGui::Begin("glTF Viewer");
 
-  ImGui::TextUnformatted(device_->device_.physical_device.properties.deviceName);
+  ImGui::TextUnformatted(Fvog::GetDevice().device_.physical_device.properties.deviceName);
   Gui::BeginProperties();
 
-  auto budgets = std::make_unique<VmaBudget[]>(device_->physicalDevice_.memory_properties.memoryHeapCount);
+  auto budgets = std::make_unique<VmaBudget[]>(Fvog::GetDevice().physicalDevice_.memory_properties.memoryHeapCount);
 
   // Search for the first heap with DEVICE_LOCAL_BIT.
   // This could totally fail and report e.g. a host-visible BAR heap, but that's fine because this is just a silly lil' UI element.
   // Existing systems seem to put the normal device-local heap first anyway.
   uint32_t deviceHeapIndex = 0;
-  for (uint32_t i = 0; i < device_->physicalDevice_.memory_properties.memoryHeapCount; i++)
+  for (uint32_t i = 0; i < Fvog::GetDevice().physicalDevice_.memory_properties.memoryHeapCount; i++)
   {
-    if (device_->physicalDevice_.memory_properties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+    if (Fvog::GetDevice().physicalDevice_.memory_properties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
     {
       deviceHeapIndex = i;
       break;
     }
   }
-  vmaGetHeapBudgets(device_->allocator_, budgets.get());
+  vmaGetHeapBudgets(Fvog::GetDevice().allocator_, budgets.get());
   const auto usageMb    = budgets[deviceHeapIndex].usage / 1'000'000;
   const auto budgetMb   = budgets[deviceHeapIndex].budget / 1'000'000;
   Gui::Text("VRAM Consumed", "%llu/%llu MB", "The total is a budget that is affected\nby factors external to this program.", usageMb, budgetMb);
@@ -2156,7 +2155,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
         }
       }
 
-      auto ctx = Fvog::Context(*device_, commandBuffer);
+      auto ctx = Fvog::Context(commandBuffer);
       ctx.ImageBarrierDiscard(frame.forwardRenderTarget.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
       auto proj = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);

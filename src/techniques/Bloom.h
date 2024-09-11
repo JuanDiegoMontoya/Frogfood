@@ -17,7 +17,7 @@ namespace Techniques
   class Bloom
   {
   public:
-    explicit Bloom(Fvog::Device& device);
+    explicit Bloom();
 
     struct ApplyParams
     {
@@ -48,8 +48,6 @@ namespace Techniques
     void Apply(VkCommandBuffer commandBuffer, const ApplyParams& params);
 
   private:
-    Fvog::Device* device_;
-
     Fvog::ComputePipeline downsampleLowPassPipeline;
     Fvog::ComputePipeline downsamplePipeline;
     Fvog::ComputePipeline upsamplePipeline;

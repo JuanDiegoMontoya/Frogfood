@@ -204,4 +204,9 @@ namespace Fvog
 
     std::deque<std::function<bool(uint64_t)>> genericDeletionQueue_;
   };
+
+  // I love mutable global state
+  void CreateDevice(vkb::Instance& instance, VkSurfaceKHR surface);
+  [[nodiscard]] Device& GetDevice();
+  void DestroyDevice();
 }

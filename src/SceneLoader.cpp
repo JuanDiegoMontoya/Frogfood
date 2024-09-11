@@ -135,7 +135,7 @@ namespace Utility
       return extent.width * extent.height * extent.depth * Fvog::detail::FormatStorageSize(format);
     }
 
-    std::vector<Fvog::Texture> LoadImages(Fvog::Device& device, const fastgltf::Asset& asset)
+    std::vector<Fvog::Texture> LoadImages(const fastgltf::Asset& asset)
     {
       ZoneScoped;
 
@@ -368,7 +368,7 @@ namespace Utility
       imagesToBarrier.reserve(rawImageData.size());
 
       constexpr size_t BATCH_SIZE = 1'000'000'000;
-      auto stagingBuffer = Fvog::Buffer(device, {.size = BATCH_SIZE, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "Scene Loader Staging Buffer");
+      auto stagingBuffer = Fvog::Buffer({.size = BATCH_SIZE, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "Scene Loader Staging Buffer");
 
       auto flushImageUploads = [&] {
         ZoneScopedN("Flush Image Uploads");
@@ -376,15 +376,15 @@ namespace Utility
         // Recreate staging buffer if it's too small
         if (currentBufferOffset + imageUploadInfos.back().size > stagingBuffer.SizeBytes())
         {
-          stagingBuffer = Fvog::Buffer(device,
+          stagingBuffer = Fvog::Buffer(
             {.size = VkDeviceSize((currentBufferOffset + imageUploadInfos.back().size) * 1.5), .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE},
             "Scene Loader Staging Buffer");
         }
 
         // Fire off copies in one batch
-        device.ImmediateSubmit([&](VkCommandBuffer commandBuffer)
+        Fvog::GetDevice().ImmediateSubmit([&](VkCommandBuffer commandBuffer)
         {
-          auto ctx = Fvog::Context(device, commandBuffer);
+          auto ctx = Fvog::Context(commandBuffer);
           for (auto* loadedImage : imagesToBarrier)
           {
             ctx.ImageBarrierDiscard(*loadedImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -437,7 +437,7 @@ namespace Utility
           ZoneScopedN("Upload BCn Image");
           auto* ktx = image.ktx.get();
 
-          auto textureData = Fvog::CreateTexture2DMip(device, dims, image.formatIfKtx, ktx->numLevels, usage, name);
+          auto textureData = Fvog::CreateTexture2DMip(dims, image.formatIfKtx, ktx->numLevels, usage, name);
 
           for (uint32_t level = 0; level < ktx->numLevels; level++)
           {
@@ -472,8 +472,7 @@ namespace Utility
           assert(image.bits == 8);
 
           // TODO: use R8G8_UNORM for normal maps
-          auto textureData = Fvog::CreateTexture2DMip(device,
-                                                      dims,
+          auto textureData = Fvog::CreateTexture2DMip(dims,
                                                       Fvog::Format::R8G8B8A8_UNORM,
                                                       //uint32_t(1 + floor(log2(glm::max(dims.width, dims.height)))),
                                                       1,
@@ -521,10 +520,10 @@ namespace Utility
       }
 
       // Transition every loaded image to READ_ONLY
-      device.ImmediateSubmit(
+      Fvog::GetDevice().ImmediateSubmit(
         [&](VkCommandBuffer commandBuffer)
         {
-          auto ctx = Fvog::Context(device, commandBuffer);
+          auto ctx = Fvog::Context(commandBuffer);
           for (auto& loadedImage : loadedImages)
           {
             ctx.ImageBarrier(loadedImage, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
@@ -698,7 +697,7 @@ namespace Utility
     return indices;
   }
 
-  std::vector<Render::Material> LoadMaterials([[maybe_unused]] Fvog::Device& device, const fastgltf::Asset& model, std::span<Fvog::Texture> images)
+  std::vector<Render::Material> LoadMaterials(const fastgltf::Asset& model, std::span<Fvog::Texture> images)
   {
     ZoneScoped;
     auto LoadSampler = [](const fastgltf::Sampler& sampler)
@@ -712,10 +711,6 @@ namespace Utility
         samplerState.minFilter = ConvertGlFilterMode((GLint)sampler.minFilter.value());
         samplerState.mipmapMode = GetGlMipmapFilter((GLint)sampler.minFilter.value());
         samplerState.maxAnisotropy = 16;
-        //if (samplerState.minFilter != Fwog::Filter::NONE)
-        //{
-        //  samplerState.anisotropy = Fwog::SampleCount::SAMPLES_16;
-        //}
       }
       if (sampler.magFilter.has_value())
       {
@@ -835,7 +830,7 @@ namespace Utility
     std::vector<Fvog::Texture> images;
   };
 
-  std::optional<LoadModelResult> LoadModelFromFileBase(Fvog::Device& device, std::filesystem::path path, glm::mat4 rootTransform, bool skipMaterials)
+  std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool skipMaterials)
   {
     ZoneScoped;
 
@@ -888,13 +883,12 @@ namespace Utility
 
     if (!skipMaterials)
     {
-      images = LoadImages(device, asset);
-      materials = LoadMaterials(device, asset, images);
+      images = LoadImages(asset);
+      materials = LoadMaterials(asset, images);
       std::ranges::move(materials, std::back_inserter(scene.materials));
       std::ranges::move(images, std::back_inserter(scene.images));
     }
-
-    //auto uniqueAccessorCombinations = std::vector<std::pair<AccessorIndices, std::size_t>>();
+    
     auto uniqueAccessorCombinations = std::unordered_map<AccessorIndices, std::size_t, HashAccessorIndices>();
 
     // <node*, global transform>
@@ -978,7 +972,6 @@ namespace Utility
             }
             else
             {
-              // FWOG_UNREACHABLE;
               assert(false);
             }
 
@@ -989,7 +982,6 @@ namespace Utility
             else
             {
               // TODO: calculate normal
-              // FWOG_UNREACHABLE;
               assert(false);
             }
 
@@ -1008,11 +1000,9 @@ namespace Utility
             size_t rawMeshIndex = uniqueAccessorCombinations.size();
 
             // Only emplace and increment counter if combo does not exist
-            //if (auto it = std::ranges::find_if(uniqueAccessorCombinations, [&](const auto& p) { return p.first == accessorIndices; });
             if (auto it = uniqueAccessorCombinations.find(accessorIndices);
                 it == uniqueAccessorCombinations.end())
             {
-              //uniqueAccessorCombinations.emplace_back(accessorIndices, rawMeshIndex);
               uniqueAccessorCombinations.emplace(accessorIndices, rawMeshIndex);
             }
             else
@@ -1075,7 +1065,6 @@ namespace Utility
       std::execution::par,
       uniqueAccessorCombinations.begin(),
       uniqueAccessorCombinations.end(),
-      //scene.rawMeshes.begin(),
       [&](const auto& keyValue)
       {
         ZoneScopedN("Convert vertices and indices");
@@ -1117,12 +1106,12 @@ namespace Utility
     return scene;
   }
 
-  LoadModelResultA LoadModelFromFile(Fvog::Device& device, const std::filesystem::path& fileName, const glm::mat4& rootTransform, bool skipMaterials)
+  LoadModelResultA LoadModelFromFile(const std::filesystem::path& fileName, const glm::mat4& rootTransform, bool skipMaterials)
   {
     ZoneScoped;
     ZoneText(fileName.string().c_str(), fileName.string().size());
 
-    auto loadedScene = LoadModelFromFileBase(device, fileName, rootTransform, skipMaterials);
+    auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, skipMaterials);
 
     // Give each mesh a set of "default" meshlet instances.
     auto meshletInstances     = std::vector<Render::MeshletInstance>(loadedScene->rawMeshes.size());

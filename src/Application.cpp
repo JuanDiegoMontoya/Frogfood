@@ -303,6 +303,8 @@ Application::Application(const CreateInfo& createInfo)
       .enable_extension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME)
       .build()
       .value();
+
+    destroyList_.Push([this] { vkb::destroy_instance(instance_); });
   }
 
   {
@@ -318,10 +320,9 @@ Application::Application(const CreateInfo& createInfo)
   }
 
   // surface
-  VkSurfaceKHR surface;
   {
     ZoneScopedN("Create Window Surface");
-    if (auto err = glfwCreateWindowSurface(instance_, window, nullptr, &surface); err != VK_SUCCESS)
+    if (auto err = glfwCreateWindowSurface(instance_, window, nullptr, &surface_); err != VK_SUCCESS)
     {
       const char* error_msg;
       if (int ret = glfwGetError(&error_msg))
@@ -340,7 +341,7 @@ Application::Application(const CreateInfo& createInfo)
   // device
   {
     ZoneScopedN("Create Device");
-    Fvog::CreateDevice(instance_, surface);
+    Fvog::CreateDevice(instance_, surface_);
   }
   
   // swapchain
@@ -359,9 +360,9 @@ Application::Application(const CreateInfo& createInfo)
 
     // Get available formats for this surface
     uint32_t surfaceFormatCount{};
-    vkGetPhysicalDeviceSurfaceFormatsKHR(Fvog::GetDevice().physicalDevice_, surface, &surfaceFormatCount, nullptr);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(Fvog::GetDevice().physicalDevice_, surface_, &surfaceFormatCount, nullptr);
     availableSurfaceFormats_.resize(surfaceFormatCount);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(Fvog::GetDevice().physicalDevice_, surface, &surfaceFormatCount, availableSurfaceFormats_.data());
+    vkGetPhysicalDeviceSurfaceFormatsKHR(Fvog::GetDevice().physicalDevice_, surface_, &surfaceFormatCount, availableSurfaceFormats_.data());
   }
 
   glslang::InitializeProcess();
@@ -427,6 +428,8 @@ Application::~Application()
   {
     vkDestroyImageView(Fvog::GetDevice().device_, view, nullptr);
   }
+
+  Fvog::DestroyDevice();
 }
 
 void Application::Draw()

@@ -124,12 +124,17 @@ struct ShadowUniforms
 #define VSM_SHOW_OVERDRAW      (1 << 6)
 #define SHOW_AO_ONLY           (1 << 7)
 
+#define GI_METHOD_CONSTANT_AMBIENT 1
+#define GI_METHOD_PATH_TRACED      2
+
 struct ShadingUniforms
 {
 #ifdef __cplusplus
   ShadingUniforms() :
     debugFlags(0),
-    shadingInternalColorSpace(COLOR_SPACE_BT2020_LINEAR)
+    shadingInternalColorSpace(COLOR_SPACE_BT2020_LINEAR),
+    globalIlluminationMethod(GI_METHOD_CONSTANT_AMBIENT),
+    numGiRays(1)
   {}
 #endif
 
@@ -147,6 +152,9 @@ struct ShadingUniforms
   FVOG_UINT32 tlasIndex;
   uint64_t tlasAddress;
 #endif
+
+  FVOG_UINT32 globalIlluminationMethod; // For indirect lighting only, but named this way for consistency
+  FVOG_UINT32 numGiRays; // TEMP
 };
 
 #endif // SHADE_DEFERRED_PBR_H

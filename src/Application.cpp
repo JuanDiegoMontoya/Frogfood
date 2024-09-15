@@ -354,7 +354,7 @@ Application::Application(const CreateInfo& createInfo)
       numSwapchainImages,
       VK_NULL_HANDLE,
       swapchainFormat_);
-
+    
     swapchainImages_     = swapchain_.get_images().value();
     swapchainImageViews_ = MakeSwapchainImageViews(Fvog::GetDevice().device_, swapchainImages_, swapchainFormat_.format);
 

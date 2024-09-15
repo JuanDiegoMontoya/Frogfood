@@ -212,6 +212,7 @@ private:
   void GuiDrawHdrWindow(VkCommandBuffer commandBuffer);
   void GuiDrawGeometryInspector(VkCommandBuffer commandBuffer);
   void GuiDrawAoWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawGlobalIlluminationWindow(VkCommandBuffer commandBuffer);
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
 
@@ -503,6 +504,7 @@ private:
   bool showGeometryInspector     = false;
   bool showMaterialWindow        = true;
   bool showAoWindow              = true;
+  bool showGiWindow              = true;
   Debug::ForwardRenderer forwardRenderer_;
   std::unique_ptr<std::byte[]> geometryBufferData_;
 

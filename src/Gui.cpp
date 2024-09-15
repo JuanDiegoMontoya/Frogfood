@@ -690,6 +690,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
       ImGui::Checkbox("Materials", &showMaterialWindow);
       ImGui::Checkbox("Geometry Inspector", &showGeometryInspector);
       ImGui::Checkbox("Ambient Occlusion", &showAoWindow);
+      ImGui::Checkbox("Global Illumination", &showGiWindow);
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
@@ -2004,6 +2005,44 @@ void FrogRenderer2::GuiDrawAoWindow(VkCommandBuffer)
   ImGui::End();
 }
 
+void FrogRenderer2::GuiDrawGlobalIlluminationWindow(VkCommandBuffer)
+{
+  ZoneScoped;
+
+  if (!showGiWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin("Global Illumination###global_illumination_window", &showGiWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  {
+    ImGui::SeparatorText("Method");
+    if (ImGui::RadioButton("Constant Ambient", shadingUniforms.globalIlluminationMethod == GI_METHOD_CONSTANT_AMBIENT))
+    {
+      shadingUniforms.globalIlluminationMethod = GI_METHOD_CONSTANT_AMBIENT;
+    }
+    ImGui::SameLine();
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::BeginDisabled();
+#endif
+    if (ImGui::RadioButton("Path Tracing", shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED))
+    {
+      shadingUniforms.globalIlluminationMethod = GI_METHOD_PATH_TRACED;
+    }
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+    ImGui::EndDisabled();
+#endif
+    if (shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED)
+    {
+      auto rays = static_cast<int>(shadingUniforms.numGiRays);
+      ImGui::SliderInt("Rays", &rays, 1, 64);
+      shadingUniforms.numGiRays = static_cast<uint32_t>(rays);
+    }
+  }
+
+  ImGui::End();
+}
+
 void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
@@ -2226,4 +2265,5 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
   GuiDrawHdrWindow(commandBuffer);
   GuiDrawSceneGraph(commandBuffer);
   GuiDrawAoWindow(commandBuffer);
+  GuiDrawGlobalIlluminationWindow(commandBuffer);
 }

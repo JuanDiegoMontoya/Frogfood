@@ -1,6 +1,7 @@
 #ifndef PBR_H
 #define PBR_H
 
+#include "Math.h.glsl"
 #include "Color.h.glsl"
 #include "ShadeDeferredPbr.h.glsl"
 
@@ -34,11 +35,11 @@ float D_GGX(float NoH, float roughness)
   //roughness = max(roughness, 1e-3);
   
   // Hack to prevent zero in the denominator
-  NoH = min(NoH, 0.9999);
+  //NoH = min(NoH, 0.9999);
 
   float a = NoH * roughness;
-  float k = roughness / (1.0 - NoH * NoH + a * a);
-  return k * k * (1.0 / 3.1415926);
+  float k = roughness / clamp(1.0 - NoH * NoH + a * a, 0.0001, 0.9999);
+  return k * k * (1.0 / M_PI);
 }
 
 // Visibility (geometric shadowing and masking)
@@ -65,7 +66,7 @@ vec3 F_Schlick3(float u, vec3 f0, float f90)
 // Lambertian diffuse BRDF
 float Fd_Lambert()
 {
-  return 1.0 / 3.1415926;
+  return 1.0 / M_PI;
 }
 
 // Disney diffuse BRDF. Apparently not energy-conserving, but takes into account surface roughness, unlike Lambert's
@@ -74,7 +75,7 @@ float Fd_Burley(float NoV, float NoL, float LoH, float roughness)
   float f90 = 0.5 + 2.0 * roughness * LoH * LoH;
   float lightScatter = F_Schlick1(NoL, 1.0, f90);
   float viewScatter = F_Schlick1(NoV, 1.0, f90);
-  return lightScatter * viewScatter * (1.0 / 3.1415926);
+  return lightScatter * viewScatter * (1.0 / M_PI);
 }
 
 struct Surface

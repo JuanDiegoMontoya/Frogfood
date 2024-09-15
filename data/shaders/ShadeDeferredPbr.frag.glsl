@@ -445,7 +445,7 @@ void main()
     normal = normalize(mix(mappedNormal, smoothNormal, clamp(horiz, 0.0, 1.0)));
   }
 
-  vec3 viewDir = normalize(d_perFrameUniforms.cameraPos.xyz - fragWorldPos);
+  const vec3 fragToCameraDir = normalize(d_perFrameUniforms.cameraPos.xyz - fragWorldPos);
   
   Surface surface;
   surface.albedo = albedo_internal;
@@ -459,23 +459,145 @@ void main()
   surface.reflectance = 0.5;
   surface.f90 = 1.0;
 
-  vec3 finalColor = vec3(.03) * albedo_internal * metallicRoughnessAo.z * ao; // Ambient lighting
+  vec3 indirectIlluminance = vec3(0);
+
+  if (shadingUniforms.globalIlluminationMethod == GI_METHOD_CONSTANT_AMBIENT)
+  {
+    indirectIlluminance = vec3(.03) * albedo_internal * metallicRoughnessAo.z * ao; // Ambient lighting
+  }
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  else if (shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED)
+  {
+    const uint BOUNCES = 3;
+    
+    for (int j = 0; j < shadingUniforms.numGiRays; j++)
+    {
+      uint randState = PCG_Hash(j + PCG_Hash(gid.y + PCG_Hash(gid.x)));
+      vec2 noise = shadingUniforms.random + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1));
+
+      vec3 prevRayDir = -fragToCameraDir;
+      vec3 curRayPos = fragWorldPos;
+      Surface curSurface = surface;
+      vec3 curSurfaceFlatNormal = flatNormal;
+      vec3 throughput = vec3(1);
+      for (uint i = 0; i < BOUNCES; i++)
+      {
+        const vec2 xi = fract(noise + Hammersley(i, BOUNCES));
+        const vec3 curRayDir = normalize(map_to_unit_hemisphere_cosine_weighted(xi, curSurface.normal));
+        const float cos_theta = clamp(dot(curSurface.normal, curRayDir), 0.00001, 1.0);
+        const float pdf = cosine_weighted_hemisphere_PDF(cos_theta);
+        ASSERT_MSG(isfinite(pdf), "PDF is not finite!\n");
+        //const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
+        const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf;
+
+        // Throughput of previous hit
+        throughput *= cos_theta * brdf_over_pdf;
+
+        rayQueryEXT rayQuery;
+        rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(shadingUniforms.tlasAddress), 
+          gl_RayFlagsOpaqueEXT,
+          0xFF, curRayPos + curSurfaceFlatNormal * .001, 0.0, curRayDir, 10000.0);
+          //0xFF, curRayPos, 0.001, curRayDir, 10000.0);
+          
+        while (rayQueryProceedEXT(rayQuery))
+        {
+          if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
+          {
+            // TODO: for alpha masked materials, perform alpha test
+            rayQueryConfirmIntersectionEXT(rayQuery);
+          }
+        }
+
+        // Hit
+        if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
+        {
+          // TODO: check if surface is emissive. If it is, set indirect to emission * throughput, then exit. (this is a hack, doesn't work for slightly emissive materials)
+          // TODO: add contribution for all lights in scene, or one randomly picked (maybe with some smart weighting like ReSTIR)
+          const int primitiveId = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
+          const int instanceId = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true);
+          ObjectUniforms obj = TransformBuffers[NonUniformIndex(shadingUniforms.instanceBufferIndex)].transforms[instanceId];
+          const Vertex v0 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 0]];
+          const Vertex v1 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 1]];
+          const Vertex v2 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 2]];
+          
+          const vec2 baryBC = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
+          const vec3 bary = vec3(1.0 - baryBC.x - baryBC.y, baryBC.x, baryBC.y);
+
+          const vec2 uv = PackedToVec2(v0.uv) * bary.x + PackedToVec2(v1.uv) * bary.y + PackedToVec2(v2.uv) * bary.z;
+          const vec3 smooth_normal_object = OctToVec3(unpackSnorm2x16(v0.normal)) * bary.x + OctToVec3(unpackSnorm2x16(v1.normal)) * bary.y + OctToVec3(unpackSnorm2x16(v2.normal)) * bary.z;
+          const vec3 position_object = PackedToVec3(v0.position) * bary.x + PackedToVec3(v1.position) * bary.y + PackedToVec3(v2.position) * bary.z;
+          const vec3 flat_normal_object = normalize(cross(PackedToVec3(v2.position) - PackedToVec3(v1.position), PackedToVec3(v2.position) - PackedToVec3(v2.position)));
+          //const mat4x3 world_from_object = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
+          const mat3 world_from_object_normal = transpose(inverse(mat3(obj.modelCurrent)));
+
+          const vec3 smooth_normal_world = world_from_object_normal * smooth_normal_object;
+          const vec3 flat_normal_world = world_from_object_normal * flat_normal_object;
+          const vec3 position_world = vec3(obj.modelCurrent * vec4(position_object, 1.0));
+
+          const GpuMaterial material = MaterialBuffers[NonUniformIndex(shadingUniforms.materialBufferIndex)].materials[obj.materialId];
+
+          vec4 materialColorSrgb = material.baseColorFactor;
+          if (bool(material.flags & MATERIAL_HAS_BASE_COLOR))
+          {
+            materialColorSrgb *= textureLod(Fvog_sampler2D(material.baseColorTextureIndex, nearestSamplerIndex), uv, 0.0);
+          }
+
+          // TODO: handle opacity
+
+          const vec4 materialColorInternal = 
+            vec4(color_convert_src_to_dst(materialColorSrgb.rgb,
+              COLOR_SPACE_sRGB_LINEAR,
+              shadingUniforms.shadingInternalColorSpace),
+            materialColorSrgb.a);
+
+          // Intentionally skip normal mapping (we don't yet have vertex tangents and the difference for GI is probably negligible)
+
+          prevRayDir = curRayDir;
+          curRayPos = position_world;
+          curSurfaceFlatNormal = flat_normal_world;
+
+          curSurface.albedo = materialColorInternal.rgb;
+          curSurface.normal = smooth_normal_world;
+          curSurface.position = position_world;
+          curSurface.metallic = 0.0; // TODO
+          curSurface.perceptualRoughness = 0.0; // TODO
+          curSurface.reflectance = 0.5;
+          curSurface.f90 = 1.0;
+        }
+        else
+        {
+          // Miss, add sky contribution
+          const vec3 skyEmittance = color_convert_src_to_dst(vec3(.1, .3, .5),
+          //const vec3 skyEmittance = color_convert_src_to_dst(vec3(100),
+            COLOR_SPACE_sRGB_LINEAR,
+            shadingUniforms.shadingInternalColorSpace);
+          indirectIlluminance += skyEmittance * throughput;
+          break;
+        }
+      }
+    }
+
+    indirectIlluminance /= shadingUniforms.numGiRays;
+  }
+#endif
+
+  vec3 finalColor = indirectIlluminance;
 
   const vec3 sunColor_internal_space = color_convert_src_to_dst(shadingUniforms.sunIlluminance.rgb,
     COLOR_SPACE_sRGB_LINEAR,
     shadingUniforms.shadingInternalColorSpace);
   // Treat sun solid angle as constant 0.5 degrees for PDF. Otherwise, changing the diameter of the sun will change the scene brightness.
   // That is realistic because the sun's intensity is defined as lux (lm/m^2), but it's annoying to work with.
-  finalColor += BRDF(viewDir, -shadingUniforms.sunDir.xyz, surface) * sunColor_internal_space * shadowSun / solid_angle_mapping_PDF(radians(0.5));
+  finalColor += BRDF(fragToCameraDir, -shadingUniforms.sunDir.xyz, surface) * sunColor_internal_space * shadowSun / solid_angle_mapping_PDF(radians(0.5));
   #ifdef FROGRENDER_RAYTRACING_ENABLE
   if (shadowUniforms.rtTraceLocalLights == 1)
   {
-    finalColor += LocalLightIntensityRayTraced(viewDir, surface, shadingUniforms.tlasAddress);
+    finalColor += LocalLightIntensityRayTraced(fragToCameraDir, surface, shadingUniforms.tlasAddress);
   }
   else
   #endif
   {
-    finalColor += LocalLightIntensity(viewDir, surface);
+    finalColor += LocalLightIntensity(fragToCameraDir, surface);
   }
   finalColor += emission_internal;
 

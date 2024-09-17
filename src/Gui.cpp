@@ -657,6 +657,27 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
                          "Camera position: Yes\n"
                          "Camera rotation: Yes\n"
                          "Sun Intensity: 0.1 lx (moonlight)");
+
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+      ImGui::BeginDisabled();
+#endif
+      if (ImGui::MenuItem("Path Tracing Test"))
+      {
+        shadingUniforms.globalIlluminationMethod = GI_METHOD_PATH_TRACED;
+        shadingUniforms.numGiRays                = 32;
+        shadingUniforms.numGiBounces             = 3;
+        shadowUniforms.shadowMode                = SHADOW_MODE_RAY_TRACED;
+        shadowUniforms.rtSunDiameterRadians      = 0;
+        sunElevation                             = 2.3f;
+        sunAzimuth                               = -0.11f;
+        mainCamera.position                      = {-2.34f, 1.15f, -2.69f};
+        mainCamera.pitch                         = -0.22f;
+        mainCamera.yaw                           = 0.623f;
+      }
+#ifndef FROGRENDER_RAYTRACING_ENABLE
+      ImGui::EndDisabled();
+#endif
+
       ImGui::EndMenu();
     }
 

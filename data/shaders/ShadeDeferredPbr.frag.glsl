@@ -282,39 +282,124 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
 
 
 
-// Returns float so we can get fake soft shadows
-float GetPunctualLightVisibility(vec3 surfacePos, vec3 surfaceNormal, uint lightIndex)
-{
+
 #ifdef FROGRENDER_RAYTRACING_ENABLE
-  if (shadowUniforms.rtTraceLocalLights == 1)
-  {
-    GpuLight light = d_lightBuffer.lights[lightIndex];
 
-    rayQueryEXT rayQuery;
-    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(shadingUniforms.tlasAddress), 
-      gl_RayFlagsOpaqueEXT,
-      0xFF, surfacePos + surfaceNormal * .01, 0.001, normalize(light.position - surfacePos), distance(light.position, surfacePos));
-      
-    while (rayQueryProceedEXT(rayQuery))
-    {
-      if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
-      {
-        rayQueryConfirmIntersectionEXT(rayQuery);
-      }
-    }
+struct HitSurfaceParameters
+{
+  vec3 positionWorld;
+  vec3 flatNormalWorld;
+  vec3 smoothNormalWorld;
+  vec2 texCoord;
+  GpuMaterial material;
+  vec4 albedo;
+  vec3 emission;
+  float metallic;
+  float roughness;
+};
 
-    return float(!(rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT));
-  }
+HitSurfaceParameters GetHitSurfaceParameters(rayQueryEXT rayQuery)
+{
+  HitSurfaceParameters hit;
+
+  const int primitiveId = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
+  const int instanceId = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true);
+  ObjectUniforms obj = TransformBuffers[NonUniformIndex(shadingUniforms.instanceBufferIndex)].transforms[instanceId];
+  const Vertex v0 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 0]];
+  const Vertex v1 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 1]];
+  const Vertex v2 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 2]];
+  
+  const vec2 baryBC = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
+  const vec3 bary = vec3(1.0 - baryBC.x - baryBC.y, baryBC.x, baryBC.y);
+
+  const vec3 smooth_normal_object = normalize(OctToVec3(unpackSnorm2x16(v0.normal)) * bary.x + OctToVec3(unpackSnorm2x16(v1.normal)) * bary.y + OctToVec3(unpackSnorm2x16(v2.normal)) * bary.z);
+  const vec3 position_object = PackedToVec3(v0.position) * bary.x + PackedToVec3(v1.position) * bary.y + PackedToVec3(v2.position) * bary.z;
+  const vec3 flat_normal_object = normalize(cross(PackedToVec3(v1.position) - PackedToVec3(v0.position), PackedToVec3(v2.position) - PackedToVec3(v0.position)));
+#if 1 // Fetch model matrix manually
+  const mat3 world_from_object_normal = transpose(inverse(mat3(obj.modelCurrent)));
+#else // Fetch model matrix from ray query
+  const mat3 world_from_object_normal = transpose(inverse(mat3(rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true))));
 #endif
-  // TODO: Use shadow map
-  return 1.0;
+
+  hit.texCoord = PackedToVec2(v0.uv) * bary.x + PackedToVec2(v1.uv) * bary.y + PackedToVec2(v2.uv) * bary.z;
+  hit.smoothNormalWorld = world_from_object_normal * smooth_normal_object;
+  hit.flatNormalWorld = world_from_object_normal * flat_normal_object;
+  //hit.flatNormalWorld = hit.smoothNormalWorld; // TODO: TEMP: use smooth normal to rule out bugs with computing the flat normal
+#if 1 // Calculate world-space position manually
+  hit.positionWorld = vec3(obj.modelCurrent * vec4(position_object, 1.0));
+#else // Use position fetch
+  vec3 positions[3];
+  rayQueryGetIntersectionTriangleVertexPositionsEXT(rayQuery, true, positions);
+  hit.positionWorld = vec3(obj.modelCurrent * vec4(positions[0] * bary.x + positions[1] * bary.y + positions[2] * bary.z, 1.0));
+#endif
+  hit.material = MaterialBuffers[NonUniformIndex(shadingUniforms.materialBufferIndex)].materials[obj.materialId];
+
+  vec4 albedoSrgb = hit.material.baseColorFactor;
+  if (bool(hit.material.flags & MATERIAL_HAS_BASE_COLOR))
+  {
+    albedoSrgb *= textureLod(Fvog_sampler2D(hit.material.baseColorTextureIndex, nearestSamplerIndex), hit.texCoord, 0.0);
+  }
+  
+  vec3 emissionSrgb = hit.material.emissiveFactor;
+  if (bool(hit.material.flags & MATERIAL_HAS_EMISSION))
+  {
+    emissionSrgb += textureLod(Fvog_sampler2D(hit.material.emissionTextureIndex, nearestSamplerIndex), hit.texCoord, 0.0).rgb;
+  }
+
+  // TODO: handle opacity
+
+  hit.metallic = hit.material.metallicFactor;
+  hit.roughness = hit.material.roughnessFactor;
+  if (bool(hit.material.flags & MATERIAL_HAS_METALLIC_ROUGHNESS))
+  {
+    const vec2 metallicRoughnessSampled = textureLod(Fvog_sampler2D(hit.material.metallicRoughnessTextureIndex, nearestSamplerIndex), hit.texCoord, 0.0).rg;
+    hit.metallic *= metallicRoughnessSampled.x;
+    hit.roughness *= metallicRoughnessSampled.y;
+  }
+
+  hit.albedo = vec4(color_convert_src_to_dst(albedoSrgb.rgb, COLOR_SPACE_sRGB_LINEAR, shadingUniforms.shadingInternalColorSpace), albedoSrgb.a);
+  hit.emission = hit.material.emissiveStrength * color_convert_src_to_dst(emissionSrgb, COLOR_SPACE_sRGB_LINEAR, shadingUniforms.shadingInternalColorSpace);
+
+  return hit;
 }
 
-#ifdef FROGRENDER_RAYTRACING_ENABLE
+// Returns true on hit, false otherwise. On hit, the `hit` output parameter is filled.
+bool TraceRayOpaqueMasked(vec3 rayPosition, vec3 rayDirection, float tMax, out HitSurfaceParameters hit)
+{
+  rayQueryEXT rayQuery;
+  rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(shadingUniforms.tlasAddress), 
+    gl_RayFlagsOpaqueEXT,
+    0xFF, rayPosition, 0.0001, rayDirection, tMax); // TODO: TEMP: tMin should be 0, but some meshes inexplicably break with it, despite having a sufficient normal offset
+    
+  while (rayQueryProceedEXT(rayQuery))
+  {
+    if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
+    {
+      // TODO: *don't* unconditionally confirm intersection for masked geo
+      rayQueryConfirmIntersectionEXT(rayQuery);
+    }
+  }
+
+  if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
+  {
+    hit = GetHitSurfaceParameters(rayQuery);
+    return true;
+  }
+
+  return false;
+}
+
+// Returns true on hit, false otherwise
+bool TraceRayOpaqueMasked(vec3 rayPosition, vec3 rayDirection, float tMax)
+{
+  HitSurfaceParameters hit;
+  return TraceRayOpaqueMasked(rayPosition, rayDirection, tMax, hit);
+}
+
 // glslang doesn't like having an acceleration structure as a parameter (it generates invalid spirv)
 // flatNormal: used for shadow offset
 // actualNormal: used for cosine term
-float ShadowSunRayTraced(vec3 worldPos, vec3 dirToSun, vec3 flatNormal, vec3 shadingNormal, float diameterRadians, vec2 noise, uint numRays, uint64_t tlasAddress)
+float ShadowSunRayTraced(vec3 worldPos, vec3 dirToSun, vec3 shadingNormal, float diameterRadians, vec2 noise, uint numRays)
 {
   if (numRays == 0)
   {
@@ -327,20 +412,7 @@ float ShadowSunRayTraced(vec3 worldPos, vec3 dirToSun, vec3 flatNormal, vec3 sha
     const vec2 xi = fract(noise + Hammersley(i, numRays));
     const vec3 rayDir = RandVecInCone(xi, dirToSun, diameterRadians);
 
-    rayQueryEXT rayQuery;
-    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(tlasAddress), 
-      gl_RayFlagsOpaqueEXT,
-      0xFF, worldPos + flatNormal * .001, 0.001, rayDir, 10000);
-      
-    while (rayQueryProceedEXT(rayQuery))
-    {
-      if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
-      {
-        rayQueryConfirmIntersectionEXT(rayQuery);
-      }
-    }
-
-    if (!(rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT))
+    if (!TraceRayOpaqueMasked(worldPos, rayDir, 10000))
     {
       const float cosTheta = clamp(dot(rayDir, shadingNormal), 0.0, 1.0);
       visibility += cosTheta;
@@ -351,6 +423,20 @@ float ShadowSunRayTraced(vec3 worldPos, vec3 dirToSun, vec3 flatNormal, vec3 sha
 }
 #endif
 
+// Returns float so we can get fake soft shadows
+float GetPunctualLightVisibility(vec3 surfacePos, uint lightIndex)
+{
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  if (shadowUniforms.rtTraceLocalLights == 1)
+  {
+    GpuLight light = d_lightBuffer.lights[lightIndex];
+    return float(!TraceRayOpaqueMasked(surfacePos, normalize(light.position - surfacePos), distance(light.position, surfacePos)));
+  }
+#endif
+  // TODO: Use shadow map
+  return 1.0;
+}
+
 vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
 {
   vec3 color = { 0, 0, 0 };
@@ -359,7 +445,7 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
   {
     GpuLight light = d_lightBuffer.lights[i];
 
-    const float visibility = GetPunctualLightVisibility(surface.position, surface.normal, i);
+    const float visibility = GetPunctualLightVisibility(surface.position + surface.normal * 0.001, i);
     color += visibility * EvaluatePunctualLight(viewDir, light, surface, shadingUniforms.shadingInternalColorSpace);
   }
 
@@ -370,12 +456,15 @@ void main()
 {
   const ivec2 gid = ivec2(gl_FragCoord.xy);
   const vec4 normalOctAndFlatNormalOct = texelFetch(FvogGetSampledImage(texture2D, gNormalAndFaceNormalIndex), gid, 0).xyzw;
-  const vec3 mappedNormal = OctToVec3(normalOctAndFlatNormalOct.xy);
-  const vec3 flatNormal = OctToVec3(normalOctAndFlatNormalOct.zw);
-  const vec3 smoothNormal = OctToVec3(texelFetch(FvogGetSampledImage(texture2D, gSmoothVertexNormalIndex), gid, 0).xy);
+  vec3 mappedNormal = OctToVec3(normalOctAndFlatNormalOct.xy);
+  vec3 flatNormal = OctToVec3(normalOctAndFlatNormalOct.zw);
+  vec3 smoothNormal = OctToVec3(texelFetch(FvogGetSampledImage(texture2D, gSmoothVertexNormalIndex), gid, 0).xy);
   const float depth = texelFetch(FvogGetSampledImage(texture2D, gDepthIndex), gid, 0).x;
   const vec3 metallicRoughnessAo = texelFetch(FvogGetSampledImage(texture2D, gMetallicRoughnessAoIndex), gid, 0).rgb;
   const float ao = textureLod(ambientOcclusion, Sampler(nearestSamplerIndex), v_uv, 0).x; // AO could be a 1x1 white texture, so do not use texelFetch (% with texture size would work too)
+
+  const vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, d_perFrameUniforms.invViewProj);
+  const vec3 fragToCameraDir = normalize(d_perFrameUniforms.cameraPos.xyz - fragWorldPos);
 
   const vec3 albedo_internal = color_convert_src_to_dst(texelFetch(FvogGetSampledImage(texture2D, gAlbedoIndex), gid, 0).rgb, 
     COLOR_SPACE_sRGB_LINEAR,
@@ -392,7 +481,6 @@ void main()
     return;
   }
 
-  const vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, d_perFrameUniforms.invViewProj);
   
 
 
@@ -426,14 +514,12 @@ void main()
   {
     uint randState = PCG_Hash(PCG_Hash(gid.y + PCG_Hash(gid.x)));
     const vec2 noise = shadingUniforms.random + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1));
-    shadowSun = ShadowSunRayTraced(fragWorldPos,
+    shadowSun = ShadowSunRayTraced(fragWorldPos + flatNormal * 0.0001,
                   -shadingUniforms.sunDir.xyz,
-                  flatNormal,
                   normal,
                   shadowUniforms.rtSunDiameterRadians,
                   noise,
-                  shadowUniforms.rtNumSunShadowRays,
-                  shadingUniforms.tlasAddress);
+                  shadowUniforms.rtNumSunShadowRays);
   }
 #endif
 
@@ -445,8 +531,6 @@ void main()
     horiz *= horiz;
     normal = normalize(mix(mappedNormal, smoothNormal, clamp(horiz, 0.0, 1.0)));
   }
-
-  const vec3 fragToCameraDir = normalize(d_perFrameUniforms.cameraPos.xyz - fragWorldPos);
   
   Surface surface;
   surface.albedo = albedo_internal;
@@ -473,15 +557,16 @@ void main()
 #ifdef FROGRENDER_RAYTRACING_ENABLE
   else if (shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED)
   {
+    uint randState = PCG_Hash(PCG_Hash(gid.y + PCG_Hash(gid.x)));
+
     for (int j = 0; j < shadingUniforms.numGiRays; j++)
     {
-      uint randState = PCG_Hash(j + PCG_Hash(gid.y + PCG_Hash(gid.x)));
       vec2 noise = shadingUniforms.random + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1));
 
       vec3 prevRayDir = -fragToCameraDir;
-      vec3 curRayPos = fragWorldPos;
+      vec3 curRayPos = fragWorldPos + flatNormal * 0.0001;
       Surface curSurface = surface;
-      vec3 curSurfaceFlatNormal = flatNormal;
+
       vec3 throughput = vec3(1);
       for (uint i = 0; i < shadingUniforms.numGiBounces; i++)
       {
@@ -490,118 +575,51 @@ void main()
         const float cos_theta = clamp(dot(curSurface.normal, curRayDir), 0.00001, 1.0);
         const float pdf = cosine_weighted_hemisphere_PDF(cos_theta);
         ASSERT_MSG(isfinite(pdf), "PDF is not finite!\n");
-        //const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
-        const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf;
-
-        const vec3 prevThroughput = throughput; // Hack for NEE
+        const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
+        //const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf;
 
         // Throughput of previous hit
         throughput *= cos_theta * brdf_over_pdf;
 
-        rayQueryEXT rayQuery;
-        rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(shadingUniforms.tlasAddress), 
-          gl_RayFlagsOpaqueEXT,
-          0xFF, curRayPos + curSurfaceFlatNormal * .001, 0.0, curRayDir, 10000.0);
-          //0xFF, curRayPos, 0.001, curRayDir, 10000.0);
-          
-        while (rayQueryProceedEXT(rayQuery))
+        HitSurfaceParameters hit;
+        if (TraceRayOpaqueMasked(curRayPos, curRayDir, 10000, hit))
         {
-          if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
-          {
-            // TODO: for alpha masked materials, perform alpha test
-            rayQueryConfirmIntersectionEXT(rayQuery);
-          }
-        }
-
-        // Hit
-        if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
-        {
-          // TODO: check if surface is emissive. If it is, set indirect to emission * throughput, then exit. (this is a hack, doesn't work for slightly emissive materials)
-          // TODO: add contribution for all lights in scene, or one randomly picked (maybe with some smart weighting like ReSTIR)
-          const int primitiveId = rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true);
-          const int instanceId = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, true);
-          ObjectUniforms obj = TransformBuffers[NonUniformIndex(shadingUniforms.instanceBufferIndex)].transforms[instanceId];
-          const Vertex v0 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 0]];
-          const Vertex v1 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 1]];
-          const Vertex v2 = obj.vertexBuffer.vertices[obj.indexBuffer.indices[primitiveId * 3 + 2]];
-          
-          const vec2 baryBC = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
-          const vec3 bary = vec3(1.0 - baryBC.x - baryBC.y, baryBC.x, baryBC.y);
-
-          const vec2 uv = PackedToVec2(v0.uv) * bary.x + PackedToVec2(v1.uv) * bary.y + PackedToVec2(v2.uv) * bary.z;
-          const vec3 smooth_normal_object = OctToVec3(unpackSnorm2x16(v0.normal)) * bary.x + OctToVec3(unpackSnorm2x16(v1.normal)) * bary.y + OctToVec3(unpackSnorm2x16(v2.normal)) * bary.z;
-          const vec3 position_object = PackedToVec3(v0.position) * bary.x + PackedToVec3(v1.position) * bary.y + PackedToVec3(v2.position) * bary.z;
-          const vec3 flat_normal_object = normalize(cross(PackedToVec3(v2.position) - PackedToVec3(v1.position), PackedToVec3(v2.position) - PackedToVec3(v2.position)));
-          //const mat4x3 world_from_object = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
-          const mat3 world_from_object_normal = transpose(inverse(mat3(obj.modelCurrent)));
-
-          const vec3 smooth_normal_world = world_from_object_normal * smooth_normal_object;
-          const vec3 flat_normal_world = world_from_object_normal * flat_normal_object;
-          const vec3 position_world = vec3(obj.modelCurrent * vec4(position_object, 1.0));
-
-          const GpuMaterial material = MaterialBuffers[NonUniformIndex(shadingUniforms.materialBufferIndex)].materials[obj.materialId];
-
-          vec4 materialColorSrgb = material.baseColorFactor;
-          if (bool(material.flags & MATERIAL_HAS_BASE_COLOR))
-          {
-            materialColorSrgb *= textureLod(Fvog_sampler2D(material.baseColorTextureIndex, nearestSamplerIndex), uv, 0.0);
-          }
-          
-          vec3 emissionSrgb = material.emissiveFactor;
-          if (bool(material.flags & MATERIAL_HAS_EMISSION))
-          {
-            emissionSrgb += textureLod(Fvog_sampler2D(material.emissionTextureIndex, nearestSamplerIndex), uv, 0.0).rgb;
-          }
-          indirectIlluminance += throughput * material.emissiveStrength * color_convert_src_to_dst(emissionSrgb,
-            COLOR_SPACE_sRGB_LINEAR,
-            shadingUniforms.shadingInternalColorSpace);
-
-          // TODO: handle opacity
-
-          float metallic = material.metallicFactor;
-          float roughness = material.roughnessFactor;
-          if (bool(material.flags & MATERIAL_HAS_METALLIC_ROUGHNESS))
-          {
-            const vec2 metallicRoughnessSampled = textureLod(Fvog_sampler2D(material.metallicRoughnessTextureIndex, nearestSamplerIndex), uv, 0.0).rg;
-            metallic *= metallicRoughnessSampled.x;
-            roughness *= metallicRoughnessSampled.y;
-          }
-
-          const vec4 materialColorInternal = 
-            vec4(color_convert_src_to_dst(materialColorSrgb.rgb,
-              COLOR_SPACE_sRGB_LINEAR,
-              shadingUniforms.shadingInternalColorSpace),
-            materialColorSrgb.a);
-
           // Intentionally skip normal mapping (we don't yet have vertex tangents and the difference for GI is probably negligible)
 
-          prevRayDir = curRayDir;
-          curRayPos = position_world;
-          curSurfaceFlatNormal = flat_normal_world;
+          // Flip normals if back face
+          // if (dot(curRayDir, hit.flatNormalWorld) > 0)
+          // {
+          //   hit.flatNormalWorld *= -1;
+          //   hit.smoothNormalWorld *= -1;
+          // }
 
-          curSurface.albedo = materialColorInternal.rgb;
-          curSurface.normal = smooth_normal_world;
-          curSurface.position = position_world;
-          curSurface.metallic = metallic;
-          curSurface.perceptualRoughness = roughness;
+          indirectIlluminance += throughput * hit.emission;
+
+          prevRayDir = curRayDir;
+          curRayPos = hit.positionWorld + hit.flatNormalWorld * 0.0001;
+
+          curSurface.albedo = hit.albedo.rgb;
+          curSurface.normal = hit.smoothNormalWorld;
+          curSurface.position = hit.positionWorld;
+          curSurface.metallic = hit.metallic;
+          curSurface.perceptualRoughness = hit.roughness;
           curSurface.reflectance = 0.5;
           curSurface.f90 = 1.0;
 
           // Sun NEE. Direct illumination is handled outside this loop, so no further attenuation is required.
           const uint numSunShadowRays = 1;
-          const float sunShadow = ShadowSunRayTraced(position_world,
+          const float sunShadow = ShadowSunRayTraced(hit.positionWorld + hit.flatNormalWorld * 0.0001,
             -shadingUniforms.sunDir.xyz,
-            flat_normal_world,
-            smooth_normal_world,
+            hit.smoothNormalWorld,
             shadowUniforms.rtSunDiameterRadians,
             xi,
-            numSunShadowRays,
-            shadingUniforms.tlasAddress);
+            numSunShadowRays);
 
           indirectIlluminance += sunColor_internal_space * 
             throughput * 
-            BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
-            clamp(dot(smooth_normal_world, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
+            //BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
+            (curSurface.albedo / M_PI) * 
+            clamp(dot(hit.smoothNormalWorld, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
             sunShadow / 
             solid_angle_mapping_PDF(radians(0.5));
 
@@ -612,7 +630,7 @@ void main()
             const float lightPdf = 1.0 / shadingUniforms.numberOfLights;
             GpuLight light = d_lightBuffer.lights[lightIndex];
 
-            const float visibility = GetPunctualLightVisibility(curSurface.position, flat_normal_world, lightIndex);
+            const float visibility = GetPunctualLightVisibility(hit.positionWorld + hit.flatNormalWorld * 0.0001, lightIndex);
             indirectIlluminance += throughput * visibility * EvaluatePunctualLight(-curRayDir, light, curSurface, shadingUniforms.shadingInternalColorSpace) / lightPdf;
           }
         }

@@ -1525,9 +1525,14 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
       }
 
       Gui::ColorEdit3("Sun Color", &sunColor[0], nullptr, ImGuiColorEditFlags_Float);
-      Gui::SliderFloat("Sun Illuminance", &sunIlluminance, 0, 111000, "111,000 lux: Bright sunlight\n"
+      Gui::SliderFloat("Sun Illuminance", &sunIlluminance, 0, 120000, "111,000 lux: Bright sunlight\n"
                                                                       "1 lux: Moonlight\n",
-        "%.2f lx", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+        "%.2f lux", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
+
+      Gui::ColorEdit3("Sky Color", glm::value_ptr(shadingUniforms.skyIlluminance), nullptr, ImGuiColorEditFlags_Float);
+      Gui::SliderFloat("Sky Illuminance", &shadingUniforms.skyIlluminance.a, 0, 20000, "20,000 lux: Clear sky, midday"
+                                                                                       "1,000-2,000 lux: Overcast, midday",
+        "%.2f lux", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
 
       Gui::EndProperties();
     }
@@ -2037,6 +2042,15 @@ void FrogRenderer2::GuiDrawGlobalIlluminationWindow(VkCommandBuffer)
       auto rays = static_cast<int>(shadingUniforms.numGiRays);
       ImGui::SliderInt("Rays", &rays, 1, 64);
       shadingUniforms.numGiRays = static_cast<uint32_t>(rays);
+
+      auto bounces = static_cast<int>(shadingUniforms.numGiBounces);
+      ImGui::SliderInt("Bounces", &bounces, 1, 10);
+      shadingUniforms.numGiBounces = static_cast<uint32_t>(bounces);
+    }
+    else if (shadingUniforms.globalIlluminationMethod == GI_METHOD_CONSTANT_AMBIENT)
+    {
+      ImGui::ColorEdit3("Ambient Color", glm::value_ptr(shadingUniforms.ambientIlluminance), ImGuiColorEditFlags_Float);
+      ImGui::SliderFloat("Ambient Illuminance", &shadingUniforms.ambientIlluminance.a, 0, 1, "%.2f lux", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_NoRoundToFormat);
     }
   }
 

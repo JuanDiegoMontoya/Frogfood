@@ -1114,8 +1114,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   // shading pass (full screen tri)
   auto shadingColorAttachment = Fvog::RenderColorAttachment{
     .texture = frame.colorHdrRenderRes->ImageView(),
-    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-    .clearValue = {.1f, .3f, .5f, 0.0f},
+    .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
   };
   ctx.BeginRendering({
     .name = "Shading",

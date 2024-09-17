@@ -28,6 +28,7 @@ namespace Scene
       // First material is always default.
       constexpr auto defaultGpu = Render::GpuMaterial{
         .metallicFactor  = 0,
+        .roughnessFactor = 1,
         .baseColorFactor = {0.5f, 0.5f, 0.5f, 0.5f},
       };
       materialIds.emplace_back(renderer.RegisterMaterial({.gpuMaterial = defaultGpu}));

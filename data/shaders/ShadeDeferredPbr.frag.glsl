@@ -282,6 +282,33 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
 
 
 
+// Returns float so we can get fake soft shadows
+float GetPunctualLightVisibility(vec3 surfacePos, vec3 surfaceNormal, uint lightIndex)
+{
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+  if (shadowUniforms.rtTraceLocalLights == 1)
+  {
+    GpuLight light = d_lightBuffer.lights[lightIndex];
+
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(shadingUniforms.tlasAddress), 
+      gl_RayFlagsOpaqueEXT,
+      0xFF, surfacePos + surfaceNormal * .01, 0.001, normalize(light.position - surfacePos), distance(light.position, surfacePos));
+      
+    while (rayQueryProceedEXT(rayQuery))
+    {
+      if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
+      {
+        rayQueryConfirmIntersectionEXT(rayQuery);
+      }
+    }
+
+    return float(!(rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT));
+  }
+#endif
+  // TODO: Use shadow map
+  return 1.0;
+}
 
 #ifdef FROGRENDER_RAYTRACING_ENABLE
 // glslang doesn't like having an acceleration structure as a parameter (it generates invalid spirv)
@@ -322,36 +349,6 @@ float ShadowSunRayTraced(vec3 worldPos, vec3 dirToSun, vec3 flatNormal, vec3 sha
 
   return visibility / numRays;
 }
-
-vec3 LocalLightIntensityRayTraced(vec3 viewDir, Surface surface, uint64_t tlasAddress)
-{
-  vec3 color = { 0, 0, 0 };
-
-  for (uint i = 0; i < shadingUniforms.numberOfLights; i++)
-  {
-    GpuLight light = d_lightBuffer.lights[i];
-
-    rayQueryEXT rayQuery;
-    rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(tlasAddress), 
-      gl_RayFlagsOpaqueEXT,
-      0xFF, surface.position + surface.normal * .01, 0.001, normalize(light.position - surface.position), distance(light.position, surface.position));
-      
-    while (rayQueryProceedEXT(rayQuery))
-    {
-      if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
-      {
-        rayQueryConfirmIntersectionEXT(rayQuery);
-      }
-    }
-
-    if (!(rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT))
-    {
-      color += EvaluatePunctualLight(viewDir, light, surface, shadingUniforms.shadingInternalColorSpace);
-    }
-  }
-
-  return color;
-}
 #endif
 
 vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
@@ -362,7 +359,8 @@ vec3 LocalLightIntensity(vec3 viewDir, Surface surface)
   {
     GpuLight light = d_lightBuffer.lights[i];
 
-    color += EvaluatePunctualLight(viewDir, light, surface, shadingUniforms.shadingInternalColorSpace);
+    const float visibility = GetPunctualLightVisibility(surface.position, surface.normal, i);
+    color += visibility * EvaluatePunctualLight(viewDir, light, surface, shadingUniforms.shadingInternalColorSpace);
   }
 
   return color;
@@ -388,7 +386,10 @@ void main()
 
   if (depth == FAR_DEPTH)
   {
-    discard;
+    o_color = color_convert_src_to_dst(shadingUniforms.skyIlluminance.rgb * shadingUniforms.skyIlluminance.a,
+                COLOR_SPACE_sRGB_LINEAR,
+                shadingUniforms.shadingInternalColorSpace);
+    return;
   }
 
   const vec3 fragWorldPos = UnprojectUV_ZO(depth, v_uv, d_perFrameUniforms.invViewProj);
@@ -459,17 +460,19 @@ void main()
   surface.reflectance = 0.5;
   surface.f90 = 1.0;
 
+  const vec3 sunColor_internal_space = color_convert_src_to_dst(shadingUniforms.sunIlluminance.rgb,
+    COLOR_SPACE_sRGB_LINEAR,
+    shadingUniforms.shadingInternalColorSpace);
+
   vec3 indirectIlluminance = vec3(0);
 
   if (shadingUniforms.globalIlluminationMethod == GI_METHOD_CONSTANT_AMBIENT)
   {
-    indirectIlluminance = vec3(.03) * albedo_internal * metallicRoughnessAo.z * ao; // Ambient lighting
+    indirectIlluminance = shadingUniforms.ambientIlluminance.rgb * shadingUniforms.ambientIlluminance.a * albedo_internal * metallicRoughnessAo.z * ao; // Ambient lighting
   }
 #ifdef FROGRENDER_RAYTRACING_ENABLE
   else if (shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED)
   {
-    const uint BOUNCES = 3;
-    
     for (int j = 0; j < shadingUniforms.numGiRays; j++)
     {
       uint randState = PCG_Hash(j + PCG_Hash(gid.y + PCG_Hash(gid.x)));
@@ -480,15 +483,17 @@ void main()
       Surface curSurface = surface;
       vec3 curSurfaceFlatNormal = flatNormal;
       vec3 throughput = vec3(1);
-      for (uint i = 0; i < BOUNCES; i++)
+      for (uint i = 0; i < shadingUniforms.numGiBounces; i++)
       {
-        const vec2 xi = fract(noise + Hammersley(i, BOUNCES));
+        const vec2 xi = fract(noise + Hammersley(i, shadingUniforms.numGiBounces));
         const vec3 curRayDir = normalize(map_to_unit_hemisphere_cosine_weighted(xi, curSurface.normal));
         const float cos_theta = clamp(dot(curSurface.normal, curRayDir), 0.00001, 1.0);
         const float pdf = cosine_weighted_hemisphere_PDF(cos_theta);
         ASSERT_MSG(isfinite(pdf), "PDF is not finite!\n");
         //const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
         const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf;
+
+        const vec3 prevThroughput = throughput; // Hack for NEE
 
         // Throughput of previous hit
         throughput *= cos_theta * brdf_over_pdf;
@@ -541,8 +546,26 @@ void main()
           {
             materialColorSrgb *= textureLod(Fvog_sampler2D(material.baseColorTextureIndex, nearestSamplerIndex), uv, 0.0);
           }
+          
+          vec3 emissionSrgb = material.emissiveFactor;
+          if (bool(material.flags & MATERIAL_HAS_EMISSION))
+          {
+            emissionSrgb += textureLod(Fvog_sampler2D(material.emissionTextureIndex, nearestSamplerIndex), uv, 0.0).rgb;
+          }
+          indirectIlluminance += throughput * material.emissiveStrength * color_convert_src_to_dst(emissionSrgb,
+            COLOR_SPACE_sRGB_LINEAR,
+            shadingUniforms.shadingInternalColorSpace);
 
           // TODO: handle opacity
+
+          float metallic = material.metallicFactor;
+          float roughness = material.roughnessFactor;
+          if (bool(material.flags & MATERIAL_HAS_METALLIC_ROUGHNESS))
+          {
+            const vec2 metallicRoughnessSampled = textureLod(Fvog_sampler2D(material.metallicRoughnessTextureIndex, nearestSamplerIndex), uv, 0.0).rg;
+            metallic *= metallicRoughnessSampled.x;
+            roughness *= metallicRoughnessSampled.y;
+          }
 
           const vec4 materialColorInternal = 
             vec4(color_convert_src_to_dst(materialColorSrgb.rgb,
@@ -559,16 +582,44 @@ void main()
           curSurface.albedo = materialColorInternal.rgb;
           curSurface.normal = smooth_normal_world;
           curSurface.position = position_world;
-          curSurface.metallic = 0.0; // TODO
-          curSurface.perceptualRoughness = 0.0; // TODO
+          curSurface.metallic = metallic;
+          curSurface.perceptualRoughness = roughness;
           curSurface.reflectance = 0.5;
           curSurface.f90 = 1.0;
+
+          // Sun NEE. Direct illumination is handled outside this loop, so no further attenuation is required.
+          const uint numSunShadowRays = 1;
+          const float sunShadow = ShadowSunRayTraced(position_world,
+            -shadingUniforms.sunDir.xyz,
+            flat_normal_world,
+            smooth_normal_world,
+            shadowUniforms.rtSunDiameterRadians,
+            xi,
+            numSunShadowRays,
+            shadingUniforms.tlasAddress);
+
+          indirectIlluminance += sunColor_internal_space * 
+            throughput * 
+            BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
+            clamp(dot(smooth_normal_world, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
+            sunShadow / 
+            solid_angle_mapping_PDF(radians(0.5));
+
+          if (shadingUniforms.numberOfLights > 0)
+          {
+            // Local light NEE
+            const uint lightIndex = PCG_RandU32(randState) % shadingUniforms.numberOfLights;
+            const float lightPdf = 1.0 / shadingUniforms.numberOfLights;
+            GpuLight light = d_lightBuffer.lights[lightIndex];
+
+            const float visibility = GetPunctualLightVisibility(curSurface.position, flat_normal_world, lightIndex);
+            indirectIlluminance += throughput * visibility * EvaluatePunctualLight(-curRayDir, light, curSurface, shadingUniforms.shadingInternalColorSpace) / lightPdf;
+          }
         }
         else
         {
           // Miss, add sky contribution
-          const vec3 skyEmittance = color_convert_src_to_dst(vec3(.1, .3, .5),
-          //const vec3 skyEmittance = color_convert_src_to_dst(vec3(100),
+          const vec3 skyEmittance = color_convert_src_to_dst(shadingUniforms.skyIlluminance.rgb * shadingUniforms.skyIlluminance.a,
             COLOR_SPACE_sRGB_LINEAR,
             shadingUniforms.shadingInternalColorSpace);
           indirectIlluminance += skyEmittance * throughput;
@@ -583,22 +634,10 @@ void main()
 
   vec3 finalColor = indirectIlluminance;
 
-  const vec3 sunColor_internal_space = color_convert_src_to_dst(shadingUniforms.sunIlluminance.rgb,
-    COLOR_SPACE_sRGB_LINEAR,
-    shadingUniforms.shadingInternalColorSpace);
   // Treat sun solid angle as constant 0.5 degrees for PDF. Otherwise, changing the diameter of the sun will change the scene brightness.
   // That is realistic because the sun's intensity is defined as lux (lm/m^2), but it's annoying to work with.
   finalColor += BRDF(fragToCameraDir, -shadingUniforms.sunDir.xyz, surface) * sunColor_internal_space * shadowSun / solid_angle_mapping_PDF(radians(0.5));
-  #ifdef FROGRENDER_RAYTRACING_ENABLE
-  if (shadowUniforms.rtTraceLocalLights == 1)
-  {
-    finalColor += LocalLightIntensityRayTraced(fragToCameraDir, surface, shadingUniforms.tlasAddress);
-  }
-  else
-  #endif
-  {
-    finalColor += LocalLightIntensity(fragToCameraDir, surface);
-  }
+  finalColor += LocalLightIntensity(fragToCameraDir, surface);
   finalColor += emission_internal;
 
   o_color = finalColor;

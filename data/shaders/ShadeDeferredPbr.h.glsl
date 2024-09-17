@@ -131,15 +131,20 @@ struct ShadingUniforms
 {
 #ifdef __cplusplus
   ShadingUniforms() :
+    ambientIlluminance(1, 1, 1, 0.03f),
+    skyIlluminance(.1f, .3f, .5f, 1.0f),
     debugFlags(0),
     shadingInternalColorSpace(COLOR_SPACE_BT2020_LINEAR),
     globalIlluminationMethod(GI_METHOD_CONSTANT_AMBIENT),
-    numGiRays(1)
+    numGiRays(1),
+    numGiBounces(3)
   {}
 #endif
 
   FVOG_VEC4 sunDir;
   FVOG_VEC4 sunIlluminance;
+  FVOG_VEC4 ambientIlluminance;
+  FVOG_VEC4 skyIlluminance;
   FVOG_VEC2 random;
   FVOG_UINT32 numberOfLights;
   FVOG_UINT32 debugFlags;
@@ -155,6 +160,7 @@ struct ShadingUniforms
 
   FVOG_UINT32 globalIlluminationMethod; // For indirect lighting only, but named this way for consistency
   FVOG_UINT32 numGiRays; // TEMP
+  FVOG_UINT32 numGiBounces; // TEMP
 };
 
 #endif // SHADE_DEFERRED_PBR_H

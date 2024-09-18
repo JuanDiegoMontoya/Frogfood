@@ -570,15 +570,15 @@ void main()
       vec3 throughput = vec3(1);
       for (uint i = 0; i < shadingUniforms.numGiBounces; i++)
       {
-        const vec2 xi = fract(noise + Hammersley(i, shadingUniforms.numGiBounces));
+        //const vec2 xi = fract(noise + Hammersley(i, shadingUniforms.numGiBounces));
+        const vec2 xi = fract(noise + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1)));
         const vec3 curRayDir = normalize(map_to_unit_hemisphere_cosine_weighted(xi, curSurface.normal));
         const float cos_theta = clamp(dot(curSurface.normal, curRayDir), 0.00001, 1.0);
         const float pdf = cosine_weighted_hemisphere_PDF(cos_theta);
         ASSERT_MSG(isfinite(pdf), "PDF is not finite!\n");
         const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
-        //const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf;
+        //const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf; // Cook-Torrance
 
-        // Throughput of previous hit
         throughput *= cos_theta * brdf_over_pdf;
 
         HitSurfaceParameters hit;

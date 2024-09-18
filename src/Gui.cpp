@@ -390,14 +390,17 @@ void FrogRenderer2::InitGui()
     ImGui::GetIO().IniFilename = g_defaultIniPath;
   }
 
-  constexpr float fontSize = 18;
+  float xscale, yscale;
+  glfwGetWindowContentScale(window, &xscale, &yscale);
+  const auto contentScale  = std::max(xscale, yscale); // I don't know how to properly handle the case where xdpi != ydpi. Hopefully that never happens
+  const float fontSize = std::floor(18 * contentScale);
   ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/RobotoCondensed-Regular.ttf", fontSize);
   // constexpr float iconFontSize = fontSize * 2.0f / 3.0f; // if GlyphOffset.y is not biased, uncomment this
 
   // These fonts appear to interfere, possibly due to having overlapping ranges.
   // Loading FA first appears to cause less breakage
   {
-    constexpr float iconFontSize = fontSize * 4.0f / 5.0f;
+    const float iconFontSize = fontSize * 4.0f / 5.0f * contentScale;
     static const ImWchar icons_ranges[] = {ICON_MIN_FA, ICON_MAX_16_FA, 0};
     ImFontConfig icons_config;
     icons_config.MergeMode = true;
@@ -408,7 +411,7 @@ void FrogRenderer2::InitGui()
   }
 
   {
-    constexpr float iconFontSize = fontSize;
+    const float iconFontSize = fontSize;
     static const ImWchar icons_ranges[] = {ICON_MIN_MD, ICON_MAX_16_MD, 0};
     ImFontConfig icons_config;
     icons_config.MergeMode = true;
@@ -423,6 +426,7 @@ void FrogRenderer2::InitGui()
   ImGui::StyleColorsDark();
 
   auto& style = ImGui::GetStyle();
+  style.ScaleAllSizes(contentScale);
   style.Colors[ImGuiCol_Text]                  = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
   style.Colors[ImGuiCol_TextDisabled]          = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
   style.Colors[ImGuiCol_WindowBg]              = ImVec4(0.12f, 0.12f, 0.15f, 1.00f);

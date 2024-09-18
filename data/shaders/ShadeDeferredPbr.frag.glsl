@@ -559,25 +559,26 @@ void main()
   {
     uint randState = PCG_Hash(PCG_Hash(gid.y + PCG_Hash(gid.x)));
 
-    for (int j = 0; j < shadingUniforms.numGiRays; j++)
+    const vec2 pixelNoise = shadingUniforms.random + texelFetch(shadingUniforms.noiseTexture, gid % textureSize(shadingUniforms.noiseTexture, 0), 0).xy;
+
+    for (uint ptSample = 0; ptSample < shadingUniforms.numGiRays; ptSample++)
     {
-      vec2 noise = shadingUniforms.random + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1));
+      const vec2 sampleNoise = pixelNoise + Hammersley(ptSample, shadingUniforms.numGiBounces);
 
       vec3 prevRayDir = -fragToCameraDir;
       vec3 curRayPos = fragWorldPos + flatNormal * 0.0001;
       Surface curSurface = surface;
 
       vec3 throughput = vec3(1);
-      for (uint i = 0; i < shadingUniforms.numGiBounces; i++)
+      for (uint bounce = 0; bounce < shadingUniforms.numGiBounces; bounce++)
       {
-        //const vec2 xi = fract(noise + Hammersley(i, shadingUniforms.numGiBounces));
-        const vec2 xi = fract(noise + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1)));
+        const vec2 xi = fract(sampleNoise + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1)));
         const vec3 curRayDir = normalize(map_to_unit_hemisphere_cosine_weighted(xi, curSurface.normal));
         const float cos_theta = clamp(dot(curSurface.normal, curRayDir), 0.00001, 1.0);
         const float pdf = cosine_weighted_hemisphere_PDF(cos_theta);
         ASSERT_MSG(isfinite(pdf), "PDF is not finite!\n");
-        const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
-        //const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf; // Cook-Torrance
+        //const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
+        const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf; // Cook-Torrance
 
         throughput *= cos_theta * brdf_over_pdf;
 
@@ -617,8 +618,8 @@ void main()
 
           indirectIlluminance += sunColor_internal_space * 
             throughput * 
-            //BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
-            (curSurface.albedo / M_PI) * 
+            BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
+            //(curSurface.albedo / M_PI) * 
             clamp(dot(hit.smoothNormalWorld, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
             sunShadow / 
             solid_angle_mapping_PDF(radians(0.5));

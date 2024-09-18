@@ -161,6 +161,7 @@ struct ShadingUniforms
   FVOG_UINT32 globalIlluminationMethod; // For indirect lighting only, but named this way for consistency
   FVOG_UINT32 numGiRays; // TEMP
   FVOG_UINT32 numGiBounces; // TEMP
+  Texture2D noiseTexture;
 };
 
 #endif // SHADE_DEFERRED_PBR_H

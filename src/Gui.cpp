@@ -2024,7 +2024,7 @@ void FrogRenderer2::GuiDrawAoWindow(VkCommandBuffer)
 #else
     if (aoMethod_ == AoMethod::RAY_TRACED)
     {
-      uint32_t minn = 0;
+      uint32_t minn = 1;
       uint32_t maxx = 64;
       ImGui::Checkbox("Per-frame noise", &aoUsePerFrameRng);
       ImGui::SliderScalar("AO Rays", ImGuiDataType_U32, &rayTracedAoParams_.numRays, &minn, &maxx, "%u");
@@ -2069,7 +2069,7 @@ void FrogRenderer2::GuiDrawGlobalIlluminationWindow(VkCommandBuffer)
       shadingUniforms.numGiRays = static_cast<uint32_t>(rays);
 
       auto bounces = static_cast<int>(shadingUniforms.numGiBounces);
-      ImGui::SliderInt("Bounces", &bounces, 1, 10);
+      ImGui::SliderInt("Bounces", &bounces, 1, 5);
       shadingUniforms.numGiBounces = static_cast<uint32_t>(bounces);
     }
     else if (shadingUniforms.globalIlluminationMethod == GI_METHOD_CONSTANT_AMBIENT)

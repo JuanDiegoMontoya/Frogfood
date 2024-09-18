@@ -263,7 +263,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   int x = 0;
   int y = 0;
-  const auto noise = stbi_load("textures/bluenoise32.png", &x, &y, nullptr, 4);
+  const auto noise = stbi_load("textures/bluenoise256.png", &x, &y, nullptr, 4);
   assert(noise);
   noiseTexture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "Noise");
   noiseTexture->UpdateImageSLOW({
@@ -813,6 +813,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   shadingUniforms.tlasIndex   = tlas.value().GetResourceHandle().index;
   shadingUniforms.tlasAddress = tlas.value().GetAddress();
 #endif
+  shadingUniforms.noiseTexture = noiseTexture->ImageView().GetTexture2D();
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
   ctx.Barrier();

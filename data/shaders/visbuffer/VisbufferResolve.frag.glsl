@@ -309,7 +309,7 @@ void main()
     SampleMetallicRoughness(material, uvGrad),
     SampleOcclusion(material, uvGrad));
   o_normalAndFaceNormal.xy = Vec3ToOct(normal);
-  o_normalAndFaceNormal.zw = Vec3ToOct(flatNormal);
+  o_normalAndFaceNormal.zw = Vec3ToOct(normalize(normalMatrix * flatNormal));
   o_smoothVertexNormal = Vec3ToOct(smoothWorldNormal);
   o_emission = SampleEmission(material, uvGrad);
   o_motion = MakeSmoothMotion(partialDerivatives, worldPosition, worldPositionPrevious);

@@ -369,7 +369,7 @@ bool TraceRayOpaqueMasked(vec3 rayPosition, vec3 rayDirection, float tMax, out H
   rayQueryEXT rayQuery;
   rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(shadingUniforms.tlasAddress), 
     gl_RayFlagsOpaqueEXT,
-    0xFF, rayPosition, 0.0001, rayDirection, tMax); // TODO: TEMP: tMin should be 0, but some meshes inexplicably break with it, despite having a sufficient normal offset
+    0xFF, rayPosition, 0, rayDirection, tMax);
     
   while (rayQueryProceedEXT(rayQuery))
   {
@@ -396,9 +396,6 @@ bool TraceRayOpaqueMasked(vec3 rayPosition, vec3 rayDirection, float tMax)
   return TraceRayOpaqueMasked(rayPosition, rayDirection, tMax, hit);
 }
 
-// glslang doesn't like having an acceleration structure as a parameter (it generates invalid spirv)
-// flatNormal: used for shadow offset
-// actualNormal: used for cosine term
 float ShadowSunRayTraced(vec3 worldPos, vec3 dirToSun, vec3 shadingNormal, float diameterRadians, vec2 noise, uint numRays)
 {
   if (numRays == 0)
@@ -512,7 +509,7 @@ void main()
 #ifdef FROGRENDER_RAYTRACING_ENABLE
   else if (shadowUniforms.shadowMode == SHADOW_MODE_RAY_TRACED)
   {
-    uint randState = PCG_Hash(PCG_Hash(gid.y + PCG_Hash(gid.x)));
+    uint randState = PCG_Hash(gid.y + PCG_Hash(gid.x));
     const vec2 noise = shadingUniforms.random + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1));
     shadowSun = ShadowSunRayTraced(fragWorldPos + flatNormal * 0.0001,
                   -shadingUniforms.sunDir.xyz,
@@ -557,24 +554,33 @@ void main()
 #ifdef FROGRENDER_RAYTRACING_ENABLE
   else if (shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED)
   {
-    uint randState = PCG_Hash(PCG_Hash(gid.y + PCG_Hash(gid.x)));
+    // This state must be independent of the state used for sampling a direction
+    uint randState = PCG_Hash(gid.y + PCG_Hash(gid.x));
 
-    const vec2 pixelNoise = shadingUniforms.random + texelFetch(shadingUniforms.noiseTexture, gid % textureSize(shadingUniforms.noiseTexture, 0), 0).xy;
+    // All pixels should have the same sequence
+    uint noiseOffsetState = PCG_Hash(shadingUniforms.frameNumber);
 
     for (uint ptSample = 0; ptSample < shadingUniforms.numGiRays; ptSample++)
     {
-      const vec2 sampleNoise = pixelNoise + Hammersley(ptSample, shadingUniforms.numGiBounces);
+      // These additional sources of randomness are useful when the noise texture is a low resolution
+      const vec2 perSampleNoise = shadingUniforms.random + Hammersley(ptSample, shadingUniforms.numGiBounces);
 
       vec3 prevRayDir = -fragToCameraDir;
       vec3 curRayPos = fragWorldPos + flatNormal * 0.0001;
       Surface curSurface = surface;
 
-      vec3 throughput = vec3(1);
+      vec3 throughput = {1, 1, 1};
       for (uint bounce = 0; bounce < shadingUniforms.numGiBounces; bounce++)
       {
-        const vec2 xi = fract(sampleNoise + vec2(PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1)));
+        const ivec2 noiseOffset = ivec2(PCG_RandU32(noiseOffsetState), PCG_RandU32(noiseOffsetState));
+        const vec2 noiseTextureSample = texelFetch(shadingUniforms.noiseTexture, (gid + noiseOffset) % textureSize(shadingUniforms.noiseTexture, 0), 0).xy;
+        const vec2 xi = fract(perSampleNoise + noiseTextureSample);
         const vec3 curRayDir = normalize(map_to_unit_hemisphere_cosine_weighted(xi, curSurface.normal));
-        const float cos_theta = clamp(dot(curSurface.normal, curRayDir), 0.00001, 1.0);
+        const float cos_theta = clamp(dot(curSurface.normal, curRayDir), 0, 1);
+        if (cos_theta <= 0) // Terminate path
+        {
+          break;
+        }
         const float pdf = cosine_weighted_hemisphere_PDF(cos_theta);
         ASSERT_MSG(isfinite(pdf), "PDF is not finite!\n");
         //const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian

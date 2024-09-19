@@ -814,6 +814,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   shadingUniforms.tlasAddress = tlas.value().GetAddress();
 #endif
   shadingUniforms.noiseTexture = noiseTexture->ImageView().GetTexture2D();
+  shadingUniforms.frameNumber  = static_cast<uint32_t>(Fvog::GetDevice().frameNumber);
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
   ctx.Barrier();

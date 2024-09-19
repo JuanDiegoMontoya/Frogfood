@@ -162,6 +162,7 @@ struct ShadingUniforms
   FVOG_UINT32 numGiRays; // TEMP
   FVOG_UINT32 numGiBounces; // TEMP
   Texture2D noiseTexture;
+  FVOG_UINT32 frameNumber;
 };
 
 #endif // SHADE_DEFERRED_PBR_H

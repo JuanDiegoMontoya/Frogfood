@@ -555,7 +555,7 @@ void main()
   else if (shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED)
   {
     // This state must be independent of the state used for sampling a direction
-    uint randState = PCG_Hash(gid.y + PCG_Hash(gid.x));
+    uint randState = PCG_Hash(shadingUniforms.frameNumber + PCG_Hash(gid.y + PCG_Hash(gid.x)));
 
     // All pixels should have the same sequence
     uint noiseOffsetState = PCG_Hash(shadingUniforms.frameNumber);
@@ -638,7 +638,10 @@ void main()
             GpuLight light = d_lightBuffer.lights[lightIndex];
 
             const float visibility = GetPunctualLightVisibility(hit.positionWorld + hit.flatNormalWorld * 0.0001, lightIndex);
-            indirectIlluminance += throughput * visibility * EvaluatePunctualLight(-curRayDir, light, curSurface, shadingUniforms.shadingInternalColorSpace) / lightPdf;
+            if (visibility > 0)
+            {
+              indirectIlluminance += throughput * visibility * EvaluatePunctualLight(-curRayDir, light, curSurface, shadingUniforms.shadingInternalColorSpace) / lightPdf;
+            }
           }
         }
         else

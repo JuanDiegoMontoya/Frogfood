@@ -259,7 +259,8 @@ namespace Fvog
   }
 
   Shader::Shader(PipelineStage stage, std::string_view source, std::string name)
-    : name_(std::move(name))
+    : name_(std::move(name)),
+      stage_(stage)
   {
     ZoneScoped;
     ZoneNamed(_, true);
@@ -268,7 +269,8 @@ namespace Fvog
   }
   
   Shader::Shader(PipelineStage stage, const std::filesystem::path& path, std::string name)
-    : name_(std::move(name))
+    : name_(std::move(name)),
+      stage_(stage)
   {
     ZoneScoped;
     ZoneNamed(_, true);
@@ -277,9 +279,10 @@ namespace Fvog
   }
 
   Shader::Shader(Shader&& old) noexcept
-    : shaderModule_(std::exchange(old.shaderModule_, VK_NULL_HANDLE)),
-      workgroupSize_(std::exchange(old.workgroupSize_, {})),
-      name_(std::move(old.name_))
+    : name_(std::move(old.name_)),
+      stage_(old.stage_),
+      shaderModule_(std::exchange(old.shaderModule_, VK_NULL_HANDLE)),
+      workgroupSize_(std::exchange(old.workgroupSize_, {}))
   {}
 
   Shader& Shader::operator=(Shader&& old) noexcept

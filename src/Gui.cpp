@@ -2082,6 +2082,74 @@ void FrogRenderer2::GuiDrawGlobalIlluminationWindow(VkCommandBuffer)
   ImGui::End();
 }
 
+void FrogRenderer2::GuiDrawShadersWindow(VkCommandBuffer)
+{
+  ZoneScoped;
+
+  // Maybe move these to a more fitting location
+  pipelineManager_.PollModifiedShaders();
+  if (autoCompileModifiedShaders)
+  {
+    pipelineManager_.EnqueueModifiedShaders();
+  }
+
+  if (!showShaderWindow)
+  {
+    return;
+  }
+
+  if (ImGui::Begin("Shaders###shader_window", &showShaderWindow, ImGuiWindowFlags_NoFocusOnAppearing))
+  {
+    ImGui::Checkbox("Auto-compile modified shaders", &autoCompileModifiedShaders);
+    
+    ImGui::BeginDisabled(autoCompileModifiedShaders);
+    bool recompileAll = false;
+    if (ImGui::Button("Recompile All"))
+    {
+      recompileAll = true;
+    }
+    ImGui::EndDisabled();
+
+    auto shaderModules = pipelineManager_.GetShaderModules();
+    for (auto& shaderModule : shaderModules)
+    {
+      auto shaderName = shaderModule->info.path.filename().string();
+      ImGui::PushID(shaderName.c_str());
+      ImGui::BeginDisabled(autoCompileModifiedShaders);
+      if (ImGui::Button(ICON_MD_REFRESH) || recompileAll)
+      {
+        pipelineManager_.EnqueueRecompileShader(shaderModule->info);
+      }
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::AlignTextToFramePadding();
+      const char* icon{};
+      const char* tooltip{};
+      switch (shaderModule->status)
+      {
+      case PipelineManager::Status::SUCCESS:
+        icon = ICON_MD_CHECK;
+        tooltip = "Last compile succeeded";
+        break;
+      case PipelineManager::Status::FAILED:
+        icon = ICON_MD_PRIORITY_HIGH;
+        tooltip = "Last compile failed"; // TODO: add failure reason
+        break;
+      case PipelineManager::Status::PENDING:
+        icon = ICON_MD_PENDING;
+        tooltip = "Compile pending";
+      }
+      ImGui::TextUnformatted(icon);
+      ImGui_HoverTooltip(tooltip);
+      ImGui::SameLine();
+      ImGui::Text("%s%s", shaderModule->isOutOfDate ? "*" : "", shaderName.c_str());
+      ImGui::PopID();
+    }
+  }
+
+  ImGui::End();
+}
+
 void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
@@ -2278,7 +2346,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
 #ifdef FROGRENDER_RAYTRACING_ENABLE
         auto [tlasSuffix, tlasDivisor] = Math::BytesToSuffixAndDivisor(tlas->GetBuffer().SizeBytes());
         Gui::Text("Total TLAS Memory", "%.0f %s", nullptr, tlas->GetBuffer().SizeBytes() / tlasDivisor, tlasSuffix);
-        auto [blasSuffix, blasDivisor] = Math::BytesToSuffixAndDivisor(tlas->GetBuffer().SizeBytes());
+        auto [blasSuffix, blasDivisor] = Math::BytesToSuffixAndDivisor(totalBlasMemory);
         Gui::Text("Total BLAS Memory", "%.0f %s", nullptr, totalBlasMemory / blasDivisor, blasSuffix);
 #endif
         Gui::Text("Camera Position", "%.2f, %.2f, %.2f", nullptr, mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
@@ -2305,4 +2373,5 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
   GuiDrawSceneGraph(commandBuffer);
   GuiDrawAoWindow(commandBuffer);
   GuiDrawGlobalIlluminationWindow(commandBuffer);
+  GuiDrawShadersWindow(commandBuffer);
 }

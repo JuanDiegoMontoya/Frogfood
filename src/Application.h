@@ -139,3 +139,6 @@ private:
   bool graveHeldLastFrame = false;
   bool swapchainOk = true;
 };
+
+std::filesystem::path GetAssetDirectory();
+std::filesystem::path GetShaderDirectory();

@@ -1,4 +1,6 @@
 #include "FrogRenderer2.h"
+
+#include "PipelineManager.h"
 #include "SceneLoader.h"
 #include "Pipelines2.h"
 
@@ -145,15 +147,50 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     meshletInstancesBuffer(100'000'000 * sizeof(Render::MeshletInstance), "Meshlet Instances Buffer"),
     lightsBuffer(1'000 * sizeof(GpuLight), "Light Buffer"),
     // Create the pipelines used in the application
-    cullMeshletsPipeline(Pipelines2::CullMeshlets()),
-    cullTrianglesPipeline(Pipelines2::CullTriangles()),
-    hzbCopyPipeline(Pipelines2::HzbCopy()),
-    hzbReducePipeline(Pipelines2::HzbReduce()),
-    visbufferPipeline(Pipelines2::Visbuffer(
-      {
-        .colorAttachmentFormats = {{Frame::visbufferFormat}},
-        .depthAttachmentFormat  = Frame::gDepthFormat,
-      })),
+    cullMeshletsPipeline(pipelineManager_.EnqueueCompileComputePipeline({
+      .name             = "Cull Meshlets",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullMeshlets.comp.glsl"},
+    })),
+    cullTrianglesPipeline(pipelineManager_.EnqueueCompileComputePipeline({
+      .name             = "Cull Triangles",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullTriangles.comp.glsl"},
+    })),
+    hzbCopyPipeline(pipelineManager_.EnqueueCompileComputePipeline({
+      .name             = "HZB Copy",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBCopy.comp.glsl"},
+    })),
+    hzbReducePipeline(pipelineManager_.EnqueueCompileComputePipeline({
+      .name             = "HZB Reduce",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBReduce.comp.glsl"},
+    })),
+    visbufferPipeline(pipelineManager_.EnqueueCompileGraphicsPipeline({
+      .name = "Visbuffer",
+      .vertexModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::VERTEX_SHADER,
+          .path  = GetShaderDirectory() / "visbuffer/Visbuffer.vert.glsl",
+        },
+      .fragmentModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+          .path  = GetShaderDirectory() / "visbuffer/Visbuffer.frag.glsl",
+        },
+      .state =
+        PipelineManager::GraphicsPipelineState{
+          .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+          .depthState =
+            {
+              .depthTestEnable  = true,
+              .depthWriteEnable = true,
+              .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+            },
+          .renderTargetFormats =
+            {
+              .colorAttachmentFormats = {{Frame::visbufferFormat}},
+              .depthAttachmentFormat  = Frame::gDepthFormat,
+            },
+        },
+    })),
     visbufferResolvePipeline(Pipelines2::VisbufferResolve(
       {
         .colorAttachmentFormats = {{
@@ -166,7 +203,11 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         }},
       })),
     shadingPipeline(Pipelines2::Shading({.colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},})),
-    tonemapPipeline(Pipelines2::Tonemap()),
+    //tonemapPipeline(Pipelines2::Tonemap()),
+    tonemapPipeline(pipelineManager_.EnqueueCompileComputePipeline({
+      .name             = "Tonemap",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "post/TonemapAndDither.comp.glsl"},
+    })),
     debugTexturePipeline(Pipelines2::DebugTexture({.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},})),
     debugLinesPipeline(Pipelines2::DebugLines({
         .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
@@ -290,9 +331,9 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/hotel_01.glb", glm::scale(glm::vec3{.125f})));
-    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed_tu.glb", glm::scale(glm::vec3{.5})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
-    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Airfield_Ground.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
@@ -301,6 +342,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/2.0/Box/glTF/Box.gltf", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/curtain.glb", glm::scale(glm::vec3{1})));
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/triangles.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/cornell.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/cornell_box(1).glb", glm::translate(glm::vec3{3, 0, 0})));
     
     std::pmr::set_default_resource(oldResource);
   }
@@ -555,7 +598,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
 
   ctx.Barrier();
   
-  ctx.BindComputePipeline(cullMeshletsPipeline);
+  ctx.BindComputePipeline(cullMeshletsPipeline.GetPipeline());
 
   auto vsmPushConstants = vsmContext.GetPushConstants();
 
@@ -587,7 +630,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
   
   ctx.Barrier();
   
-  ctx.BindComputePipeline(cullTrianglesPipeline);
+  ctx.BindComputePipeline(cullTrianglesPipeline.GetPipeline());
   visbufferPushConstants.meshletPrimitivesIndex = geometryBuffer.GetResourceHandle().index;
   visbufferPushConstants.meshletVerticesIndex   = geometryBuffer.GetResourceHandle().index;
   visbufferPushConstants.meshletIndicesIndex    = geometryBuffer.GetResourceHandle().index;
@@ -845,7 +888,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   });
   {
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eRenderVisbufferMain, commandBuffer);
-    ctx.BindGraphicsPipeline(visbufferPipeline);
+    ctx.BindGraphicsPipeline(visbufferPipeline.GetPipeline());
     auto visbufferArguments = VisbufferPushConstants{
       .globalUniformsIndex    = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
       .meshletInstancesIndex  = meshletInstancesBuffer.GetResourceHandle().index,
@@ -979,7 +1022,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
         .depthSamplerIndex = hzbSampler.GetResourceHandle().index,
       });
 
-      ctx.BindComputePipeline(hzbCopyPipeline);
+      ctx.BindComputePipeline(hzbCopyPipeline.GetPipeline());
       uint32_t hzbCurrentWidth = frame.hzb->GetCreateInfo().extent.width;
       uint32_t hzbCurrentHeight = frame.hzb->GetCreateInfo().extent.height;
       const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
@@ -988,7 +1031,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       // Sync val complains about WAR for colorLdrWindowRes in the next dispatch, even though it's definitely not accessed
       ctx.Barrier();
 
-      ctx.BindComputePipeline(hzbReducePipeline);
+      ctx.BindComputePipeline(hzbReducePipeline.GetPipeline());
       for (uint32_t level = 1; level < hzbLevels; ++level)
       {
         ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL);
@@ -1341,7 +1384,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage, commandBuffer);
 
-    ctx.BindComputePipeline(tonemapPipeline);
+    ctx.BindComputePipeline(tonemapPipeline.GetPipeline());
     ctx.SetPushConstants(shared::TonemapArguments{
       .sceneColor = (fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value()).ImageView().GetTexture2D(),
       .noise = noiseTexture->ImageView().GetTexture2D(),

@@ -5,7 +5,7 @@
 #include "BasicTypes2.h"
 #include "Buffer2.h"
 
-#include <span>
+#include <vector>
 #include <string>
 #include <string_view>
 
@@ -113,15 +113,15 @@ namespace Fvog
   
   struct ColorBlendState
   {
-    bool logicOpEnable                                     = false;
-    VkLogicOp logicOp                                      = VK_LOGIC_OP_COPY;
-    std::span<const ColorBlendAttachmentState> attachments = {};
-    float blendConstants[4]                                = { 0, 0, 0, 0 };
+    bool logicOpEnable                                 = false;
+    VkLogicOp logicOp                                  = VK_LOGIC_OP_COPY;
+    std::vector<ColorBlendAttachmentState> attachments = {};
+    float blendConstants[4]                            = { 0, 0, 0, 0 };
   };
 
   struct RenderTargetFormats
   {
-    std::span<const Fvog::Format> colorAttachmentFormats{};
+    std::vector<Fvog::Format> colorAttachmentFormats = {}; // vector to make this struct copyable without blowing your foot off
     Fvog::Format depthAttachmentFormat = Fvog::Format::UNDEFINED;
     Fvog::Format stencilAttachmentFormat = Fvog::Format::UNDEFINED;
   };

@@ -61,11 +61,17 @@ namespace Fvog
       return workgroupSize_;
     }
 
+    [[nodiscard]] PipelineStage GetPipelineStage() const
+    {
+      return stage_;
+    }
+
   private:
     void Initialize(const detail::ShaderCompileInfo& info);
 
+    std::string name_;
+    PipelineStage stage_{};
     VkShaderModule shaderModule_;
     Extent3D workgroupSize_{};
-    std::string name_;
   };
 }

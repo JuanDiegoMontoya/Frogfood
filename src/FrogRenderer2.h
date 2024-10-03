@@ -10,6 +10,7 @@
 #ifdef FROGRENDER_RAYTRACING_ENABLE
 #include "techniques/ao/RayTracedAO.h"
 #endif
+#include "PipelineManager.h"
 
 #ifdef FROGRENDER_FSR2_ENABLE
   #include "src/ffx-fsr2-api/ffx_fsr2.h"
@@ -213,6 +214,7 @@ private:
   void GuiDrawGeometryInspector(VkCommandBuffer commandBuffer);
   void GuiDrawAoWindow(VkCommandBuffer commandBuffer);
   void GuiDrawGlobalIlluminationWindow(VkCommandBuffer commandBuffer);
+  void GuiDrawShadersWindow(VkCommandBuffer commandBuffer);
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
 
@@ -274,6 +276,9 @@ private:
     glm::uint virtualTableIndex;
     glm::uvec2 _padding;
   };
+
+  PipelineManager pipelineManager_;
+  bool autoCompileModifiedShaders = false;
 
   // scene parameters
   float sunElevation = 3.0f;
@@ -469,14 +474,14 @@ private:
   std::optional<Fvog::TypedBuffer<uint32_t>> persistentVisibleMeshletIds; // For when the data needs to be retrieved later (i.e. it is stored in the visbuffer)
   std::optional<Fvog::TypedBuffer<uint32_t>> transientVisibleMeshletIds;  // For shadows or forward passes
 
-  Fvog::ComputePipeline cullMeshletsPipeline;
-  Fvog::ComputePipeline cullTrianglesPipeline;
-  Fvog::ComputePipeline hzbCopyPipeline;
-  Fvog::ComputePipeline hzbReducePipeline;
-  Fvog::GraphicsPipeline visbufferPipeline;
+  PipelineManager::ComputePipelineKey cullMeshletsPipeline;
+  PipelineManager::ComputePipelineKey cullTrianglesPipeline;
+  PipelineManager::ComputePipelineKey hzbCopyPipeline;
+  PipelineManager::ComputePipelineKey hzbReducePipeline;
+  PipelineManager::GraphicsPipelineKey visbufferPipeline;
   Fvog::GraphicsPipeline visbufferResolvePipeline;
   Fvog::GraphicsPipeline shadingPipeline;
-  Fvog::ComputePipeline tonemapPipeline;
+  PipelineManager::ComputePipelineKey tonemapPipeline;
   Fvog::GraphicsPipeline debugTexturePipeline;
   Fvog::GraphicsPipeline debugLinesPipeline;
   Fvog::GraphicsPipeline debugAabbsPipeline;
@@ -505,6 +510,7 @@ private:
   bool showMaterialWindow        = true;
   bool showAoWindow              = true;
   bool showGiWindow              = true;
+  bool showShaderWindow          = true;
   Debug::ForwardRenderer forwardRenderer_;
   std::unique_ptr<std::byte[]> geometryBufferData_;
 

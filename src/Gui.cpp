@@ -716,6 +716,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
       ImGui::Checkbox("Geometry Inspector", &showGeometryInspector);
       ImGui::Checkbox("Ambient Occlusion", &showAoWindow);
       ImGui::Checkbox("Global Illumination", &showGiWindow);
+      ImGui::Checkbox("Shaders", &showShaderWindow);
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
@@ -2205,6 +2206,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
   Gui::Text("VRAM Consumed", "%llu/%llu MB", "The total is a budget that is affected\nby factors external to this program.", usageMb, budgetMb);
   Gui::Checkbox("Show FPS", &showFpsInfo);
   Gui::Checkbox("Show Scene Info", &showSceneInfo);
+  Gui::Checkbox("Show Cursed Stats", &showCursedStats);
 
   if (Gui::Checkbox("Use GUI viewport size",
         &useGuiViewportSizeForRendering,
@@ -2325,7 +2327,7 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
 
       if (showFpsInfo)
       {
-        Gui::Text("Framerate", "%0.f Hertz", nullptr, 1 / dt);
+        Gui::Text("Framerate", "%.0f Hertz", nullptr, 1 / dt);
         Gui::Text("AFPS", "%.0f Rad/s", nullptr, glm::two_pi<double>() / dt);
       }
 
@@ -2351,6 +2353,65 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
 #endif
         Gui::Text("Camera Position", "%.2f, %.2f, %.2f", nullptr, mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
         Gui::Text("Camera Rotation", "%.3f, %.3f", nullptr, mainCamera.pitch, mainCamera.yaw);
+      }
+
+      if (showCursedStats)
+      {
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        int widthMM{};
+        int heightMM{};
+        glfwGetMonitorPhysicalSize(monitor, &widthMM, &heightMM);
+
+        const GLFWvidmode* videoMode                 = glfwGetVideoMode(monitor);
+        const glm::vec2 framebufferFractionOfMonitor = {(float)renderOutputWidth / videoMode->width, (float)renderOutputHeight / videoMode->height};
+
+        // Square feet per second
+        {
+          constexpr float mmToIn = 0.0393700787f;
+          const glm::vec2 sizeIn = {widthMM * mmToIn, heightMM * mmToIn};
+
+          const auto framebufferIn                = sizeIn * framebufferFractionOfMonitor;
+          const auto framebufferAreaInchesSquared = framebufferIn.x * framebufferIn.y;
+          constexpr float sqInToSqFt              = 1.0f / 144.0f;
+          Gui::Text("Feed rate", "%.1f ft^2/s", "May be inaccurate if window moves to another monitor.", framebufferAreaInchesSquared * sqInToSqFt * (1 / dt));
+        }
+
+        // Frames per hour
+        Gui::Text("FPH", "%.0f", nullptr, 3600 / dt);
+
+        // Note
+        {
+          struct Note
+          {
+            const char* name;
+            int octave;
+          };
+
+          auto FrequencyToNote = [](float hz) -> Note
+          {
+            constexpr const char* notes[] = {"A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"};
+
+            const double noteNumber = round(12.0f * log2(hz / 440.0) + 49.0f);
+            const char* note        = notes[int(noteNumber - 1) % std::size(notes)];
+
+            const int octave = int(noteNumber + 8) / (int)std::size(notes);
+
+            return {note, octave};
+          };
+
+          auto [name, octave] = FrequencyToNote(float(1 / dt));
+          Gui::Text("Note", "%s%d", nullptr, name, octave);
+        }
+
+        // Kilometers per hour
+        {
+          constexpr float mmToKm = 1.0f / (1000 * 1000);
+          const glm::vec2 sizeKm = {widthMM * mmToKm, heightMM * mmToKm};
+
+          const auto framebufferKm = sizeKm * framebufferFractionOfMonitor;
+          
+          Gui::Text("Vertical speed", "%.0f km/h", nullptr, 60 * 60 * framebufferKm.y / dt);
+        }
       }
 
       ImGui::PopStyleVar();

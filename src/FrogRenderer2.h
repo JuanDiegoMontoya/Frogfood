@@ -789,9 +789,10 @@ private:
   double accumTime = 0;
 
   // GUI
-  bool showGui       = true;
-  bool showFpsInfo   = true;
-  bool showSceneInfo = false;
+  bool showGui         = true;
+  bool showFpsInfo     = true;
+  bool showSceneInfo   = false;
+  bool showCursedStats = false;
   struct CameraSelected{};
   struct SunSelected{};
   struct MaterialSelected

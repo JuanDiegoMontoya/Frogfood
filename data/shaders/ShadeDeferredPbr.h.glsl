@@ -153,10 +153,8 @@ struct ShadingUniforms
   // TODO: temp rt stuff
   FVOG_UINT32 materialBufferIndex;
   FVOG_UINT32 instanceBufferIndex;
-#ifdef FROGRENDER_RAYTRACING_ENABLE
   FVOG_UINT32 tlasIndex;
   uint64_t tlasAddress;
-#endif
 
   FVOG_UINT32 globalIlluminationMethod; // For indirect lighting only, but named this way for consistency
   FVOG_UINT32 numGiRays; // TEMP

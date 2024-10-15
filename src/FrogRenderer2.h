@@ -7,9 +7,7 @@
 #include "techniques/AutoExposure.h"
 #include "techniques/VirtualShadowMaps.h"
 #include "debug/ForwardRenderer.h"
-#ifdef FROGRENDER_RAYTRACING_ENABLE
 #include "techniques/ao/RayTracedAO.h"
-#endif
 #include "PipelineManager.h"
 
 #ifdef FROGRENDER_FSR2_ENABLE
@@ -21,9 +19,7 @@
 #include "Fvog/Buffer2.h"
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Timer2.h"
-#if defined(FROGRENDER_RAYTRACING_ENABLE)
-  #include "Fvog/AccelerationStructure.h"
-#endif
+#include "Fvog/AccelerationStructure.h"
 
 #include "shaders/Resources.h.glsl"
 #include "shaders/ShadeDeferredPbr.h.glsl"
@@ -385,9 +381,7 @@ private:
     Fvog::ManagedBuffer::Alloc indicesAlloc;
     Fvog::ManagedBuffer::Alloc primitivesAlloc;
     Fvog::ManagedBuffer::Alloc originalIndicesAlloc;
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-    Fvog::Blas blas;
-#endif
+    std::optional<Fvog::Blas> blas;
   };
 
   size_t totalMeshlets = 0;
@@ -402,9 +396,7 @@ private:
     std::optional<Render::MeshGeometryID> geometryId;
     std::optional<Fvog::ContiguousManagedBuffer::Alloc> meshletInstancesAlloc;
     std::optional<Fvog::ManagedBuffer::Alloc> instanceAlloc;
-#ifdef FROGRENDER_RAYTRACING_ENABLE
     std::optional<Fvog::TlasInstance> tlasInstance;
-#endif
   };
 
   struct LightAlloc
@@ -422,9 +414,7 @@ private:
   Fvog::ManagedBuffer geometryBuffer;
   Fvog::ContiguousManagedBuffer meshletInstancesBuffer;
   Fvog::ContiguousManagedBuffer lightsBuffer;
-#ifdef FROGRENDER_RAYTRACING_ENABLE
   std::optional<Fvog::Tlas> tlas;
-#endif
 
   uint32_t NumMeshletInstances() const noexcept
   {
@@ -488,10 +478,8 @@ private:
   Fvog::GraphicsPipeline debugRectsPipeline;
 
   // TODO: remove
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-  Fvog::RayTracingPipeline testRayTracingPipeline;
-  std::optional<Fvog::Texture> testRayTracingOutput;
-#endif
+//  Fvog::RayTracingPipeline testRayTracingPipeline;
+//  std::optional<Fvog::Texture> testRayTracingOutput;
 
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
 
@@ -595,10 +583,8 @@ private:
   AoMethod aoMethod_ = AoMethod::NONE;
   bool aoUsePerFrameRng = true;
   Fvog::Texture whiteTexture_;
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-  Techniques::RayTracedAO rayTracedAo_;
+  std::optional<Techniques::RayTracedAO> rayTracedAo_;
   Techniques::RayTracedAO::ComputeParams rayTracedAoParams_;
-#endif
 
   // Texture viewer
   struct ViewerUniforms

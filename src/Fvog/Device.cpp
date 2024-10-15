@@ -22,8 +22,8 @@ namespace Fvog
 
     void VKAPI_CALL DeviceAllocCallback([[maybe_unused]] VmaAllocator VMA_NOT_NULL allocator,
       [[maybe_unused]] uint32_t memoryType,
-      VkDeviceMemory VMA_NOT_NULL_NON_DISPATCHABLE memory,
-      VkDeviceSize size,
+      [[maybe_unused]] VkDeviceMemory VMA_NOT_NULL_NON_DISPATCHABLE memory,
+      [[maybe_unused]] VkDeviceSize size,
       [[maybe_unused]] void* VMA_NULLABLE pUserData)
     {
       TracyAllocN(memory, size, deviceTracyHeapName);
@@ -31,11 +31,21 @@ namespace Fvog
 
     void VKAPI_CALL DeviceFreeCallback([[maybe_unused]] VmaAllocator VMA_NOT_NULL allocator,
       [[maybe_unused]] uint32_t memoryType,
-      VkDeviceMemory VMA_NOT_NULL_NON_DISPATCHABLE memory,
+      [[maybe_unused]] VkDeviceMemory VMA_NOT_NULL_NON_DISPATCHABLE memory,
       [[maybe_unused]] VkDeviceSize size,
       [[maybe_unused]] void* VMA_NULLABLE pUserData)
     {
       TracyFreeN(memory, deviceTracyHeapName);
+    }
+
+    template<typename T>
+    T& PushPNext(T& v, void* pNext)
+    {
+      auto* oldPNext = static_cast<VkBaseOutStructure*>(v.pNext);
+      v.pNext        = pNext;
+      auto* base     = static_cast<VkBaseOutStructure*>(pNext);
+      base->pNext    = oldPNext;
+      return v;
     }
   }
 
@@ -55,31 +65,6 @@ namespace Fvog
       .set_surface(surface_)
       .add_required_extension(VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)
       .add_required_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) // TODO: enable for profiling builds only
-    #if defined(FROGRENDER_RAYTRACING_ENABLE)
-      .add_required_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)
-      .add_required_extension_features(VkPhysicalDeviceAccelerationStructureFeaturesKHR {
-        //VkPhysicalDeviceAccelerationStructureFeaturesKHR
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
-        .accelerationStructure = true,
-        .descriptorBindingAccelerationStructureUpdateAfterBind = true,
-      })
-      .add_required_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)
-      .add_required_extension_features(VkPhysicalDeviceRayTracingPipelineFeaturesKHR {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
-        .rayTracingPipeline = true,
-      })
-      .add_required_extension(VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME)
-      .add_required_extension_features(VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR,
-        .rayTracingPositionFetch = true
-      })
-      .add_required_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
-      .add_required_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME)
-      .add_required_extension_features(VkPhysicalDeviceRayQueryFeaturesKHR{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
-        .rayQuery = true,
-      })
-    #endif
       .set_required_features({
         .independentBlend = true,
         .multiDrawIndirect = true,
@@ -158,8 +143,46 @@ namespace Fvog
       })
       .select()
       .value();
+
+    supportsRayTracing = physicalDevice_.is_extension_present(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+                         physicalDevice_.is_extension_present(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
+                         physicalDevice_.is_extension_present(VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME) &&
+                         physicalDevice_.is_extension_present(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
+                         physicalDevice_.is_extension_present(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+
+    physicalDevice_.enable_extension_if_present(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+    physicalDevice_.enable_extension_if_present(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+    physicalDevice_.enable_extension_if_present(VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME);
+    physicalDevice_.enable_extension_if_present(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    physicalDevice_.enable_extension_if_present(VK_KHR_RAY_QUERY_EXTENSION_NAME);
     
+    auto asFeatures = VkPhysicalDeviceAccelerationStructureFeaturesKHR{
+      .sType                                                 = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+      .accelerationStructure                                 = true,
+      .descriptorBindingAccelerationStructureUpdateAfterBind = true,
+    };
+    auto rtPipelineFeatures = VkPhysicalDeviceRayTracingPipelineFeaturesKHR{
+      .sType                               = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+      .rayTracingPipeline                  = true,
+      .rayTracingPipelineTraceRaysIndirect = true,
+      .rayTraversalPrimitiveCulling        = true,
+    };
+    auto positionFetchFeatures = VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR{
+      .sType                   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR,
+      .rayTracingPositionFetch = true,
+    };
+    auto rayQueryFeatures = VkPhysicalDeviceRayQueryFeaturesKHR{
+      .sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+      .rayQuery = true,
+    };
+
+    supportsRayTracing = supportsRayTracing && physicalDevice_.enable_extension_features_if_present(asFeatures) &&
+                         physicalDevice_.enable_extension_features_if_present(rtPipelineFeatures) &&
+                         physicalDevice_.enable_extension_features_if_present(positionFetchFeatures) &&
+                         physicalDevice_.enable_extension_features_if_present(rayQueryFeatures);
+
     device_ = vkb::DeviceBuilder{physicalDevice_}.build().value();
+
     graphicsQueue_ = device_.get_queue(vkb::QueueType::graphics).value();
     graphicsQueueFamilyIndex_ = device_.get_queue_index(vkb::QueueType::graphics).value();
 
@@ -248,16 +271,18 @@ namespace Fvog
     }), &allocator_);
 
     // Create mega descriptor set
-    constexpr auto poolSizes = std::to_array<VkDescriptorPoolSize>({
+    auto poolSizes = std::vector<VkDescriptorPoolSize>({
       {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = maxResourceDescriptors},
       {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = maxResourceDescriptors}, // TODO: remove this in favor of separate images + samplers
       {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = maxResourceDescriptors},
       {.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = maxResourceDescriptors},
       {.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = maxSamplerDescriptors},
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-      {.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, .descriptorCount = maxResourceDescriptors},
-#endif
     });
+
+    if (supportsRayTracing)
+    {
+      poolSizes.push_back({.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, .descriptorCount = maxResourceDescriptors});
+    }
 
     CheckVkResult(vkCreateDescriptorPool(device_, Address(VkDescriptorPoolCreateInfo{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -268,30 +293,34 @@ namespace Fvog
     }), nullptr, &descriptorPool_));
 
 
-    constexpr auto bindings = std::to_array<VkDescriptorSetLayoutBinding>({
+    auto bindings = std::vector<VkDescriptorSetLayoutBinding>({
       {.binding = storageBufferBinding, .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = maxResourceDescriptors, .stageFlags = VK_SHADER_STAGE_ALL},
       {combinedImageSamplerBinding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
       {storageImageBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
       {sampledImageBinding, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
       {samplerBinding, VK_DESCRIPTOR_TYPE_SAMPLER, maxSamplerDescriptors, VK_SHADER_STAGE_ALL},
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-      {accelerationStructureBinding, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, maxResourceDescriptors, VK_SHADER_STAGE_ALL},
-#endif
     });
 
-    constexpr auto bindingsFlags = std::to_array<VkDescriptorBindingFlags>({
+    if (supportsRayTracing)
+    {
+      bindings.push_back({accelerationStructureBinding, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, maxResourceDescriptors, VK_SHADER_STAGE_ALL});
+    }
+
+    auto bindingsFlags = std::vector<VkDescriptorBindingFlags>({
       {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
       {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
       {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
       {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
       {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-      {VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT},
-#endif
     });
+
+    if (supportsRayTracing)
+    {
+      bindingsFlags.push_back(VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
+    }
     
-    static_assert(bindings.size() == bindingsFlags.size());
-    static_assert(poolSizes.size() == bindingsFlags.size());
+    assert(bindings.size() == bindingsFlags.size());
+    assert(poolSizes.size() == bindingsFlags.size());
 
     CheckVkResult(vkCreateDescriptorSetLayout(device_, Address(VkDescriptorSetLayoutCreateInfo{
       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -420,7 +449,7 @@ namespace Fvog
             vmaGetAllocationInfo(allocator_, bufferAlloc.allocation, &info);
             auto [postfix, divisor] = Math::BytesToSuffixAndDivisor(info.size);
             char buffer[128]{};
-            auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
+            [[maybe_unused]] auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
             ZoneText(buffer, size);
             ZoneName(bufferAlloc.name.c_str(), bufferAlloc.name.size());
             vmaDestroyBuffer(allocator_, bufferAlloc.buffer, bufferAlloc.allocation);
@@ -441,7 +470,7 @@ namespace Fvog
             vmaGetAllocationInfo(allocator_, imageAlloc.allocation, &info);
             auto [postfix, divisor] = Math::BytesToSuffixAndDivisor(info.size);
             char buffer[128]{};
-            auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
+            [[maybe_unused]] auto size = snprintf(buffer, std::size(buffer), "Size: %.1f %s", double(info.size) / divisor, postfix);
             ZoneText(buffer, size);
             ZoneName(imageAlloc.name.c_str(), imageAlloc.name.size());
             vmaDestroyImage(allocator_, imageAlloc.image, imageAlloc.allocation);
@@ -479,9 +508,7 @@ namespace Fvog
             case ResourceType::STORAGE_IMAGE: storageImageDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
             case ResourceType::SAMPLED_IMAGE: sampledImageDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
             case ResourceType::SAMPLER: samplerDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
-#ifdef FROGRENDER_RAYTRACING_ENABLE
             case ResourceType::ACCELERATION_STRUCTURE: accelerationStructureDescriptorAllocator.Free(descriptorAlloc.handle.index); return true;
-#endif
             case ResourceType::INVALID:
             default: assert(0); return true;
             }
@@ -647,8 +674,7 @@ namespace Fvog
         myIdx,
       }};
   }
-
-#ifdef FROGRENDER_RAYTRACING_ENABLE
+  
   Device::DescriptorInfo Device::AllocateAccelerationStructureDescriptor(VkAccelerationStructureKHR tlas)
   {
     ZoneScoped;
@@ -675,7 +701,6 @@ namespace Fvog
         myIdx,
       }};
   }
-#endif
 
   Device::IndexAllocator::IndexAllocator(uint32_t numIndices)
   {

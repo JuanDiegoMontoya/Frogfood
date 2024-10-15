@@ -8,6 +8,15 @@ const float M_PI = 3.141592654;
 
 
 // Functions
+vec3 PolarToCartesian(float phi, float theta)
+{
+  const float sinTheta = sin(theta);
+  return vec3(
+    cos(phi) * sinTheta,
+    sin(phi) * sinTheta,
+    cos(theta)
+  );
+}
 
 // PDF: solid_angle_mapping_PDF (see bottom of this file)
 vec3 RandVecInCone(vec2 xi, vec3 N, float angle)

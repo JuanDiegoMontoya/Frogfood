@@ -420,7 +420,9 @@ Application::~Application()
 
   vkDestroyDescriptorPool(Fvog::GetDevice().device_, imguiDescriptorPool_, nullptr);
 
+#ifdef TRACY_ENABLE
   DestroyVkContext(tracyVkContext_);
+#endif
 
   vkb::destroy_swapchain(swapchain_);
 
@@ -502,8 +504,14 @@ void Application::Draw()
   {
     ZoneScopedN("Begin ImGui frame");
     ImGui_ImplFvog_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
+    {
+      ZoneScopedN("ImGui_ImplGlfw_NewFrame");
+      ImGui_ImplGlfw_NewFrame();
+    }
+    {
+      ZoneScopedN("ImGui::NewFrame");
+      ImGui::NewFrame();
+    }
   }
 
   {
@@ -548,6 +556,9 @@ void Application::Draw()
 
     ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
   }
+
+  ctx.Barrier();
+  auto marker = ctx.MakeScopedDebugMarker("Everything else");
 
   {
     TracyVkCollect(tracyVkContext_, commandBuffer);
@@ -616,8 +627,7 @@ void Application::Draw()
       }
     }
   }
-
-  //TracyVkCollect(tracyVkContext_, tracyCommandBuffer_) // TODO: figure out how this is supposed to work
+  
   FrameMark;
 }
 

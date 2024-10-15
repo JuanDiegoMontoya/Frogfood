@@ -222,14 +222,12 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .depthAttachmentFormat = Frame::gDepthFormat,
       })),
     // TODO: remove
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-    testRayTracingPipeline(Pipelines2::TestRayTracingPipeline()),
-    testRayTracingOutput(Fvog::Texture({
-      .viewType = VK_IMAGE_VIEW_TYPE_2D,
-      .format = Fvog::Format::R8G8B8A8_UNORM,
-      .extent = { 1920, 1080, 1 },
-    })),
-#endif
+//    testRayTracingPipeline(Pipelines2::TestRayTracingPipeline()),
+//    testRayTracingOutput(Fvog::Texture({
+//      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+//      .format = Fvog::Format::R8G8B8A8_UNORM,
+//      .extent = { 1920, 1080, 1 },
+//    })),
     forwardRenderer_(),
     tonemapUniformBuffer(1, "Tonemap Uniforms"),
     tonyMcMapfaceLut(LoadTonyMcMapfaceTexture()),
@@ -254,9 +252,6 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 #endif
       })),
     whiteTexture_(Fvog::CreateTexture2D({1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-    rayTracedAo_(),
-#endif
     vsmShadowUniformBuffer(),
     viewerVsmPageTablesPipeline(Pipelines2::ViewerVsm({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
@@ -314,6 +309,11 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   stbi_image_free(noise);
 
   InitGui();
+
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    rayTracedAo_.emplace();
+  }
 
   mainCamera.position.y = 1;
 
@@ -646,7 +646,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
 void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex)
 {
   ZoneScoped;
-  
+
   if (Fvog::GetDevice().frameNumber == 1)
   {
     dt = 0.016;
@@ -657,7 +657,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormalAndFaceNormal, frame.gNormaAndFaceNormallPrev);
 
-  shadingUniforms.sunDir = glm::vec4(SphericalToCartesian(sunElevation, sunAzimuth), 0);
+  shadingUniforms.sunDir         = glm::vec4(SphericalToCartesian(sunElevation, sunAzimuth), 0);
   shadingUniforms.sunIlluminance = glm::vec4{sunIlluminance * sunColor, 0};
   {
     uint32_t state         = static_cast<uint32_t>(Fvog::GetDevice().frameNumber);
@@ -666,7 +666,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   auto ctx = Fvog::Context(commandBuffer);
 
-  const auto baseBias = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
+  const auto baseBias     = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
   const float fsr2LodBias = std::round(baseBias * 100) / 100;
 
   {
@@ -702,33 +702,34 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   FlushUpdatedSceneData(commandBuffer);
 
-
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-  tlas = [&]
+  if (Fvog::GetDevice().supportsRayTracing)
   {
-    TracyVkZone(tracyVkContext_, commandBuffer, "Build TLAS");
-    ZoneScopedN("Build TLAS");
-    auto instances = std::vector<Fvog::TlasInstance>();
-    instances.reserve(meshAllocations.size());
-    for (const auto& [meshId, instance] : meshAllocations)
+    tlas = [&]
     {
-      instances.push_back(instance.tlasInstance.value());
-    }
+      TracyVkZone(tracyVkContext_, commandBuffer, "Build TLAS");
+      ZoneScopedN("Build TLAS");
+      auto instances = std::vector<Fvog::TlasInstance>();
+      instances.reserve(meshAllocations.size());
+      for (const auto& [meshId, instance] : meshAllocations)
+      {
+        instances.push_back(instance.tlasInstance.value());
+      }
 
-    auto tlasInstances =
-      Fvog::TypedBuffer<Fvog::TlasInstance>({(uint32_t)instances.size(), Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE}, "TLAS Instances Buffer");
+      auto tlasInstances =
+        Fvog::TypedBuffer<Fvog::TlasInstance>({(uint32_t)instances.size(), Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE}, "TLAS Instances Buffer");
 
-    std::memcpy(tlasInstances.GetMappedMemory(), instances.data(), sizeof(Fvog::TlasInstance) * instances.size());
+      std::memcpy(tlasInstances.GetMappedMemory(), instances.data(), sizeof(Fvog::TlasInstance) * instances.size());
 
-    return Fvog::Tlas(Fvog::TlasCreateInfo{
-        .commandBuffer = commandBuffer,
-        .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
-        .buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
-        .instanceBuffer = &tlasInstances,
-      },
-      "TLAS");
-  }();
-#endif
+      return Fvog::Tlas(
+        Fvog::TlasCreateInfo{
+          .commandBuffer  = commandBuffer,
+          .geoemtryFlags  = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
+          .buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS,
+          .instanceBuffer = &tlasInstances,
+        },
+        "TLAS");
+    }();
+  }
 
   // A few of these buffers are really slow to create (2-3ms) and destroy every frame (large ones hit vkAllocateMemory), so
   // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
@@ -756,57 +757,34 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
 
-  vkCmdBindDescriptorSets(
-    commandBuffer,
-    VK_PIPELINE_BIND_POINT_COMPUTE,
-    Fvog::GetDevice().defaultPipelineLayout,
-    0,
-    1,
-    &Fvog::GetDevice().descriptorSet_,
-    0,
-    nullptr);
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
 
-  
-  vkCmdBindDescriptorSets(
-    commandBuffer,
-    VK_PIPELINE_BIND_POINT_GRAPHICS,
-    Fvog::GetDevice().defaultPipelineLayout,
-    0,
-    1,
-    &Fvog::GetDevice().descriptorSet_,
-    0,
-    nullptr);
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
 
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
+  }
 
-
-
-
-
-
-
-
-
-
-  
   const auto materialSampler = Fvog::Sampler({
-    .magFilter = VK_FILTER_LINEAR,
-    .minFilter = VK_FILTER_LINEAR,
-    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-    .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-    .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-    .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-    .mipLodBias = fsr2LodBias,
+    .magFilter     = VK_FILTER_LINEAR,
+    .minFilter     = VK_FILTER_LINEAR,
+    .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+    .addressModeU  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .addressModeV  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .addressModeW  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .mipLodBias    = fsr2LodBias,
     .maxAnisotropy = 16.0f,
   });
-  
+
   const auto jitterOffset = fsr2Enable ? GetJitterOffset((uint32_t)Fvog::GetDevice().frameNumber, renderInternalWidth, renderInternalHeight, renderOutputWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
-  //const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
+  // const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
   const auto projUnjittered = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
-  const auto projJittered = jitterMatrix * projUnjittered;
-  
+  const auto projJittered   = jitterMatrix * projUnjittered;
+
   // Set global uniforms
-  const auto viewProj = projJittered * mainCamera.GetViewMatrix();
+  const auto viewProj           = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 
   if (Fvog::GetDevice().frameNumber == 1)
@@ -822,14 +800,14 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   auto mainView = ViewParams{
     .oldViewProj = globalUniforms.oldViewProjUnjittered,
-    .proj = projUnjittered,
-    .view = mainCamera.GetViewMatrix(),
+    .proj        = projUnjittered,
+    .view        = mainCamera.GetViewMatrix(),
     //.viewProj = viewProjUnjittered,
-    .viewProj = viewProj,
+    .viewProj  = viewProj,
     .cameraPos = glm::vec4(mainCamera.position, 0.0),
-    .viewport = {0.0f, 0.0f, static_cast<float>(renderInternalWidth), static_cast<float>(renderInternalHeight)},
+    .viewport  = {0.0f, 0.0f, static_cast<float>(renderInternalWidth), static_cast<float>(renderInternalHeight)},
   };
-  
+
   // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
   // We should probably emit the far plane regardless, but alas, one thing at a time.
   Math::MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
@@ -849,13 +827,14 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   globalUniformsBuffer.UpdateData(commandBuffer, globalUniforms);
 
   shadowUniformsBuffer.UpdateData(commandBuffer, shadowUniforms);
-  
+
   shadingUniforms.materialBufferIndex = geometryBuffer.GetResourceHandle().index;
   shadingUniforms.instanceBufferIndex = geometryBuffer.GetResourceHandle().index;
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-  shadingUniforms.tlasIndex   = tlas.value().GetResourceHandle().index;
-  shadingUniforms.tlasAddress = tlas.value().GetAddress();
-#endif
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    shadingUniforms.tlasIndex   = tlas.value().GetResourceHandle().index;
+    shadingUniforms.tlasAddress = tlas.value().GetAddress();
+  }
   shadingUniforms.noiseTexture = noiseTexture->ImageView().GetTexture2D();
   shadingUniforms.frameNumber  = static_cast<uint32_t>(Fvog::GetDevice().frameNumber);
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
@@ -1130,8 +1109,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   // AO pass
   Fvog::Texture* aoTexture = &whiteTexture_;
-
-#ifdef FROGRENDER_RAYTRACING_ENABLE
+  
   if (aoMethod_ == AoMethod::RAY_TRACED)
   {
     rayTracedAoParams_.frameNumber = 0;
@@ -1144,9 +1122,8 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     rayTracedAoParams_.inputNormalAndFaceNormal = &frame.gNormalAndFaceNormal.value();
     rayTracedAoParams_.world_from_clip          = glm::inverse(globalUniforms.viewProj);
     rayTracedAoParams_.outputSize               = Fvog::Extent2D{renderInternalWidth, renderInternalHeight};
-    aoTexture                                   = &rayTracedAo_.ComputeAO(commandBuffer, rayTracedAoParams_);
+    aoTexture                                   = &rayTracedAo_->ComputeAO(commandBuffer, rayTracedAoParams_);
   }
-#endif
 
   ctx.ImageBarrier(*frame.gAlbedo,                  VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
   ctx.ImageBarrier(*frame.gNormalAndFaceNormal,     VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
@@ -1435,23 +1412,11 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     vkCmdEndRendering(commandBuffer);
   }
-
-#if defined(FROGRENDER_RAYTRACING_ENABLE)
-  vkCmdBindDescriptorSets(
-    commandBuffer,
-    VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-    Fvog::GetDevice().defaultPipelineLayout,
-    0,
-    1,
-    &Fvog::GetDevice().descriptorSet_,
-    0,
-    nullptr);
-
-  ctx.ImageBarrierDiscard(*testRayTracingOutput, VK_IMAGE_LAYOUT_GENERAL);
-  ctx.BindRayTracingPipeline(testRayTracingPipeline);
-  ctx.SetPushConstants(testRayTracingOutput->ImageView().GetStorageResourceHandle().index);
-  ctx.TraceRays(testRayTracingOutput->GetCreateInfo().extent.width, testRayTracingOutput->GetCreateInfo().extent.height, 1);
-#endif
+  
+//  ctx.ImageBarrierDiscard(*testRayTracingOutput, VK_IMAGE_LAYOUT_GENERAL);
+//  ctx.BindRayTracingPipeline(testRayTracingPipeline);
+//  ctx.SetPushConstants(testRayTracingOutput->ImageView().GetStorageResourceHandle().index);
+//  ctx.TraceRays(testRayTracingOutput->GetCreateInfo().extent.width, testRayTracingOutput->GetCreateInfo().extent.height, 1);
 
   // swapchainImages_[swapchainImageIndex] needs to be COLOR_ATTACHMENT_OPTIMAL after this function returns
   ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -1509,24 +1474,23 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
       .indicesAlloc    = std::move(indicesAlloc),
       .primitivesAlloc = std::move(primitivesAlloc),
       .originalIndicesAlloc = std::move(originalIndicesAlloc),
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-      .blas = Fvog::Blas(Fvog::BlasCreateInfo{
-          .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
-          .buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
-          .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
-          .vertexBuffer  = geometryBuffer.GetBuffer().GetDeviceAddress() + verticesOffset,
-          .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + originalIndicesOffset,
-          .vertexStride  = sizeof(Render::Vertex),
-          .numVertices   = (uint32_t)meshGeometry.vertices.size(),
-          .indexType     = VK_INDEX_TYPE_UINT32,
-          .numIndices    = (uint32_t)meshGeometry.originalIndices.size(),
-        }),
-#endif
   });
 
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-  totalBlasMemory += meshGeometryAlloc.first->second.blas.GetBuffer().SizeBytes();
-#endif
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    meshGeometryAlloc.first->second.blas = Fvog::Blas(Fvog::BlasCreateInfo{
+      .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
+      .buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+      .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
+      .vertexBuffer  = geometryBuffer.GetBuffer().GetDeviceAddress() + verticesOffset,
+      .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + originalIndicesOffset,
+      .vertexStride  = sizeof(Render::Vertex),
+      .numVertices   = (uint32_t)meshGeometry.vertices.size(),
+      .indexType     = VK_INDEX_TYPE_UINT32,
+      .numIndices    = (uint32_t)meshGeometry.originalIndices.size(),
+    }),
+    totalBlasMemory += meshGeometryAlloc.first->second.blas->GetBuffer().SizeBytes();
+  }
 
   return {myId};
 }
@@ -1541,9 +1505,10 @@ void FrogRenderer2::UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry)
   totalRemappedIndices -= it->second.indicesAlloc.GetDataSize() / sizeof(Render::index_t);
   totalOriginalIndices -= it->second.originalIndicesAlloc.GetDataSize() / sizeof(Render::index_t);
   totalPrimitives -= it->second.primitivesAlloc.GetDataSize() / sizeof(Render::primitive_t);
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-  totalBlasMemory -= it->second.blas.GetBuffer().SizeBytes();
-#endif
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    totalBlasMemory -= it->second.blas.value().GetBuffer().SizeBytes();
+  }
   meshGeometryAllocations.erase(it);
 }
 
@@ -1688,17 +1653,18 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     meshletInstancesUploads.emplace_back(srcOffset, meshletInstancesAlloc.offset, meshletInstancesAlloc.size);
 
     partialMeshAlloc.meshletInstancesAlloc = meshletInstancesAlloc;
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-    auto tlasInstance = Fvog::TlasInstance{
-      .transform                = {},
-      .instanceCustomIndex      = uint32_t(instanceIndex),
-      .mask                     = 0xFF,
-      .shaderBindingTableOffset = 0,
-      .flags                    = {},
-      .blasAddress              = meshGeometryAllocations.at(meshGeometry.id).blas.GetAddress(),
-    };
-    partialMeshAlloc.tlasInstance = tlasInstance;
-#endif
+    if (Fvog::GetDevice().supportsRayTracing)
+    {
+      auto tlasInstance = Fvog::TlasInstance{
+        .transform                = {},
+        .instanceCustomIndex      = uint32_t(instanceIndex),
+        .mask                     = 0xFF,
+        .shaderBindingTableOffset = 0,
+        .flags                    = {},
+        .blasAddress              = meshGeometryAllocations.at(meshGeometry.id).blas.value().GetAddress(),
+      };
+      partialMeshAlloc.tlasInstance = tlasInstance;
+    }
   }
   
   // Upload meshlet instances of spawned meshes.
@@ -1748,12 +1714,13 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
     assert(offset % sizeof(uniforms) == 0);
     ctx.TeenyBufferUpdate(geometryBuffer.GetBuffer(), uniforms, offset);
 
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-    // Make memory layout match VkTransformMatrixKHR::matrix[3][4] (3 rows, 4 columns, row-major)
-    // Must be here to ensure meshAllocations[mesh.id] exists
-    auto transformAffine = glm::transpose(glm::mat4x3(uniforms.modelCurrent));
-    std::memcpy(&meshAllocations.at(id).tlasInstance.value().transform, &transformAffine, sizeof(VkTransformMatrixKHR));
-#endif
+    if (Fvog::GetDevice().supportsRayTracing)
+    {
+      // Make memory layout match VkTransformMatrixKHR::matrix[3][4] (3 rows, 4 columns, row-major)
+      // Must be here to ensure meshAllocations[mesh.id] exists
+      auto transformAffine = glm::transpose(glm::mat4x3(uniforms.modelCurrent));
+      std::memcpy(&meshAllocations.at(id).tlasInstance.value().transform, &transformAffine, sizeof(VkTransformMatrixKHR));
+    }
   }
 
   // Update lights

@@ -199,7 +199,7 @@ void main()
   }
   if (uniforms.tonemapper == 2)
   {
-	  tonemappedColor = clamp(hdrColor, vec3(0), vec3(1));
+	  tonemappedColor = clamp(hdrColor, vec3(0), vec3(uniforms.maxDisplayNits));
   }
 
   // Hybrid/HDR-compatible diplay mappers

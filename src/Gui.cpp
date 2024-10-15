@@ -661,10 +661,8 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
                          "Camera position: Yes\n"
                          "Camera rotation: Yes\n"
                          "Sun Intensity: 0.1 lx (moonlight)");
-
-#ifndef FROGRENDER_RAYTRACING_ENABLE
-      ImGui::BeginDisabled();
-#endif
+      
+      ImGui::BeginDisabled(!Fvog::GetDevice().supportsRayTracing);
       if (ImGui::MenuItem("Path Tracing Test"))
       {
         shadingUniforms.globalIlluminationMethod = GI_METHOD_PATH_TRACED;
@@ -678,9 +676,7 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
         mainCamera.pitch                         = -0.22f;
         mainCamera.yaw                           = 0.623f;
       }
-#ifndef FROGRENDER_RAYTRACING_ENABLE
       ImGui::EndDisabled();
-#endif
 
       ImGui::EndMenu();
     }
@@ -861,17 +857,15 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
     ImGui::RadioButton("VSM", &shadowMode, SHADOW_MODE_VIRTUAL_SHADOW_MAP);
     ImGui_HoverTooltip("%s", "Virtual shadow mapping. Generates a detailed, expansive shadow map\n"
                              "with minimal memory overhead.");
-#ifndef FROGRENDER_RAYTRACING_ENABLE
-    ImGui::BeginDisabled();
-#endif
+
+    ImGui::BeginDisabled(!Fvog::GetDevice().supportsRayTracing);
     ImGui::SameLine();
     ImGui::RadioButton("Ray Traced", &shadowMode, SHADOW_MODE_RAY_TRACED);
     ImGui_HoverTooltip("%s", "Ray traced shadows.\n"
                              "Expensive, but delivers physically correct results.\n"
-                             "Only available when compiled with FROGRENDER_RAYTRACING_ENABLE.");
-#ifndef FROGRENDER_RAYTRACING_ENABLE
+                             "Only available with devices that support Vulkan RT.");
     ImGui::EndDisabled();
-#endif
+
     shadowUniforms.shadowMode = shadowMode;
 
     if (shadowMode == SHADOW_MODE_VIRTUAL_SHADOW_MAP)
@@ -947,16 +941,12 @@ void FrogRenderer2::GuiDrawShadowWindow(VkCommandBuffer commandBuffer)
         ImGui::TreePop();
       }
     }
-
-#ifndef FROGRENDER_RAYTRACING_ENABLE
-    ImGui::BeginDisabled();
-#endif
+    
+    ImGui::BeginDisabled(!Fvog::GetDevice().supportsRayTracing);
     bool traceLocalLights = shadowUniforms.rtTraceLocalLights;
     ImGui::Checkbox("Ray Traced Local Lights", &traceLocalLights);
     shadowUniforms.rtTraceLocalLights = traceLocalLights;
-#ifndef FROGRENDER_RAYTRACING_ENABLE
     ImGui::EndDisabled();
-#endif
   }
   ImGui::End();
 }
@@ -1461,7 +1451,7 @@ void FrogRenderer2::GuiDrawComponentEditor(VkCommandBuffer commandBuffer)
           {
             tonemapUniforms.tonemapper = LinearClip;
           }
-          ImGui_HoverTooltip("The \"nothing\" tonemapper. Clamps output to [0, 1].");
+          ImGui_HoverTooltip("The \"nothing\" tonemapper. Clamps output to [0, 1] in SDR, and [0, maxNits] in HDR.");
 
           ImGui::EndCombo();
         }
@@ -2011,18 +2001,16 @@ void FrogRenderer2::GuiDrawAoWindow(VkCommandBuffer)
       aoMethod_ = AoMethod::NONE;
     }
     ImGui::SameLine();
-#ifndef FROGRENDER_RAYTRACING_ENABLE
-    ImGui::BeginDisabled();
-#endif
+
+    ImGui::BeginDisabled(!Fvog::GetDevice().supportsRayTracing);
     if (ImGui::RadioButton("Ray Traced##ao", aoMethod_ == AoMethod::RAY_TRACED))
     {
       aoMethod_ = AoMethod::RAY_TRACED;
     }
     ImGui_HoverTooltip("Provides the greatest quality at the greatest expense.\n"
-                       "Only available when compiled with FROGRENDER_RAYTRACING_ENABLE.");
-#ifndef FROGRENDER_RAYTRACING_ENABLE
+                       "Only available with devices that support Vulkan RT.");
     ImGui::EndDisabled();
-#else
+
     if (aoMethod_ == AoMethod::RAY_TRACED)
     {
       uint32_t minn = 1;
@@ -2031,7 +2019,6 @@ void FrogRenderer2::GuiDrawAoWindow(VkCommandBuffer)
       ImGui::SliderScalar("AO Rays", ImGuiDataType_U32, &rayTracedAoParams_.numRays, &minn, &maxx, "%u");
       ImGui::SliderFloat("Ray Length", &rayTracedAoParams_.rayLength, 0.01f, 1000, "%.2fm", ImGuiSliderFlags_Logarithmic);
     }
-#endif
   }
   ImGui::End();
 }
@@ -2053,16 +2040,14 @@ void FrogRenderer2::GuiDrawGlobalIlluminationWindow(VkCommandBuffer)
       shadingUniforms.globalIlluminationMethod = GI_METHOD_CONSTANT_AMBIENT;
     }
     ImGui::SameLine();
-#ifndef FROGRENDER_RAYTRACING_ENABLE
-    ImGui::BeginDisabled();
-#endif
+
+    ImGui::BeginDisabled(!Fvog::GetDevice().supportsRayTracing);
     if (ImGui::RadioButton("Path Tracing", shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED))
     {
       shadingUniforms.globalIlluminationMethod = GI_METHOD_PATH_TRACED;
     }
-#ifndef FROGRENDER_RAYTRACING_ENABLE
     ImGui::EndDisabled();
-#endif
+
     if (shadingUniforms.globalIlluminationMethod == GI_METHOD_PATH_TRACED)
     {
       auto rays = static_cast<int>(shadingUniforms.numGiRays);
@@ -2345,12 +2330,13 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
         Gui::Text("Vertices", "%llu", nullptr, totalVertices);
         Gui::Text("Primitives", "%llu", nullptr, totalPrimitives);
         Gui::Text("Materials", "%llu", nullptr, materialAllocations.size());
-#ifdef FROGRENDER_RAYTRACING_ENABLE
-        auto [tlasSuffix, tlasDivisor] = Math::BytesToSuffixAndDivisor(tlas->GetBuffer().SizeBytes());
-        Gui::Text("Total TLAS Memory", "%.0f %s", nullptr, tlas->GetBuffer().SizeBytes() / tlasDivisor, tlasSuffix);
-        auto [blasSuffix, blasDivisor] = Math::BytesToSuffixAndDivisor(totalBlasMemory);
-        Gui::Text("Total BLAS Memory", "%.0f %s", nullptr, totalBlasMemory / blasDivisor, blasSuffix);
-#endif
+        if (Fvog::GetDevice().supportsRayTracing)
+        {
+          auto [tlasSuffix, tlasDivisor] = Math::BytesToSuffixAndDivisor(tlas->GetBuffer().SizeBytes());
+          Gui::Text("Total TLAS Memory", "%.0f %s", nullptr, tlas->GetBuffer().SizeBytes() / tlasDivisor, tlasSuffix);
+          auto [blasSuffix, blasDivisor] = Math::BytesToSuffixAndDivisor(totalBlasMemory);
+          Gui::Text("Total BLAS Memory", "%.0f %s", nullptr, totalBlasMemory / blasDivisor, blasSuffix);
+        }
         Gui::Text("Camera Position", "%.2f, %.2f, %.2f", nullptr, mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
         Gui::Text("Camera Rotation", "%.3f, %.3f", nullptr, mainCamera.pitch, mainCamera.yaw);
       }

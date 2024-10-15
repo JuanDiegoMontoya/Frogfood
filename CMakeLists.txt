@@ -7,7 +7,6 @@ project(Frogfood)
 set(CMAKE_CXX_STANDARD 20)
 
 option(FROGRENDER_FSR2_ENABLE "Enable FidelityFX Super Resolution 2. Windows only!" FALSE)
-option(FROGRENDER_RAYTRACING_ENABLE "Enable VKRT" FALSE)
 
 find_package(Vulkan REQUIRED)
 
@@ -61,6 +60,8 @@ add_executable(frogRender
     src/Scene.h
     src/Scene.cpp
     src/Renderables.h
+    src/Fvog/AccelerationStructure.h
+    src/Fvog/AccelerationStructure.cpp
     src/debug/ForwardRenderer.h
     src/debug/ForwardRenderer.cpp
     src/techniques/ao/RayTracedAO.h
@@ -68,13 +69,6 @@ add_executable(frogRender
     src/PipelineManager.h
     src/PipelineManager.cpp
 )
-
-if (FROGRENDER_RAYTRACING_ENABLE)
-    target_sources(frogRender PRIVATE
-        src/Fvog/AccelerationStructure.h
-        src/Fvog/AccelerationStructure.cpp
-    )
-endif ()
 
 target_compile_options(frogRender
     PRIVATE
@@ -157,7 +151,3 @@ if (MSVC)
 else()
     target_link_libraries(frogRender PRIVATE tbb)
 endif()
-
-if (FROGRENDER_RAYTRACING_ENABLE)
-    target_compile_definitions(frogRender PUBLIC FROGRENDER_RAYTRACING_ENABLE)
-endif ()

@@ -64,7 +64,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     vkbootstrap
     GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap
-    GIT_TAG        3ad0388f1b68dbf99746a2fab8c3115c8fa887bb
+    GIT_TAG        v1.3.296
 )
 
 # Since we are loading Vulkan with Volk, do not load it from a static library or DLL

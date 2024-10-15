@@ -7,6 +7,21 @@
 
 namespace Fvog
 {
+  namespace
+  {
+    void RecordOrImmediateSubmit(std::optional<VkCommandBuffer> commandBuffer, const std::function<void(VkCommandBuffer)>& fn)
+    {
+      if (commandBuffer)
+      {
+        fn(*commandBuffer);
+      }
+      else
+      {
+        GetDevice().ImmediateSubmit(fn);
+      }
+    }
+  } // namespace
+
   Blas::Blas(const BlasCreateInfo& createInfo, std::string name) : createInfo_(createInfo)
   {
     assert(createInfo.numIndices >= 3);
@@ -77,7 +92,7 @@ namespace Fvog
       },
       name + " BLAS Scratch Buffer");
 
-    Fvog::GetDevice().ImmediateSubmit(
+    RecordOrImmediateSubmit(createInfo.commandBuffer,
       [&](VkCommandBuffer commandBuffer)
       {
         buildInfo.dstAccelerationStructure = blas;
@@ -123,12 +138,13 @@ namespace Fvog
       VkQueryPool compactedSizeQuery;
       detail::CheckVkResult(vkCreateQueryPool(Fvog::GetDevice().device_, &queryPoolInfo, nullptr, &compactedSizeQuery));
 
-      Fvog::GetDevice().ImmediateSubmit(
+      RecordOrImmediateSubmit(createInfo.commandBuffer,
         [&](VkCommandBuffer commandBuffer)
         {
           vkCmdResetQueryPool(commandBuffer, compactedSizeQuery, 0, 1);
           vkCmdWriteAccelerationStructuresPropertiesKHR(commandBuffer, 1, &blas, VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, compactedSizeQuery, 0);
         });
+
       uint64_t compactedSize;
       detail::CheckVkResult(vkGetQueryPoolResults(Fvog::GetDevice().device_,
         compactedSizeQuery,
@@ -157,7 +173,7 @@ namespace Fvog
       VkAccelerationStructureKHR compactBlas;
       detail::CheckVkResult(vkCreateAccelerationStructureKHR(Fvog::GetDevice().device_, &compactBlasInfo, nullptr, &compactBlas));
 
-      Fvog::GetDevice().ImmediateSubmit(
+      RecordOrImmediateSubmit(createInfo.commandBuffer,
         [&](VkCommandBuffer commandBuffer)
         {
           vkCmdPipelineBarrier2(commandBuffer,
@@ -295,8 +311,8 @@ namespace Fvog
         .flag = BufferFlagThingy::NO_DESCRIPTOR,
       },
       name + " TLAS Scratch Buffer");
-
-    Fvog::GetDevice().ImmediateSubmit(
+    
+    RecordOrImmediateSubmit(createInfo.commandBuffer,
       [&](VkCommandBuffer commandBuffer)
       {
         buildInfo.dstAccelerationStructure = tlas;
@@ -330,7 +346,7 @@ namespace Fvog
             }),
           }));
       });
-
+#if 0
     if (createInfo.buildFlags & AccelerationStructureBuildFlag::ALLOW_COMPACTION)
     {
       const VkQueryPoolCreateInfo queryPoolInfo = {
@@ -342,7 +358,7 @@ namespace Fvog
       VkQueryPool compactedSizeQuery;
       detail::CheckVkResult(vkCreateQueryPool(Fvog::GetDevice().device_, &queryPoolInfo, nullptr, &compactedSizeQuery));
 
-      Fvog::GetDevice().ImmediateSubmit(
+      RecordOrImmediateSubmit(createInfo.commandBuffer,
         [&](VkCommandBuffer commandBuffer)
         {
           vkCmdResetQueryPool(commandBuffer, compactedSizeQuery, 0, 1);
@@ -376,7 +392,7 @@ namespace Fvog
       VkAccelerationStructureKHR compactTlas;
       detail::CheckVkResult(vkCreateAccelerationStructureKHR(Fvog::GetDevice().device_, &compactTlasInfo, nullptr, &compactTlas));
 
-      Fvog::GetDevice().ImmediateSubmit(
+      RecordOrImmediateSubmit(createInfo.commandBuffer,
         [&](VkCommandBuffer commandBuffer)
         {
           vkCmdPipelineBarrier2(commandBuffer,
@@ -414,7 +430,7 @@ namespace Fvog
       tlasBuffer = std::move(compactTlasBuffer);
       tlas = compactTlas;
     }
-
+#endif
     buffer_ = std::move(tlasBuffer);
 
     VkAccelerationStructureDeviceAddressInfoKHR addressInfo = {

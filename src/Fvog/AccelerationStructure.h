@@ -44,6 +44,7 @@ namespace Fvog
 
   struct BlasCreateInfo
   {
+    std::optional<VkCommandBuffer> commandBuffer     = {};
     AccelerationStructureGeometryFlags geoemtryFlags = {};
     AccelerationStructureBuildFlags buildFlags       = {};
 
@@ -110,7 +111,6 @@ namespace Fvog
 
   struct TlasCreateInfo
   {
-    // TODO: If a command buffer is provided, use it instead of doing immediate submits.
     std::optional<VkCommandBuffer> commandBuffer     = {};
     AccelerationStructureGeometryFlags geoemtryFlags = {};
     AccelerationStructureBuildFlags buildFlags       = {};

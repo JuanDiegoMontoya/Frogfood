@@ -39,7 +39,7 @@ static Fvog::Texture LoadTonyMcMapfaceTexture()
 {
   int x{};
   int y{};
-  auto* pixels = stbi_load("textures/tony_mcmapface/lut.png", &x, &y, nullptr, 4);
+  auto* pixels = stbi_load((GetTextureDirectory() / "tony_mcmapface/lut.png").string().c_str(), &x, &y, nullptr, 4);
   if (!pixels)
   {
     throw std::runtime_error("Texture not found");
@@ -251,8 +251,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
 #endif
       })),
-    whiteTexture_(Fvog::CreateTexture2D({1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
     vsmShadowUniformBuffer(),
+    whiteTexture_(Fvog::CreateTexture2D({1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
     viewerVsmPageTablesPipeline(Pipelines2::ViewerVsm({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     viewerVsmBitmaskHzbPipeline(Pipelines2::ViewerVsmBitmaskHzb({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
@@ -299,7 +299,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   int x = 0;
   int y = 0;
-  const auto noise = stbi_load("textures/bluenoise256.png", &x, &y, nullptr, 4);
+  const auto noise = stbi_load((GetTextureDirectory() / "bluenoise256.png").string().c_str(), &x, &y, nullptr, 4);
   assert(noise);
   noiseTexture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "Noise");
   noiseTexture->UpdateImageSLOW({
@@ -923,65 +923,67 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     TIME_SCOPE_GPU(StatGroup::eVsm, eVsmRenderDirtyPages, commandBuffer);
 
     // Sun VSMs
-    for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
     {
-      TracyVkZone(tracyVkContext_, commandBuffer, "Render Clipmap")
-      auto sunCurrentClipmapView = ViewParams{
-        .oldViewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
-        .proj = vsmSun.GetProjections()[i],
-        .view = vsmSun.GetViewMatrices()[i],
-        .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
-        .viewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
-        .cameraPos = {}, // unused
-        .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
-        .type = ViewType::VIRTUAL,
-        .virtualTableIndex = vsmSun.GetClipmapTableIndices()[i],
-      };
-      Math::MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
+      auto clipmapsMarker = ctx.MakeScopedDebugMarker("Render Clipmaps");
+      for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
+      {
+        TracyVkZone(tracyVkContext_, commandBuffer, "Render Clipmap")
+        auto sunCurrentClipmapView = ViewParams{
+          .oldViewProj              = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
+          .proj                     = vsmSun.GetProjections()[i],
+          .view                     = vsmSun.GetViewMatrices()[i],
+          .viewProj                 = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
+          .viewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
+          .cameraPos                = {}, // unused
+          .viewport                 = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
+          .type                     = ViewType::VIRTUAL,
+          .virtualTableIndex        = vsmSun.GetClipmapTableIndices()[i],
+        };
+        Math::MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
 
-      CullMeshletsForView(commandBuffer, sunCurrentClipmapView, transientVisibleMeshletIds.value(), "Cull Sun VSM Meshlets, View " + std::to_string(i));
+        CullMeshletsForView(commandBuffer, sunCurrentClipmapView, transientVisibleMeshletIds.value(), "Cull Sun VSM Meshlets, View " + std::to_string(i));
 
-      const auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
-      ctx.Barrier();
+        const auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+        ctx.Barrier();
 
-  #if VSM_USE_TEMP_ZBUFFER
-      ctx.ImageBarrier(vsmTempDepthStencil.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-      auto vsmDepthAttachment = Fvog::RenderDepthStencilAttachment{
-        .texture    = vsmTempDepthStencil.value().ImageView(),
-        .loadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .clearValue = {.depth = 1},
-      };
-  #endif
-      ctx.BeginRendering({
-        .name = "Render Clipmap",
-        .viewport = VkViewport{0, 0, (float)vsmExtent.width, (float)vsmExtent.height, 0, 1},
 #if VSM_USE_TEMP_ZBUFFER
-        .depthAttachment = vsmDepthAttachment,
+        ctx.ImageBarrier(vsmTempDepthStencil.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+        auto vsmDepthAttachment = Fvog::RenderDepthStencilAttachment{
+          .texture    = vsmTempDepthStencil.value().ImageView(),
+          .loadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR,
+          .clearValue = {.depth = 1},
+        };
 #endif
-      });
-      
-      ctx.BindGraphicsPipeline(vsmShadowPipeline);
+        ctx.BeginRendering({
+          .name = "Render Clipmap", .viewport = VkViewport{0, 0, (float)vsmExtent.width, (float)vsmExtent.height, 0, 1},
+#if VSM_USE_TEMP_ZBUFFER
+          .depthAttachment = vsmDepthAttachment,
+#endif
+        });
 
-      auto pushConstants                       = vsmContext.GetPushConstants();
-      pushConstants.meshletInstancesIndex      = meshletInstancesBuffer.GetResourceHandle().index;
-      pushConstants.meshletDataIndex           = geometryBuffer.GetResourceHandle().index;
-      pushConstants.meshletPrimitivesIndex     = geometryBuffer.GetResourceHandle().index;
-      pushConstants.meshletVerticesIndex       = geometryBuffer.GetResourceHandle().index;
-      pushConstants.meshletIndicesIndex        = geometryBuffer.GetResourceHandle().index;
-      pushConstants.transformsIndex            = geometryBuffer.GetResourceHandle().index;
-      pushConstants.globalUniformsIndex        = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index;
-      pushConstants.viewIndex                  = viewBuffer->GetResourceHandle().index;
-      pushConstants.materialsIndex             = geometryBuffer.GetResourceHandle().index;
-      pushConstants.materialSamplerIndex       = materialSampler.GetResourceHandle().index;
-      pushConstants.clipmapLod                 = vsmSun.GetClipmapTableIndices()[i];
-      pushConstants.clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index;
-      pushConstants.visibleMeshletsIndex       = transientVisibleMeshletIds->GetResourceHandle().index;
+        ctx.BindGraphicsPipeline(vsmShadowPipeline);
 
-      ctx.BindIndexBuffer(*instancedMeshletBuffer, 0, VK_INDEX_TYPE_UINT32);
-      
-      ctx.SetPushConstants(pushConstants);
-      ctx.DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
-      ctx.EndRendering();
+        auto pushConstants                       = vsmContext.GetPushConstants();
+        pushConstants.meshletInstancesIndex      = meshletInstancesBuffer.GetResourceHandle().index;
+        pushConstants.meshletDataIndex           = geometryBuffer.GetResourceHandle().index;
+        pushConstants.meshletPrimitivesIndex     = geometryBuffer.GetResourceHandle().index;
+        pushConstants.meshletVerticesIndex       = geometryBuffer.GetResourceHandle().index;
+        pushConstants.meshletIndicesIndex        = geometryBuffer.GetResourceHandle().index;
+        pushConstants.transformsIndex            = geometryBuffer.GetResourceHandle().index;
+        pushConstants.globalUniformsIndex        = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index;
+        pushConstants.viewIndex                  = viewBuffer->GetResourceHandle().index;
+        pushConstants.materialsIndex             = geometryBuffer.GetResourceHandle().index;
+        pushConstants.materialSamplerIndex       = materialSampler.GetResourceHandle().index;
+        pushConstants.clipmapLod                 = vsmSun.GetClipmapTableIndices()[i];
+        pushConstants.clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index;
+        pushConstants.visibleMeshletsIndex       = transientVisibleMeshletIds->GetResourceHandle().index;
+
+        ctx.BindIndexBuffer(*instancedMeshletBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+        ctx.SetPushConstants(pushConstants);
+        ctx.DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
+        ctx.EndRendering();
+      }
     }
   }
 

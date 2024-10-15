@@ -38,7 +38,7 @@
 
 namespace
 {
-  const char* g_defaultIniPath = "config/defaultLayout.ini";
+  const auto g_defaultIniPath = (GetConfigDirectory() / "defaultLayout.ini").string();
 
   uint32_t SetBits(uint32_t v, uint32_t mask, bool apply)
   {
@@ -387,14 +387,17 @@ void FrogRenderer2::InitGui()
   // Attempt to load default layout, if it exists
   if (std::filesystem::exists(g_defaultIniPath) && !std::filesystem::is_directory(g_defaultIniPath))
   {
-    ImGui::GetIO().IniFilename = g_defaultIniPath;
+    ImGui::LoadIniSettingsFromDisk(g_defaultIniPath.c_str());
   }
+
+  // Settings are only saved when the user explicitly requests it
+  ImGui::GetIO().IniFilename = nullptr;
 
   float xscale, yscale;
   glfwGetWindowContentScale(window, &xscale, &yscale);
   const auto contentScale  = std::max(xscale, yscale); // I don't know how to properly handle the case where xdpi != ydpi. Hopefully that never happens
   const float fontSize = std::floor(18 * contentScale);
-  ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/RobotoCondensed-Regular.ttf", fontSize);
+  ImGui::GetIO().Fonts->AddFontFromFileTTF((GetTextureDirectory() / "RobotoCondensed-Regular.ttf").string().c_str(), fontSize);
   // constexpr float iconFontSize = fontSize * 2.0f / 3.0f; // if GlyphOffset.y is not biased, uncomment this
 
   // These fonts appear to interfere, possibly due to having overlapping ranges.
@@ -407,7 +410,7 @@ void FrogRenderer2::InitGui()
     icons_config.PixelSnapH = true;
     icons_config.GlyphMinAdvanceX = iconFontSize;
     icons_config.GlyphOffset.y = 0; // Hack to realign the icons
-    ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_FAS, iconFontSize, &icons_config, icons_ranges);
+    ImGui::GetIO().Fonts->AddFontFromFileTTF((GetTextureDirectory() / FONT_ICON_FILE_NAME_FAS).string().c_str(), iconFontSize, &icons_config, icons_ranges);
   }
 
   {
@@ -418,7 +421,7 @@ void FrogRenderer2::InitGui()
     icons_config.PixelSnapH = true;
     icons_config.GlyphMinAdvanceX = iconFontSize;
     icons_config.GlyphOffset.y = 4; // Hack to realign the icons
-    ImGui::GetIO().Fonts->AddFontFromFileTTF("textures/" FONT_ICON_FILE_NAME_MD, iconFontSize, &icons_config, icons_ranges);
+    ImGui::GetIO().Fonts->AddFontFromFileTTF((GetTextureDirectory() / FONT_ICON_FILE_NAME_MD).string().c_str(), iconFontSize, &icons_config, icons_ranges);
   }
 
   ImGui_ImplFvog_CreateFontsTexture();
@@ -487,21 +490,20 @@ void FrogRenderer2::InitGui()
   style.WindowMenuButtonPosition        = ImGuiDir_None;
   style.IndentSpacing                   = 15;
 
-  guiIcons.emplace("icon_object", LoadTextureShrimple("textures/icons/icon_object.png"));
-  //guiIcons.emplace("icon_object", LoadTextureShrimple(*device_, "textures/icons/icon_mesh_cube.png"));
-  guiIcons.emplace("icon_camera", LoadTextureShrimple("textures/icons/icon_camera.png"));
-  guiIcons.emplace("icon_sun", LoadTextureShrimple("textures/icons/icon_sun.png"));
-  guiIcons.emplace("chroma_scope", LoadTextureShrimple("textures/icons/icon_chroma_scope.png"));
-  guiIcons.emplace("rgb", LoadTextureShrimple("textures/icons/icon_rgb.png"));
-  guiIcons.emplace("camera_flash", LoadTextureShrimple("textures/icons/icon_camera_flash.png"));
-  guiIcons.emplace("particles", LoadTextureShrimple("textures/icons/particles.png"));
-  guiIcons.emplace("ease_in_out", LoadTextureShrimple("textures/icons/ease_in_out.png"));
-  guiIcons.emplace("histogram", LoadTextureShrimple("textures/icons/histogram.png"));
-  guiIcons.emplace("curve", LoadTextureShrimple("textures/icons/curve.png"));
-  guiIcons.emplace("scene", LoadTextureShrimple("textures/icons/scene.png"));
-  guiIcons.emplace("lattice", LoadTextureShrimple("textures/icons/lattice.png"));
-  guiIcons.emplace("lamp_spot", LoadTextureShrimple("textures/icons/lamp_spot.png"));
-  guiIcons.emplace("lamp_point", LoadTextureShrimple("textures/icons/lamp_point.png"));
+  guiIcons.emplace("icon_object", LoadTextureShrimple(GetTextureDirectory() / "icons/icon_object.png"));
+  guiIcons.emplace("icon_camera", LoadTextureShrimple(GetTextureDirectory() / "icons/icon_camera.png"));
+  guiIcons.emplace("icon_sun", LoadTextureShrimple(GetTextureDirectory() / "icons/icon_sun.png"));
+  guiIcons.emplace("chroma_scope", LoadTextureShrimple(GetTextureDirectory() / "icons/icon_chroma_scope.png"));
+  guiIcons.emplace("rgb", LoadTextureShrimple(GetTextureDirectory() / "icons/icon_rgb.png"));
+  guiIcons.emplace("camera_flash", LoadTextureShrimple(GetTextureDirectory() / "icons/icon_camera_flash.png"));
+  guiIcons.emplace("particles", LoadTextureShrimple(GetTextureDirectory() / "icons/particles.png"));
+  guiIcons.emplace("ease_in_out", LoadTextureShrimple(GetTextureDirectory() / "icons/ease_in_out.png"));
+  guiIcons.emplace("histogram", LoadTextureShrimple(GetTextureDirectory() / "icons/histogram.png"));
+  guiIcons.emplace("curve", LoadTextureShrimple(GetTextureDirectory() / "icons/curve.png"));
+  guiIcons.emplace("scene", LoadTextureShrimple(GetTextureDirectory() / "icons/scene.png"));
+  guiIcons.emplace("lattice", LoadTextureShrimple(GetTextureDirectory() / "icons/lattice.png"));
+  guiIcons.emplace("lamp_spot", LoadTextureShrimple(GetTextureDirectory() / "icons/lamp_spot.png"));
+  guiIcons.emplace("lamp_point", LoadTextureShrimple(GetTextureDirectory() / "icons/lamp_point.png"));
 }
 
 void FrogRenderer2::GuiDrawMagnifier(glm::vec2 viewportContentOffset, glm::vec2 viewportContentSize, bool viewportIsHovered)
@@ -690,14 +692,16 @@ void FrogRenderer2::GuiDrawDockspace(VkCommandBuffer)
     if (ImGui::BeginMenu("Window"))
     {
       // TODO: Reset window visibility flags (show*Window variables)
+      // TODO: This doesn't seem to reset window positions correctly
       if (ImGui::MenuItem("Reset layout"))
       {
-        ImGui::LoadIniSettingsFromDisk(g_defaultIniPath);
+        ImGui::ClearIniSettings();
+        ImGui::LoadIniSettingsFromDisk(g_defaultIniPath.c_str());
       }
 
       if (ImGui::MenuItem("Save layout"))
       {
-        ImGui::SaveIniSettingsToDisk(g_defaultIniPath);
+        ImGui::SaveIniSettingsToDisk(g_defaultIniPath.c_str());
       }
 
       ImGui::Checkbox("Performance", &showPerfWindow);

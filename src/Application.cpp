@@ -278,7 +278,7 @@ Application::Application(const CreateInfo& createInfo)
   {
     int x = 0;
     int y = 0;
-    const auto pixels = stbi_load("textures/froge.png", &x, &y, nullptr, 4);
+    const auto pixels = stbi_load((GetTextureDirectory() / "froge.png").string().c_str(), &x, &y, nullptr, 4);
     if (pixels)
     {
       const auto image = GLFWimage{
@@ -833,4 +833,14 @@ std::filesystem::path GetAssetDirectory()
 std::filesystem::path GetShaderDirectory()
 {
   return GetAssetDirectory() / "shaders";
+}
+
+std::filesystem::path GetTextureDirectory()
+{
+  return GetAssetDirectory() / "textures";
+}
+
+std::filesystem::path GetConfigDirectory()
+{
+  return GetAssetDirectory() / "config";
 }

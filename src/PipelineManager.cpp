@@ -41,7 +41,7 @@ PipelineManager::GraphicsPipelineKey PipelineManager::EnqueueCompileGraphicsPipe
   graphicsPipelines_.emplace(myId,
     GraphicsPipelineValue{
       .pipeline = std::make_unique<Fvog::GraphicsPipeline>(Fvog::GraphicsPipelineInfo{
-        .name                = "test",
+        .name                = createInfo.name,
         .vertexShader        = vertexModule ? vertexModule->shader.get() : nullptr,
         .fragmentShader      = fragmentModule ? fragmentModule->shader.get() : nullptr,
         .inputAssemblyState  = createInfo.state.inputAssemblyState,

@@ -214,6 +214,8 @@ private:
 
   void CullMeshletsForView(VkCommandBuffer commandBuffer, const ViewParams& view, Fvog::Buffer& visibleMeshletIds, std::string_view name = "Cull Meshlet Pass");
 
+  void CreatePipelines();
+
   enum class GlobalFlags : uint32_t
   {
     CULL_MESHLET_FRUSTUM    = 1 << 0,
@@ -469,13 +471,13 @@ private:
   PipelineManager::ComputePipelineKey hzbCopyPipeline;
   PipelineManager::ComputePipelineKey hzbReducePipeline;
   PipelineManager::GraphicsPipelineKey visbufferPipeline;
-  Fvog::GraphicsPipeline visbufferResolvePipeline;
-  Fvog::GraphicsPipeline shadingPipeline;
+  PipelineManager::GraphicsPipelineKey visbufferResolvePipeline;
+  PipelineManager::GraphicsPipelineKey shadingPipeline;
   PipelineManager::ComputePipelineKey tonemapPipeline;
-  Fvog::GraphicsPipeline debugTexturePipeline;
-  Fvog::GraphicsPipeline debugLinesPipeline;
-  Fvog::GraphicsPipeline debugAabbsPipeline;
-  Fvog::GraphicsPipeline debugRectsPipeline;
+  PipelineManager::GraphicsPipelineKey debugTexturePipeline;
+  PipelineManager::GraphicsPipelineKey debugLinesPipeline;
+  PipelineManager::GraphicsPipelineKey debugAabbsPipeline;
+  PipelineManager::GraphicsPipelineKey debugRectsPipeline;
 
   // TODO: remove
 //  Fvog::RayTracingPipeline testRayTracingPipeline;
@@ -597,10 +599,10 @@ private:
 
   ViewerUniforms viewerUniforms{};
   Fvog::Texture* viewerCurrentTexture = nullptr;
-  Fvog::GraphicsPipeline viewerVsmPageTablesPipeline;
-  Fvog::GraphicsPipeline viewerVsmPhysicalPagesPipeline;
-  Fvog::GraphicsPipeline viewerVsmBitmaskHzbPipeline;
-  Fvog::GraphicsPipeline viewerVsmPhysicalPagesOverdrawPipeline;
+  PipelineManager::GraphicsPipelineKey viewerVsmPageTablesPipeline;
+  PipelineManager::GraphicsPipelineKey viewerVsmPhysicalPagesPipeline;
+  PipelineManager::GraphicsPipelineKey viewerVsmBitmaskHzbPipeline;
+  PipelineManager::GraphicsPipelineKey viewerVsmPhysicalPagesOverdrawPipeline;
   std::optional<Fvog::Texture> viewerOutputTexture;
   constexpr static Fvog::Format viewerOutputTextureFormat = Fvog::Format::R8G8B8A8_UNORM;
 

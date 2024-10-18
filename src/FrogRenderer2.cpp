@@ -137,6 +137,328 @@ static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invVie
   return GenerateSubfrustumWireframe(invViewProj, color, near, far, 0, 1, 0, 1);
 }
 
+void FrogRenderer2::CreatePipelines()
+{
+  cullMeshletsPipeline = pipelineManager_.EnqueueCompileComputePipeline({
+    .name             = "Cull Meshlets",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullMeshlets.comp.glsl"},
+  });
+
+  cullTrianglesPipeline = pipelineManager_.EnqueueCompileComputePipeline({
+    .name             = "Cull Triangles",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullTriangles.comp.glsl"},
+  });
+
+  hzbCopyPipeline = pipelineManager_.EnqueueCompileComputePipeline({
+    .name             = "HZB Copy",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBCopy.comp.glsl"},
+  });
+
+  hzbReducePipeline = pipelineManager_.EnqueueCompileComputePipeline({
+    .name             = "HZB Reduce",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBReduce.comp.glsl"},
+  });
+
+  visbufferPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Visbuffer",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "visbuffer/Visbuffer.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "visbuffer/Visbuffer.frag.glsl",
+      },
+    .state =
+      PipelineManager::GraphicsPipelineState{
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = true,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::visbufferFormat}},
+            .depthAttachmentFormat  = Frame::gDepthFormat,
+          },
+      },
+  });
+
+  visbufferResolvePipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Visbuffer Resolve",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "visbuffer/VisbufferResolve.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "visbuffer/VisbufferResolve.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .depthState          = {.depthTestEnable = false, .depthWriteEnable = false},
+        .renderTargetFormats = {{
+          Frame::gAlbedoFormat,
+          Frame::gMetallicRoughnessAoFormat,
+          Frame::gNormalAndFaceNormalFormat,
+          Frame::gSmoothVertexNormalFormat,
+          Frame::gEmissionFormat,
+          Frame::gMotionFormat,
+        }},
+      },
+  });
+
+  tonemapPipeline = pipelineManager_.EnqueueCompileComputePipeline({
+    .name             = "Tonemap",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "post/TonemapAndDither.comp.glsl"},
+  });
+
+  shadingPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Shading",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "ShadeDeferredPbr.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {{Frame::colorHdrRenderResFormat}},
+      },
+  });
+
+  debugTexturePipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug Texture",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "Texture.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},
+          },
+      },
+  });
+
+  debugLinesPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug Lines",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "debug/Debug.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/VertexColor.frag.glsl",
+      },
+    .state =
+      {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST},
+        //.vertexInputState = bindings,
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE, .lineWidth = 2},
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+            .depthAttachmentFormat  = Frame::gDepthFormat,
+          },
+      },
+  });
+
+  auto blend0 = Fvog::ColorBlendAttachmentState{
+    .blendEnable         = true,
+    .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+    .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+  };
+
+  auto blend1 = Fvog::ColorBlendAttachmentState{
+    .blendEnable = false,
+  };
+
+  auto blends = {blend0, blend1};
+
+  debugAabbsPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug AABBs",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "debug/DebugAabb.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/VertexColor.frag.glsl",
+      },
+    .state =
+      {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP},
+        .rasterizationState =
+          {
+            .polygonMode             = VK_POLYGON_MODE_LINE,
+            .cullMode                = VK_CULL_MODE_NONE,
+            .depthBiasEnable         = true,
+            .depthBiasConstantFactor = 50.0f,
+          },
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .colorBlendState =
+          {
+            .attachments = blends,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+            .depthAttachmentFormat  = Frame::gDepthFormat,
+          },
+      },
+  });
+
+  debugRectsPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug Rects",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "debug/DebugRect.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/VertexColor.frag.glsl",
+      },
+    .state =
+      {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN},
+        .rasterizationState =
+          {
+            .polygonMode = VK_POLYGON_MODE_FILL,
+            .cullMode    = VK_CULL_MODE_NONE,
+          },
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .colorBlendState =
+          {
+            .attachments = blends,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+            .depthAttachmentFormat  = Frame::gDepthFormat,
+          },
+      },
+  });
+
+  viewerVsmPageTablesPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug VSM Page Tables",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/viewer/VsmDebugPageTable.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+
+  viewerVsmPhysicalPagesPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug VSM Physical Pages",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/viewer/VsmPhysicalPages.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+
+  viewerVsmBitmaskHzbPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug VSM Physical Pages",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/viewer/VsmBitmaskHzb.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+
+  viewerVsmPhysicalPagesOverdrawPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug VSM Physical Pages",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/viewer/VsmOverdrawHeatmap.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+}
+
 FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   : Application(createInfo),
     // Create constant-size buffers
@@ -146,81 +468,6 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     geometryBuffer(1'000'000'000, "Geometry Buffer"),
     meshletInstancesBuffer(100'000'000 * sizeof(Render::MeshletInstance), "Meshlet Instances Buffer"),
     lightsBuffer(1'000 * sizeof(GpuLight), "Light Buffer"),
-    // Create the pipelines used in the application
-    cullMeshletsPipeline(pipelineManager_.EnqueueCompileComputePipeline({
-      .name             = "Cull Meshlets",
-      .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullMeshlets.comp.glsl"},
-    })),
-    cullTrianglesPipeline(pipelineManager_.EnqueueCompileComputePipeline({
-      .name             = "Cull Triangles",
-      .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullTriangles.comp.glsl"},
-    })),
-    hzbCopyPipeline(pipelineManager_.EnqueueCompileComputePipeline({
-      .name             = "HZB Copy",
-      .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBCopy.comp.glsl"},
-    })),
-    hzbReducePipeline(pipelineManager_.EnqueueCompileComputePipeline({
-      .name             = "HZB Reduce",
-      .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBReduce.comp.glsl"},
-    })),
-    visbufferPipeline(pipelineManager_.EnqueueCompileGraphicsPipeline({
-      .name = "Visbuffer",
-      .vertexModuleInfo =
-        PipelineManager::ShaderModuleCreateInfo{
-          .stage = Fvog::PipelineStage::VERTEX_SHADER,
-          .path  = GetShaderDirectory() / "visbuffer/Visbuffer.vert.glsl",
-        },
-      .fragmentModuleInfo =
-        PipelineManager::ShaderModuleCreateInfo{
-          .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
-          .path  = GetShaderDirectory() / "visbuffer/Visbuffer.frag.glsl",
-        },
-      .state =
-        PipelineManager::GraphicsPipelineState{
-          .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
-          .depthState =
-            {
-              .depthTestEnable  = true,
-              .depthWriteEnable = true,
-              .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
-            },
-          .renderTargetFormats =
-            {
-              .colorAttachmentFormats = {{Frame::visbufferFormat}},
-              .depthAttachmentFormat  = Frame::gDepthFormat,
-            },
-        },
-    })),
-    visbufferResolvePipeline(Pipelines2::VisbufferResolve(
-      {
-        .colorAttachmentFormats = {{
-          Frame::gAlbedoFormat,
-          Frame::gMetallicRoughnessAoFormat,
-          Frame::gNormalAndFaceNormalFormat,
-          Frame::gSmoothVertexNormalFormat,
-          Frame::gEmissionFormat,
-          Frame::gMotionFormat,
-        }},
-      })),
-    shadingPipeline(Pipelines2::Shading({.colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},})),
-    //tonemapPipeline(Pipelines2::Tonemap()),
-    tonemapPipeline(pipelineManager_.EnqueueCompileComputePipeline({
-      .name             = "Tonemap",
-      .shaderModuleInfo = {.path = GetShaderDirectory() / "post/TonemapAndDither.comp.glsl"},
-    })),
-    debugTexturePipeline(Pipelines2::DebugTexture({.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},})),
-    debugLinesPipeline(Pipelines2::DebugLines({
-        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
-        .depthAttachmentFormat = Frame::gDepthFormat,
-      })),
-    debugAabbsPipeline(Pipelines2::DebugAabbs({
-        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
-        .depthAttachmentFormat = Frame::gDepthFormat,
-      })),
-    debugRectsPipeline(Pipelines2::DebugRects({
-        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
-        .depthAttachmentFormat = Frame::gDepthFormat,
-      })),
     // TODO: remove
 //    testRayTracingPipeline(Pipelines2::TestRayTracingPipeline()),
 //    testRayTracingOutput(Fvog::Texture({
@@ -253,10 +500,6 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       })),
     vsmShadowUniformBuffer(),
     whiteTexture_(Fvog::CreateTexture2D({1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
-    viewerVsmPageTablesPipeline(Pipelines2::ViewerVsm({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmBitmaskHzbPipeline(Pipelines2::ViewerVsmBitmaskHzb({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmPhysicalPagesOverdrawPipeline(Pipelines2::ViewerVsmPhysicalPagesOverdraw({.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
     nearestSampler({
         .magFilter    = VK_FILTER_NEAREST,
         .minFilter    = VK_FILTER_NEAREST,
@@ -296,6 +539,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       "HZB")
 {
   ZoneScoped;
+
+  CreatePipelines();
 
   int x = 0;
   int y = 0;
@@ -535,9 +780,28 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   frame.forwardRenderTargetSwizzled = frame.forwardRenderTarget->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
 
   // TODO: only recreate if the swapchain format changed
-  debugTexturePipeline = Pipelines2::DebugTexture({
-      .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},
-    });
+  // TODO: add a function to change pipeline state (this code is verbose and leaks the old pipeline)
+  debugTexturePipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+    .name = "Debug Texture",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "Texture.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},
+          },
+      },
+  });
 }
 
 void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
@@ -1086,7 +1350,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   {
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveVisbuffer, commandBuffer);
-    ctx.BindGraphicsPipeline(visbufferResolvePipeline);
+    ctx.BindGraphicsPipeline(visbufferResolvePipeline.GetPipeline());
     
     auto pushConstants = VisbufferPushConstants{
       .globalUniformsIndex    = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
@@ -1149,7 +1413,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     // Certain VSM push constants are used by the shading pass
     auto vsmPushConstants = vsmContext.GetPushConstants();
-    ctx.BindGraphicsPipeline(shadingPipeline);
+    ctx.BindGraphicsPipeline(shadingPipeline.GetPipeline());
     ctx.SetPushConstants(ShadingPushConstants{
       .globalUniformsIndex  = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
       .shadingUniformsIndex = shadingUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
@@ -1212,7 +1476,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //  Lines
     if (!debugLines.empty())
     {
-      ctx.BindGraphicsPipeline(debugLinesPipeline);
+      ctx.BindGraphicsPipeline(debugLinesPipeline.GetPipeline());
       ctx.SetPushConstants(DebugLinesPushConstants{
         .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,
         .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
@@ -1226,7 +1490,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     // AABBs
     if (drawDebugAabbs)
     {
-      ctx.BindGraphicsPipeline(debugAabbsPipeline);
+      ctx.BindGraphicsPipeline(debugAabbsPipeline.GetPipeline());
       ctx.SetPushConstants(DebugAabbArguments{
         .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
         .debugAabbBufferIndex = debugGpuAabbsBuffer->GetResourceHandle().index,
@@ -1237,7 +1501,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     // Rects
     if (drawDebugRects)
     {
-      ctx.BindGraphicsPipeline(debugRectsPipeline);
+      ctx.BindGraphicsPipeline(debugRectsPipeline.GetPipeline());
       ctx.SetPushConstants(DebugRectArguments{
         .debugRectBufferIndex = debugGpuRectsBuffer->GetResourceHandle().index,
       });
@@ -1403,7 +1667,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, (float)renderOutputWidth, (float)renderOutputHeight, 0, 1}));
     vkCmdSetScissor(commandBuffer, 0, 1, &renderArea);
-    ctx.BindGraphicsPipeline(debugTexturePipeline);
+    ctx.BindGraphicsPipeline(debugTexturePipeline.GetPipeline());
     auto pushConstants = DebugTextureArguments{
       .textureIndex = frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index,
       .samplerIndex = nearestSampler.GetResourceHandle().index,

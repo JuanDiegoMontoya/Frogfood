@@ -973,7 +973,7 @@ void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
     {
       bool operator==(const TexInfo&) const noexcept = default;
       std::string name;
-      Fvog::GraphicsPipeline* pipeline{};
+      PipelineManager::GraphicsPipelineKey* pipeline{};
     };
     auto map = std::unordered_map<const Fvog::Texture*, TexInfo>();
     map[nullptr] = {"None", nullptr};
@@ -1021,8 +1021,8 @@ void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
     
     if (viewerOutputTexture && viewerCurrentTexture)
     {
-      ImGui::SliderInt("Layer", &viewerUniforms.texLayer, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().arrayLayers - 1));
-      ImGui::SliderInt("Level", &viewerUniforms.texLevel, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().mipLevels - 1));
+      ImGui::SliderInt("Layer", &viewerUniforms.texLayer, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().arrayLayers - 1), "%d", ImGuiSliderFlags_NoInput);
+      ImGui::SliderInt("Level", &viewerUniforms.texLevel, 0, std::max(0, (int)viewerCurrentTexture->GetCreateInfo().mipLevels - 1), "%d", ImGuiSliderFlags_NoInput);
       viewerUniforms.textureIndex = viewerCurrentTexture->ImageView().GetSampledResourceHandle().index;
       viewerUniforms.samplerIndex = nearestSampler.GetResourceHandle().index;
 
@@ -1037,7 +1037,7 @@ void FrogRenderer2::GuiDrawViewer(VkCommandBuffer commandBuffer)
       };
 
       ctx.BeginRendering({.colorAttachments = {{attachment}}});
-      ctx.BindGraphicsPipeline(*map.find(viewerCurrentTexture)->second.pipeline);
+      ctx.BindGraphicsPipeline(map.find(viewerCurrentTexture)->second.pipeline->GetPipeline());
       ctx.SetPushConstants(viewerUniforms);
       ctx.Draw(3, 1, 0, 0);
       ctx.EndRendering();

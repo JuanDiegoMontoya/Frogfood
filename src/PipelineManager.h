@@ -25,8 +25,11 @@ public:
   class GraphicsPipelineKey
   {
   public:
+    GraphicsPipelineKey() = default;
+
     [[nodiscard]] Fvog::GraphicsPipeline& GetPipeline() const
     {
+      assert(pipelineManager_);
       auto& pipeline = pipelineManager_->graphicsPipelines_.at(id_).pipeline;
       assert(pipeline);
       return *pipeline;
@@ -44,8 +47,11 @@ public:
   class ComputePipelineKey
   {
   public:
+    ComputePipelineKey() = default;
+
     [[nodiscard]] Fvog::ComputePipeline& GetPipeline() const
     {
+      assert(pipelineManager_);
       auto& pipeline = pipelineManager_->computePipelines_.at(id_).pipeline;
       assert(pipeline);
       return *pipeline;

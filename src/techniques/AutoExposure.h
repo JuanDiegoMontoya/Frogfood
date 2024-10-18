@@ -5,6 +5,7 @@
 #include "Fvog/Texture2.h"
 #include "Fvog/Buffer2.h"
 #include "Fvog/Pipeline2.h"
+#include "PipelineManager.h"
 
 #include "shaders/Resources.h.glsl"
 
@@ -70,7 +71,7 @@ namespace Techniques
     
     Fvog::NDeviceBuffer<AutoExposureBufferData> dataBuffer_;
 
-    Fvog::ComputePipeline generateLuminanceHistogramPipeline_;
-    Fvog::ComputePipeline resolveLuminanceHistogramPipeline_;
+    PipelineManager::ComputePipelineKey generateLuminanceHistogramPipeline_;
+    PipelineManager::ComputePipelineKey resolveLuminanceHistogramPipeline_;
   };
 }

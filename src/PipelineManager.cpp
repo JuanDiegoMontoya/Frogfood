@@ -3,6 +3,11 @@
 
 #include "tracy/Tracy.hpp"
 
+namespace
+{
+  PipelineManager* globalPipelineManagerInstance = nullptr;
+}
+
 PipelineManager::ComputePipelineKey PipelineManager::EnqueueCompileComputePipeline(const ComputePipelineCreateInfo& createInfo)
 {
   auto& shaderModuleValue = EmplaceOrGetShaderModuleValue(createInfo.shaderModuleInfo);
@@ -259,4 +264,19 @@ std::size_t PipelineManager::HashShaderModuleCreateInfo::operator()(const Shader
   auto hashed = std::make_tuple(s.stage, s.path);
 
   return Fvog::detail::hashing::hash<decltype(hashed)>{}(hashed);
+}
+
+void CreateGlobalPipelineManager()
+{
+  globalPipelineManagerInstance = new PipelineManager();
+}
+
+PipelineManager& GetPipelineManager()
+{
+  return *globalPipelineManagerInstance;
+}
+
+void DestroyGlobalPipelineManager()
+{
+  delete globalPipelineManagerInstance;
 }

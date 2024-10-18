@@ -2,6 +2,7 @@
 #include <Fvog/Pipeline2.h>
 #include <Fvog/Texture2.h>
 #include <Fvog/Buffer2.h>
+#include "PipelineManager.h"
 
 #include <glm/vec2.hpp>
 
@@ -48,8 +49,8 @@ namespace Techniques
     void Apply(VkCommandBuffer commandBuffer, const ApplyParams& params);
 
   private:
-    Fvog::ComputePipeline downsampleLowPassPipeline;
-    Fvog::ComputePipeline downsamplePipeline;
-    Fvog::ComputePipeline upsamplePipeline;
+    PipelineManager::ComputePipelineKey downsampleLowPassPipeline;
+    PipelineManager::ComputePipelineKey downsamplePipeline;
+    PipelineManager::ComputePipelineKey upsamplePipeline;
   };
 } // namespace Techniques

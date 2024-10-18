@@ -1,4 +1,5 @@
 #include "RayTracedAO.h"
+#include "Application.h"
 #include "Fvog/Rendering2.h"
 #include "../../RendererUtilities.h"
 #include "Fvog/AccelerationStructure.h"
@@ -9,23 +10,12 @@
 
 namespace Techniques
 {
-  namespace
-  {
-    Fvog::ComputePipeline CreateRtaoPipeline()
-    {
-      auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/ao/rtao/RayTracedAO.comp.glsl");
-
-      return Fvog::ComputePipeline(
-        {
-          .name   = "Ray Traced AO",
-          .shader = &cs,
-        });
-    }
-  }
-
   RayTracedAO::RayTracedAO()
-    : rtaoPipeline_(CreateRtaoPipeline())
   {
+    rtaoPipeline_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "Ray Traced AO",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "ao/rtao/RayTracedAO.comp.glsl"},
+    });
   }
 
   Fvog::Texture& RayTracedAO::ComputeAO(VkCommandBuffer commandBuffer, const ComputeParams& params)
@@ -42,7 +32,7 @@ namespace Techniques
 
     ctx.ImageBarrierDiscard(aoTexture_.value(), VK_IMAGE_LAYOUT_GENERAL);
     auto marker = ctx.MakeScopedDebugMarker("Ray Traced AO");
-    ctx.BindComputePipeline(rtaoPipeline_);
+    ctx.BindComputePipeline(rtaoPipeline_.GetPipeline());
     ctx.SetPushConstants(RtaoArguments{
       .tlasAddress          = params.tlas->GetAddress(),
       .gDepth               = params.inputDepth->ImageView().GetTexture2D(),

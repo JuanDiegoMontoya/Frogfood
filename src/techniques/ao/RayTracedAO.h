@@ -2,6 +2,7 @@
 #include <vulkan/vulkan_core.h>
 #include "Fvog/Texture2.h"
 #include "Fvog/Pipeline2.h"
+#include "PipelineManager.h"
 
 #include <glm/mat4x4.hpp>
 
@@ -37,7 +38,7 @@ namespace Techniques
     [[nodiscard]] Fvog::Texture& ComputeAO(VkCommandBuffer commandBuffer, const ComputeParams& params);
 
   private:
-    Fvog::ComputePipeline rtaoPipeline_;
+    PipelineManager::ComputePipelineKey rtaoPipeline_;
     std::optional<Fvog::Texture> aoTexture_;
   };
 }

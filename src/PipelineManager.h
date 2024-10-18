@@ -26,6 +26,11 @@ public:
   {
   public:
     GraphicsPipelineKey() = default;
+    
+    operator bool() const noexcept
+    {
+      return id_ != 0;
+    }
 
     [[nodiscard]] Fvog::GraphicsPipeline& GetPipeline() const
     {
@@ -48,6 +53,11 @@ public:
   {
   public:
     ComputePipelineKey() = default;
+
+    operator bool() const noexcept
+    {
+      return id_ != 0;
+    }
 
     [[nodiscard]] Fvog::ComputePipeline& GetPipeline() const
     {
@@ -168,3 +178,7 @@ private:
   std::unordered_map<uint64_t, GraphicsPipelineValue> graphicsPipelines_;
   std::unordered_map<uint64_t, ComputePipelineValue> computePipelines_;
 };
+
+void CreateGlobalPipelineManager();
+[[nodiscard]] PipelineManager& GetPipelineManager();
+void DestroyGlobalPipelineManager();

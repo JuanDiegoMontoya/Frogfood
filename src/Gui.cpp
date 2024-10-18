@@ -1710,7 +1710,7 @@ void FrogRenderer2::GuiDrawHdrWindow(VkCommandBuffer commandBuffer)
     auto ctx = Fvog::Context(commandBuffer);
 
     ctx.ImageBarrierDiscard(calibrateHdrTexture, VK_IMAGE_LAYOUT_GENERAL);
-    ctx.BindComputePipeline(calibrateHdrPipeline);
+    ctx.BindComputePipeline(calibrateHdrPipeline.GetPipeline());
     ctx.SetPushConstants(CalibrateHdrArguments{
       .outputImageIndex = calibrateHdrTexture.ImageView().GetStorageResourceHandle().index,
       .displayTargetNits = maxDisplayNits,
@@ -2077,10 +2077,10 @@ void FrogRenderer2::GuiDrawShadersWindow(VkCommandBuffer)
   ZoneScoped;
 
   // Maybe move these to a more fitting location
-  pipelineManager_.PollModifiedShaders();
+  GetPipelineManager().PollModifiedShaders();
   if (autoCompileModifiedShaders)
   {
-    pipelineManager_.EnqueueModifiedShaders();
+    GetPipelineManager().EnqueueModifiedShaders();
   }
 
   if (!showShaderWindow)
@@ -2100,7 +2100,7 @@ void FrogRenderer2::GuiDrawShadersWindow(VkCommandBuffer)
     }
     ImGui::EndDisabled();
 
-    auto shaderModules = pipelineManager_.GetShaderModules();
+    auto shaderModules = GetPipelineManager().GetShaderModules();
     for (auto& shaderModule : shaderModules)
     {
       auto shaderName = shaderModule->info.path.filename().string();
@@ -2108,7 +2108,7 @@ void FrogRenderer2::GuiDrawShadersWindow(VkCommandBuffer)
       ImGui::BeginDisabled(autoCompileModifiedShaders);
       if (ImGui::Button(ICON_MD_REFRESH) || recompileAll)
       {
-        pipelineManager_.EnqueueRecompileShader(shaderModule->info);
+        GetPipelineManager().EnqueueRecompileShader(shaderModule->info);
       }
       ImGui::EndDisabled();
       ImGui::SameLine();

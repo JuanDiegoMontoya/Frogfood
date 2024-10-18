@@ -89,6 +89,8 @@
   #include "Fvog/Buffer2.h"
   #include "Fvog/Texture2.h"
   #include "Fvog/detail/ApiToEnum2.h"
+  #include "Application.h"
+  #include "PipelineManager.h"
   #include "RendererUtilities.h"
   #include <optional>
 
@@ -167,10 +169,8 @@ struct ImGui_ImplFvog_Data
   ImGui_ImplFvog_InitInfo VulkanInitInfo;
   VkDeviceSize BufferMemoryAlignment;
   VkPipelineCreateFlags PipelineCreateFlags;
-  std::optional<Fvog::GraphicsPipeline> Pipeline; // pipeline for main render pass (created by app)
+  PipelineManager::GraphicsPipelineKey Pipeline; // pipeline for main render pass (created by app)
   VkPipeline PipelineForViewports; // pipeline for secondary viewports (created by backend)
-  std::optional<Fvog::Shader> ShaderModuleVert;
-  std::optional<Fvog::Shader> ShaderModuleFrag;
   VkSurfaceFormatKHR lastSurfaceFormat;// = {.format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
 
   // Font data
@@ -385,7 +385,7 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
   }
 
   // Setup desired Vulkan state
-  ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline->Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
+  ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline.GetPipeline().Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
 
   // Will project scissor/clipping rectangles into framebuffer space
   ImVec2 clip_off = draw_data->DisplayPos;         // (0,0) unless using multi-viewports
@@ -406,7 +406,7 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
         // User callback, registered via ImDrawList::AddCallback()
         // (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
         if (pcmd->UserCallback == ImDrawCallback_ResetRenderState)
-          ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline->Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
+          ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline.GetPipeline().Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
         else
           pcmd->UserCallback(cmd_list, pcmd);
       }
@@ -519,52 +519,44 @@ void ImGui_ImplFvog_DestroyFontsTexture()
   }
 }
 
-static void ImGui_ImplFvog_CreateShaderModules()
+[[nodiscard]] static PipelineManager::GraphicsPipelineKey ImGui_ImplFvog_CreatePipeline(VkSampleCountFlagBits MSAASamples)
 {
-  // Create the shader modules
   ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
-  if (!bd->ShaderModuleVert.has_value())
-  {
-    bd->ShaderModuleVert = Fvog::Shader(Fvog::PipelineStage::VERTEX_SHADER, std::filesystem::path("shaders/imgui/imgui.vert.glsl"), "ImGui Vertex Shader");
-  }
-  if (!bd->ShaderModuleFrag.has_value())
-  {
-    bd->ShaderModuleFrag = Fvog::Shader(Fvog::PipelineStage::FRAGMENT_SHADER, std::filesystem::path("shaders/imgui/imgui.frag.glsl"), "ImGui Fragment Shader");
-  }
-}
 
-[[nodiscard]] static Fvog::GraphicsPipeline ImGui_ImplFvog_CreatePipeline(VkSampleCountFlagBits MSAASamples)
-{
-  ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
-  ImGui_ImplFvog_CreateShaderModules();
-  
-  return Fvog::GraphicsPipeline(
-    Fvog::GraphicsPipelineInfo{
-      .name = "ImGui Pipeline",
-      .vertexShader = &bd->ShaderModuleVert.value(),
-      .fragmentShader = &bd->ShaderModuleFrag.value(),
-      .inputAssemblyState = {},
-      .rasterizationState = {},
-      .multisampleState = {.rasterizationSamples = (MSAASamples != 0) ? MSAASamples : VK_SAMPLE_COUNT_1_BIT},
-      .depthState = {},
-      .colorBlendState =  {
-        .attachments = {
-          {
-            Fvog::ColorBlendAttachmentState{
-              .blendEnable = true,
-              .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-              .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-              .colorBlendOp = VK_BLEND_OP_ADD,
-              .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-              .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-              .alphaBlendOp = VK_BLEND_OP_ADD,
-           },
-          }
-        },
+  return GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "ImGui Pipeline",
+    .vertexModuleInfo   = PipelineManager::ShaderModuleCreateInfo{
+      .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "imgui/imgui.vert.glsl",
+    },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "imgui/imgui.frag.glsl",
       },
-      .renderTargetFormats = Fvog::RenderTargetFormats{{{Fvog::detail::VkToFormat(bd->lastSurfaceFormat.format)}}},
-    }
-  );
+    .state =
+      {
+        .inputAssemblyState = {},
+        .rasterizationState = {},
+        .multisampleState   = {.rasterizationSamples = (MSAASamples != 0) ? MSAASamples : VK_SAMPLE_COUNT_1_BIT},
+        .depthState         = {},
+        .colorBlendState =
+          {
+            .attachments = {{
+              Fvog::ColorBlendAttachmentState{
+                .blendEnable         = true,
+                .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+                .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                .colorBlendOp        = VK_BLEND_OP_ADD,
+                .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+                .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                .alphaBlendOp        = VK_BLEND_OP_ADD,
+              },
+            }},
+          },
+        .renderTargetFormats = Fvog::RenderTargetFormats{{{Fvog::detail::VkToFormat(bd->lastSurfaceFormat.format)}}},
+      },
+  });
 }
 
 
@@ -572,7 +564,8 @@ IMGUI_IMPL_API void ImGui_ImplFvog_RecreatePipeline()
 {
   ImGui_ImplFvog_Data* bd    = ImGui_ImplFvog_GetBackendData();
   ImGui_ImplFvog_InitInfo* v = &bd->VulkanInitInfo;
-  
+
+  // TODO: Leaks pipeline!
   bd->Pipeline = ImGui_ImplFvog_CreatePipeline(v->MSAASamples);
 }
 
@@ -604,10 +597,7 @@ void ImGui_ImplFvog_DestroyDeviceObjects()
   ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(nullptr);
   ImGui_ImplFvog_DestroyFontsTexture();
   
-  bd->ShaderModuleVert.reset();
-  bd->ShaderModuleFrag.reset();
   bd->FontSampler.reset();
-  bd->Pipeline.reset();
 
   if (bd->PipelineForViewports)
   {

@@ -275,7 +275,6 @@ private:
     glm::uvec2 _padding;
   };
 
-  PipelineManager pipelineManager_;
   bool autoCompileModifiedShaders = false;
 
   // scene parameters
@@ -521,7 +520,7 @@ private:
   shared::TonemapUniforms tonemapUniforms{};
   Fvog::Texture tonyMcMapfaceLut;
   Fvog::Texture calibrateHdrTexture;
-  Fvog::ComputePipeline calibrateHdrPipeline;
+  PipelineManager::ComputePipelineKey calibrateHdrPipeline;
 
   uint32_t renderInternalWidth{};
   uint32_t renderInternalHeight{};
@@ -569,7 +568,7 @@ private:
   // VSM
   Techniques::VirtualShadowMaps::Context vsmContext;
   Techniques::VirtualShadowMaps::DirectionalVirtualShadowMap vsmSun;
-  Fvog::GraphicsPipeline vsmShadowPipeline;
+  PipelineManager::GraphicsPipelineKey vsmShadowPipeline;
   Fvog::TypedBuffer<uint32_t> vsmShadowUniformBuffer;
   std::optional<Fvog::Texture> vsmTempDepthStencil;
   Techniques::VirtualShadowMaps::Context::VsmGlobalUniforms vsmUniforms{};

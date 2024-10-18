@@ -1,6 +1,7 @@
 #include "ForwardRenderer.h"
 #include "RendererUtilities.h"
 #include "Fvog/Rendering2.h"
+#include "Application.h"
 #include <vector>
 #include <tracy/Tracy.hpp>
 
@@ -8,8 +9,6 @@ namespace Debug
 {
   ForwardRenderer::ForwardRenderer()
   {
-    vertexShader_ = LoadShaderWithIncludes2(Fvog::PipelineStage::VERTEX_SHADER, "shaders/debug/Forward.vert.glsl");
-    fragmentShader_ = LoadShaderWithIncludes2(Fvog::PipelineStage::FRAGMENT_SHADER, "shaders/debug/Forward.frag.glsl");
     uniformBuffer_.emplace(Fvog::TypedBufferCreateInfo{1}, "Forward Uniform Buffer");
   }
 
@@ -33,22 +32,34 @@ namespace Debug
     {
       lastRenderTargetFormat = renderTarget.GetViewCreateInfo().format;
 
-      pipeline_.emplace(Fvog::GraphicsPipelineInfo{
-          .name           = "Forward Pipeline",
-          .vertexShader   = &vertexShader_.value(),
-          .fragmentShader = &fragmentShader_.value(),
-          .depthState =
-            {
-              .depthTestEnable  = true,
-              .depthWriteEnable = true,
-              .depthCompareOp   = VK_COMPARE_OP_GREATER,
-            },
-          .renderTargetFormats =
-            {
-              .colorAttachmentFormats = {{lastRenderTargetFormat}},
-              .depthAttachmentFormat  = depthTexture_->GetCreateInfo().format,
-            },
-        });
+      // TODO: This leaks the pipeline :(
+      pipeline_ = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+        .name = "Forward Pipeline",
+        .vertexModuleInfo =
+          PipelineManager::ShaderModuleCreateInfo{
+            .stage = Fvog::PipelineStage::VERTEX_SHADER,
+            .path  = GetShaderDirectory() / "debug/Forward.vert.glsl",
+          },
+        .fragmentModuleInfo =
+          PipelineManager::ShaderModuleCreateInfo{
+            .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+            .path  = GetShaderDirectory() / "debug/Forward.frag.glsl",
+          },
+        .state =
+          {
+            .depthState =
+              {
+                .depthTestEnable  = true,
+                .depthWriteEnable = true,
+                .depthCompareOp   = VK_COMPARE_OP_GREATER,
+              },
+            .renderTargetFormats =
+              {
+                .colorAttachmentFormats = {{lastRenderTargetFormat}},
+                .depthAttachmentFormat  = depthTexture_->GetCreateInfo().format,
+              },
+          },
+      });
     }
 
     ctx.Barrier();
@@ -70,7 +81,7 @@ namespace Debug
       },
     });
 
-    ctx.BindGraphicsPipeline(pipeline_.value());
+    ctx.BindGraphicsPipeline(pipeline_.GetPipeline());
 
     auto sampler = Fvog::Sampler(Fvog::SamplerCreateInfo{
       .magFilter = VK_FILTER_LINEAR,

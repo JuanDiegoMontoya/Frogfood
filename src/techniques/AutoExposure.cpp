@@ -1,4 +1,5 @@
 #include "AutoExposure.h"
+#include "Application.h"
 
 #include "Fvog/Device.h"
 #include "Fvog/Rendering2.h"
@@ -10,31 +11,28 @@
 
 namespace Techniques
 {
-  static Fvog::ComputePipeline CreateGenerateLuminanceHistogramPipeline()
-  {
-    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/GenerateLuminanceHistogram.comp.glsl");
-
-    return Fvog::ComputePipeline({
-      .name = "Generate Luminance Histogram",
-      .shader = &cs,
-    });
-  }
-
-  static Fvog::ComputePipeline CreateResolveLuminanceHistogramPipeline()
-  {
-    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/ResolveLuminanceHistogram.comp.glsl");
-
-    return Fvog::ComputePipeline({
-      .name = "Resolve Luminance Histogram",
-      .shader = &cs,
-    });
-  }
-
   AutoExposure::AutoExposure()
-    : dataBuffer_(1, "Auto Exposure Data"),
-      generateLuminanceHistogramPipeline_(CreateGenerateLuminanceHistogramPipeline()),
-      resolveLuminanceHistogramPipeline_(CreateResolveLuminanceHistogramPipeline())
+    : dataBuffer_(1, "Auto Exposure Data")
   {
+    generateLuminanceHistogramPipeline_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name = "Generate Luminance Histogram",
+      .shaderModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "auto_exposure/GenerateLuminanceHistogram.comp.glsl",
+        },
+    });
+
+    resolveLuminanceHistogramPipeline_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name = "Resolve Luminance Histogram",
+      .shaderModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "auto_exposure/ResolveLuminanceHistogram.comp.glsl",
+        },
+    });
+
+
     // Initialize buckets to zero
     //dataBuffer_.FillData();
     Fvog::GetDevice().ImmediateSubmit(
@@ -68,13 +66,13 @@ namespace Techniques
       .hdrBufferIndex = params.image.ImageView().GetSampledResourceHandle().index,
     });
 
-    ctx.BindComputePipeline(generateLuminanceHistogramPipeline_);
+    ctx.BindComputePipeline(generateLuminanceHistogramPipeline_.GetPipeline());
     ctx.DispatchInvocations(params.image.GetCreateInfo().extent);
     
     ctx.Barrier();
 
     // Resolve histogram
-    ctx.BindComputePipeline(resolveLuminanceHistogramPipeline_);
+    ctx.BindComputePipeline(resolveLuminanceHistogramPipeline_.GetPipeline());
     ctx.Dispatch(1, 1, 1);
 
     ctx.Barrier();

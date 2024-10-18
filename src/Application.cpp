@@ -14,6 +14,7 @@
 #include "Fvog/Rendering2.h"
 #include "Fvog/detail/Common.h"
 #include "Fvog/detail/ApiToEnum2.h"
+#include "PipelineManager.h"
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -343,7 +344,12 @@ Application::Application(const CreateInfo& createInfo)
     ZoneScopedN("Create Device");
     Fvog::CreateDevice(instance_, surface_);
   }
-  
+
+  {
+    ZoneScopedN("Create Pipeline Manager");
+    CreateGlobalPipelineManager();
+  }
+
   // swapchain
   {
     ZoneScopedN("Create Swapchain");
@@ -430,6 +436,8 @@ Application::~Application()
   {
     vkDestroyImageView(Fvog::GetDevice().device_, view, nullptr);
   }
+
+  DestroyGlobalPipelineManager();
 
   Fvog::DestroyDevice();
 }

@@ -1,6 +1,7 @@
 #include "Bloom.h"
 
 #include "shaders/bloom/BloomCommon.h.glsl"
+#include "Application.h"
 
 #include "Fvog/Rendering2.h"
 #include "Fvog/Shader2.h"
@@ -9,41 +10,33 @@
 
 namespace Techniques
 {
-  static Fvog::ComputePipeline CreateBloomDownsampleLowPassPipeline()
-  {
-    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsampleLowPass.comp.glsl");
-
-    return Fvog::ComputePipeline({
-      .name = "Bloom Downsample (low-pass)",
-      .shader = &cs,
-    });
-  }
-
-  static Fvog::ComputePipeline CreateBloomDownsamplePipeline()
-  {
-    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsample.comp.glsl");
-
-    return Fvog::ComputePipeline({
-      .name = "Bloom Downsample",
-      .shader = &cs,
-    });
-  }
-
-  static Fvog::ComputePipeline CreateBloomUpsamplePipeline()
-  {
-    auto cs = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomUpsample.comp.glsl");
-
-    return Fvog::ComputePipeline({
-      .name = "Bloom Upsample",
-      .shader = &cs,
-    });
-  }
-
   Bloom::Bloom()
-    : downsampleLowPassPipeline(CreateBloomDownsampleLowPassPipeline()),
-      downsamplePipeline(CreateBloomDownsamplePipeline()),
-      upsamplePipeline(CreateBloomUpsamplePipeline())
   {
+    downsampleLowPassPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "Bloom Downsample (low-pass)",
+      .shaderModuleInfo = PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "bloom/BloomDownsampleLowPass.comp.glsl",
+      },
+    });
+
+    downsamplePipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name = "Bloom Downsample",
+      .shaderModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "bloom/BloomDownsample.comp.glsl",
+        },
+    });
+
+    upsamplePipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name = "Bloom Upsample",
+      .shaderModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "bloom/BloomUpsample.comp.glsl",
+        },
+    });
   }
 
   void Bloom::Apply(VkCommandBuffer commandBuffer, const ApplyParams& params)
@@ -81,11 +74,11 @@ namespace Techniques
         {
           if (params.useLowPassFilterOnFirstPass)
           {
-            ctx.BindComputePipeline(downsampleLowPassPipeline);
+            ctx.BindComputePipeline(downsampleLowPassPipeline.GetPipeline());
           }
           else
           {
-            ctx.BindComputePipeline(downsamplePipeline);
+            ctx.BindComputePipeline(downsamplePipeline.GetPipeline());
           }
         
           sourceLod = 0;
@@ -94,7 +87,7 @@ namespace Techniques
         }
         else
         {
-          ctx.BindComputePipeline(downsamplePipeline);
+          ctx.BindComputePipeline(downsamplePipeline.GetPipeline());
 
           sourceLod = static_cast<float>(i - 1);
           sourceTex = &params.scratchTexture;
@@ -116,7 +109,7 @@ namespace Techniques
 
     {
       auto marker2 = ctx.MakeScopedDebugMarker("Upsample");
-      ctx.BindComputePipeline(upsamplePipeline);
+      ctx.BindComputePipeline(upsamplePipeline.GetPipeline());
       for (int32_t i = params.passes - 1; i >= 0; i--)
       {
         ctx.Barrier();

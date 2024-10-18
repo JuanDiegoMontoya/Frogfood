@@ -2,7 +2,6 @@
 
 #include "PipelineManager.h"
 #include "SceneLoader.h"
-#include "Pipelines2.h"
 
 #include "Fvog/Rendering2.h"
 #include "Fvog/Shader2.h"
@@ -139,27 +138,27 @@ static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invVie
 
 void FrogRenderer2::CreatePipelines()
 {
-  cullMeshletsPipeline = pipelineManager_.EnqueueCompileComputePipeline({
+  cullMeshletsPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
     .name             = "Cull Meshlets",
     .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullMeshlets.comp.glsl"},
   });
 
-  cullTrianglesPipeline = pipelineManager_.EnqueueCompileComputePipeline({
+  cullTrianglesPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
     .name             = "Cull Triangles",
     .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullTriangles.comp.glsl"},
   });
 
-  hzbCopyPipeline = pipelineManager_.EnqueueCompileComputePipeline({
+  hzbCopyPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
     .name             = "HZB Copy",
     .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBCopy.comp.glsl"},
   });
 
-  hzbReducePipeline = pipelineManager_.EnqueueCompileComputePipeline({
+  hzbReducePipeline = GetPipelineManager().EnqueueCompileComputePipeline({
     .name             = "HZB Reduce",
     .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBReduce.comp.glsl"},
   });
 
-  visbufferPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  visbufferPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Visbuffer",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -188,7 +187,7 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  visbufferResolvePipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  visbufferResolvePipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Visbuffer Resolve",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -215,12 +214,12 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  tonemapPipeline = pipelineManager_.EnqueueCompileComputePipeline({
+  tonemapPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
     .name             = "Tonemap",
     .shaderModuleInfo = {.path = GetShaderDirectory() / "post/TonemapAndDither.comp.glsl"},
   });
 
-  shadingPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  shadingPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Shading",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -239,7 +238,7 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  debugTexturePipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  debugTexturePipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug Texture",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -261,7 +260,7 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  debugLinesPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  debugLinesPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug Lines",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -276,7 +275,6 @@ void FrogRenderer2::CreatePipelines()
     .state =
       {
         .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST},
-        //.vertexInputState = bindings,
         .rasterizationState = {.cullMode = VK_CULL_MODE_NONE, .lineWidth = 2},
         .depthState =
           {
@@ -304,7 +302,7 @@ void FrogRenderer2::CreatePipelines()
 
   auto blends = {blend0, blend1};
 
-  debugAabbsPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  debugAabbsPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug AABBs",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -344,7 +342,7 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  debugRectsPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  debugRectsPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug Rects",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -382,7 +380,7 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  viewerVsmPageTablesPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  viewerVsmPageTablesPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug VSM Page Tables",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -401,7 +399,7 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  viewerVsmPhysicalPagesPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  viewerVsmPhysicalPagesPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug VSM Physical Pages",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -420,7 +418,7 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  viewerVsmBitmaskHzbPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  viewerVsmBitmaskHzbPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug VSM Physical Pages",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -439,7 +437,7 @@ void FrogRenderer2::CreatePipelines()
       },
   });
 
-  viewerVsmPhysicalPagesOverdrawPipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  viewerVsmPhysicalPagesOverdrawPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug VSM Physical Pages",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -455,6 +453,38 @@ void FrogRenderer2::CreatePipelines()
       {
         .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
         .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+
+  calibrateHdrPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+    .name             = "Calibrate HDR",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "CalibrateHdr.comp.glsl"},
+  });
+
+  vsmShadowPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Shadow VSM",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "shadows/ShadowMain.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "shadows/vsm/VsmShadow.frag.glsl",
+      },
+    .state =
+      {
+        //.rasterizationState = {.cullMode = VK_CULL_MODE_BACK_BIT},
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+#if VSM_USE_TEMP_ZBUFFER
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = true,
+          },
+        .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
+#endif
       },
   });
 }
@@ -479,7 +509,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     tonemapUniformBuffer(1, "Tonemap Uniforms"),
     tonyMcMapfaceLut(LoadTonyMcMapfaceTexture()),
     calibrateHdrTexture(Fvog::CreateTexture2D({2, 2}, Fvog::Format::A2R10G10B10_UNORM, Fvog::TextureUsage::GENERAL, "HDR Calibration Texture")),
-    calibrateHdrPipeline(Pipelines2::CalibrateHdr()),
+    //calibrateHdrPipeline(Pipelines2::CalibrateHdr()),
     bloom(),
     autoExposure(),
     exposureBuffer({}, "Exposure"),
@@ -493,11 +523,11 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
       .numClipmaps = 10,
     }),
-    vsmShadowPipeline(Pipelines2::ShadowVsm({
-#if VSM_USE_TEMP_ZBUFFER
-        .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
-#endif
-      })),
+//    vsmShadowPipeline(Pipelines2::ShadowVsm({
+//#if VSM_USE_TEMP_ZBUFFER
+//        .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
+//#endif
+//      })),
     vsmShadowUniformBuffer(),
     whiteTexture_(Fvog::CreateTexture2D({1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
     nearestSampler({
@@ -570,7 +600,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     auto sync  = std::pmr::synchronized_pool_resource(&arena);
     std::pmr::set_default_resource(&sync);
 
-    scene.Import(*this, Utility::LoadModelFromFile("models/simple_scene.glb", glm::scale(glm::vec3{.5})));
+    scene.Import(*this, Utility::LoadModelFromFile(GetAssetDirectory() / "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
     //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
@@ -781,7 +811,7 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
 
   // TODO: only recreate if the swapchain format changed
   // TODO: add a function to change pipeline state (this code is verbose and leaks the old pipeline)
-  debugTexturePipeline = pipelineManager_.EnqueueCompileGraphicsPipeline({
+  debugTexturePipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Debug Texture",
     .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
@@ -1225,7 +1255,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 #endif
         });
 
-        ctx.BindGraphicsPipeline(vsmShadowPipeline);
+        ctx.BindGraphicsPipeline(vsmShadowPipeline.GetPipeline());
 
         auto pushConstants                       = vsmContext.GetPushConstants();
         pushConstants.meshletInstancesIndex      = meshletInstancesBuffer.GetResourceHandle().index;

@@ -1,4 +1,5 @@
 #include "VirtualShadowMaps.h"
+#include "Application.h"
 
 #include "shaders/Config.shared.h"
 
@@ -15,72 +16,6 @@
 
 namespace Techniques::VirtualShadowMaps
 {
-  namespace
-  {
-    Fvog::ComputePipeline CreateResetPageVisibilityPipeline()
-    {
-      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmResetPageVisibility.comp.glsl");
-
-      return Fvog::ComputePipeline({
-        .shader = &comp,
-      });
-    }
-
-    Fvog::ComputePipeline CreateMarkVisiblePipeline()
-    {
-      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmMarkVisiblePages.comp.glsl");
-
-      return Fvog::ComputePipeline({
-        .shader = &comp,
-      });
-    }
-
-    Fvog::ComputePipeline CreateAllocatorPipeline()
-    {
-      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmAllocatePages.comp.glsl");
-
-      return Fvog::ComputePipeline({
-        .shader = &comp,
-      });
-    }
-
-    Fvog::ComputePipeline CreateListDirtyPagesPipeline()
-    {
-      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmListDirtyPages.comp.glsl");
-
-      return Fvog::ComputePipeline({
-        .shader = &comp,
-      });
-    }
-
-    Fvog::ComputePipeline CreateClearDirtyPagesPipeline()
-    {
-      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmClearDirtyPages.comp.glsl");
-
-      return Fvog::ComputePipeline({
-        .shader = &comp,
-      });
-    }
-
-    Fvog::ComputePipeline CreateFreeNonVisiblePagesPipeline()
-    {
-      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmFreeNonVisiblePages.comp.glsl");
-
-      return Fvog::ComputePipeline({
-        .shader = &comp,
-      });
-    }
-
-    Fvog::ComputePipeline CreateReduceVsmHzbPipeline()
-    {
-      auto comp = LoadShaderWithIncludes2(Fvog::PipelineStage::COMPUTE_SHADER, "shaders/shadows/vsm/VsmReduceBitmaskHzb.comp.glsl");
-
-      return Fvog::ComputePipeline({
-        .shader = &comp,
-      });
-    }
-  }
-
   Context::Context(const CreateInfo& createInfo)
     : freeLayersBitmask_(size_t(std::ceil(float(createInfo.maxVsms) / 32)), 0xFFFFFFu),
       pageTables_(Fvog::TextureCreateInfo{
@@ -117,17 +52,48 @@ namespace Techniques::VirtualShadowMaps
       uniformBuffer_({}, "VSM Uniforms"),
       pageAllocRequests_({sizeof(PageAllocRequest) * (createInfo.numPages + 1)}, "Page Alloc Requests"),
       pagesToClear_({sizeof(uint32_t) + sizeof(uint32_t) * createInfo.numPages}, "Pages to Clear"),
-      pageClearDispatchParams_({}, "Page Clear Dispatch Params"),
-      resetPageVisibility_(CreateResetPageVisibilityPipeline()),
-      allocatePages_(CreateAllocatorPipeline()),
-      markVisiblePages_(CreateMarkVisiblePipeline()),
-      listDirtyPages_(CreateListDirtyPagesPipeline()),
-      clearDirtyPages_(CreateClearDirtyPagesPipeline()),
-      freeNonVisiblePages_(CreateFreeNonVisiblePagesPipeline()),
-      // reducePhysicalPages_(CreateReducePhysicalPipeline()),
-      // reduceVirtualPages_(CreateReduceVirtualPipeline()),
-      reduceVsmHzb_(CreateReduceVsmHzbPipeline())
+      pageClearDispatchParams_({}, "Page Clear Dispatch Params")
   {
+    resetPageVisibility_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "VSM Reset Page Visibility",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "shadows/vsm/VsmResetPageVisibility.comp.glsl"},
+    });
+
+    allocatePages_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "VSM Allocate Pages",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "shadows/vsm/VsmAllocatePages.comp.glsl"},
+    });
+
+    markVisiblePages_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "VSM Mark Visible Pages",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "shadows/vsm/VsmMarkVisiblePages.comp.glsl"},
+    });
+
+    listDirtyPages_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "VSM List Dirty Pages",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "shadows/vsm/VsmListDirtyPages.comp.glsl"},
+    });
+
+    clearDirtyPages_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "VSM Clear Dirty Pages",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "shadows/vsm/VsmClearDirtyPages.comp.glsl"},
+    });
+
+    clearDirtyPages_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "VSM Clear Dirty Pages",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "shadows/vsm/VsmClearDirtyPages.comp.glsl"},
+    });
+
+    freeNonVisiblePages_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "VSM Free Non-Visible Pages",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "shadows/vsm/VsmFreeNonVisiblePages.comp.glsl"},
+    });
+
+    reduceVsmHzb_ = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "VSM Reduce HPB",
+      .shaderModuleInfo = {.path = GetShaderDirectory() / "shadows/vsm/VsmReduceBitmaskHzb.comp.glsl"},
+    });
+
     Fvog::GetDevice().ImmediateSubmit([this](VkCommandBuffer cmd) {
       auto ctx = Fvog::Context(cmd);
       // Clear every page mapping to zero
@@ -197,7 +163,7 @@ namespace Techniques::VirtualShadowMaps
     ctx.ImageBarrier(physicalPagesOverdrawHeatmap_, VK_IMAGE_LAYOUT_GENERAL);
 #endif
 
-    ctx.BindComputePipeline(resetPageVisibility_);
+    ctx.BindComputePipeline(resetPageVisibility_.GetPipeline());
 
     auto pushConstants = GetPushConstants();
 
@@ -224,7 +190,7 @@ namespace Techniques::VirtualShadowMaps
     ctx.Barrier(); // Appease sync val
     ctx.ImageBarrier(pageTables_, VK_IMAGE_LAYOUT_GENERAL);
 
-    ctx.BindComputePipeline(freeNonVisiblePages_);
+    ctx.BindComputePipeline(freeNonVisiblePages_.GetPipeline());
 
     auto pushConstants = GetPushConstants();
 
@@ -254,7 +220,7 @@ namespace Techniques::VirtualShadowMaps
     auto pushConstants = GetPushConstants();
     ctx.SetPushConstants(pushConstants);
 
-    ctx.BindComputePipeline(allocatePages_);
+    ctx.BindComputePipeline(allocatePages_.GetPipeline());
     ctx.Barrier();
     ctx.Dispatch(1, 1, 1); // Only 1-32 threads will allocate
   }
@@ -309,10 +275,10 @@ namespace Techniques::VirtualShadowMaps
     ctx.SetPushConstants(pushConstants);
 
     // TODO: make the first half of this (create dirty page list) more efficient by only considering updated VSMs
-    ctx.BindComputePipeline(listDirtyPages_);
+    ctx.BindComputePipeline(listDirtyPages_.GetPipeline());
     ctx.DispatchInvocations(pageTables_.GetCreateInfo().extent.width, pageTables_.GetCreateInfo().extent.height, pageTables_.GetCreateInfo().arrayLayers);
     
-    ctx.BindComputePipeline(clearDirtyPages_);
+    ctx.BindComputePipeline(clearDirtyPages_.GetPipeline());
     ctx.Barrier();
     ctx.DispatchIndirect(pageClearDispatchParams_);
   }
@@ -391,7 +357,7 @@ namespace Techniques::VirtualShadowMaps
     ctx.ImageBarrier(gDepth, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
     ctx.ImageBarrier(context_.pageTables_, VK_IMAGE_LAYOUT_GENERAL);
 
-    ctx.BindComputePipeline(context_.markVisiblePages_);
+    ctx.BindComputePipeline(context_.markVisiblePages_.GetPipeline());
 
     auto pushConstants = context_.GetPushConstants();
     pushConstants.gDepthIndex = gDepth.ImageView().GetSampledResourceHandle().index;
@@ -490,7 +456,7 @@ namespace Techniques::VirtualShadowMaps
     ctx.ImageBarrier(context_.pageTables_, VK_IMAGE_LAYOUT_GENERAL);
 
     // TODO: only reduce necessary VSMs
-    ctx.BindComputePipeline(context_.reduceVsmHzb_);
+    ctx.BindComputePipeline(context_.reduceVsmHzb_.GetPipeline());
 
     auto pushConstants = context_.GetPushConstants();
 

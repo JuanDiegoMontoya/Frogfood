@@ -3,6 +3,7 @@
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Shader2.h"
 #include "Fvog/Texture2.h"
+#include "PipelineManager.h"
 
 #include <glm/mat4x4.hpp>
 
@@ -59,9 +60,7 @@ namespace Debug
 
     // Pipeline is recreated if last RT format doesn't match
     Fvog::Format lastRenderTargetFormat = Fvog::Format::UNDEFINED;
-    std::optional<Fvog::GraphicsPipeline> pipeline_;
-    std::optional<Fvog::Shader> vertexShader_;
-    std::optional<Fvog::Shader> fragmentShader_;
+    PipelineManager::GraphicsPipelineKey pipeline_;
     std::optional<Fvog::Texture> depthTexture_;
     std::optional<Fvog::TypedBuffer<Uniforms>> uniformBuffer_;
 

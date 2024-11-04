@@ -17,6 +17,7 @@
 #define FVOG_IVEC4 glm::ivec4
 
 #define FVOG_UINT32 uint32_t
+#define FVOG_BOOL32 uint32_t
 #define FVOG_UVEC2 glm::uvec2
 #define FVOG_UVEC3 glm::uvec3
 #define FVOG_UVEC4 glm::uvec4
@@ -41,6 +42,7 @@
 #define FVOG_IVEC4 ivec4
 
 #define FVOG_UINT32 uint
+#define FVOG_BOOL32 uint
 #define FVOG_UVEC2 uvec2
 #define FVOG_UVEC3 uvec3
 #define FVOG_UVEC4 uvec4

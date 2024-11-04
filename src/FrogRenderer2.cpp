@@ -631,6 +631,8 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
   debugGpuRectsBuffer = Fvog::Buffer({sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Rect) * 100'000}, "Debug GPU Rects");
 
+  debugGpuLinesBuffer = Fvog::Buffer({sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Line) * 100'000}, "Debug GPU Lines");
+
   Fvog::GetDevice().ImmediateSubmit(
     [this](VkCommandBuffer commandBuffer)
     {
@@ -645,7 +647,6 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       };
       ctx.TeenyBufferUpdate(*debugGpuAabbsBuffer, aabbCommand);
 
-
       auto rectCommand = Fvog::DrawIndirectCommand{
         .vertexCount = 4,
         .instanceCount = 0,
@@ -653,6 +654,14 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .firstInstance = 0,
       };
       ctx.TeenyBufferUpdate(*debugGpuRectsBuffer, rectCommand);
+      
+      auto lineCommand = Fvog::DrawIndirectCommand{
+        .vertexCount   = 2,
+        .instanceCount = 0,
+        .firstVertex   = 0,
+        .firstInstance = 0,
+      };
+      ctx.TeenyBufferUpdate(*debugGpuLinesBuffer, lineCommand);
       
       exposureBuffer.FillData(commandBuffer, {.data = std::bit_cast<uint32_t>(1.0f)});
       cullTrianglesDispatchParams->UpdateDataExpensive(commandBuffer, Fvog::DispatchIndirectCommand{0, 1, 1});
@@ -1050,6 +1059,12 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   // Clear debug buffers
   debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+
+  if (clearDebugGpuLinesOnce)
+  {
+    debugGpuLinesBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+    clearDebugGpuLinesOnce = false;
+  }
 
   vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
 
@@ -1467,6 +1482,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .nearestSamplerIndex        = vsmPushConstants.nearestSamplerIndex,
 
       .physicalPagesOverdrawIndex = vsmPushConstants.physicalPagesOverdrawIndex,
+      .debugLinesBuffer           = debugGpuLinesBuffer.value().GetBuffer(),
     });
 
     ctx.Draw(3, 1, 0, 0);
@@ -1510,14 +1526,24 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       ctx.SetPushConstants(DebugLinesPushConstants{
         .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,
         .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+        .useGpuVertexBuffer  = 0,
       });
       ctx.Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
     }
 
-    //// GPU-generated geometry past here
-    //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+    // GPU Lines
+    if (drawDebugLines)
+    {
+      ctx.BindGraphicsPipeline(debugLinesPipeline.GetPipeline());
+      ctx.SetPushConstants(DebugLinesPushConstants{
+        .vertexBufferIndex   = debugGpuLinesBuffer->GetResourceHandle().index,
+        .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+        .useGpuVertexBuffer  = 1,
+      });
+      ctx.DrawIndirect(debugGpuLinesBuffer.value(), 0, 1, 0);
+    }
 
-    // AABBs
+    // GPU AABBs
     if (drawDebugAabbs)
     {
       ctx.BindGraphicsPipeline(debugAabbsPipeline.GetPipeline());
@@ -1528,7 +1554,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       ctx.DrawIndirect(debugGpuAabbsBuffer.value(), 0, 1, 0);
     }
 
-    // Rects
+    // GPU Rects
     if (drawDebugRects)
     {
       ctx.BindGraphicsPipeline(debugRectsPipeline.GetPipeline());

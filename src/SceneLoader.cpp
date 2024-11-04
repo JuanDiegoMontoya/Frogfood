@@ -343,6 +343,7 @@ namespace Utility
             rawImage.data.reset(pixels);
           }
 
+          ZoneTextF("Dimensions: (%d, %d)", rawImage.height, rawImage.width);
           return rawImage;
         });
 

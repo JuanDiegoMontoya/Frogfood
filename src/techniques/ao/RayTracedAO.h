@@ -32,7 +32,7 @@ namespace Techniques
       glm::mat4 world_from_clip;
       uint32_t frameNumber{};
 
-      // TODO: (0, 1] scale factor and denoising params
+      // TODO: scale factor and denoising params
     };
 
     [[nodiscard]] Fvog::Texture& ComputeAO(VkCommandBuffer commandBuffer, const ComputeParams& params);

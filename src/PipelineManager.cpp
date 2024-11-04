@@ -251,8 +251,9 @@ PipelineManager::ShaderModuleValue& PipelineManager::EmplaceOrGetShaderModuleVal
     shaderModule.status = Status::SUCCESS;
     shaderModule.lastWriteTime = std::filesystem::directory_entry(createInfo.path).last_write_time();
   }
-  catch (std::exception&)
+  catch (std::exception& e)
   {
+    printf("shader compilation error: %s\n", e.what());
     shaderModule.status = Status::FAILED;
   }
 

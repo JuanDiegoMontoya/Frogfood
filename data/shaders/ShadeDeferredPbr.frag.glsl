@@ -11,6 +11,7 @@
 #include "shadows/vsm/VsmCommon.h.glsl"
 #include "Utility.h.glsl"
 #include "Color.h.glsl"
+#include "debug/DebugCommon.h.glsl"
 
 // TODO: temp for rt
 #define VISBUFFER_NO_PUSH_CONSTANTS
@@ -42,6 +43,14 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly LightBuffer)
 }lightBuffers[];
 
 #define d_lightBuffer lightBuffers[lightBufferIndex]
+
+
+
+
+
+
+
+
 
 // Returns an exact shadow bias in the space of whatever texelWidth is in.
 // N and L are expected to be normalized
@@ -285,6 +294,9 @@ float ShadowVsmPcss(vec3 fragWorldPos, vec3 flatNormal)
 
 #ifdef FROGRENDER_RAYTRACING_ENABLE
 
+// NASTY GLOBAL STATE
+bool gCaptureRaysForThisInvocation = false;
+
 struct HitSurfaceParameters
 {
   vec3 positionWorld;
@@ -312,9 +324,9 @@ HitSurfaceParameters GetHitSurfaceParameters(rayQueryEXT rayQuery)
   const vec2 baryBC = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
   const vec3 bary = vec3(1.0 - baryBC.x - baryBC.y, baryBC.x, baryBC.y);
 
-  const vec3 smooth_normal_object = normalize(OctToVec3(unpackSnorm2x16(v0.normal)) * bary.x + OctToVec3(unpackSnorm2x16(v1.normal)) * bary.y + OctToVec3(unpackSnorm2x16(v2.normal)) * bary.z);
+  const vec3 smooth_normal_object = OctToVec3(unpackSnorm2x16(v0.normal)) * bary.x + OctToVec3(unpackSnorm2x16(v1.normal)) * bary.y + OctToVec3(unpackSnorm2x16(v2.normal)) * bary.z;
   const vec3 position_object = PackedToVec3(v0.position) * bary.x + PackedToVec3(v1.position) * bary.y + PackedToVec3(v2.position) * bary.z;
-  const vec3 flat_normal_object = normalize(cross(PackedToVec3(v1.position) - PackedToVec3(v0.position), PackedToVec3(v2.position) - PackedToVec3(v0.position)));
+  const vec3 flat_normal_object = cross(PackedToVec3(v1.position) - PackedToVec3(v0.position), PackedToVec3(v2.position) - PackedToVec3(v0.position));
 #if 1 // Fetch model matrix manually
   const mat3 world_from_object_normal = transpose(inverse(mat3(obj.modelCurrent)));
 #else // Fetch model matrix from ray query
@@ -322,9 +334,8 @@ HitSurfaceParameters GetHitSurfaceParameters(rayQueryEXT rayQuery)
 #endif
 
   hit.texCoord = PackedToVec2(v0.uv) * bary.x + PackedToVec2(v1.uv) * bary.y + PackedToVec2(v2.uv) * bary.z;
-  hit.smoothNormalWorld = world_from_object_normal * smooth_normal_object;
-  hit.flatNormalWorld = world_from_object_normal * flat_normal_object;
-  //hit.flatNormalWorld = hit.smoothNormalWorld; // TODO: TEMP: use smooth normal to rule out bugs with computing the flat normal
+  hit.smoothNormalWorld = normalize(world_from_object_normal * smooth_normal_object);
+  hit.flatNormalWorld = normalize(world_from_object_normal * flat_normal_object);
 #if 1 // Calculate world-space position manually
   hit.positionWorld = vec3(obj.modelCurrent * vec4(position_object, 1.0));
 #else // Use position fetch
@@ -380,13 +391,28 @@ bool TraceRayOpaqueMasked(vec3 rayPosition, vec3 rayDirection, float tMax, out H
     }
   }
 
+  bool rayHitOpaque = false;
   if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT)
   {
     hit = GetHitSurfaceParameters(rayQuery);
-    return true;
+    rayHitOpaque = true;
+  }
+  else
+  {
+    hit.positionWorld = rayPosition + rayDirection * tMax;
+  }
+  
+  if (gCaptureRaysForThisInvocation)
+  {
+    DebugLine line;
+    line.aPosition = Vec3ToPacked(rayPosition);
+    line.aColor = Vec4ToPacked(vec4(0));
+    line.bPosition = Vec3ToPacked(hit.positionWorld);
+    line.bColor = Vec4ToPacked(vec4(1));
+    TryPushDebugLine(debugLinesBuffer, line);
   }
 
-  return false;
+  return rayHitOpaque;
 }
 
 // Returns true on hit, false otherwise
@@ -478,7 +504,20 @@ void main()
     return;
   }
 
-  
+  // Capture all rays or capture just this invocation
+  if (shadingUniforms.captureActive == 2 || (shadingUniforms.captureActive == 1 && gid == shadingUniforms.captureRayPos))
+  {
+    // Camera ray
+    DebugLine line;
+    line.aPosition = Vec3ToPacked(d_perFrameUniforms.cameraPos.xyz);
+    line.aColor = Vec4ToPacked(vec4(0, 10, 0, 0));
+    line.bPosition = Vec3ToPacked(fragWorldPos);
+    line.bColor = Vec4ToPacked(vec4(10));
+    TryPushDebugLine(debugLinesBuffer, line);
+#ifdef FROGRENDER_RAYTRACING_ENABLE
+    gCaptureRaysForThisInvocation = true;
+#endif
+  }
 
 
 

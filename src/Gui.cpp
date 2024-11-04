@@ -900,6 +900,27 @@ void FrogRenderer2::GuiDrawDebugWindow(VkCommandBuffer)
     ImGui::SeparatorText("Debug Drawing");
     ImGui::Checkbox("Draw AABBs##draw_debug_aabbs", &drawDebugAabbs);
     ImGui::Checkbox("Draw Rects##draw_debug_rects", &drawDebugRects);
+    ImGui::Checkbox("Draw GPU Lines##draw_debug_gpu_lines", &drawDebugLines);
+
+    shadingUniforms.captureActive = 0;
+    if (ImGui::Button("Snapshot rays from pixel"))
+    {
+      clearDebugGpuLinesOnce        = true;
+      shadingUniforms.captureActive = 1;
+    }
+
+    if (ImGui::Button("Snapshot all rays"))
+    {
+      clearDebugGpuLinesOnce        = true;
+      shadingUniforms.captureActive = 2;
+    }
+
+    if (ImGui::Button("Clear GPU Lines"))
+    {
+      clearDebugGpuLinesOnce = true;
+    }
+
+    ImGui::Text("Snapshot location: (%d, %d)", shadingUniforms.captureRayPos.x, shadingUniforms.captureRayPos.y);
 
     ImGui::SliderInt("Fake Lag", &fakeLag, 0, 100, "%dms");
 
@@ -2390,6 +2411,17 @@ void FrogRenderer2::OnGui([[maybe_unused]] double dt, VkCommandBuffer commandBuf
     }
 
     viewportIsHovered = ImGui::IsItemHovered();
+
+    if (viewportIsHovered && !ImGui::IsAnyItemHovered() && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_1) == GLFW_PRESS)
+    {
+      double x{}, y{};
+      glfwGetCursorPos(window, &x, &y);
+
+      const glm::vec2 cursorPosRelativeToViewport = glm::vec2{x, y} - viewportContentOffset;
+      const glm::vec2 cursorPosUv                 = cursorPosRelativeToViewport / glm::vec2{viewportContentSize.x, viewportContentSize.y};
+      const glm::vec2 cursorPosTextureSpace       = cursorPosUv * glm::vec2{renderInternalWidth, renderInternalHeight};
+      shadingUniforms.captureRayPos = glm::ivec2(cursorPosTextureSpace);
+    }
 
     // FPS viewer
     {

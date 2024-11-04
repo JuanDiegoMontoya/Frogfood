@@ -32,6 +32,7 @@ FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
   FVOG_UINT32 nearestSamplerIndex;
   
   FVOG_UINT32 physicalPagesOverdrawIndex;
+  Buffer debugLinesBuffer;
 };
 #endif
 
@@ -135,6 +136,7 @@ struct ShadingUniforms
     skyIlluminance(.1f, .3f, .5f, 1.0f),
     debugFlags(0),
     shadingInternalColorSpace(COLOR_SPACE_BT2020_LINEAR),
+    captureActive(0),
     globalIlluminationMethod(GI_METHOD_CONSTANT_AMBIENT),
     numGiRays(1),
     numGiBounces(3)
@@ -154,7 +156,9 @@ struct ShadingUniforms
   FVOG_UINT32 materialBufferIndex;
   FVOG_UINT32 instanceBufferIndex;
   FVOG_UINT32 tlasIndex;
-  uint64_t tlasAddress;
+  FVOG_IVEC2  captureRayPos;
+  FVOG_UINT64 tlasAddress;
+  FVOG_BOOL32 captureActive; // 1 == capture rays from one invocation, 2 == capture rays from all invocations
 
   FVOG_UINT32 globalIlluminationMethod; // For indirect lighting only, but named this way for consistency
   FVOG_UINT32 numGiRays; // TEMP

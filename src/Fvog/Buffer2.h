@@ -83,6 +83,11 @@ namespace Fvog
       return descriptorInfo_.value().GpuResource();
     }
 
+    [[nodiscard]] shared::Buffer GetBuffer() noexcept
+    {
+      return {descriptorInfo_.value().GpuResource().index};
+    }
+
     const std::string& GetName() const
     {
       return name_;

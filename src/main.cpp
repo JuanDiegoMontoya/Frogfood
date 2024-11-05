@@ -36,8 +36,8 @@
  * [ ] Purkinje shift
  *
  * Tryhard:
- * [ ] BVH builder
- * [ ] Path tracer
+ * [X] BVH builder
+ * [X] Path tracer
  * [ ] DDGI
  * [ ] Surfel GI
  *
@@ -63,10 +63,6 @@
  *   [ ] Standard scroll zoom and drag controls
  */
 
-//#include "FrogRenderer.h"
-
-#include <tracy/Tracy.hpp>
-
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
@@ -78,8 +74,6 @@
 
 int main()
 {
-  ZoneScoped;
-  
   auto app = FrogRenderer2({
     .name = "FrogRender",
   });

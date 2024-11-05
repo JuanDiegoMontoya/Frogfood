@@ -1,9 +1,11 @@
 #pragma once
 
 #include <volk.h>
-#include "BasicTypes2.h"
 
-#include <span>
+#include "BasicTypes2.h"
+#include "Buffer2.h"
+
+#include <vector>
 #include <string>
 #include <string_view>
 
@@ -111,17 +113,26 @@ namespace Fvog
   
   struct ColorBlendState
   {
-    bool logicOpEnable                                     = false;
-    VkLogicOp logicOp                                      = VK_LOGIC_OP_COPY;
-    std::span<const ColorBlendAttachmentState> attachments = {};
-    float blendConstants[4]                                = { 0, 0, 0, 0 };
+    bool logicOpEnable                                 = false;
+    VkLogicOp logicOp                                  = VK_LOGIC_OP_COPY;
+    std::vector<ColorBlendAttachmentState> attachments = {};
+    float blendConstants[4]                            = { 0, 0, 0, 0 };
   };
 
   struct RenderTargetFormats
   {
-    std::span<const Fvog::Format> colorAttachmentFormats{};
+    std::vector<Fvog::Format> colorAttachmentFormats = {}; // vector to make this struct copyable without blowing your foot off
     Fvog::Format depthAttachmentFormat = Fvog::Format::UNDEFINED;
     Fvog::Format stencilAttachmentFormat = Fvog::Format::UNDEFINED;
+  };
+
+
+  struct ShaderBindingTable
+  {
+    std::optional<Buffer> buffer;
+    VkStridedDeviceAddressRegionKHR rayGenRegion{};
+    VkStridedDeviceAddressRegionKHR missRegion{};
+    VkStridedDeviceAddressRegionKHR hitGroupRegion{};
   };
 
   /// @brief Parameters for the constructor of GraphicsPipeline
@@ -156,15 +167,35 @@ namespace Fvog
     const Shader* shader;
   };
 
+  struct RayTracingHitGroup
+  {
+    // Required
+    const Shader* closestHit = nullptr;
+
+    // Optional
+    const Shader* anyHit = nullptr;
+    const Shader* intersection = nullptr;
+  };
+
+  struct RayTracingPipelineInfo
+  {
+    std::string name = {};
+
+    // Required
+    const Shader* rayGenShader = nullptr;
+    std::vector<RayTracingHitGroup> hitGroups = {};
+    std::vector<const Shader*> missShaders = {};
+  };
+
   /// @brief An object that encapsulates the state needed to issue draws
   class GraphicsPipeline
   {
   public:
     /// @throws PipelineCompilationException
-    explicit GraphicsPipeline(Device& device, VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info);
+    explicit GraphicsPipeline(VkPipelineLayout pipelineLayout, const GraphicsPipelineInfo& info);
     
     // Constructs pipeline with default pipeline layout (bindless)
-    explicit GraphicsPipeline(Device& device, const GraphicsPipelineInfo& info);
+    explicit GraphicsPipeline(const GraphicsPipelineInfo& info);
     ~GraphicsPipeline();
     GraphicsPipeline(GraphicsPipeline&& old) noexcept;
     GraphicsPipeline& operator=(GraphicsPipeline&& old) noexcept;
@@ -181,7 +212,6 @@ namespace Fvog
     }
 
   private:
-    Fvog::Device* device_{};
     VkPipeline pipeline_{};
     std::string name_;
   };
@@ -191,10 +221,10 @@ namespace Fvog
   {
   public:
     /// @throws PipelineCompilationException
-    explicit ComputePipeline(Device& device, VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info);
+    explicit ComputePipeline(VkPipelineLayout pipelineLayout, const ComputePipelineInfo& info);
 
     // Constructs pipeline with default pipeline layout (bindless)
-    explicit ComputePipeline(Device& device, const ComputePipelineInfo& info);
+    explicit ComputePipeline(const ComputePipelineInfo& info);
     ~ComputePipeline();
     ComputePipeline(ComputePipeline&& old) noexcept;
     ComputePipeline& operator=(ComputePipeline&& old) noexcept;
@@ -213,9 +243,48 @@ namespace Fvog
     }
 
   private:
-    Device* device_{};
     VkPipeline pipeline_{};
     Extent3D workgroupSize_;
+    std::string name_;
+  };
+
+  class RayTracingPipeline
+  {
+  public:
+    explicit RayTracingPipeline(VkPipelineLayout pipelineLayout, const RayTracingPipelineInfo& info);
+
+    explicit RayTracingPipeline(const RayTracingPipelineInfo& info);
+    ~RayTracingPipeline();
+    RayTracingPipeline(RayTracingPipeline&& old) noexcept;
+    RayTracingPipeline& operator=(RayTracingPipeline&& old) noexcept;
+    RayTracingPipeline(const RayTracingPipeline&) = delete;
+    RayTracingPipeline& operator=(const RayTracingPipeline&) = delete;
+
+    bool operator==(const RayTracingPipeline&) const = default;
+
+    [[nodiscard]] VkPipeline Handle() const
+    {
+      return pipeline_;
+    }
+
+    [[nodiscard]] VkStridedDeviceAddressRegionKHR GetRayGenRegion() const
+    {
+      return shaderBindingTable_.rayGenRegion;
+    }
+
+    [[nodiscard]] VkStridedDeviceAddressRegionKHR GetMissRegion() const
+    {
+      return shaderBindingTable_.missRegion;
+    }
+
+    [[nodiscard]] VkStridedDeviceAddressRegionKHR GetHitGroupRegion() const
+    {
+      return shaderBindingTable_.hitGroupRegion;
+    }
+
+  private:
+    VkPipeline pipeline_{};
+    ShaderBindingTable shaderBindingTable_{};
     std::string name_;
   };
   // clang-format on

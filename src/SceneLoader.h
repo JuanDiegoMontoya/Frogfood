@@ -16,8 +16,9 @@ namespace Utility
   {
     std::pmr::vector<Render::Meshlet> meshlets;
     std::pmr::vector<Render::Vertex> vertices;
-    std::pmr::vector<Render::index_t> indices; // meshletIndices
+    std::pmr::vector<Render::index_t> remappedIndices; // meshletIndices
     std::pmr::vector<Render::primitive_t> primitives;
+    std::pmr::vector<Render::index_t> originalIndices;
   };
 
   struct LoadModelNode
@@ -62,7 +63,7 @@ namespace Utility
   inline constexpr auto maxMeshletPrimitives = 64u;
   inline constexpr auto meshletConeWeight = 0.0f;
 
-  [[nodiscard]] LoadModelResultA LoadModelFromFile(Fvog::Device& device,
+  [[nodiscard]] LoadModelResultA LoadModelFromFile(
     const std::filesystem::path& fileName,
     const glm::mat4& rootTransform,
     bool skipMaterials = false);

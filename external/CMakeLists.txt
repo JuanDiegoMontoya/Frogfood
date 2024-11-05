@@ -14,13 +14,13 @@ FetchContent_Declare(
 FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm
-    GIT_TAG        cc98465e3508535ba8c7f6208df934c156a018dc
+    GIT_TAG        1.0.1
 )
 
 FetchContent_Declare(
     fastgltf
     GIT_REPOSITORY https://github.com/spnda/fastgltf.git
-    GIT_TAG        c15b151c204de0af45c97940a0750c3169407752
+    GIT_TAG        916723260c6c064a7c5350f768a07187499d509c
 )
 
 FetchContent_Declare(
@@ -64,7 +64,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     vkbootstrap
     GIT_REPOSITORY https://github.com/charles-lunarg/vk-bootstrap
-    GIT_TAG        3ad0388f1b68dbf99746a2fab8c3115c8fa887bb
+    GIT_TAG        v1.3.296
 )
 
 # Since we are loading Vulkan with Volk, do not load it from a static library or DLL

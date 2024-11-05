@@ -2,6 +2,7 @@
 #include "Device.h"
 #include "TriviallyCopyableByteSpan.h"
 #include "detail/Flags.h"
+#include "shaders/Resources.h.glsl"
 
 #include <vulkan/vulkan_core.h>
 
@@ -40,7 +41,7 @@ namespace Fvog
   class Buffer
   {
   public:
-    explicit Buffer(Device& device, const BufferCreateInfo& createInfo, std::string name = {});
+    explicit Buffer(const BufferCreateInfo& createInfo, std::string name = {});
     ~Buffer();
 
     Buffer(const Buffer&) = delete;
@@ -82,13 +83,22 @@ namespace Fvog
       return descriptorInfo_.value().GpuResource();
     }
 
+    [[nodiscard]] shared::Buffer GetBuffer() noexcept
+    {
+      return {descriptorInfo_.value().GpuResource().index};
+    }
+
     const std::string& GetName() const
     {
       return name_;
     }
 
+    [[nodiscard]] operator shared::Buffer() noexcept
+    {
+      return {descriptorInfo_.value().GpuResource().index};
+    }
+
   protected:
-    Device* device_{};
     BufferCreateInfo createInfo_{};
     VkBuffer buffer_{};
     VmaAllocation allocation_{};
@@ -114,8 +124,8 @@ namespace Fvog
   class TypedBuffer : public Buffer
   {
   public:
-    explicit TypedBuffer(Device& device, const TypedBufferCreateInfo& createInfo = {}, std::string name = {})
-      : Buffer(device, {.size = createInfo.count * sizeof(T), .flag = createInfo.flag}, std::move(name))
+    explicit TypedBuffer(const TypedBufferCreateInfo& createInfo = {}, std::string name = {})
+      : Buffer({.size = createInfo.count * sizeof(T), .flag = createInfo.flag}, std::move(name))
     {
       //assert(createInfo.count > 0);
     }
@@ -152,12 +162,12 @@ namespace Fvog
   class NDeviceBuffer
   {
   public:
-    explicit NDeviceBuffer(Device& device, uint32_t count = 1, std::string name = {})
-    : deviceBuffer_(device, TypedBufferCreateInfo{.count = count}, std::move(name))
+    explicit NDeviceBuffer(uint32_t count = 1, std::string name = {})
+    : deviceBuffer_(TypedBufferCreateInfo{.count = count}, std::move(name))
     {
       for (auto& buffer : hostStagingBuffers_)
       {
-        buffer = TypedBuffer<T>(device, TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name + std::string(" (host)"));
+        buffer = TypedBuffer<T>(TypedBufferCreateInfo{.count = count, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, name + std::string(" (host)"));
       }
     }
 
@@ -190,7 +200,7 @@ namespace Fvog
       {
         return;
       }
-      auto& stagingBuffer = *hostStagingBuffers_[deviceBuffer_.device_->frameNumber % Device::frameOverlap];
+      auto& stagingBuffer = *hostStagingBuffers_[Fvog::GetDevice().frameNumber % Device::frameOverlap];
       stagingBuffer.UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, deviceBuffer_);
     }
 
@@ -206,8 +216,8 @@ namespace Fvog
     class Alloc
     {
     public:
-      explicit Alloc(Device& device, VmaVirtualBlock allocator, VmaVirtualAllocation allocation, size_t offset, size_t size)
-        : device_(&device), allocator_(allocator), allocation_(allocation), offset_(offset), size_(size)
+      explicit Alloc(VmaVirtualBlock allocator, VmaVirtualAllocation allocation, size_t offset, size_t allocSize, size_t dataSize)
+        : allocator_(allocator), allocation_(allocation), offset_(offset), allocSize_(allocSize), dataSize_(dataSize)
       {
       }
       ~Alloc();
@@ -220,17 +230,18 @@ namespace Fvog
       bool operator==(const Alloc&) const noexcept = default;
 
       [[nodiscard]] VkDeviceSize GetOffset() const noexcept;
-      [[nodiscard]] VkDeviceSize GetSize() const noexcept;
+      [[nodiscard]] VkDeviceSize GetDataSize() const noexcept;
+      [[nodiscard]] VkDeviceSize GetAllocSize() const noexcept;
 
     private:
-      Fvog::Device* device_;
       VmaVirtualBlock allocator_;
       VmaVirtualAllocation allocation_;
       size_t offset_;
-      size_t size_;
+      size_t allocSize_; // Adjusted for alignment
+      size_t dataSize_;
     };
 
-    explicit ManagedBuffer(Device& device, size_t bufferSize, std::string name = {});
+    explicit ManagedBuffer(size_t bufferSize, std::string name = {});
     ~ManagedBuffer();
 
     ManagedBuffer(const ManagedBuffer&) = delete;
@@ -255,8 +266,12 @@ namespace Fvog
       return buffer_;
     }
 
+    [[nodiscard]] VmaVirtualBlock GetVirtualBlock() const
+    {
+      return allocator;
+    }
+
   private:
-    Device* device_;
     Buffer buffer_;
     VmaVirtualBlock allocator{};
   };
@@ -273,7 +288,7 @@ namespace Fvog
       size_t size;
     };
 
-    explicit ContiguousManagedBuffer(Device& device, size_t bufferSize, std::string name = {});
+    explicit ContiguousManagedBuffer(size_t bufferSize, std::string name = {});
 
     [[nodiscard]] Alloc Allocate(size_t size);
     void Free(Alloc allocation, VkCommandBuffer commandBuffer);
@@ -294,7 +309,6 @@ namespace Fvog
     }
 
   private:
-    Fvog::Device* device_;
     Buffer buffer_;
     size_t currentSize_ = 0;
   };

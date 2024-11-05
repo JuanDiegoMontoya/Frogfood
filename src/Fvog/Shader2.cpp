@@ -1,6 +1,7 @@
 #include "Shader2.h"
 #include "detail/Common.h"
 #include "TriviallyCopyableByteSpan.h"
+#include "Device.h"
 
 #include <volk.h>
 
@@ -30,6 +31,11 @@ namespace Fvog
       case PipelineStage::VERTEX_SHADER: return VK_SHADER_STAGE_VERTEX_BIT;
       case PipelineStage::FRAGMENT_SHADER: return VK_SHADER_STAGE_FRAGMENT_BIT;
       case PipelineStage::COMPUTE_SHADER: return VK_SHADER_STAGE_COMPUTE_BIT;
+      case PipelineStage::RAYGEN_SHADER: return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+      case PipelineStage::MISS_SHADER: return VK_SHADER_STAGE_MISS_BIT_KHR;
+      case PipelineStage::CLOSEST_HIT_SHADER: return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+      case PipelineStage::ANY_HIT_SHADER: return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+      case PipelineStage::INTERSECTION_SHADER: return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
       default: assert(0); return {};
       }
     }
@@ -122,6 +128,11 @@ namespace Fvog
       case VkShaderStageFlagBits::VK_SHADER_STAGE_VERTEX_BIT: return EShLanguage::EShLangVertex;
       case VkShaderStageFlagBits::VK_SHADER_STAGE_FRAGMENT_BIT: return EShLanguage::EShLangFragment;
       case VkShaderStageFlagBits::VK_SHADER_STAGE_COMPUTE_BIT: return EShLanguage::EShLangCompute;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_RAYGEN_BIT_KHR: return EShLanguage::EShLangRayGen;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_MISS_BIT_KHR: return EShLanguage::EShLangMiss;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR: return EShLanguage::EShLangClosestHit;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_ANY_HIT_BIT_KHR: return EShLanguage::EShLangAnyHit;
+      case VkShaderStageFlagBits::VK_SHADER_STAGE_INTERSECTION_BIT_KHR: return EShLanguage::EShLangIntersect;
       }
       return static_cast<EShLanguage>(-1);
     }
@@ -139,9 +150,14 @@ namespace Fvog
       shader.setEnvInput(glslang::EShSource::EShSourceGlsl, glslangStage, glslang::EShClient::EShClientVulkan, 100);
       shader.setEnvClient(glslang::EShClient::EShClientVulkan, glslang::EShTargetClientVersion::EShTargetVulkan_1_3);
       shader.setEnvTarget(glslang::EShTargetLanguage::EShTargetSpv, glslang::EShTargetLanguageVersion::EShTargetSpv_1_6);
-      shader.setPreamble("#extension GL_GOOGLE_include_directive : enable\n");
+      std::string preamble = "#extension GL_GOOGLE_include_directive : enable\n";
+      if (GetDevice().supportsRayTracing)
+      {
+        preamble += "#define FROGRENDER_RAYTRACING_ENABLE 1\n";
+      }
+      shader.setPreamble(preamble.c_str());
       shader.setOverrideVersion(460);
-      shader.setDebugInfo(true);
+      //shader.setDebugInfo(true);
 
       bool parseResult;
       {
@@ -193,8 +209,8 @@ namespace Fvog
         .generateDebugInfo = true,
         .stripDebugInfo = false,
         .disableOptimizer = true,
-        .emitNonSemanticShaderDebugInfo = true,
-        .emitNonSemanticShaderDebugSource = true,
+        //.emitNonSemanticShaderDebugInfo = true,
+        //.emitNonSemanticShaderDebugSource = true,
       };
 
       {
@@ -216,14 +232,13 @@ namespace Fvog
     }
   } // namespace
 
-  void Shader::Initialize(VkDevice device, const detail::ShaderCompileInfo& info)
+  void Shader::Initialize(const detail::ShaderCompileInfo& info)
   {
     using namespace detail;
     ZoneScoped;
     
     CheckVkResult(
-      vkCreateShaderModule(
-        device,
+      vkCreateShaderModule(Fvog::GetDevice().device_,
         Address(VkShaderModuleCreateInfo{
           .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
           .codeSize = info.binarySpv.size() * sizeof(uint32_t),
@@ -235,7 +250,8 @@ namespace Fvog
     workgroupSize_ = info.workgroupSize_;
     
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_SHADER_MODULE,
       .objectHandle = reinterpret_cast<uint64_t>(shaderModule_),
@@ -243,31 +259,31 @@ namespace Fvog
     }));
   }
 
-  Shader::Shader(VkDevice device, PipelineStage stage, std::string_view source, std::string name)
-    : device_(device),
-      name_(std::move(name))
+  Shader::Shader(PipelineStage stage, std::string_view source, std::string name)
+    : name_(std::move(name)),
+      stage_(stage)
   {
     ZoneScoped;
     ZoneNamed(_, true);
     ZoneNameV(_, name_.data(), name_.size());
-    Initialize(device, CompileShaderToSpirv(PipelineStageToVK(stage), source, nullptr));
+    Initialize(CompileShaderToSpirv(PipelineStageToVK(stage), source, nullptr));
   }
   
-  Shader::Shader(VkDevice device, PipelineStage stage, const std::filesystem::path& path, std::string name)
-    : device_(device),
-      name_(std::move(name))
+  Shader::Shader(PipelineStage stage, const std::filesystem::path& path, std::string name)
+    : name_(std::move(name)),
+      stage_(stage)
   {
     ZoneScoped;
     ZoneNamed(_, true);
     ZoneNameV(_, name_.data(), name_.size());
-    Initialize(device, CompileShaderToSpirv(PipelineStageToVK(stage), LoadFile(path), detail::Address(IncludeHandler(path))));
+    Initialize(CompileShaderToSpirv(PipelineStageToVK(stage), LoadFile(path), detail::Address(IncludeHandler(path))));
   }
 
   Shader::Shader(Shader&& old) noexcept
-    : device_(std::exchange(old.device_, VK_NULL_HANDLE)),
+    : name_(std::move(old.name_)),
+      stage_(old.stage_),
       shaderModule_(std::exchange(old.shaderModule_, VK_NULL_HANDLE)),
-      workgroupSize_(std::exchange(old.workgroupSize_, {})),
-      name_(std::move(old.name_))
+      workgroupSize_(std::exchange(old.workgroupSize_, {}))
   {}
 
   Shader& Shader::operator=(Shader&& old) noexcept
@@ -280,9 +296,9 @@ namespace Fvog
 
   Shader::~Shader()
   {
-    if (device_)
+    if (shaderModule_ != VK_NULL_HANDLE)
     {
-      vkDestroyShaderModule(device_, shaderModule_, nullptr);
+      vkDestroyShaderModule(Fvog::GetDevice().device_, shaderModule_, nullptr);
     }
   }
 }

@@ -1,6 +1,7 @@
 #include "FrogRenderer2.h"
+
+#include "PipelineManager.h"
 #include "SceneLoader.h"
-#include "Pipelines2.h"
 
 #include "Fvog/Rendering2.h"
 #include "Fvog/Shader2.h"
@@ -33,11 +34,11 @@ using namespace Fvog::detail;
   const auto CONCAT(gpu_timer_, __LINE__) = stats[(int)(statGroup)][statEnum].MakeScopedTimer(commandBuffer); \
   TracyVkZoneTransient(tracyVkContext_, CONCAT(asdf, __LINE__), commandBuffer, statGroups[(int)(statGroup)].statNames[statEnum], true) 
 
-static Fvog::Texture LoadTonyMcMapfaceTexture(Fvog::Device& device)
+static Fvog::Texture LoadTonyMcMapfaceTexture()
 {
   int x{};
   int y{};
-  auto* pixels = stbi_load("textures/tony_mcmapface/lut.png", &x, &y, nullptr, 4);
+  auto* pixels = stbi_load((GetTextureDirectory() / "tony_mcmapface/lut.png").string().c_str(), &x, &y, nullptr, 4);
   if (!pixels)
   {
     throw std::runtime_error("Texture not found");
@@ -48,8 +49,7 @@ static Fvog::Texture LoadTonyMcMapfaceTexture(Fvog::Device& device)
   {
     throw std::runtime_error("Texture had invalid dimensions");
   }
-  auto texture = Fvog::Texture(device,
-    {
+  auto texture = Fvog::Texture({
       .viewType = VK_IMAGE_VIEW_TYPE_3D,
       .format   = Fvog::Format::R8G8B8A8_UNORM,
       .extent   = {dim, dim, dim},
@@ -136,28 +136,74 @@ static std::vector<Debug::Line> GenerateFrustumWireframe(const glm::mat4& invVie
   return GenerateSubfrustumWireframe(invViewProj, color, near, far, 0, 1, 0, 1);
 }
 
-FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
-  : Application(createInfo),
-    // Create constant-size buffers
-    globalUniformsBuffer(*device_, 1, "Global Uniforms"),
-    shadingUniformsBuffer(*device_, 1, "Shading Uniforms"),
-    shadowUniformsBuffer(*device_, 1, "Shadow Uniforms"),
-    geometryBuffer(*device_, 1'000'000'000, "Geometry Buffer"),
-    meshletInstancesBuffer(*device_, 100'000'000 * sizeof(Render::MeshletInstance), "Meshlet Instances Buffer"),
-    lightsBuffer(*device_, 1'000 * sizeof(GpuLight), "Light Buffer"),
-    // Create the pipelines used in the application
-    cullMeshletsPipeline(Pipelines2::CullMeshlets(*device_)),
-    cullTrianglesPipeline(Pipelines2::CullTriangles(*device_)),
-    hzbCopyPipeline(Pipelines2::HzbCopy(*device_)),
-    hzbReducePipeline(Pipelines2::HzbReduce(*device_)),
-    visbufferPipeline(Pipelines2::Visbuffer(*device_,
+void FrogRenderer2::CreatePipelines()
+{
+  cullMeshletsPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+    .name             = "Cull Meshlets",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullMeshlets.comp.glsl"},
+  });
+
+  cullTrianglesPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+    .name             = "Cull Triangles",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "visbuffer/CullTriangles.comp.glsl"},
+  });
+
+  hzbCopyPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+    .name             = "HZB Copy",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBCopy.comp.glsl"},
+  });
+
+  hzbReducePipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+    .name             = "HZB Reduce",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "hzb/HZBReduce.comp.glsl"},
+  });
+
+  visbufferPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Visbuffer",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "visbuffer/Visbuffer.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "visbuffer/Visbuffer.frag.glsl",
+      },
+    .state =
+      PipelineManager::GraphicsPipelineState{
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = true,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::visbufferFormat}},
+            .depthAttachmentFormat  = Frame::gDepthFormat,
+          },
+      },
+  });
+
+  visbufferResolvePipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Visbuffer Resolve",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "visbuffer/VisbufferResolve.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "visbuffer/VisbufferResolve.frag.glsl",
+      },
+    .state =
       {
-        .colorAttachmentFormats = {{Frame::visbufferFormat}},
-        .depthAttachmentFormat  = Frame::gDepthFormat,
-      })),
-    visbufferResolvePipeline(Pipelines2::VisbufferResolve(*device_,
-      {
-        .colorAttachmentFormats = {{
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .depthState          = {.depthTestEnable = false, .depthWriteEnable = false},
+        .renderTargetFormats = {{
           Frame::gAlbedoFormat,
           Frame::gMetallicRoughnessAoFormat,
           Frame::gNormalAndFaceNormalFormat,
@@ -165,33 +211,309 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
           Frame::gEmissionFormat,
           Frame::gMotionFormat,
         }},
-      })),
-    shadingPipeline(Pipelines2::Shading(*device_, {.colorAttachmentFormats = {{Frame::colorHdrRenderResFormat}},})),
-    tonemapPipeline(Pipelines2::Tonemap(*device_)),
-    debugTexturePipeline(Pipelines2::DebugTexture(*device_, {.colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},})),
-    debugLinesPipeline(Pipelines2::DebugLines(*device_,
+      },
+  });
+
+  tonemapPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+    .name             = "Tonemap",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "post/TonemapAndDither.comp.glsl"},
+  });
+
+  shadingPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Shading",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "ShadeDeferredPbr.frag.glsl",
+      },
+    .state =
       {
-        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
-        .depthAttachmentFormat = Frame::gDepthFormat,
-      })),
-    debugAabbsPipeline(Pipelines2::DebugAabbs(*device_,
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {{Frame::colorHdrRenderResFormat}},
+      },
+  });
+
+  debugTexturePipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug Texture",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "Texture.frag.glsl",
+      },
+    .state =
       {
-        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
-        .depthAttachmentFormat = Frame::gDepthFormat,
-      })),
-    debugRectsPipeline(Pipelines2::DebugRects(*device_,
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},
+          },
+      },
+  });
+
+  debugLinesPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug Lines",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "debug/Debug.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/VertexColor.frag.glsl",
+      },
+    .state =
       {
-        .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
-        .depthAttachmentFormat = Frame::gDepthFormat,
-      })),
-    tonemapUniformBuffer(*device_, 1, "Tonemap Uniforms"),
-    tonyMcMapfaceLut(LoadTonyMcMapfaceTexture(*device_)),
-    calibrateHdrTexture(Fvog::CreateTexture2D(*device_, {2, 2}, Fvog::Format::A2R10G10B10_UNORM, Fvog::TextureUsage::GENERAL, "HDR Calibration Texture")),
-    calibrateHdrPipeline(Pipelines2::CalibrateHdr(*device_)),
-    bloom(*device_),
-    autoExposure(*device_),
-    exposureBuffer(*device_, {}, "Exposure"),
-    vsmContext(*device_, {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST},
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE, .lineWidth = 2},
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+            .depthAttachmentFormat  = Frame::gDepthFormat,
+          },
+      },
+  });
+
+  auto blend0 = Fvog::ColorBlendAttachmentState{
+    .blendEnable         = true,
+    .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+    .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+  };
+
+  auto blend1 = Fvog::ColorBlendAttachmentState{
+    .blendEnable = false,
+  };
+
+  auto blends = {blend0, blend1};
+
+  debugAabbsPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug AABBs",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "debug/DebugAabb.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/VertexColor.frag.glsl",
+      },
+    .state =
+      {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP},
+        .rasterizationState =
+          {
+            .polygonMode             = VK_POLYGON_MODE_LINE,
+            .cullMode                = VK_CULL_MODE_NONE,
+            .depthBiasEnable         = true,
+            .depthBiasConstantFactor = 50.0f,
+          },
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .colorBlendState =
+          {
+            .attachments = blends,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+            .depthAttachmentFormat  = Frame::gDepthFormat,
+          },
+      },
+  });
+
+  debugRectsPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug Rects",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "debug/DebugRect.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/VertexColor.frag.glsl",
+      },
+    .state =
+      {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN},
+        .rasterizationState =
+          {
+            .polygonMode = VK_POLYGON_MODE_FILL,
+            .cullMode    = VK_CULL_MODE_NONE,
+          },
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .colorBlendState =
+          {
+            .attachments = blends,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::colorHdrRenderResFormat, Frame::gReactiveMaskFormat}},
+            .depthAttachmentFormat  = Frame::gDepthFormat,
+          },
+      },
+  });
+
+  viewerVsmPageTablesPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug VSM Page Tables",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/viewer/VsmDebugPageTable.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+
+  viewerVsmPhysicalPagesPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug VSM Physical Pages",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/viewer/VsmPhysicalPages.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+
+  viewerVsmBitmaskHzbPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug VSM Physical Pages",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/viewer/VsmBitmaskHzb.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+
+  viewerVsmPhysicalPagesOverdrawPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug VSM Physical Pages",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/viewer/VsmOverdrawHeatmap.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState  = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats = {.colorAttachmentFormats = {{viewerOutputTextureFormat}}},
+      },
+  });
+
+  calibrateHdrPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+    .name             = "Calibrate HDR",
+    .shaderModuleInfo = {.path = GetShaderDirectory() / "CalibrateHdr.comp.glsl"},
+  });
+
+  vsmShadowPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Shadow VSM",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "shadows/ShadowMain.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "shadows/vsm/VsmShadow.frag.glsl",
+      },
+    .state =
+      {
+        //.rasterizationState = {.cullMode = VK_CULL_MODE_BACK_BIT},
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+#if VSM_USE_TEMP_ZBUFFER
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = true,
+          },
+        .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
+#endif
+      },
+  });
+}
+
+FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
+  : Application(createInfo),
+    // Create constant-size buffers
+    globalUniformsBuffer(1, "Global Uniforms"),
+    shadingUniformsBuffer(1, "Shading Uniforms"),
+    shadowUniformsBuffer(1, "Shadow Uniforms"),
+    geometryBuffer(1'000'000'000, "Geometry Buffer"),
+    meshletInstancesBuffer(100'000'000 * sizeof(Render::MeshletInstance), "Meshlet Instances Buffer"),
+    lightsBuffer(1'000 * sizeof(GpuLight), "Light Buffer"),
+    // TODO: remove
+//    testRayTracingPipeline(Pipelines2::TestRayTracingPipeline()),
+//    testRayTracingOutput(Fvog::Texture({
+//      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+//      .format = Fvog::Format::R8G8B8A8_UNORM,
+//      .extent = { 1920, 1080, 1 },
+//    })),
+    forwardRenderer_(),
+    tonemapUniformBuffer(1, "Tonemap Uniforms"),
+    tonyMcMapfaceLut(LoadTonyMcMapfaceTexture()),
+    calibrateHdrTexture(Fvog::CreateTexture2D({2, 2}, Fvog::Format::A2R10G10B10_UNORM, Fvog::TextureUsage::GENERAL, "HDR Calibration Texture")),
+    //calibrateHdrPipeline(Pipelines2::CalibrateHdr()),
+    bloom(),
+    autoExposure(),
+    exposureBuffer({}, "Exposure"),
+    vsmContext({
       .maxVsms = 64,
       .pageSize = {Techniques::VirtualShadowMaps::pageSize, Techniques::VirtualShadowMaps::pageSize},
       .numPages = 1024,
@@ -201,19 +523,14 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       .virtualExtent = Techniques::VirtualShadowMaps::maxExtent,
       .numClipmaps = 10,
     }),
-    vsmShadowPipeline(Pipelines2::ShadowVsm(*device_,
-      {
-#if VSM_USE_TEMP_ZBUFFER
-        .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
-#endif
-      })),
-    vsmShadowUniformBuffer(*device_),
-    viewerVsmPageTablesPipeline(Pipelines2::ViewerVsm(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmPhysicalPagesPipeline(Pipelines2::ViewerVsmPhysicalPages(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmBitmaskHzbPipeline(Pipelines2::ViewerVsmBitmaskHzb(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    viewerVsmPhysicalPagesOverdrawPipeline(Pipelines2::ViewerVsmPhysicalPagesOverdraw(*device_, {.colorAttachmentFormats = {{viewerOutputTextureFormat}}})),
-    nearestSampler(*device_,
-      {
+//    vsmShadowPipeline(Pipelines2::ShadowVsm({
+//#if VSM_USE_TEMP_ZBUFFER
+//        .depthAttachmentFormat = Fvog::Format::D32_SFLOAT,
+//#endif
+//      })),
+    vsmShadowUniformBuffer(),
+    whiteTexture_(Fvog::CreateTexture2D({1, 1}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "1x1 White Texture")),
+    nearestSampler({
         .magFilter    = VK_FILTER_NEAREST,
         .minFilter    = VK_FILTER_NEAREST,
         .mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
@@ -222,8 +539,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
       },
       "Nearest"),
-    linearMipmapSampler(*device_,
-      {
+    linearMipmapSampler({
         .magFilter     = VK_FILTER_LINEAR,
         .minFilter     = VK_FILTER_LINEAR,
         .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -233,8 +549,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .maxAnisotropy = 16,
       },
       "Linear Mipmap"),
-    linearClampSampler(*device_,
-      {
+    linearClampSampler({
         .magFilter     = VK_FILTER_LINEAR,
         .minFilter     = VK_FILTER_LINEAR,
         .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -243,8 +558,7 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
       },
       "Linear Clamp"),
-    hzbSampler(*device_,
-      {
+    hzbSampler({
         .magFilter    = VK_FILTER_NEAREST,
         .minFilter    = VK_FILTER_NEAREST,
         .mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST,
@@ -256,11 +570,13 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 {
   ZoneScoped;
 
+  CreatePipelines();
+
   int x = 0;
   int y = 0;
-  const auto noise = stbi_load("textures/bluenoise32.png", &x, &y, nullptr, 4);
+  const auto noise = stbi_load((GetTextureDirectory() / "bluenoise256.png").string().c_str(), &x, &y, nullptr, 4);
   assert(noise);
-  noiseTexture = Fvog::CreateTexture2D(*device_, {static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "Noise");
+  noiseTexture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "Noise");
   noiseTexture->UpdateImageSLOW({
     .extent = {static_cast<uint32_t>(x), static_cast<uint32_t>(y)},
     .data = noise,
@@ -268,6 +584,11 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   stbi_image_free(noise);
 
   InitGui();
+
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    rayTracedAo_.emplace();
+  }
 
   mainCamera.position.y = 1;
 
@@ -279,35 +600,43 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
     auto sync  = std::pmr::synchronized_pool_resource(&arena);
     std::pmr::set_default_resource(&sync);
 
-    scene.Import(*this, Utility::LoadModelFromFile(*device_, "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
+    scene.Import(*this, Utility::LoadModelFromFile(GetAssetDirectory() / "models/simple_scene.glb", glm::scale(glm::vec3{.5})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/cube.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:\\Repositories\\glTF-Sample-Models\\2.0\\BoomBox\\glTF/BoomBox.gltf", glm::scale(glm::vec3{10.0f}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/Main/NewSponza_Main_Blender_glTF.gltf", glm::scale(glm::vec3{1}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/hotel_01.glb", glm::scale(glm::vec3{.125f})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed_tu.glb", glm::scale(glm::vec3{.5})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/hotel_01.glb", glm::scale(glm::vec3{.125f})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/bistro_compressed.glb", glm::scale(glm::vec3{.5})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed_tu.glb", glm::scale(glm::vec3{1})));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Airfield_Ground.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_compressed.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/sponza_curtains_compressed.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Airfield_Ground.glb", glm::scale(glm::vec3{1})));
     //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/subdiv_deccer_cubes.glb", glm::scale(glm::vec3{1}));
-    //Utility::LoadModelFromFile(*device_, scene, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1}));
-    //scene.Import(*this, Utility::LoadModelFromFile(*device_, "H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
-
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/SM_Deccer_Cubes_Textured.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/small_city.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/2.0/Box/glTF/Box.gltf", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/curtain.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/triangles.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/cornell.glb", glm::scale(glm::vec3{1})));
+    //scene.Import(*this, Utility::LoadModelFromFile("H:/Repositories/glTF-Sample-Models/downloaded schtuff/cornell_box(1).glb", glm::translate(glm::vec3{3, 0, 0})));
+    
     std::pmr::set_default_resource(oldResource);
   }
 
-  meshletIndirectCommand = Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>(*device_, {}, "Meshlet Indirect Command");
-  cullTrianglesDispatchParams = Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>(*device_, {}, "Cull Triangles Dispatch Params");
-  viewBuffer = Fvog::TypedBuffer<ViewParams>(*device_, {}, "View Data");
+  meshletIndirectCommand = Fvog::TypedBuffer<Fvog::DrawIndexedIndirectCommand>({}, "Meshlet Indirect Command");
+  cullTrianglesDispatchParams = Fvog::TypedBuffer<Fvog::DispatchIndirectCommand>({}, "Cull Triangles Dispatch Params");
+  viewBuffer = Fvog::TypedBuffer<ViewParams>({}, "View Data");
 
-  debugGpuAabbsBuffer = Fvog::Buffer(*device_, {sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Aabb) * 100'000}, "Debug GPU AABBs");
+  debugGpuAabbsBuffer = Fvog::Buffer({sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Aabb) * 100'000}, "Debug GPU AABBs");
 
-  debugGpuRectsBuffer = Fvog::Buffer(*device_, {sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Rect) * 100'000}, "Debug GPU Rects");
+  debugGpuRectsBuffer = Fvog::Buffer({sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Rect) * 100'000}, "Debug GPU Rects");
 
-  device_->ImmediateSubmit(
+  debugGpuLinesBuffer = Fvog::Buffer({sizeof(Fvog::DrawIndirectCommand) + sizeof(Debug::Line) * 100'000}, "Debug GPU Lines");
+
+  Fvog::GetDevice().ImmediateSubmit(
     [this](VkCommandBuffer commandBuffer)
     {
-      auto ctx = Fvog::Context(*device_, commandBuffer);
+      auto ctx = Fvog::Context(commandBuffer);
 
       // Reset the instance count of the debug draw buffers
       auto aabbCommand = Fvog::DrawIndirectCommand{
@@ -318,7 +647,6 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
       };
       ctx.TeenyBufferUpdate(*debugGpuAabbsBuffer, aabbCommand);
 
-
       auto rectCommand = Fvog::DrawIndirectCommand{
         .vertexCount = 4,
         .instanceCount = 0,
@@ -326,6 +654,14 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
         .firstInstance = 0,
       };
       ctx.TeenyBufferUpdate(*debugGpuRectsBuffer, rectCommand);
+      
+      auto lineCommand = Fvog::DrawIndirectCommand{
+        .vertexCount   = 2,
+        .instanceCount = 0,
+        .firstVertex   = 0,
+        .firstInstance = 0,
+      };
+      ctx.TeenyBufferUpdate(*debugGpuLinesBuffer, lineCommand);
       
       exposureBuffer.FillData(commandBuffer, {.data = std::bit_cast<uint32_t>(1.0f)});
       cullTrianglesDispatchParams->UpdateDataExpensive(commandBuffer, Fvog::DispatchIndirectCommand{0, 1, 1});
@@ -336,13 +672,16 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
   {
     for (auto statName : statGroups[i].statNames)
     {
-      stats[i].emplace_back(*device_, statName);
+      stats[i].emplace_back(statName);
     }
   }
 
+  constexpr auto whiteUnorm8 = glm::u8vec4(255, 255, 255, 255);
+  whiteTexture_.UpdateImageSLOW({.extent = {1, 1, 1}, .data = &whiteUnorm8});
+
   constexpr auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
-  vsmTempDepthStencil      = Fvog::CreateTexture2D(*device_, vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
-  
+  vsmTempDepthStencil      = Fvog::CreateTexture2D(vsmExtent, Fvog::Format::D32_SFLOAT, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "VSM Temp Depth Stencil");
+
   OnFramebufferResize(windowFramebufferWidth, windowFramebufferHeight);
   // The main loop might invoke the resize callback (which in turn causes a redraw) on the first frame, and OnUpdate produces
   // some resources necessary for rendering (but can be resused). This is a minor hack to make sure those resources are
@@ -352,15 +691,14 @@ FrogRenderer2::FrogRenderer2(const Application::CreateInfo& createInfo)
 
 FrogRenderer2::~FrogRenderer2()
 {
-  vkDeviceWaitIdle(device_->device_);
+  vkDeviceWaitIdle(Fvog::GetDevice().device_);
 
   meshGeometryAllocations.clear();
-  meshInstanceInfos.clear();
   meshAllocations.clear();
   lightAllocations.clear();
   materialAllocations.clear();
 
-  device_->FreeUnusedResources();
+  Fvog::GetDevice().FreeUnusedResources();
 
 #if FROGRENDER_FSR2_ENABLE
   if (!fsr2FirstInit)
@@ -381,7 +719,7 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
     if (!fsr2FirstInit)
     {
       // TODO: get rid of this stinky
-      vkDeviceWaitIdle(device_->device_);
+      vkDeviceWaitIdle(Fvog::GetDevice().device_);
       ffxFsr2ContextDestroy(&fsr2Context);
     }
 
@@ -393,7 +731,7 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
                FFX_FSR2_ENABLE_DEPTH_INVERTED,
       .maxRenderSize = {renderInternalWidth, renderInternalHeight},
       .displaySize = {newWidth, newHeight},
-      .device = ffxGetDeviceVK(device_->device_),
+      .device        = ffxGetDeviceVK(Fvog::GetDevice().device_),
       .fpMessage =
         [](FfxFsr2MsgType type, const wchar_t* message)
       {
@@ -406,18 +744,18 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
       },
     };
 
-    auto scratchMemorySize = ffxFsr2GetScratchMemorySizeVK(device_->physicalDevice_, vkEnumerateDeviceExtensionProperties);
+    auto scratchMemorySize = ffxFsr2GetScratchMemorySizeVK(Fvog::GetDevice().physicalDevice_, vkEnumerateDeviceExtensionProperties);
     fsr2ScratchMemory = std::make_unique<char[]>(scratchMemorySize);
     ffxFsr2GetInterfaceVK(&contextDesc.callbacks,
-                          fsr2ScratchMemory.get(),
-                          scratchMemorySize,
-                          device_->physicalDevice_,
-                          vkGetDeviceProcAddr,
-                          vkGetPhysicalDeviceMemoryProperties,
-                          vkGetPhysicalDeviceProperties2,
-                          vkGetPhysicalDeviceFeatures2,
-                          vkEnumerateDeviceExtensionProperties,
-                          vkGetPhysicalDeviceProperties);
+      fsr2ScratchMemory.get(),
+      scratchMemorySize,
+      Fvog::GetDevice().physicalDevice_,
+      vkGetDeviceProcAddr,
+      vkGetPhysicalDeviceMemoryProperties,
+      vkGetPhysicalDeviceProperties2,
+      vkGetPhysicalDeviceFeatures2,
+      vkEnumerateDeviceExtensionProperties,
+      vkGetPhysicalDeviceProperties);
     ffxFsr2ContextCreate(&fsr2Context, &contextDesc);
   }
   else
@@ -437,38 +775,38 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   constexpr auto usage = Fvog::TextureUsage::ATTACHMENT_READ_ONLY;
 
   // Visibility buffer textures
-  frame.visbuffer = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::visbufferFormat, usage, "visbuffer");
+  frame.visbuffer = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::visbufferFormat, usage, "visbuffer");
 
   {
     const uint32_t hzbWidth = Math::PreviousPower2(renderInternalWidth);
     const uint32_t hzbHeight = Math::PreviousPower2(renderInternalHeight);
     const uint32_t hzbMips = 1 + static_cast<uint32_t>(glm::floor(glm::log2(static_cast<float>(glm::max(hzbWidth, hzbHeight)))));
-    frame.hzb = Fvog::CreateTexture2DMip(*device_, {hzbWidth, hzbHeight}, Frame::hzbFormat, hzbMips, Fvog::TextureUsage::GENERAL, "HZB");
-    device_->ImmediateSubmit(
+    frame.hzb = Fvog::CreateTexture2DMip({hzbWidth, hzbHeight}, Frame::hzbFormat, hzbMips, Fvog::TextureUsage::GENERAL, "HZB");
+    Fvog::GetDevice().ImmediateSubmit(
       [&, this](VkCommandBuffer cmd)
       {
-        auto ctx = Fvog::Context(*device_, cmd);
+        auto ctx = Fvog::Context(cmd);
         ctx.ImageBarrierDiscard(*frame.hzb, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         ctx.ClearTexture(*frame.hzb, {.color = {FAR_DEPTH}});
       });
   }
 
   // Create gbuffer textures and render info
-  frame.gAlbedo = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gAlbedoFormat, usage, "gAlbedo");
-  frame.gMetallicRoughnessAo = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gMetallicRoughnessAoFormat, usage, "gMetallicRoughnessAo");
-  frame.gNormalAndFaceNormal = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormalAndFaceNormal");
-  frame.gSmoothVertexNormal = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gSmoothVertexNormalFormat, usage, "gSmoothVertexNormal");
-  frame.gEmission = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gEmissionFormat, usage, "gEmission");
-  frame.gDepth = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gDepthFormat, usage, "gDepth");
-  frame.gMotion = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gMotionFormat, usage, "gMotion");
-  frame.gNormaAndFaceNormallPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormaAndFaceNormallPrev");
-  frame.gDepthPrev = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gDepthPrevFormat, usage, "gDepthPrev");
+  frame.gAlbedo = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gAlbedoFormat, usage, "gAlbedo");
+  frame.gMetallicRoughnessAo = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gMetallicRoughnessAoFormat, usage, "gMetallicRoughnessAo");
+  frame.gNormalAndFaceNormal = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormalAndFaceNormal");
+  frame.gSmoothVertexNormal = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gSmoothVertexNormalFormat, usage, "gSmoothVertexNormal");
+  frame.gEmission = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gEmissionFormat, usage, "gEmission");
+  frame.gDepth = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gDepthFormat, usage, "gDepth");
+  frame.gMotion = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gMotionFormat, usage, "gMotion");
+  frame.gNormaAndFaceNormallPrev = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gNormalAndFaceNormalFormat, usage, "gNormaAndFaceNormallPrev");
+  frame.gDepthPrev = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gDepthPrevFormat, usage, "gDepthPrev");
   // The reamining are general so they can be written to in postprocessing passes via compute
-  frame.colorHdrRenderRes = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::colorHdrRenderResFormat, Fvog::TextureUsage::GENERAL, "colorHdrRenderRes");
-  frame.colorHdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorHdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorHdrWindowRes");
-  frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip(*device_, {newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, Fvog::TextureUsage::GENERAL, "colorHdrBloomScratchBuffer");
-  frame.colorLdrWindowRes = Fvog::CreateTexture2D(*device_, {newWidth, newHeight}, Frame::colorLdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorLdrWindowRes");
-  frame.gReactiveMask = Fvog::CreateTexture2D(*device_, {renderInternalWidth, renderInternalHeight}, Frame::gReactiveMaskFormat, Fvog::TextureUsage::GENERAL, "Reactive Mask");
+  frame.colorHdrRenderRes = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::colorHdrRenderResFormat, Fvog::TextureUsage::GENERAL, "colorHdrRenderRes");
+  frame.colorHdrWindowRes = Fvog::CreateTexture2D({newWidth, newHeight}, Frame::colorHdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorHdrWindowRes");
+  frame.colorHdrBloomScratchBuffer = Fvog::CreateTexture2DMip({newWidth / 2, newHeight / 2}, Frame::colorHdrBloomScratchBufferFormat, 8, Fvog::TextureUsage::GENERAL, "colorHdrBloomScratchBuffer");
+  frame.colorLdrWindowRes = Fvog::CreateTexture2D({newWidth, newHeight}, Frame::colorLdrWindowResFormat, Fvog::TextureUsage::GENERAL, "colorLdrWindowRes");
+  frame.gReactiveMask = Fvog::CreateTexture2D({renderInternalWidth, renderInternalHeight}, Frame::gReactiveMaskFormat, Fvog::TextureUsage::GENERAL, "Reactive Mask");
 
   // Create debug views with alpha swizzle set to one so they can be seen in ImGui
   frame.gAlbedoSwizzled = frame.gAlbedo->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
@@ -477,11 +815,32 @@ void FrogRenderer2::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[ma
   frame.gNormalSwizzled = frame.gNormalAndFaceNormal->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
   frame.gDepthSwizzled = frame.gDepth->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
 
+  frame.forwardRenderTarget = Fvog::CreateTexture2D({newWidth, newHeight}, Fvog::Format::R8G8B8A8_SRGB, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Forward Render Target");
+  frame.forwardRenderTargetSwizzled = frame.forwardRenderTarget->CreateSwizzleView({.a = VK_COMPONENT_SWIZZLE_ONE});
+
   // TODO: only recreate if the swapchain format changed
-  debugTexturePipeline = Pipelines2::DebugTexture(*device_,
-    {
-      .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},
-    });
+  // TODO: add a function to change pipeline state (this code is verbose and leaks the old pipeline)
+  debugTexturePipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug Texture",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "Texture.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Fvog::detail::VkToFormat(swapchainFormat_.format)}},
+          },
+      },
+  });
 }
 
 void FrogRenderer2::OnUpdate([[maybe_unused]] double dt)
@@ -522,7 +881,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
 {
   ZoneScoped;
   TracyVkZoneTransient(tracyVkContext_, tracyProfileVar, commandBuffer, name.data(), true);
-  auto ctx = Fvog::Context(*device_, commandBuffer);
+  auto ctx = Fvog::Context(commandBuffer);
   auto marker = ctx.MakeScopedDebugMarker(name.data(), {.5f, .5f, 1.0f, 1.0f});
 
   ctx.Barrier();
@@ -542,7 +901,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
 
   ctx.Barrier();
   
-  ctx.BindComputePipeline(cullMeshletsPipeline);
+  ctx.BindComputePipeline(cullMeshletsPipeline.GetPipeline());
 
   auto vsmPushConstants = vsmContext.GetPushConstants();
 
@@ -574,7 +933,7 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
   
   ctx.Barrier();
   
-  ctx.BindComputePipeline(cullTrianglesPipeline);
+  ctx.BindComputePipeline(cullTrianglesPipeline.GetPipeline());
   visbufferPushConstants.meshletPrimitivesIndex = geometryBuffer.GetResourceHandle().index;
   visbufferPushConstants.meshletVerticesIndex   = geometryBuffer.GetResourceHandle().index;
   visbufferPushConstants.meshletIndicesIndex    = geometryBuffer.GetResourceHandle().index;
@@ -590,8 +949,8 @@ void FrogRenderer2::CullMeshletsForView(VkCommandBuffer commandBuffer, const Vie
 void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex)
 {
   ZoneScoped;
-  
-  if (device_->frameNumber == 1)
+
+  if (Fvog::GetDevice().frameNumber == 1)
   {
     dt = 0.016;
   }
@@ -601,16 +960,16 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   std::swap(frame.gDepth, frame.gDepthPrev);
   std::swap(frame.gNormalAndFaceNormal, frame.gNormaAndFaceNormallPrev);
 
-  shadingUniforms.sunDir = glm::vec4(SphericalToCartesian(sunElevation, sunAzimuth), 0);
-  shadingUniforms.sunStrength = glm::vec4{sunStrength * sunColor, 0};
+  shadingUniforms.sunDir         = glm::vec4(SphericalToCartesian(sunElevation, sunAzimuth), 0);
+  shadingUniforms.sunIlluminance = glm::vec4{sunIlluminance * sunColor, 0};
   {
-    uint32_t state         = static_cast<uint32_t>(device_->frameNumber);
+    uint32_t state         = static_cast<uint32_t>(Fvog::GetDevice().frameNumber);
     shadingUniforms.random = {PCG::RandFloat(state), PCG::RandFloat(state)};
   }
 
-  auto ctx = Fvog::Context(*device_, commandBuffer);
+  auto ctx = Fvog::Context(commandBuffer);
 
-  const auto baseBias = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
+  const auto baseBias     = fsr2Enable ? log2(float(renderInternalWidth) / float(renderOutputWidth)) - 1.0f : 0.0f;
   const float fsr2LodBias = std::round(baseBias * 100) / 100;
 
   {
@@ -646,6 +1005,35 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   FlushUpdatedSceneData(commandBuffer);
 
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    tlas = [&]
+    {
+      TracyVkZone(tracyVkContext_, commandBuffer, "Build TLAS");
+      ZoneScopedN("Build TLAS");
+      auto instances = std::vector<Fvog::TlasInstance>();
+      instances.reserve(meshAllocations.size());
+      for (const auto& [meshId, instance] : meshAllocations)
+      {
+        instances.push_back(instance.tlasInstance.value());
+      }
+
+      auto tlasInstances =
+        Fvog::TypedBuffer<Fvog::TlasInstance>({(uint32_t)instances.size(), Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE}, "TLAS Instances Buffer");
+
+      std::memcpy(tlasInstances.GetMappedMemory(), instances.data(), sizeof(Fvog::TlasInstance) * instances.size());
+
+      return Fvog::Tlas(
+        Fvog::TlasCreateInfo{
+          .commandBuffer  = commandBuffer,
+          .geoemtryFlags  = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
+          .buildFlags     = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS,
+          .instanceBuffer = &tlasInstances,
+        },
+        "TLAS");
+    }();
+  }
+
   // A few of these buffers are really slow to create (2-3ms) and destroy every frame (large ones hit vkAllocateMemory), so
   // this scheme is still not ideal as e.g. adding geometry every frame will cause reallocs.
   // The current scheme works fine when the scene is mostly static.
@@ -655,77 +1043,60 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   const auto maxIndices = glm::min(1'000'000'000u, NumMeshletInstances() * Utility::maxMeshletPrimitives * 3);
   if (!instancedMeshletBuffer || instancedMeshletBuffer->Size() < maxIndices)
   {
-    instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>(*device_, {.count = maxIndices}, "Instanced Meshlets");
+    instancedMeshletBuffer = Fvog::TypedBuffer<uint32_t>({.count = maxIndices}, "Instanced Meshlets");
   }
 
   if (!persistentVisibleMeshletIds || persistentVisibleMeshletIds->Size() < NumMeshletInstances())
   {
-    persistentVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = std::max(1u, NumMeshletInstances())}, "Persistent Visible Meshlet IDs");
+    persistentVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>({.count = std::max(1u, NumMeshletInstances())}, "Persistent Visible Meshlet IDs");
   }
 
   if (!transientVisibleMeshletIds || transientVisibleMeshletIds->Size() < NumMeshletInstances())
   {
-    transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>(*device_, {.count = std::max(1u, NumMeshletInstances())}, "Transient Visible Meshlet IDs");
+    transientVisibleMeshletIds = Fvog::TypedBuffer<uint32_t>({.count = std::max(1u, NumMeshletInstances())}, "Transient Visible Meshlet IDs");
   }
 
   // Clear debug buffers
   debugGpuAabbsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
   debugGpuRectsBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
 
-  vkCmdBindDescriptorSets(
-    commandBuffer,
-    VK_PIPELINE_BIND_POINT_COMPUTE,
-    device_->defaultPipelineLayout,
-    0,
-    1,
-    &device_->descriptorSet_,
-    0,
-    nullptr);
+  if (clearDebugGpuLinesOnce)
+  {
+    debugGpuLinesBuffer->FillData(commandBuffer, {.offset = offsetof(Fvog::DrawIndirectCommand, instanceCount), .size = sizeof(uint32_t), .data = 0});
+    clearDebugGpuLinesOnce = false;
+  }
 
-  
-  vkCmdBindDescriptorSets(
-    commandBuffer,
-    VK_PIPELINE_BIND_POINT_GRAPHICS,
-    device_->defaultPipelineLayout,
-    0,
-    1,
-    &device_->descriptorSet_,
-    0,
-    nullptr);
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
 
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
 
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
+  }
 
-
-
-
-
-
-
-
-
-  
-  const auto materialSampler = Fvog::Sampler(*device_, {
-    .magFilter = VK_FILTER_LINEAR,
-    .minFilter = VK_FILTER_LINEAR,
-    .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-    .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-    .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-    .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-    .mipLodBias = fsr2LodBias,
+  const auto materialSampler = Fvog::Sampler({
+    .magFilter     = VK_FILTER_LINEAR,
+    .minFilter     = VK_FILTER_LINEAR,
+    .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+    .addressModeU  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .addressModeV  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .addressModeW  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+    .mipLodBias    = fsr2LodBias,
     .maxAnisotropy = 16.0f,
   });
-  
-  const auto jitterOffset = fsr2Enable ? GetJitterOffset((uint32_t)device_->frameNumber, renderInternalWidth, renderInternalHeight, renderOutputWidth) : glm::vec2{};
+
+  const auto jitterOffset = fsr2Enable ? GetJitterOffset((uint32_t)Fvog::GetDevice().frameNumber, renderInternalWidth, renderInternalHeight, renderOutputWidth) : glm::vec2{};
   const auto jitterMatrix = glm::translate(glm::mat4(1), glm::vec3(jitterOffset, 0));
-  //const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
+  // const auto projUnjittered = glm::perspectiveZO(cameraFovY, aspectRatio, cameraNear, cameraFar);
   const auto projUnjittered = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
-  const auto projJittered = jitterMatrix * projUnjittered;
-  
+  const auto projJittered   = jitterMatrix * projUnjittered;
+
   // Set global uniforms
-  const auto viewProj = projJittered * mainCamera.GetViewMatrix();
+  const auto viewProj           = projJittered * mainCamera.GetViewMatrix();
   const auto viewProjUnjittered = projUnjittered * mainCamera.GetViewMatrix();
 
-  if (device_->frameNumber == 1)
+  if (Fvog::GetDevice().frameNumber == 1)
   {
     vsmSun.UpdateExpensive(commandBuffer, mainCamera.position, glm::vec3{-shadingUniforms.sunDir}, vsmFirstClipmapWidth, vsmDirectionalProjectionZLength);
   }
@@ -734,18 +1105,18 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     vsmSun.UpdateOffset(commandBuffer, mainCamera.position);
   }
 
-  globalUniforms.oldViewProjUnjittered = device_->frameNumber == 1 ? viewProjUnjittered : globalUniforms.viewProjUnjittered;
+  globalUniforms.oldViewProjUnjittered = Fvog::GetDevice().frameNumber == 1 ? viewProjUnjittered : globalUniforms.viewProjUnjittered;
 
   auto mainView = ViewParams{
     .oldViewProj = globalUniforms.oldViewProjUnjittered,
-    .proj = projUnjittered,
-    .view = mainCamera.GetViewMatrix(),
+    .proj        = projUnjittered,
+    .view        = mainCamera.GetViewMatrix(),
     //.viewProj = viewProjUnjittered,
-    .viewProj = viewProj,
+    .viewProj  = viewProj,
     .cameraPos = glm::vec4(mainCamera.position, 0.0),
-    .viewport = {0.0f, 0.0f, static_cast<float>(renderInternalWidth), static_cast<float>(renderInternalHeight)},
+    .viewport  = {0.0f, 0.0f, static_cast<float>(renderInternalWidth), static_cast<float>(renderInternalHeight)},
   };
-  
+
   // TODO: the main view has an infinite projection, so we should omit the far plane. It seems to be causing the test to always pass.
   // We should probably emit the far plane regardless, but alas, one thing at a time.
   Math::MakeFrustumPlanes(viewProjUnjittered, mainView.frustumPlanes);
@@ -765,7 +1136,16 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   globalUniformsBuffer.UpdateData(commandBuffer, globalUniforms);
 
   shadowUniformsBuffer.UpdateData(commandBuffer, shadowUniforms);
-  
+
+  shadingUniforms.materialBufferIndex = geometryBuffer.GetResourceHandle().index;
+  shadingUniforms.instanceBufferIndex = geometryBuffer.GetResourceHandle().index;
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    shadingUniforms.tlasIndex   = tlas.value().GetResourceHandle().index;
+    shadingUniforms.tlasAddress = tlas.value().GetAddress();
+  }
+  shadingUniforms.noiseTexture = noiseTexture->ImageView().GetTexture2D();
+  shadingUniforms.frameNumber  = static_cast<uint32_t>(Fvog::GetDevice().frameNumber);
   shadingUniformsBuffer.UpdateData(commandBuffer, shadingUniforms);
 
   ctx.Barrier();
@@ -796,7 +1176,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   });
   {
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eRenderVisbufferMain, commandBuffer);
-    ctx.BindGraphicsPipeline(visbufferPipeline);
+    ctx.BindGraphicsPipeline(visbufferPipeline.GetPipeline());
     auto visbufferArguments = VisbufferPushConstants{
       .globalUniformsIndex    = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
       .meshletInstancesIndex  = meshletInstancesBuffer.GetResourceHandle().index,
@@ -819,6 +1199,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   ctx.Barrier();
 
   // VSMs
+  if (shadowUniforms.shadowMode == SHADOW_MODE_VIRTUAL_SHADOW_MAP)
   {
     const auto debugMarker = ctx.MakeScopedDebugMarker("Virtual Shadow Maps");
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eVsm, commandBuffer);
@@ -851,65 +1232,67 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     TIME_SCOPE_GPU(StatGroup::eVsm, eVsmRenderDirtyPages, commandBuffer);
 
     // Sun VSMs
-    for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
     {
-      TracyVkZone(tracyVkContext_, commandBuffer, "Render Clipmap")
-      auto sunCurrentClipmapView = ViewParams{
-        .oldViewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
-        .proj = vsmSun.GetProjections()[i],
-        .view = vsmSun.GetViewMatrices()[i],
-        .viewProj = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
-        .viewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
-        .cameraPos = {}, // unused
-        .viewport = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
-        .type = ViewType::VIRTUAL,
-        .virtualTableIndex = vsmSun.GetClipmapTableIndices()[i],
-      };
-      Math::MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
+      auto clipmapsMarker = ctx.MakeScopedDebugMarker("Render Clipmaps");
+      for (uint32_t i = 0; i < vsmSun.NumClipmaps(); i++)
+      {
+        TracyVkZone(tracyVkContext_, commandBuffer, "Render Clipmap")
+        auto sunCurrentClipmapView = ViewParams{
+          .oldViewProj              = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
+          .proj                     = vsmSun.GetProjections()[i],
+          .view                     = vsmSun.GetViewMatrices()[i],
+          .viewProj                 = vsmSun.GetProjections()[i] * vsmSun.GetViewMatrices()[i],
+          .viewProjStableForVsmOnly = vsmSun.GetProjections()[i] * vsmSun.GetStableViewMatrix(),
+          .cameraPos                = {}, // unused
+          .viewport                 = {0.f, 0.f, vsmSun.GetExtent().width, vsmSun.GetExtent().height},
+          .type                     = ViewType::VIRTUAL,
+          .virtualTableIndex        = vsmSun.GetClipmapTableIndices()[i],
+        };
+        Math::MakeFrustumPlanes(sunCurrentClipmapView.viewProj, sunCurrentClipmapView.frustumPlanes);
 
-      CullMeshletsForView(commandBuffer, sunCurrentClipmapView, transientVisibleMeshletIds.value(), "Cull Sun VSM Meshlets, View " + std::to_string(i));
+        CullMeshletsForView(commandBuffer, sunCurrentClipmapView, transientVisibleMeshletIds.value(), "Cull Sun VSM Meshlets, View " + std::to_string(i));
 
-      const auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
-      ctx.Barrier();
+        const auto vsmExtent = Fvog::Extent2D{Techniques::VirtualShadowMaps::maxExtent, Techniques::VirtualShadowMaps::maxExtent};
+        ctx.Barrier();
 
-  #if VSM_USE_TEMP_ZBUFFER
-      ctx.ImageBarrier(vsmTempDepthStencil.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-      auto vsmDepthAttachment = Fvog::RenderDepthStencilAttachment{
-        .texture    = vsmTempDepthStencil.value().ImageView(),
-        .loadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .clearValue = {.depth = 1},
-      };
-  #endif
-      ctx.BeginRendering({
-        .name = "Render Clipmap",
-        .viewport = VkViewport{0, 0, (float)vsmExtent.width, (float)vsmExtent.height, 0, 1},
 #if VSM_USE_TEMP_ZBUFFER
-        .depthAttachment = vsmDepthAttachment,
+        ctx.ImageBarrier(vsmTempDepthStencil.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+        auto vsmDepthAttachment = Fvog::RenderDepthStencilAttachment{
+          .texture    = vsmTempDepthStencil.value().ImageView(),
+          .loadOp     = VK_ATTACHMENT_LOAD_OP_CLEAR,
+          .clearValue = {.depth = 1},
+        };
 #endif
-      });
-      
-      ctx.BindGraphicsPipeline(vsmShadowPipeline);
+        ctx.BeginRendering({
+          .name = "Render Clipmap", .viewport = VkViewport{0, 0, (float)vsmExtent.width, (float)vsmExtent.height, 0, 1},
+#if VSM_USE_TEMP_ZBUFFER
+          .depthAttachment = vsmDepthAttachment,
+#endif
+        });
 
-      auto pushConstants                       = vsmContext.GetPushConstants();
-      pushConstants.meshletInstancesIndex      = meshletInstancesBuffer.GetResourceHandle().index;
-      pushConstants.meshletDataIndex           = geometryBuffer.GetResourceHandle().index;
-      pushConstants.meshletPrimitivesIndex     = geometryBuffer.GetResourceHandle().index;
-      pushConstants.meshletVerticesIndex       = geometryBuffer.GetResourceHandle().index;
-      pushConstants.meshletIndicesIndex        = geometryBuffer.GetResourceHandle().index;
-      pushConstants.transformsIndex            = geometryBuffer.GetResourceHandle().index;
-      pushConstants.globalUniformsIndex        = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index;
-      pushConstants.viewIndex                  = viewBuffer->GetResourceHandle().index;
-      pushConstants.materialsIndex             = geometryBuffer.GetResourceHandle().index;
-      pushConstants.materialSamplerIndex       = materialSampler.GetResourceHandle().index;
-      pushConstants.clipmapLod                 = vsmSun.GetClipmapTableIndices()[i];
-      pushConstants.clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index;
-      pushConstants.visibleMeshletsIndex       = transientVisibleMeshletIds->GetResourceHandle().index;
+        ctx.BindGraphicsPipeline(vsmShadowPipeline.GetPipeline());
 
-      ctx.BindIndexBuffer(*instancedMeshletBuffer, 0, VK_INDEX_TYPE_UINT32);
-      
-      ctx.SetPushConstants(pushConstants);
-      ctx.DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
-      ctx.EndRendering();
+        auto pushConstants                       = vsmContext.GetPushConstants();
+        pushConstants.meshletInstancesIndex      = meshletInstancesBuffer.GetResourceHandle().index;
+        pushConstants.meshletDataIndex           = geometryBuffer.GetResourceHandle().index;
+        pushConstants.meshletPrimitivesIndex     = geometryBuffer.GetResourceHandle().index;
+        pushConstants.meshletVerticesIndex       = geometryBuffer.GetResourceHandle().index;
+        pushConstants.meshletIndicesIndex        = geometryBuffer.GetResourceHandle().index;
+        pushConstants.transformsIndex            = geometryBuffer.GetResourceHandle().index;
+        pushConstants.globalUniformsIndex        = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index;
+        pushConstants.viewIndex                  = viewBuffer->GetResourceHandle().index;
+        pushConstants.materialsIndex             = geometryBuffer.GetResourceHandle().index;
+        pushConstants.materialSamplerIndex       = materialSampler.GetResourceHandle().index;
+        pushConstants.clipmapLod                 = vsmSun.GetClipmapTableIndices()[i];
+        pushConstants.clipmapUniformsBufferIndex = vsmSun.clipmapUniformsBuffer_.GetResourceHandle().index;
+        pushConstants.visibleMeshletsIndex       = transientVisibleMeshletIds->GetResourceHandle().index;
+
+        ctx.BindIndexBuffer(*instancedMeshletBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+        ctx.SetPushConstants(pushConstants);
+        ctx.DrawIndexedIndirect(*meshletIndirectCommand, 0, 1, 0);
+        ctx.EndRendering();
+      }
     }
   }
 
@@ -929,7 +1312,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
         .depthSamplerIndex = hzbSampler.GetResourceHandle().index,
       });
 
-      ctx.BindComputePipeline(hzbCopyPipeline);
+      ctx.BindComputePipeline(hzbCopyPipeline.GetPipeline());
       uint32_t hzbCurrentWidth = frame.hzb->GetCreateInfo().extent.width;
       uint32_t hzbCurrentHeight = frame.hzb->GetCreateInfo().extent.height;
       const uint32_t hzbLevels = frame.hzb->GetCreateInfo().mipLevels;
@@ -938,7 +1321,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       // Sync val complains about WAR for colorLdrWindowRes in the next dispatch, even though it's definitely not accessed
       ctx.Barrier();
 
-      ctx.BindComputePipeline(hzbReducePipeline);
+      ctx.BindComputePipeline(hzbReducePipeline.GetPipeline());
       for (uint32_t level = 1; level < hzbLevels; ++level)
       {
         ctx.ImageBarrier(*frame.hzb, VK_IMAGE_LAYOUT_GENERAL);
@@ -1012,7 +1395,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   {
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveVisbuffer, commandBuffer);
-    ctx.BindGraphicsPipeline(visbufferResolvePipeline);
+    ctx.BindGraphicsPipeline(visbufferResolvePipeline.GetPipeline());
     
     auto pushConstants = VisbufferPushConstants{
       .globalUniformsIndex    = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
@@ -1035,6 +1418,24 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   ctx.EndRendering();
 
+  // AO pass
+  Fvog::Texture* aoTexture = &whiteTexture_;
+  
+  if (aoMethod_ == AoMethod::RAY_TRACED)
+  {
+    rayTracedAoParams_.frameNumber = 0;
+    if (aoUsePerFrameRng)
+    {
+      rayTracedAoParams_.frameNumber = static_cast<uint32_t>(Fvog::GetDevice().frameNumber);
+    }
+    rayTracedAoParams_.tlas                     = &tlas.value();
+    rayTracedAoParams_.inputDepth               = &frame.gDepth.value();
+    rayTracedAoParams_.inputNormalAndFaceNormal = &frame.gNormalAndFaceNormal.value();
+    rayTracedAoParams_.world_from_clip          = glm::inverse(globalUniforms.viewProj);
+    rayTracedAoParams_.outputSize               = Fvog::Extent2D{renderInternalWidth, renderInternalHeight};
+    aoTexture                                   = &rayTracedAo_->ComputeAO(commandBuffer, rayTracedAoParams_);
+  }
+
   ctx.ImageBarrier(*frame.gAlbedo,                  VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
   ctx.ImageBarrier(*frame.gNormalAndFaceNormal,     VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
   ctx.ImageBarrier(*frame.gDepth,                   VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
@@ -1046,8 +1447,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   // shading pass (full screen tri)
   auto shadingColorAttachment = Fvog::RenderColorAttachment{
     .texture = frame.colorHdrRenderRes->ImageView(),
-    .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-    .clearValue = {.1f, .3f, .5f, 0.0f},
+    .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
   };
   ctx.BeginRendering({
     .name = "Shading",
@@ -1058,7 +1458,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     // Certain VSM push constants are used by the shading pass
     auto vsmPushConstants = vsmContext.GetPushConstants();
-    ctx.BindGraphicsPipeline(shadingPipeline);
+    ctx.BindGraphicsPipeline(shadingPipeline.GetPipeline());
     ctx.SetPushConstants(ShadingPushConstants{
       .globalUniformsIndex  = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
       .shadingUniformsIndex = shadingUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
@@ -1071,6 +1471,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .gSmoothVertexNormalIndex  = frame.gSmoothVertexNormal->ImageView().GetSampledResourceHandle().index,
       .gEmissionIndex            = frame.gEmission->ImageView().GetSampledResourceHandle().index,
       .gMetallicRoughnessAoIndex = frame.gMetallicRoughnessAo->ImageView().GetSampledResourceHandle().index,
+      .ambientOcclusion          = aoTexture->ImageView().GetTexture2D(),
 
       .pageTablesIndex            = vsmPushConstants.pageTablesIndex,
       .physicalPagesIndex         = vsmPushConstants.physicalPagesIndex,
@@ -1081,6 +1482,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       .nearestSamplerIndex        = vsmPushConstants.nearestSamplerIndex,
 
       .physicalPagesOverdrawIndex = vsmPushConstants.physicalPagesOverdrawIndex,
+      .debugLinesBuffer           = debugGpuLinesBuffer.value().GetBuffer(),
     });
 
     ctx.Draw(3, 1, 0, 0);
@@ -1105,7 +1507,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   {
     if (!lineVertexBuffer || lineVertexBuffer->Size() < debugLines.size() * sizeof(Debug::Line))
     {
-      lineVertexBuffer.emplace(*device_, (uint32_t)debugLines.size(), "Debug Lines");
+      lineVertexBuffer.emplace((uint32_t)debugLines.size(), "Debug Lines");
     }
     lineVertexBuffer->UpdateData(commandBuffer, debugLines);
   }
@@ -1120,21 +1522,31 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     //  Lines
     if (!debugLines.empty())
     {
-      ctx.BindGraphicsPipeline(debugLinesPipeline);
+      ctx.BindGraphicsPipeline(debugLinesPipeline.GetPipeline());
       ctx.SetPushConstants(DebugLinesPushConstants{
         .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,
         .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+        .useGpuVertexBuffer  = 0,
       });
       ctx.Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
     }
 
-    //// GPU-generated geometry past here
-    //Fwog::MemoryBarrier(Fwog::MemoryBarrierBit::COMMAND_BUFFER_BIT | Fwog::MemoryBarrierBit::SHADER_STORAGE_BIT);
+    // GPU Lines
+    if (drawDebugLines)
+    {
+      ctx.BindGraphicsPipeline(debugLinesPipeline.GetPipeline());
+      ctx.SetPushConstants(DebugLinesPushConstants{
+        .vertexBufferIndex   = debugGpuLinesBuffer->GetResourceHandle().index,
+        .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
+        .useGpuVertexBuffer  = 1,
+      });
+      ctx.DrawIndirect(debugGpuLinesBuffer.value(), 0, 1, 0);
+    }
 
-    // AABBs
+    // GPU AABBs
     if (drawDebugAabbs)
     {
-      ctx.BindGraphicsPipeline(debugAabbsPipeline);
+      ctx.BindGraphicsPipeline(debugAabbsPipeline.GetPipeline());
       ctx.SetPushConstants(DebugAabbArguments{
         .globalUniformsIndex = globalUniformsBuffer.GetDeviceBuffer().GetResourceHandle().index,
         .debugAabbBufferIndex = debugGpuAabbsBuffer->GetResourceHandle().index,
@@ -1142,10 +1554,10 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
       ctx.DrawIndirect(debugGpuAabbsBuffer.value(), 0, 1, 0);
     }
 
-    // Rects
+    // GPU Rects
     if (drawDebugRects)
     {
-      ctx.BindGraphicsPipeline(debugRectsPipeline);
+      ctx.BindGraphicsPipeline(debugRectsPipeline.GetPipeline());
       ctx.SetPushConstants(DebugRectArguments{
         .debugRectBufferIndex = debugGpuRectsBuffer->GetResourceHandle().index,
       });
@@ -1189,44 +1601,44 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     float jitterX{};
     float jitterY{};
-    ffxFsr2GetJitterOffset(&jitterX, &jitterY, (int32_t)device_->frameNumber, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
+    ffxFsr2GetJitterOffset(&jitterX, &jitterY, (int32_t)Fvog::GetDevice().frameNumber, ffxFsr2GetJitterPhaseCount(renderInternalWidth, renderOutputWidth));
 
     FfxFsr2DispatchDescription dispatchDesc{
-      .commandList = ffxGetCommandListVK(commandBuffer),
-      .color = ffxGetTextureResourceVK(&fsr2Context,
-                                       frame.colorHdrRenderRes->Image(),
-                                       frame.colorHdrRenderRes->ImageView(),
-                                       renderInternalWidth,
-                                       renderInternalHeight,
-                                       Fvog::detail::FormatToVk(frame.colorHdrRenderRes->GetCreateInfo().format)),
-      .depth = ffxGetTextureResourceVK(&fsr2Context,
-                                       frame.gDepth->Image(),
-                                       frame.gDepth->ImageView(),
-                                       renderInternalWidth,
-                                       renderInternalHeight,
-                                       Fvog::detail::FormatToVk(frame.gDepth->GetCreateInfo().format)),
-      .motionVectors = ffxGetTextureResourceVK(&fsr2Context,
-                                               frame.gMotion->Image(),
-                                               frame.gMotion->ImageView(),
-                                               renderInternalWidth,
-                                               renderInternalHeight,
-                                               Fvog::detail::FormatToVk(frame.gMotion->GetCreateInfo().format)),
-      .exposure = {},
-      .reactive = ffxGetTextureResourceVK(&fsr2Context,
-                                          frame.gReactiveMask->Image(),
-                                          frame.gReactiveMask->ImageView(),
-                                          renderInternalWidth,
-                                          renderInternalHeight,
-                                          Fvog::detail::FormatToVk(frame.gReactiveMask->GetCreateInfo().format)),
+      .commandList                = ffxGetCommandListVK(commandBuffer),
+      .color                      = ffxGetTextureResourceVK(&fsr2Context,
+        frame.colorHdrRenderRes->Image(),
+        frame.colorHdrRenderRes->ImageView(),
+        renderInternalWidth,
+        renderInternalHeight,
+        Fvog::detail::FormatToVk(frame.colorHdrRenderRes->GetCreateInfo().format)),
+      .depth                      = ffxGetTextureResourceVK(&fsr2Context,
+        frame.gDepth->Image(),
+        frame.gDepth->ImageView(),
+        renderInternalWidth,
+        renderInternalHeight,
+        Fvog::detail::FormatToVk(frame.gDepth->GetCreateInfo().format)),
+      .motionVectors              = ffxGetTextureResourceVK(&fsr2Context,
+        frame.gMotion->Image(),
+        frame.gMotion->ImageView(),
+        renderInternalWidth,
+        renderInternalHeight,
+        Fvog::detail::FormatToVk(frame.gMotion->GetCreateInfo().format)),
+      .exposure                   = {},
+      .reactive                   = ffxGetTextureResourceVK(&fsr2Context,
+        frame.gReactiveMask->Image(),
+        frame.gReactiveMask->ImageView(),
+        renderInternalWidth,
+        renderInternalHeight,
+        Fvog::detail::FormatToVk(frame.gReactiveMask->GetCreateInfo().format)),
       .transparencyAndComposition = {},
-      .output = ffxGetTextureResourceVK(&fsr2Context,
-                                        frame.colorHdrWindowRes->Image(),
-                                        frame.colorHdrWindowRes->ImageView(),
-                                        renderOutputWidth,
-                                        renderOutputHeight,
-                                        Fvog::detail::FormatToVk(frame.colorHdrWindowRes->GetCreateInfo().format)),
-      .jitterOffset = {jitterX, jitterY},
-      .motionVectorScale = {float(renderInternalWidth), float(renderInternalHeight)},
+      .output                     = ffxGetTextureResourceVK(&fsr2Context,
+        frame.colorHdrWindowRes->Image(),
+        frame.colorHdrWindowRes->ImageView(),
+        renderOutputWidth,
+        renderOutputHeight,
+        Fvog::detail::FormatToVk(frame.colorHdrWindowRes->GetCreateInfo().format)),
+      .jitterOffset               = {jitterX, jitterY},
+      .motionVectorScale          = {float(renderInternalWidth), float(renderInternalHeight)},
       .renderSize = {renderInternalWidth, renderInternalHeight},
       .enableSharpening = fsr2Sharpness != 0,
       .sharpness = fsr2Sharpness,
@@ -1245,7 +1657,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
     }
 
     // Re-apply states that application assumes
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, device_->defaultPipelineLayout, 0, 1, &device_->descriptorSet_, 0, nullptr);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
     *frame.colorHdrWindowRes->currentLayout = VK_IMAGE_LAYOUT_GENERAL;
   }
 #endif
@@ -1271,16 +1683,16 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     TIME_SCOPE_GPU(StatGroup::eMainGpu, eResolveImage, commandBuffer);
 
-    ctx.BindComputePipeline(tonemapPipeline);
-    ctx.SetPushConstants(TonemapArguments{
-      .sceneColorIndex = (fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value()).ImageView().GetSampledResourceHandle().index,
-      .noiseIndex = noiseTexture->ImageView().GetSampledResourceHandle().index,
-      .nearestSamplerIndex = nearestSampler.GetResourceHandle().index,
-      .linearClampSamplerIndex = linearClampSampler.GetResourceHandle().index,
-      .exposureIndex = exposureBuffer.GetResourceHandle().index,
-      .tonemapUniformsIndex = tonemapUniformBuffer.GetDeviceBuffer().GetResourceHandle().index,
-      .outputImageIndex = frame.colorLdrWindowRes->ImageView().GetStorageResourceHandle().index,
-      .tonyMcMapfaceIndex = tonyMcMapfaceLut.ImageView().GetSampledResourceHandle().index,
+    ctx.BindComputePipeline(tonemapPipeline.GetPipeline());
+    ctx.SetPushConstants(shared::TonemapArguments{
+      .sceneColor = (fsr2Enable ? frame.colorHdrWindowRes.value() : frame.colorHdrRenderRes.value()).ImageView().GetTexture2D(),
+      .noise = noiseTexture->ImageView().GetTexture2D(),
+      .nearestSampler = nearestSampler,
+      .linearClampSampler = linearClampSampler,
+      .exposure = exposureBuffer,
+      .tonemapUniforms = tonemapUniformBuffer.GetDeviceBuffer(),
+      .outputImage = frame.colorLdrWindowRes->ImageView().GetImage2D(),
+      .tonyMcMapface = tonyMcMapfaceLut.ImageView().GetTexture3D(),
     });
     ctx.DispatchInvocations(frame.colorLdrWindowRes.value().GetCreateInfo().extent);
     ctx.ImageBarrier(*frame.colorLdrWindowRes, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
@@ -1311,7 +1723,7 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     vkCmdSetViewport(commandBuffer, 0, 1, Address(VkViewport{0, 0, (float)renderOutputWidth, (float)renderOutputHeight, 0, 1}));
     vkCmdSetScissor(commandBuffer, 0, 1, &renderArea);
-    ctx.BindGraphicsPipeline(debugTexturePipeline);
+    ctx.BindGraphicsPipeline(debugTexturePipeline.GetPipeline());
     auto pushConstants = DebugTextureArguments{
       .textureIndex = frame.colorLdrWindowRes->ImageView().GetSampledResourceHandle().index,
       .samplerIndex = nearestSampler.GetResourceHandle().index,
@@ -1322,23 +1734,12 @@ void FrogRenderer2::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
     vkCmdEndRendering(commandBuffer);
   }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   
+//  ctx.ImageBarrierDiscard(*testRayTracingOutput, VK_IMAGE_LAYOUT_GENERAL);
+//  ctx.BindRayTracingPipeline(testRayTracingPipeline);
+//  ctx.SetPushConstants(testRayTracingOutput->ImageView().GetStorageResourceHandle().index);
+//  ctx.TraceRays(testRayTracingOutput->GetCreateInfo().extent.width, testRayTracingOutput->GetCreateInfo().extent.height, 1);
 
-  
   // swapchainImages_[swapchainImageIndex] needs to be COLOR_ATTACHMENT_OPTIMAL after this function returns
   ctx.ImageBarrier(swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
@@ -1348,21 +1749,28 @@ void FrogRenderer2::OnPathDrop([[maybe_unused]] std::span<const char*> paths)
   ZoneScoped;
   for (const auto& path : paths)
   {
-    scene.Import(*this, Utility::LoadModelFromFile(*device_, path, glm::identity<glm::mat4>()));
+    scene.Import(*this, Utility::LoadModelFromFile(path, glm::identity<glm::mat4>()));
   }
 }
 
 Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo meshGeometry)
 {
   ZoneScoped;
-  auto verticesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.vertices).size_bytes(), sizeof(Render::Vertex));
-  auto indicesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.indices).size_bytes(), sizeof(Render::index_t));
+  totalMeshlets += meshGeometry.meshlets.size();
+  totalVertices += meshGeometry.vertices.size();
+  totalRemappedIndices += meshGeometry.remappedIndices.size();
+  totalOriginalIndices += meshGeometry.originalIndices.size();
+  totalPrimitives += meshGeometry.primitives.size();
+
+  auto verticesAlloc   = geometryBuffer.Allocate(std::span(meshGeometry.vertices).size_bytes(), sizeof(Render::Vertex));
+  auto indicesAlloc    = geometryBuffer.Allocate(std::span(meshGeometry.remappedIndices).size_bytes(), sizeof(Render::index_t));
   auto primitivesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.primitives).size_bytes(), sizeof(Render::primitive_t));
-  auto meshletAlloc = geometryBuffer.Allocate(std::span(meshGeometry.meshlets).size_bytes(), sizeof(Render::Meshlet));
+  auto meshletAlloc    = geometryBuffer.Allocate(std::span(meshGeometry.meshlets).size_bytes(), sizeof(Render::Meshlet));
+  auto originalIndicesAlloc = geometryBuffer.Allocate(std::span(meshGeometry.originalIndices).size_bytes(), sizeof(Render::index_t));
 
   // Massage meshlets before uploading
-  const auto baseVertex = verticesAlloc.GetOffset() / sizeof(Render::Vertex);
-  const auto baseIndex = indicesAlloc.GetOffset() / sizeof(Render::index_t);
+  const auto baseVertex    = verticesAlloc.GetOffset() / sizeof(Render::Vertex);
+  const auto baseIndex     = indicesAlloc.GetOffset() / sizeof(Render::index_t);
   const auto basePrimitive = primitivesAlloc.GetOffset() / sizeof(Render::primitive_t);
   for (auto& meshlet : meshGeometry.meshlets)
   {
@@ -1371,47 +1779,69 @@ Render::MeshGeometryID FrogRenderer2::RegisterMeshGeometry(MeshGeometryInfo mesh
     meshlet.primitiveOffset += (uint32_t)basePrimitive;
   }
 
-  std::memcpy(geometryBuffer.GetMappedMemory() + meshletAlloc.GetOffset(), meshGeometry.meshlets.data(), meshletAlloc.GetSize());
-  std::memcpy(geometryBuffer.GetMappedMemory() + verticesAlloc.GetOffset(), meshGeometry.vertices.data(), verticesAlloc.GetSize());
-  std::memcpy(geometryBuffer.GetMappedMemory() + indicesAlloc.GetOffset(), meshGeometry.indices.data(), indicesAlloc.GetSize());
-  std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + meshletAlloc.GetOffset(), meshGeometry.meshlets.data(), meshletAlloc.GetDataSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + verticesAlloc.GetOffset(), meshGeometry.vertices.data(), verticesAlloc.GetDataSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + indicesAlloc.GetOffset(), meshGeometry.remappedIndices.data(), indicesAlloc.GetDataSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + primitivesAlloc.GetOffset(), meshGeometry.primitives.data(), primitivesAlloc.GetDataSize());
+  std::memcpy(geometryBuffer.GetMappedMemory() + originalIndicesAlloc.GetOffset(), meshGeometry.originalIndices.data(), originalIndicesAlloc.GetDataSize());
+
+  [[maybe_unused]] auto verticesOffset        = verticesAlloc.GetOffset();
+  [[maybe_unused]] auto originalIndicesOffset = originalIndicesAlloc.GetOffset();
 
   auto myId = nextId++;
-  meshGeometryAllocations.emplace(myId,
+  [[maybe_unused]] const auto& meshGeometryAlloc = meshGeometryAllocations.emplace(myId,
     MeshGeometryAllocs{
       .meshletsAlloc   = std::move(meshletAlloc),
       .verticesAlloc   = std::move(verticesAlloc),
       .indicesAlloc    = std::move(indicesAlloc),
       .primitivesAlloc = std::move(primitivesAlloc),
+      .originalIndicesAlloc = std::move(originalIndicesAlloc),
   });
+
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    meshGeometryAlloc.first->second.blas = Fvog::Blas(Fvog::BlasCreateInfo{
+      .geoemtryFlags = Fvog::AccelerationStructureGeometryFlag::OPAQUE,
+      .buildFlags    = Fvog::AccelerationStructureBuildFlag::FAST_TRACE | Fvog::AccelerationStructureBuildFlag::ALLOW_DATA_ACCESS | Fvog::AccelerationStructureBuildFlag::ALLOW_COMPACTION,
+      .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
+      .vertexBuffer  = geometryBuffer.GetBuffer().GetDeviceAddress() + verticesOffset,
+      .indexBuffer   = geometryBuffer.GetBuffer().GetDeviceAddress() + originalIndicesOffset,
+      .vertexStride  = sizeof(Render::Vertex),
+      .numVertices   = (uint32_t)meshGeometry.vertices.size(),
+      .indexType     = VK_INDEX_TYPE_UINT32,
+      .numIndices    = (uint32_t)meshGeometry.originalIndices.size(),
+    }),
+    totalBlasMemory += meshGeometryAlloc.first->second.blas->GetBuffer().SizeBytes();
+  }
+
   return {myId};
 }
 
 void FrogRenderer2::UnregisterMeshGeometry(Render::MeshGeometryID meshGeometry)
 {
   ZoneScoped;
-  meshGeometryAllocations.erase(meshGeometry.id);
+  auto it = meshGeometryAllocations.find(meshGeometry.id);
+  assert(it != meshGeometryAllocations.end());
+  totalMeshlets -= it->second.meshletsAlloc.GetDataSize() / sizeof(Render::Meshlet);
+  totalVertices -= it->second.verticesAlloc.GetDataSize() / sizeof(Render::Vertex);
+  totalRemappedIndices -= it->second.indicesAlloc.GetDataSize() / sizeof(Render::index_t);
+  totalOriginalIndices -= it->second.originalIndicesAlloc.GetDataSize() / sizeof(Render::index_t);
+  totalPrimitives -= it->second.primitivesAlloc.GetDataSize() / sizeof(Render::primitive_t);
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    totalBlasMemory -= it->second.blas.value().GetBuffer().SizeBytes();
+  }
+  meshGeometryAllocations.erase(it);
 }
 
-Render::MeshInstanceID FrogRenderer2::RegisterMeshInstance(const Render::MeshInstanceInfo& meshInstance)
+Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshGeometryID meshGeometry)
 {
   ZoneScoped;
   auto myId = nextId++;
-  meshInstanceInfos.emplace(myId, meshInstance);
-  return {myId};
-}
-
-void FrogRenderer2::UnregisterMeshInstance(Render::MeshInstanceID meshInstance)
-{
-  ZoneScoped;
-  meshInstanceInfos.erase(meshInstance.id);
-}
-
-Render::MeshID FrogRenderer2::SpawnMesh(Render::MeshInstanceID meshInstance)
-{
-  ZoneScoped;
-  auto myId = nextId++;
-  spawnedMeshes.emplace_back(myId, meshInstance);
+  auto& meshAllocation = meshAllocations[myId];
+  meshAllocation.instanceAlloc = geometryBuffer.Allocate(sizeof(Render::ObjectUniforms), sizeof(Render::ObjectUniforms));
+  meshAllocation.geometryId    = meshGeometry; 
+  spawnedMeshes.emplace_back(Render::MeshID{myId}, meshGeometry);
   return {myId};
 }
 
@@ -1471,10 +1901,34 @@ void FrogRenderer2::UpdateMaterial(Render::MaterialID material, const Render::Gp
   modifiedMaterials[material.id] = materialData;
 }
 
+uint32_t FrogRenderer2::GetMaterialGpuIndex(Render::MaterialID material)
+{
+  ZoneScoped;
+  const auto& alloc = materialAllocations.at(material.id);
+  return static_cast<uint32_t>(alloc.materialAlloc.GetOffset() / sizeof(Render::GpuMaterial));
+}
+
+Render::Material& FrogRenderer2::GetMaterial(Render::MaterialID material)
+{
+  return materialAllocations.at(material.id).material;
+}
+
+VkDeviceAddress FrogRenderer2::GetVertexBufferPointerFromMesh(Render::MeshID meshId)
+{
+  const auto& meshGeometryAllocs = meshGeometryAllocations.at(meshAllocations.at(meshId.id).geometryId->id);
+  return geometryBuffer.GetBuffer().GetDeviceAddress() + meshGeometryAllocs.verticesAlloc.GetOffset();
+}
+
+VkDeviceAddress FrogRenderer2::GetOriginalIndexBufferPointerFromMesh(Render::MeshID meshId)
+{
+  const auto& meshGeometryAllocs = meshGeometryAllocations.at(meshAllocations.at(meshId.id).geometryId->id);
+  return geometryBuffer.GetBuffer().GetDeviceAddress() + meshGeometryAllocs.originalIndicesAlloc.GetOffset();
+}
+
 void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
-  auto ctx = Fvog::Context(*device_, commandBuffer);
+  auto ctx = Fvog::Context(commandBuffer);
 
   ctx.Barrier();
 
@@ -1484,7 +1938,7 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   for (auto id : deletedMeshes)
   {
     auto it = meshAllocations.find(id);
-    meshletInstancesBuffer.Free(it->second.meshletInstancesAlloc, commandBuffer);
+    meshletInstancesBuffer.Free(it->second.meshletInstancesAlloc.value(), commandBuffer);
     meshAllocations.erase(it);
   }
 
@@ -1500,42 +1954,46 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   meshletInstancesUploads.reserve(spawnedMeshes.size());
 
   // Spawned meshes
-  for (const auto& [id, meshInstance] : spawnedMeshes)
+  for (auto& [meshId, meshGeometry] : spawnedMeshes)
   {
-    auto [meshGeometryId, materialId] = meshInstanceInfos.at(meshInstance.id);
-    const auto& meshletsAlloc         = meshGeometryAllocations.at(meshGeometryId.id).meshletsAlloc;
-    const auto& materialAlloc         = materialAllocations.at(materialId.id).materialAlloc;
+    const auto& meshletsAlloc = meshGeometryAllocations.at(meshGeometry.id).meshletsAlloc;
 
-    const auto meshletInstanceCount = meshletsAlloc.GetSize() / sizeof(Render::Meshlet);
+    const auto meshletInstanceCount = meshletsAlloc.GetDataSize() / sizeof(Render::Meshlet);
 
-    auto instanceAlloc = geometryBuffer.Allocate(sizeof(Render::ObjectUniforms), sizeof(Render::ObjectUniforms));
+    auto& partialMeshAlloc = meshAllocations.at(meshId.id);
 
     // Spawn a set of meshlet instances referring to the mesh's meshlets, with the correct offsets.
     auto baseMeshletIndex = meshletsAlloc.GetOffset() / sizeof(Render::Meshlet);
-    auto instanceIndex    = instanceAlloc.GetOffset() / sizeof(Render::ObjectUniforms);
-    auto materialIndex    = materialAlloc.GetOffset() / sizeof(Render::GpuMaterial);
+    auto instanceIndex    = partialMeshAlloc.instanceAlloc.value().GetOffset() / sizeof(Render::ObjectUniforms);
     auto srcOffset        = meshletInstances.size() * sizeof(Render::MeshletInstance);
     for (size_t i = 0; i < meshletInstanceCount; i++)
     {
-      meshletInstances.emplace_back(uint32_t(baseMeshletIndex + i), (uint32_t)instanceIndex, (uint32_t)materialIndex);
+      meshletInstances.emplace_back(uint32_t(baseMeshletIndex + i), (uint32_t)instanceIndex);
     }
 
     const auto meshletInstancesAlloc = meshletInstancesBuffer.Allocate(meshletInstanceCount * sizeof(Render::MeshletInstance));
     meshletInstancesUploads.emplace_back(srcOffset, meshletInstancesAlloc.offset, meshletInstancesAlloc.size);
 
-    meshAllocations.emplace(id,
-      MeshAllocs{
-        .meshletInstancesAlloc = meshletInstancesAlloc,
-        .instanceAlloc         = std::move(instanceAlloc),
-      });
+    partialMeshAlloc.meshletInstancesAlloc = meshletInstancesAlloc;
+    if (Fvog::GetDevice().supportsRayTracing)
+    {
+      auto tlasInstance = Fvog::TlasInstance{
+        .transform                = {},
+        .instanceCustomIndex      = uint32_t(instanceIndex),
+        .mask                     = 0xFF,
+        .shaderBindingTableOffset = 0,
+        .flags                    = {},
+        .blasAddress              = meshGeometryAllocations.at(meshGeometry.id).blas.value().GetAddress(),
+      };
+      partialMeshAlloc.tlasInstance = tlasInstance;
+    }
   }
   
   // Upload meshlet instances of spawned meshes.
   // TODO: This should be a scatter-write compute shader
   if (!meshletInstancesUploads.empty())
   {
-    auto uploadBuffer = Fvog::TypedBuffer<Render::MeshletInstance>(*device_,
-      {
+    auto uploadBuffer = Fvog::TypedBuffer<Render::MeshletInstance>({
         .count = (uint32_t)meshletInstances.size(),
         .flag  = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE | Fvog::BufferFlagThingy::NO_DESCRIPTOR,
       },
@@ -1574,9 +2032,17 @@ void FrogRenderer2::FlushUpdatedSceneData(VkCommandBuffer commandBuffer)
   // Update mesh uniforms
   for (const auto& [id, uniforms] : modifiedMeshUniforms)
   {
-    const auto offset = meshAllocations.at(id).instanceAlloc.GetOffset();
+    const auto offset = meshAllocations.at(id).instanceAlloc.value().GetOffset();
     assert(offset % sizeof(uniforms) == 0);
     ctx.TeenyBufferUpdate(geometryBuffer.GetBuffer(), uniforms, offset);
+
+    if (Fvog::GetDevice().supportsRayTracing)
+    {
+      // Make memory layout match VkTransformMatrixKHR::matrix[3][4] (3 rows, 4 columns, row-major)
+      // Must be here to ensure meshAllocations[mesh.id] exists
+      auto transformAffine = glm::transpose(glm::mat4x3(uniforms.modelCurrent));
+      std::memcpy(&meshAllocations.at(id).tlasInstance.value().transform, &transformAffine, sizeof(VkTransformMatrixKHR));
+    }
   }
 
   // Update lights

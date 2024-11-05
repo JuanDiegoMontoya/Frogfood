@@ -51,7 +51,6 @@ struct MeshletInstance
 {
   uint meshletId;
   uint instanceId;
-  uint materialId;
 };
 
 struct View
@@ -168,10 +167,24 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly MeshletIndexBuffer)
 
 #define d_indices MeshletIndexBuffers[meshletIndicesIndex].indices
 
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer VertexBuffer
+{
+  Vertex vertices[];
+};
+
+layout(buffer_reference, scalar, buffer_reference_align = 4) buffer IndexBuffer
+{
+  uint indices[];
+};
+
 struct ObjectUniforms
 {
   mat4 modelPrevious;
   mat4 modelCurrent;
+  VertexBuffer vertexBuffer;
+  IndexBuffer indexBuffer;
+  uint materialId;
+  uint _padding[3];
 };
 
 //layout (std430, binding = 4) restrict readonly buffer TransformBuffer

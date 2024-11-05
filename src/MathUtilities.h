@@ -1,4 +1,11 @@
 #pragma once
+#include <glm/mat4x4.hpp>
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+#include <glm/packing.hpp>
+
+#include <cstdint>
 
 namespace Math
 {
@@ -63,5 +70,59 @@ namespace Math
     glm::vec4 ndc = glm::vec4(uv * 2.0f - 1.0f, depth, 1.0f);
     glm::vec4 world = invXProj * ndc;
     return glm::vec3(world) / world.w;
+  }
+
+  inline glm::vec2 SignNotZero(glm::vec2 v)
+  {
+    return glm::vec2((v.x >= 0.0f) ? +1.0f : -1.0f, (v.y >= 0.0f) ? +1.0f : -1.0f);
+  }
+
+  inline glm::vec2 Vec3ToOct(glm::vec3 v)
+  {
+    glm::vec2 p = glm::vec2{v.x, v.y} * (1.0f / (abs(v.x) + abs(v.y) + abs(v.z)));
+    return (v.z <= 0.0f) ? ((1.0f - glm::abs(glm::vec2{p.y, p.x})) * SignNotZero(p)) : p;
+  }
+
+  inline glm::vec3 OctToVec3(glm::vec2 e)
+  {
+    using glm::vec2;
+    using glm::vec3;
+    vec3 v           = vec3(vec2(e.x, e.y), 1.0f - abs(e.x) - abs(e.y));
+    vec2 signNotZero = vec2((v.x >= 0.0f) ? +1.0f : -1.0f, (v.y >= 0.0f) ? +1.0f : -1.0f);
+    if (v.z < 0.0f) { vec2(v.x, v.y) = (1.0f - abs(vec2(v.y, v.x))) * signNotZero; }
+    return normalize(v);
+  }
+
+  inline glm::vec3 OctToVec3(uint32_t snorm)
+  {
+    return OctToVec3(glm::unpackSnorm2x16(snorm));
+  }
+
+  struct SuffixAndDivisor
+  {
+    const char* suffix;
+    double divisor;
+  };
+
+  inline SuffixAndDivisor BytesToSuffixAndDivisor(uint64_t bytes)
+  {
+    const auto* suffix = "B";
+    double divisor      = 1.0;
+    if (bytes > 1000)
+    {
+      suffix  = "KB";
+      divisor = 1000;
+    }
+    if (bytes > 1'000'000)
+    {
+      suffix  = "MB";
+      divisor = 1'000'000;
+    }
+    if (bytes > 1'000'000'000)
+    {
+      suffix  = "GB";
+      divisor = 1'000'000'000;
+    }
+    return {suffix, divisor};
   }
 } // namespace Math

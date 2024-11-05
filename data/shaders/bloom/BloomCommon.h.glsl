@@ -22,10 +22,6 @@ FVOG_DECLARE_ARGUMENTS(BloomUniforms)
 
 #ifndef __cplusplus
 
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
-FVOG_DECLARE_STORAGE_IMAGES(image2D);
-FVOG_DECLARE_SAMPLERS;
-
 #define s_source Fvog_sampler2D(uniforms.sourceSampledImageIdx, uniforms.linearSamplerIdx)
 #define s_target Fvog_sampler2D(uniforms.targetSampledImageIdx, uniforms.linearSamplerIdx)
 #define i_target Fvog_image2D(uniforms.targetStorageImageIdx)

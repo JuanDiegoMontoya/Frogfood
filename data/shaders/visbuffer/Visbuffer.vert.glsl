@@ -1,6 +1,5 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : enable
 #include "VisbufferCommon.h.glsl"
+#include "../hzb/HZBCommon.h.glsl"
 
 layout (location = 0) out flat uint o_visibleMeshletId;
 layout (location = 1) out flat uint o_primitiveId;
@@ -31,7 +30,7 @@ void main()
   o_primitiveId = primitiveId / 3;
   o_uv = uv;
   o_objectSpacePos = position;
-  o_materialId = meshletInstance.materialId;
+  o_materialId = d_transforms[instanceId].materialId;
 
   gl_Position = d_perFrameUniforms.viewProj * transform * vec4(position, 1.0);
 }

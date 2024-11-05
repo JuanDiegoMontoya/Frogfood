@@ -2,6 +2,7 @@
 
 #include "BasicTypes2.h"
 #include "Device.h"
+#include "shaders/Resources.h.glsl"
 
 #include <vulkan/vulkan_core.h>
 
@@ -85,7 +86,7 @@ namespace Fvog
     /// @brief Specifies, in texels, the size of rows in the array (for 2D and 3D images). If zero, it is assumed to be tightly packed according to size
     uint32_t rowLength = 0;
 
-    /// @brief Specifies, in texels, the number of rows in the array (for 3D images. If zero, it is assumed to be tightly packed according to size
+    /// @brief Specifies, in texels, the number of rows in the array (for 3D images). If zero, it is assumed to be tightly packed according to size
     uint32_t imageHeight = 0;
   };
 
@@ -93,16 +94,21 @@ namespace Fvog
   {
   public:
     // Note: name MAY be ignored if samplerState matches a cached entry
-    explicit Sampler(Device& device, const SamplerCreateInfo& samplerState, std::string name = {});
+    explicit Sampler(const SamplerCreateInfo& samplerState, std::string name = {});
     
     [[nodiscard]] VkSampler Handle() const noexcept
     {
       return sampler_;
     }
 
-    Device::DescriptorInfo::ResourceHandle GetResourceHandle() const noexcept
+    [[nodiscard]] Device::DescriptorInfo::ResourceHandle GetResourceHandle() const noexcept
     {
       return descriptorInfo_->GpuResource();
+    }
+
+    [[nodiscard]] operator shared::Sampler() const noexcept
+    {
+      return {descriptorInfo_->GpuResource().index};
     }
 
   private:
@@ -119,7 +125,7 @@ namespace Fvog
   class TextureView
   {
   public:
-    explicit TextureView(Device& device, const Texture& texture, const TextureViewCreateInfo& createInfo, std::string name = {});
+    explicit TextureView(const Texture& texture, const TextureViewCreateInfo& createInfo, std::string name = {});
     ~TextureView();
 
     TextureView(const TextureView&) = delete;
@@ -157,6 +163,24 @@ namespace Fvog
       return storageDescriptorInfo_.value().GpuResource();
     }
 
+    [[nodiscard]] shared::Texture2D GetTexture2D() noexcept
+    {
+      assert(createInfo_.viewType == VK_IMAGE_VIEW_TYPE_2D);
+      return {sampledDescriptorInfo_.value().GpuResource().index};
+    }
+
+    [[nodiscard]] shared::Texture3D GetTexture3D() noexcept
+    {
+      assert(createInfo_.viewType == VK_IMAGE_VIEW_TYPE_3D);
+      return {sampledDescriptorInfo_.value().GpuResource().index};
+    }
+
+    [[nodiscard]] shared::Image2D GetImage2D() noexcept
+    {
+      assert(createInfo_.viewType == VK_IMAGE_VIEW_TYPE_2D);
+      return {storageDescriptorInfo_.value().GpuResource().index};
+    }
+
     [[nodiscard]] TextureCreateInfo GetTextureCreateInfo() const noexcept
     {
       return parentCreateInfo_;
@@ -171,7 +195,6 @@ namespace Fvog
     VkImageLayout* currentLayout{};
 
   private:
-    Device* device_{};
     TextureViewCreateInfo createInfo_{};
     VkImageView imageView_{};
     std::optional<Device::DescriptorInfo> sampledDescriptorInfo_;
@@ -188,7 +211,7 @@ namespace Fvog
   {
   public:
     // Verbose constructor
-    explicit Texture(Device& device, const TextureCreateInfo& createInfo, std::string name = {});
+    explicit Texture(const TextureCreateInfo& createInfo, std::string name = {});
     ~Texture();
 
     [[nodiscard]] TextureView CreateFormatView(Format format, std::string name = {}) const;
@@ -233,7 +256,6 @@ namespace Fvog
     std::unique_ptr<VkImageLayout> currentLayout{};
 
   private:
-    Device* device_{};
     TextureCreateInfo createInfo_{};
     VkImage image_{};
     std::optional<TextureView> textureView_;
@@ -243,6 +265,6 @@ namespace Fvog
   };
 
   // convenience functions
-  [[nodiscard]] Texture CreateTexture2D(Device& device, VkExtent2D size, Format format, TextureUsage usage, std::string name = {});
-  [[nodiscard]] Texture CreateTexture2DMip(Device& device, VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, std::string name = {});
+  [[nodiscard]] Texture CreateTexture2D(VkExtent2D size, Format format, TextureUsage usage, std::string name = {});
+  [[nodiscard]] Texture CreateTexture2DMip(VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, std::string name = {});
 }

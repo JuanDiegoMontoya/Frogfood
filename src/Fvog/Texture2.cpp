@@ -16,14 +16,13 @@
 
 namespace Fvog
 {
-  Sampler::Sampler(Device& device, const SamplerCreateInfo& samplerState, std::string name)
-    : Sampler(device.samplerCache_->CreateOrGetCachedTextureSampler(samplerState, std::move(name)))
+  Sampler::Sampler(const SamplerCreateInfo& samplerState, std::string name)
+    : Sampler(Fvog::GetDevice().samplerCache_->CreateOrGetCachedTextureSampler(samplerState, std::move(name)))
   {
   }
 
-  Texture::Texture(Device& device, const TextureCreateInfo& createInfo, std::string name)
+  Texture::Texture(const TextureCreateInfo& createInfo, std::string name)
     : currentLayout(std::make_unique<VkImageLayout>(VK_IMAGE_LAYOUT_UNDEFINED)),
-      device_(&device),
       createInfo_(createInfo),
       name_(std::move(name))
   {
@@ -62,8 +61,7 @@ namespace Fvog
       vmaAllocationFlags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
     }
 
-    CheckVkResult(vmaCreateImage(
-      device_->allocator_,
+    CheckVkResult(vmaCreateImage(Fvog::GetDevice().allocator_,
       Address(VkImageCreateInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT, // TODO: blindly applying this to every image is against IHV recommendations.
@@ -90,7 +88,8 @@ namespace Fvog
 
 
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_IMAGE,
       .objectHandle = reinterpret_cast<uint64_t>(image_),
@@ -103,9 +102,9 @@ namespace Fvog
 
   Texture::~Texture()
   {
-    if (device_ != nullptr && image_ != VK_NULL_HANDLE)
+    if (image_ != VK_NULL_HANDLE)
     {
-      device_->imageDeletionQueue_.emplace_back(device_->frameNumber, allocation_, image_, std::move(name_));
+      Fvog::GetDevice().imageDeletionQueue_.emplace_back(Fvog::GetDevice().frameNumber, allocation_, image_, std::move(name_));
     }
   }
 
@@ -118,7 +117,7 @@ namespace Fvog
     aspectFlags |= FormatIsStencil(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
     aspectFlags |= FormatIsColor(format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
 
-    return TextureView(*device_, *this, {
+    return TextureView(*this, {
       .viewType = createInfo_.viewType,
       .format = format,
       .subresourceRange = VkImageSubresourceRange{
@@ -148,7 +147,7 @@ namespace Fvog
     aspectFlags |= FormatIsStencil(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
     aspectFlags |= FormatIsColor(format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
 
-    return singleMipViews_[level].emplace(*device_, *this, TextureViewCreateInfo{
+    return singleMipViews_[level].emplace(*this, TextureViewCreateInfo{
       .viewType = createInfo_.viewType,
       .format = createInfo_.format,
       .subresourceRange = VkImageSubresourceRange{
@@ -171,7 +170,7 @@ namespace Fvog
     aspectFlags |= FormatIsStencil(format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0;
     aspectFlags |= FormatIsColor(format) ? VK_IMAGE_ASPECT_COLOR_BIT : 0;
 
-    return TextureView(*device_, *this, {
+    return TextureView(*this, {
       .viewType = createInfo_.viewType,
       .format = format,
       .components = components,
@@ -188,7 +187,7 @@ namespace Fvog
   void Texture::UpdateImageSLOW(const TextureUpdateInfo& info)
   {
     ZoneScoped;
-    device_->ImmediateSubmit(
+    Fvog::GetDevice().ImmediateSubmit(
     [this, &info](VkCommandBuffer commandBuffer)
     {
       // Convenience- so the user doesn't have to explicitly specify 1 for height or depth when writing 1D or 2D images
@@ -205,10 +204,10 @@ namespace Fvog
       {
         size = extent.width * extent.height * extent.depth * detail::FormatStorageSize(createInfo_.format);
       }
-      auto uploadBuffer = Buffer(*device_, {.size = size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "UpdateImageSLOW Staging Buffer");
+      auto uploadBuffer = Buffer({.size = size, .flag = BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "UpdateImageSLOW Staging Buffer");
       // TODO: account for row length and image height here
       std::memcpy(uploadBuffer.GetMappedMemory(), info.data, size);
-      auto ctx = Fvog::Context(*device_, commandBuffer);
+      auto ctx = Fvog::Context(commandBuffer);
       ctx.ImageBarrier(*this, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
       vkCmdCopyBufferToImage2(commandBuffer, detail::Address(VkCopyBufferToImageInfo2{
@@ -237,7 +236,6 @@ namespace Fvog
 
   Texture::Texture(Texture&& old) noexcept
     : currentLayout(std::move(old.currentLayout)),
-      device_(std::exchange(old.device_, nullptr)),
       createInfo_(std::exchange(old.createInfo_, {})),
       image_(std::exchange(old.image_, VK_NULL_HANDLE)),
       textureView_(std::move(old.textureView_)),
@@ -255,16 +253,16 @@ namespace Fvog
     return *new (this) Texture(std::move(old));
   }
 
-  TextureView::TextureView(Device& device, const Texture& texture, const TextureViewCreateInfo& createInfo, std::string name)
+  TextureView::TextureView(const Texture& texture, const TextureViewCreateInfo& createInfo, std::string name)
     : currentLayout(texture.currentLayout.get()),
-      device_(&device),
       createInfo_(createInfo),
       parentCreateInfo_(texture.GetCreateInfo()),
       image_(texture.Image()),
       name_(std::move(name))
   {
     ZoneScoped;
-    detail::CheckVkResult(vkCreateImageView(device.device_, detail::Address(VkImageViewCreateInfo{
+    detail::CheckVkResult(vkCreateImageView(Fvog::GetDevice().device_,
+      detail::Address(VkImageViewCreateInfo{
       .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
       .image = texture.Image(),
       .viewType = createInfo.viewType,
@@ -274,7 +272,8 @@ namespace Fvog
     }), nullptr, &imageView_));
 
     // TODO: gate behind compile-time switch
-    vkSetDebugUtilsObjectNameEXT(device_->device_, detail::Address(VkDebugUtilsObjectNameInfoEXT{
+    vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+      detail::Address(VkDebugUtilsObjectNameInfoEXT{
       .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
       .objectType = VK_OBJECT_TYPE_IMAGE_VIEW,
       .objectHandle = reinterpret_cast<uint64_t>(imageView_),
@@ -287,28 +286,27 @@ namespace Fvog
     auto layout = VK_IMAGE_LAYOUT_GENERAL;
     if (usage == TextureUsage::GENERAL && detail::FormatIsColor(createInfo.format))
     {
-      storageDescriptorInfo_ = device.AllocateStorageImageDescriptor(imageView_, layout);
+      storageDescriptorInfo_ = Fvog::GetDevice().AllocateStorageImageDescriptor(imageView_, layout);
     }
     else
     {
       layout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
     }
     
-    sampledDescriptorInfo_ = device.AllocateSampledImageDescriptor(imageView_, layout);
+    sampledDescriptorInfo_ = Fvog::GetDevice().AllocateSampledImageDescriptor(imageView_, layout);
   }
 
   TextureView::~TextureView()
   {
-    if (device_ != nullptr && imageView_ != VK_NULL_HANDLE)
+    if (imageView_ != VK_NULL_HANDLE)
     {
       // It's safe to pass VMA null allocators and/or handles, so we can reuse the image deletion queue here
-      device_->imageViewDeletionQueue_.emplace_back(device_->frameNumber, imageView_, std::move(name_));
+      Fvog::GetDevice().imageViewDeletionQueue_.emplace_back(Fvog::GetDevice().frameNumber, imageView_, std::move(name_));
     }
   }
 
   TextureView::TextureView(TextureView&& old) noexcept
     : currentLayout(std::exchange(old.currentLayout, nullptr)),
-      device_(std::exchange(old.device_, nullptr)),
       createInfo_(std::exchange(old.createInfo_, {})),
       imageView_(std::exchange(old.imageView_, VK_NULL_HANDLE)),
       sampledDescriptorInfo_(std::move(old.sampledDescriptorInfo_)),
@@ -326,7 +324,7 @@ namespace Fvog
     return *new (this) TextureView(std::move(old));
   }
 
-  Texture CreateTexture2D(Device& device, VkExtent2D size, Format format, TextureUsage usage, std::string name)
+  Texture CreateTexture2D(VkExtent2D size, Format format, TextureUsage usage, std::string name)
   {
     ZoneScoped;
     TextureCreateInfo createInfo{
@@ -338,10 +336,10 @@ namespace Fvog
       .sampleCount = VK_SAMPLE_COUNT_1_BIT,
       .usage = usage,
     };
-    return Texture(device, createInfo, std::move(name));
+    return Texture(createInfo, std::move(name));
   }
 
-  Texture CreateTexture2DMip(Device& device, VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, std::string name)
+  Texture CreateTexture2DMip(VkExtent2D size, Format format, uint32_t mipLevels, TextureUsage usage, std::string name)
   {
     ZoneScoped;
     TextureCreateInfo createInfo{
@@ -353,6 +351,6 @@ namespace Fvog
       .sampleCount = VK_SAMPLE_COUNT_1_BIT,
       .usage = usage,
     };
-    return Texture(device, createInfo, std::move(name));
+    return Texture(createInfo, std::move(name));
   }
 } // namespace Fvog

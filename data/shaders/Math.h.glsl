@@ -6,7 +6,19 @@
 // Constants
 const float M_PI = 3.141592654;
 
+
 // Functions
+vec3 PolarToCartesian(float phi, float theta)
+{
+  const float sinTheta = sin(theta);
+  return vec3(
+    cos(phi) * sinTheta,
+    sin(phi) * sinTheta,
+    cos(theta)
+  );
+}
+
+// PDF: solid_angle_mapping_PDF (see bottom of this file)
 vec3 RandVecInCone(vec2 xi, vec3 N, float angle)
 {
   float phi = 2.0 * M_PI * xi.x;
@@ -112,6 +124,60 @@ vec3 TurboColormap(float x)
     dot(v4, kGreenVec4) + dot(v2, kGreenVec2),
     dot(v4, kBlueVec4)  + dot(v2, kBlueVec2)
   );
+}
+
+bool isfinite(float x)
+{
+  return !isnan(x) && !isinf(x);
+}
+
+bvec2 isfinite(vec2 x)
+{
+  return bvec2(isfinite(x.x), isfinite(x.y));
+}
+
+bvec3 isfinite(vec3 x)
+{
+  return bvec3(isfinite(x.x), isfinite(x.y), isfinite(x.z));
+}
+
+bvec4 isfinite(vec4 x)
+{
+  return bvec4(isfinite(x.x), isfinite(x.y), isfinite(x.z), isfinite(x.w));
+}
+
+// Stolen from void
+vec3 map_to_unit_sphere(vec2 uv)
+{
+  float cos_theta = 2.0 * uv.x - 1.0;
+  float phi = 2.0 * M_PI * uv.y;
+  float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+  float sin_phi = sin(phi);
+  float cos_phi = cos(phi);
+  
+  return vec3(sin_theta * cos_phi, cos_theta, sin_theta * sin_phi);
+}
+
+vec3 map_to_unit_hemisphere_cosine_weighted(vec2 uv, vec3 n)
+{
+  vec3 p = map_to_unit_sphere(uv);
+  return n + p;
+}
+
+// From void
+float solid_angle_mapping_PDF(float theta_max)
+{
+  return 1.0 / (2.0 * M_PI * (1.0 - cos(theta_max)));
+}
+
+float uniform_hemisphere_PDF()
+{
+  return 1.0 / (2.0 * M_PI);
+}
+
+float cosine_weighted_hemisphere_PDF(float cosTheta)
+{
+  return cosTheta / M_PI;
 }
 
 #endif // MATH_H

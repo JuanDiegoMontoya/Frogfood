@@ -2,6 +2,7 @@
 #include "Fvog/Buffer2.h"
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Texture2.h"
+#include "PipelineManager.h"
 
 #include "shaders/shadows/vsm/VsmCommon.h.glsl"
 
@@ -51,7 +52,7 @@ namespace Techniques::VirtualShadowMaps
       uint32_t numPages{};
     };
 
-    explicit Context(Fvog::Device& device, const CreateInfo& createInfo);
+    explicit Context(const CreateInfo& createInfo);
 
     struct VsmGlobalUniforms
     {
@@ -78,8 +79,6 @@ namespace Techniques::VirtualShadowMaps
     //void BindResourcesForCulling(VkCommandBuffer cmd);
 
     VsmPushConstants GetPushConstants();
-
-    Fvog::Device* device_{};
 
   private:
     friend class DirectionalVirtualShadowMap;
@@ -132,15 +131,15 @@ namespace Techniques::VirtualShadowMaps
     Fvog::TypedBuffer<Fvog::DispatchIndirectCommand> pageClearDispatchParams_;
 
     /// PIPELINES
-    Fvog::ComputePipeline resetPageVisibility_;
-    Fvog::ComputePipeline allocatePages_;
-    Fvog::ComputePipeline markVisiblePages_;
-    Fvog::ComputePipeline listDirtyPages_;
-    Fvog::ComputePipeline clearDirtyPages_;
-    Fvog::ComputePipeline freeNonVisiblePages_;
+    PipelineManager::ComputePipelineKey resetPageVisibility_;
+    PipelineManager::ComputePipelineKey allocatePages_;
+    PipelineManager::ComputePipelineKey markVisiblePages_;
+    PipelineManager::ComputePipelineKey listDirtyPages_;
+    PipelineManager::ComputePipelineKey clearDirtyPages_;
+    PipelineManager::ComputePipelineKey freeNonVisiblePages_;
     //Fwog::ComputePipeline reducePhysicalPages_;
     //Fwog::ComputePipeline reduceVirtualPages_;
-    Fvog::ComputePipeline reduceVsmHzb_;
+    PipelineManager::ComputePipelineKey reduceVsmHzb_;
   };
 
   class DirectionalVirtualShadowMap

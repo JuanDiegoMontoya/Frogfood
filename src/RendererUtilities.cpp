@@ -9,7 +9,7 @@
 #include "stb_include.h"
 #include "stb_image.h"
 
-Fvog::Texture LoadTextureShrimple(Fvog::Device& device, const std::filesystem::path& path)
+Fvog::Texture LoadTextureShrimple(const std::filesystem::path& path)
 {
   int x{};
   int y{};
@@ -18,7 +18,7 @@ Fvog::Texture LoadTextureShrimple(Fvog::Device& device, const std::filesystem::p
   {
     throw std::runtime_error("Texture not found");
   }
-  auto texture = Fvog::CreateTexture2D(device, {(uint32_t)x, (uint32_t)y}, Fvog::Format::R8G8B8A8_SRGB, Fvog::TextureUsage::READ_ONLY, path.string());
+  auto texture = Fvog::CreateTexture2D({(uint32_t)x, (uint32_t)y}, Fvog::Format::R8G8B8A8_SRGB, Fvog::TextureUsage::READ_ONLY, path.string());
   texture.UpdateImageSLOW({
     .extent = texture.GetCreateInfo().extent,
     .data = pixels,
@@ -37,7 +37,7 @@ Fvog::Texture LoadTextureShrimple(Fvog::Device& device, const std::filesystem::p
 //  return Fvog::Shader(device.device_, stage, path, path.filename().string().c_str());
 //}
 
-Fvog::Shader LoadShaderWithIncludes2(Fvog::Device& device, Fvog::PipelineStage stage, const std::filesystem::path& path)
+Fvog::Shader LoadShaderWithIncludes2(Fvog::PipelineStage stage, const std::filesystem::path& path)
 {
   if (!std::filesystem::exists(path) || std::filesystem::is_directory(path))
   {
@@ -52,5 +52,5 @@ Fvog::Shader LoadShaderWithIncludes2(Fvog::Device& device, Fvog::PipelineStage s
   {
     throw std::runtime_error("Failed to process includes");
   }
-  return Fvog::Shader(device.device_, stage, std::string_view(processedSource.get()), path.filename().string().c_str());
+  return Fvog::Shader(stage, std::string_view(processedSource.get()), path.filename().string().c_str());
 }

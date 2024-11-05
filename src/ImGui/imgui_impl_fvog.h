@@ -74,7 +74,6 @@ struct ImGui_ImplFvog_InitInfo
 {
   VkInstance Instance;
   VkPhysicalDevice PhysicalDevice;
-  Fvog::Device* Device;
   uint32_t QueueFamily;
   VkQueue Queue;
   VkDescriptorPool DescriptorPool;   // See requirements in note above

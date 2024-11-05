@@ -98,7 +98,6 @@ namespace Render
   {
     uint32_t meshletId;
     uint32_t instanceId; // For internal use only
-    uint32_t materialId = 0;
   };
 
   struct ObjectUniforms
@@ -106,13 +105,18 @@ namespace Render
     bool operator==(const ObjectUniforms&) const noexcept = default;
     glm::mat4 modelPrevious;
     glm::mat4 modelCurrent;
+    // TODO: Mesh geometry info should go in its own array
+    VkDeviceAddress vertexBuffer{};
+    VkDeviceAddress indexBuffer{};
+    uint32_t materialId = 0;
+    uint32_t _padding[3];
   };
 
   // The ID structs below this line mainly exist in this file as a hack to prevent
   // a circular dependency between FrogRenderer2.h and Scene.h.
   struct MeshGeometryID
   {
-    operator bool() const noexcept
+    explicit operator bool() const noexcept
     {
       return id != 0;
     }
@@ -121,23 +125,7 @@ namespace Render
 
   struct MaterialID
   {
-    operator bool() const noexcept
-    {
-      return id != 0;
-    }
-    uint64_t id{};
-  };
-
-  // For specifying a subset of the mesh geometry with per-meshlet-instance materials.
-  struct MeshInstanceInfo
-  {
-    MeshGeometryID meshGeometry{};
-    MaterialID material{}; // Each mesh instance has one material.
-  };
-
-  struct MeshInstanceID
-  {
-    operator bool() const noexcept
+    explicit operator bool() const noexcept
     {
       return id != 0;
     }
@@ -146,7 +134,7 @@ namespace Render
 
   struct MeshID
   {
-    operator bool() const noexcept
+    explicit operator bool() const noexcept
     {
       return id != 0;
     }
@@ -155,7 +143,7 @@ namespace Render
 
   struct LightID
   {
-    operator bool() const noexcept
+    explicit operator bool() const noexcept
     {
       return id != 0;
     }

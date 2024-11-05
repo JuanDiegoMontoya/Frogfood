@@ -1,36 +1,21 @@
-#version 450 core
-
-#extension GL_GOOGLE_include_directive : enable
-
 #include "TonemapAndDither.shared.h"
 #include "../Color.h.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-//layout(binding = 0) uniform sampler2D s_sceneColor;
-//layout(binding = 1) uniform sampler2D s_noise;
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
-FVOG_DECLARE_SAMPLED_IMAGES(texture3D);
-FVOG_DECLARE_SAMPLERS;
-
-//layout(std140, binding = 0) uniform ExposureBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly ExposureBuffer)
 {
   float exposure;
 } exposureBuffers[];
 
-#define d_exposureBuffer exposureBuffers[exposureIndex]
+#define d_exposureBuffer exposureBuffers[exposure.bufIdx]
 
-//layout(std140, binding = 1) uniform TonemapUniformBuffer
 FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly TonemapUniformBuffer)
 {
   TonemapUniforms data;
 } uniformsBuffers[];
 
-#define uniforms uniformsBuffers[tonemapUniformsIndex].data
-
-//layout(binding = 0) uniform writeonly image2D i_output;
-FVOG_DECLARE_STORAGE_IMAGES(image2D);
+#define uniforms uniformsBuffers[tonemapUniforms.bufIdx].data
 
 // AgX implementation from here: https://www.shadertoy.com/view/Dt3XDr
 float DualSection(float x, float linear, float peak)
@@ -82,16 +67,16 @@ vec3 TonyMcMapface(vec3 color_srgb)
   vec3 workingColor = max(color_srgb, 0.0f);
   vec3 encoded = workingColor / (1.0 + workingColor);
 
-  vec3 dims = vec3(textureSize(Fvog_texture3D(tonyMcMapfaceIndex), 0));
+  vec3 dims = vec3(textureSize(tonyMcMapface, 0));
   vec3 uv = encoded * ((dims - 1.0) / dims) + 0.5 / dims;
 
-  return textureLod(Fvog_sampler3D(tonyMcMapfaceIndex, linearClampSamplerIndex), uv, 0).rgb;
+  return textureLod(tonyMcMapface, linearClampSampler, uv, 0).rgb;
 }
 
 vec3 apply_dither(vec3 color, vec2 uv, uint quantizeBits)
 {
-  vec2 uvNoise = uv * (vec2(textureSize(Fvog_sampler2D(sceneColorIndex, nearestSamplerIndex), 0)) / vec2(textureSize(Fvog_sampler2D(noiseIndex, nearestSamplerIndex), 0)));
-  vec3 noiseSample = textureLod(Fvog_sampler2D(noiseIndex, nearestSamplerIndex), uvNoise, 0).rgb;
+  vec2 uvNoise = uv * (vec2(textureSize(sceneColor, 0)) / vec2(textureSize(noise, 0)));
+  vec3 noiseSample = textureLod(noise, nearestSampler, uvNoise, 0).rgb;
   //return color + vec3((noiseSample - 0.5) / 255.0);
   return color + vec3((noiseSample - 0.5) / ((1u << quantizeBits) - 1));
 }
@@ -190,7 +175,7 @@ vec3 ConvertShadingToTonemapOutputColorSpace(vec3 color_in, uint in_color_space,
 void main()
 {
   const ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
-  const ivec2 targetDim = imageSize(Fvog_image2D(outputImageIndex));
+  const ivec2 targetDim = imageSize(outputImage);
 
   if (any(greaterThanEqual(gid, targetDim)))
   {
@@ -199,7 +184,7 @@ void main()
 
   const vec2 uv = (vec2(gid) + 0.5) / targetDim;
   
-  vec3 hdrColor = textureLod(Fvog_sampler2D(sceneColorIndex, nearestSamplerIndex), uv, 0).rgb;
+  vec3 hdrColor = textureLod(sceneColor, nearestSampler, uv, 0).rgb;
   hdrColor *= pow(2.0, d_exposureBuffer.exposure); // Apply exposure
   vec3 tonemappedColor = hdrColor;
   
@@ -214,7 +199,7 @@ void main()
   }
   if (uniforms.tonemapper == 2)
   {
-	  tonemappedColor = clamp(hdrColor, vec3(0), vec3(1));
+	  tonemappedColor = clamp(hdrColor, vec3(0), vec3(uniforms.maxDisplayNits));
   }
 
   // Hybrid/HDR-compatible diplay mappers
@@ -231,5 +216,6 @@ void main()
   {
     ditheredColor = apply_dither(outputColor, uv, uniforms.quantizeBits);
   }
-  imageStore(Fvog_image2D(outputImageIndex), gid, vec4(ditheredColor, 1.0));
+
+  imageStore(outputImage, gid, vec4(ditheredColor, 1.0));
 }

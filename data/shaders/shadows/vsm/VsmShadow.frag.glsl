@@ -1,6 +1,3 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : enable
-
 #include "../../Config.shared.h"
 #define VISBUFFER_NO_PUSH_CONSTANTS
 #include "../../visbuffer/VisbufferCommon.h.glsl"
@@ -8,8 +5,6 @@
 
 layout(set = 0, binding = FVOG_STORAGE_IMAGE_BINDING, r32ui) uniform uimage2D physicalPagesUintImages[];
 #define i_physicalPagesUint physicalPagesUintImages[physicalPagesUintIndex]
-
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 layout(location = 0) in vec2 v_uv;
 layout(location = 1) in flat uint v_materialId;

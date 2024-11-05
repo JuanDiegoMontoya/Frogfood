@@ -39,9 +39,8 @@ namespace Fvog
     return {};
   }
 
-  Context::Context(Device& device, VkCommandBuffer commandBuffer)
-    : device_(&device),
-      commandBuffer_(commandBuffer)
+  Context::Context(VkCommandBuffer commandBuffer)
+    : commandBuffer_(commandBuffer)
   {}
 
   void Context::BeginRendering(const RenderInfo& renderInfo) const
@@ -341,6 +340,13 @@ namespace Fvog
     vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.Handle());
   }
 
+  void Context::BindRayTracingPipeline(const RayTracingPipeline& pipeline) const
+  {
+    ZoneScoped;
+    boundRayTracingPipeline_ = &pipeline;
+    vkCmdBindPipeline(commandBuffer_, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline.Handle());
+  }
+
   void Context::Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const
   {
     Dispatch({groupCountX, groupCountY, groupCountZ});
@@ -377,6 +383,12 @@ namespace Fvog
     vkCmdDraw(commandBuffer_, vertexCount, instanceCount, firstVertex, firstInstance);
   }
 
+  void Context::DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, uint32_t vertexOffset, uint32_t firstInstance) const
+  {
+    ZoneScoped;
+    vkCmdDrawIndexed(commandBuffer_, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+  }
+
   void Context::DrawIndirect(const Fvog::Buffer& buffer, VkDeviceSize bufferOffset, uint32_t drawCount, uint32_t stride) const
   {
     ZoneScoped;
@@ -388,6 +400,20 @@ namespace Fvog
     ZoneScoped;
     vkCmdDrawIndexedIndirect(commandBuffer_, buffer.Handle(), bufferOffset, drawCount, stride);
   }
+  void Context::TraceRays(uint32_t width, uint32_t height, uint32_t depth) const
+  {
+    ZoneScoped;
+    assert(boundRayTracingPipeline_);
+    vkCmdTraceRaysKHR(
+      commandBuffer_,
+      Address(boundRayTracingPipeline_->GetRayGenRegion()),
+      Address(boundRayTracingPipeline_->GetMissRegion()),
+      Address(boundRayTracingPipeline_->GetHitGroupRegion()),
+      Address(VkStridedDeviceAddressRegionKHR()), // No callable region
+      width,
+      height,
+      depth);
+  }
 
   void Context::BindIndexBuffer(const Buffer& buffer, VkDeviceSize offset, VkIndexType indexType) const
   {
@@ -398,7 +424,7 @@ namespace Fvog
   void Context::SetPushConstants(TriviallyCopyableByteSpan values, uint32_t offset) const
   {
     ZoneScoped;
-    vkCmdPushConstants(commandBuffer_, device_->defaultPipelineLayout, VK_SHADER_STAGE_ALL, offset, static_cast<uint32_t>(values.size_bytes()), values.data());
+    vkCmdPushConstants(commandBuffer_, Fvog::GetDevice().defaultPipelineLayout, VK_SHADER_STAGE_ALL, offset, static_cast<uint32_t>(values.size_bytes()), values.data());
   }
 
   ScopedDebugMarker::ScopedDebugMarker(VkCommandBuffer commandBuffer, const char* message, std::array<float, 4> color)

@@ -1,15 +1,7 @@
-#version 460 core
-
-#extension GL_GOOGLE_include_directive : enable
-
 #include "../Resources.h.glsl"
 #include "HZBCommon.h.glsl"
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
-
-//layout (r32f, binding = 0) uniform restrict readonly image2D prev_hzb;
-FVOG_DECLARE_STORAGE_IMAGES(image2D);
-//layout (r32f, binding = 1) uniform restrict writeonly image2D curr_hzb;
 
 FVOG_DECLARE_ARGUMENTS(HzbReducePushConstants)
 {

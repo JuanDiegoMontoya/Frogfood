@@ -33,6 +33,11 @@
           "name": "FROGRENDER_FSR2_ENABLE",
           "value": "True",
           "type": "BOOL"
+        },
+        {
+          "name": "TRACY_ENABLE",
+          "value": "True",
+          "type": "BOOL"
         }
       ]
     },
@@ -50,6 +55,11 @@
         {
           "name": "FROGRENDER_FSR2_ENABLE",
           "value": "True",
+          "type": "BOOL"
+        },
+        {
+          "name": "TRACY_ENABLE",
+          "value": "False",
           "type": "BOOL"
         }
       ]

@@ -1,6 +1,3 @@
-#version 450 core
-
-#extension GL_GOOGLE_include_directive : enable
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_vote : require
@@ -8,8 +5,6 @@
 #include "../../Config.shared.h"
 #include "VsmCommon.h.glsl"
 #include "VsmAllocRequest.h.glsl"
-
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
 
 #define s_gDepth FvogGetSampledImage(texture2D, gDepthIndex)
 

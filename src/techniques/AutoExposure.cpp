@@ -1,4 +1,5 @@
 #include "AutoExposure.h"
+#include "Application.h"
 
 #include "Fvog/Device.h"
 #include "Fvog/Rendering2.h"
@@ -10,35 +11,31 @@
 
 namespace Techniques
 {
-  static Fvog::ComputePipeline CreateGenerateLuminanceHistogramPipeline(Fvog::Device& device)
+  AutoExposure::AutoExposure()
+    : dataBuffer_(1, "Auto Exposure Data")
   {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/GenerateLuminanceHistogram.comp.glsl");
-
-    return Fvog::ComputePipeline(device, {
+    generateLuminanceHistogramPipeline_ = GetPipelineManager().EnqueueCompileComputePipeline({
       .name = "Generate Luminance Histogram",
-      .shader = &cs,
+      .shaderModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "auto_exposure/GenerateLuminanceHistogram.comp.glsl",
+        },
     });
-  }
 
-  static Fvog::ComputePipeline CreateResolveLuminanceHistogramPipeline(Fvog::Device& device)
-  {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/auto_exposure/ResolveLuminanceHistogram.comp.glsl");
-
-    return Fvog::ComputePipeline(device, {
+    resolveLuminanceHistogramPipeline_ = GetPipelineManager().EnqueueCompileComputePipeline({
       .name = "Resolve Luminance Histogram",
-      .shader = &cs,
+      .shaderModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "auto_exposure/ResolveLuminanceHistogram.comp.glsl",
+        },
     });
-  }
 
-  AutoExposure::AutoExposure(Fvog::Device& device)
-    : device_(&device),
-      dataBuffer_(device, 1, "Auto Exposure Data"),
-      generateLuminanceHistogramPipeline_(CreateGenerateLuminanceHistogramPipeline(device)),
-      resolveLuminanceHistogramPipeline_(CreateResolveLuminanceHistogramPipeline(device))
-  {
+
     // Initialize buckets to zero
     //dataBuffer_.FillData();
-    device.ImmediateSubmit(
+    Fvog::GetDevice().ImmediateSubmit(
       [this](VkCommandBuffer cmd) {
         vkCmdFillBuffer(cmd, dataBuffer_.GetDeviceBuffer().Handle(), 0, VK_WHOLE_SIZE, 0);
       });
@@ -46,7 +43,7 @@ namespace Techniques
 
   void AutoExposure::Apply(VkCommandBuffer cmd, const ApplyParams& params)
   {
-    auto ctx = Fvog::Context(*device_, cmd);
+    auto ctx = Fvog::Context(cmd);
     auto d = ctx.MakeScopedDebugMarker("Auto Exposure");
 
     auto uniforms = AutoExposureUniforms{
@@ -69,13 +66,13 @@ namespace Techniques
       .hdrBufferIndex = params.image.ImageView().GetSampledResourceHandle().index,
     });
 
-    ctx.BindComputePipeline(generateLuminanceHistogramPipeline_);
+    ctx.BindComputePipeline(generateLuminanceHistogramPipeline_.GetPipeline());
     ctx.DispatchInvocations(params.image.GetCreateInfo().extent);
     
     ctx.Barrier();
 
     // Resolve histogram
-    ctx.BindComputePipeline(resolveLuminanceHistogramPipeline_);
+    ctx.BindComputePipeline(resolveLuminanceHistogramPipeline_.GetPipeline());
     ctx.Dispatch(1, 1, 1);
 
     ctx.Barrier();

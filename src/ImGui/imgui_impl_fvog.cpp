@@ -89,6 +89,8 @@
   #include "Fvog/Buffer2.h"
   #include "Fvog/Texture2.h"
   #include "Fvog/detail/ApiToEnum2.h"
+  #include "Application.h"
+  #include "PipelineManager.h"
   #include "RendererUtilities.h"
   #include <optional>
 
@@ -109,7 +111,7 @@ static bool ImGui_ImplFvog_CreateDeviceObjects();
 static void ImGui_ImplFvog_DestroyDeviceObjects();
 static void ImGui_ImplFvog_DestroyFrameRenderBuffers(ImGui_ImplFvog_FrameRenderBuffers* buffers);
 static void ImGui_ImplFvog_DestroyWindowRenderBuffers(ImGui_ImplFvog_WindowRenderBuffers* buffers);
-static void ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(VkDevice device, const VkAllocationCallbacks* allocator);
+static void ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(const VkAllocationCallbacks* allocator);
 static void ImGui_ImplFvog_RecreatePipeline();
 
   // Vulkan prototypes for use with custom loaders
@@ -164,14 +166,11 @@ struct ImGui_ImplFvog_ViewportData
 // Vulkan data
 struct ImGui_ImplFvog_Data
 {
-  Fvog::Device* device{};
   ImGui_ImplFvog_InitInfo VulkanInitInfo;
   VkDeviceSize BufferMemoryAlignment;
   VkPipelineCreateFlags PipelineCreateFlags;
-  std::optional<Fvog::GraphicsPipeline> Pipeline; // pipeline for main render pass (created by app)
+  PipelineManager::GraphicsPipelineKey Pipeline; // pipeline for main render pass (created by app)
   VkPipeline PipelineForViewports; // pipeline for secondary viewports (created by backend)
-  std::optional<Fvog::Shader> ShaderModuleVert;
-  std::optional<Fvog::Shader> ShaderModuleFrag;
   VkSurfaceFormatKHR lastSurfaceFormat;// = {.format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
 
   // Font data
@@ -341,11 +340,11 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
     size_t index_size = AlignBufferSize(draw_data->TotalIdxCount * sizeof(ImDrawIdx), bd->BufferMemoryAlignment);
     if (!rb->vertexBuffer.has_value() || rb->vertexBuffer->SizeBytes() < vertex_size)
     {
-      rb->vertexBuffer = Fvog::Buffer(*bd->device, {.size = vertex_size, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "ImGui Vertex Buffer");
+      rb->vertexBuffer = Fvog::Buffer({.size = vertex_size, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "ImGui Vertex Buffer");
     }
     if (!rb->indexBuffer.has_value() || rb->indexBuffer->SizeBytes() < index_size)
     {
-      rb->indexBuffer = Fvog::Buffer(*bd->device, {.size = index_size, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "ImGui Index Buffer");
+      rb->indexBuffer = Fvog::Buffer({.size = index_size, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "ImGui Index Buffer");
     }
     
     auto* vtx_dst = static_cast<ImDrawVert*>(rb->vertexBuffer->GetMappedMemory());
@@ -386,7 +385,7 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
   }
 
   // Setup desired Vulkan state
-  ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline->Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
+  ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline.GetPipeline().Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
 
   // Will project scissor/clipping rectangles into framebuffer space
   ImVec2 clip_off = draw_data->DisplayPos;         // (0,0) unless using multi-viewports
@@ -407,7 +406,7 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
         // User callback, registered via ImDrawList::AddCallback()
         // (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
         if (pcmd->UserCallback == ImDrawCallback_ResetRenderState)
-          ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline->Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
+          ImGui_ImplFvog_SetupRenderState(draw_data, bd->Pipeline.GetPipeline().Handle(), command_buffer, rb, fb_width, fb_height, pushConstants);
         else
           pcmd->UserCallback(cmd_list, pcmd);
       }
@@ -460,7 +459,7 @@ void ImGui_ImplFvog_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comman
 
         pushConstants.textureColorSpace = textureSampler.GetColorSpace();
 
-        vkCmdPushConstants(command_buffer, bd->device->defaultPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(pushConstants), &pushConstants);
+        vkCmdPushConstants(command_buffer, Fvog::GetDevice().defaultPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(pushConstants), &pushConstants);
 
         // Draw
         vkCmdDrawIndexed(command_buffer, pcmd->ElemCount, 1, pcmd->IdxOffset + global_idx_offset, pcmd->VtxOffset + global_vtx_offset, 0);
@@ -491,12 +490,12 @@ void ImGui_ImplFvog_CreateFontsTexture()
   io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
   size_t upload_size = width * height * 4 * sizeof(char);
 
-  bd->FontImage = Fvog::CreateTexture2D(*bd->device, {(uint32_t)width, (uint32_t)height}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "ImGui Font Texture");
+  bd->FontImage = Fvog::CreateTexture2D({(uint32_t)width, (uint32_t)height}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "ImGui Font Texture");
 
-  bd->device->ImmediateSubmit(
+  Fvog::GetDevice().ImmediateSubmit(
     [&](VkCommandBuffer cmd) {
-      auto ctx = Fvog::Context(*bd->device, cmd);
-      auto uploadBuffer = Fvog::Buffer(*bd->device, {.size = upload_size, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "ImGui Upload Buffer");
+      auto ctx = Fvog::Context(cmd);
+      auto uploadBuffer = Fvog::Buffer({.size = upload_size, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "ImGui Upload Buffer");
       memcpy(uploadBuffer.GetMappedMemory(), pixels, upload_size);
       ctx.ImageBarrierDiscard(bd->FontImage.value(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
       ctx.CopyBufferToTexture(uploadBuffer, bd->FontImage.value(), {.extent = {(uint32_t)width, (uint32_t)height, 1},});
@@ -520,53 +519,44 @@ void ImGui_ImplFvog_DestroyFontsTexture()
   }
 }
 
-static void ImGui_ImplFvog_CreateShaderModules(VkDevice device)
+[[nodiscard]] static PipelineManager::GraphicsPipelineKey ImGui_ImplFvog_CreatePipeline(VkSampleCountFlagBits MSAASamples)
 {
-  // Create the shader modules
   ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
-  if (!bd->ShaderModuleVert.has_value())
-  {
-    bd->ShaderModuleVert = Fvog::Shader(device, Fvog::PipelineStage::VERTEX_SHADER, std::filesystem::path("shaders/imgui/imgui.vert.glsl"), "ImGui Vertex Shader");
-  }
-  if (!bd->ShaderModuleFrag.has_value())
-  {
-    bd->ShaderModuleFrag = Fvog::Shader(device, Fvog::PipelineStage::FRAGMENT_SHADER, std::filesystem::path("shaders/imgui/imgui.frag.glsl"), "ImGui Fragment Shader");
-  }
-}
 
-[[nodiscard]] static Fvog::GraphicsPipeline ImGui_ImplFvog_CreatePipeline(VkDevice device, VkSampleCountFlagBits MSAASamples)
-{
-  ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
-  ImGui_ImplFvog_CreateShaderModules(device);
-  
-  return Fvog::GraphicsPipeline(
-    *bd->device,
-    Fvog::GraphicsPipelineInfo{
-      .name = "ImGui Pipeline",
-      .vertexShader = &bd->ShaderModuleVert.value(),
-      .fragmentShader = &bd->ShaderModuleFrag.value(),
-      .inputAssemblyState = {},
-      .rasterizationState = {},
-      .multisampleState = {.rasterizationSamples = (MSAASamples != 0) ? MSAASamples : VK_SAMPLE_COUNT_1_BIT},
-      .depthState = {},
-      .colorBlendState =  {
-        .attachments = {
-          {
-            Fvog::ColorBlendAttachmentState{
-              .blendEnable = true,
-              .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-              .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-              .colorBlendOp = VK_BLEND_OP_ADD,
-              .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-              .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-              .alphaBlendOp = VK_BLEND_OP_ADD,
-           },
-          }
-        },
+  return GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "ImGui Pipeline",
+    .vertexModuleInfo   = PipelineManager::ShaderModuleCreateInfo{
+      .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "imgui/imgui.vert.glsl",
+    },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "imgui/imgui.frag.glsl",
       },
-      .renderTargetFormats = Fvog::RenderTargetFormats{{{Fvog::detail::VkToFormat(bd->lastSurfaceFormat.format)}}},
-    }
-  );
+    .state =
+      {
+        .inputAssemblyState = {},
+        .rasterizationState = {},
+        .multisampleState   = {.rasterizationSamples = (MSAASamples != 0) ? MSAASamples : VK_SAMPLE_COUNT_1_BIT},
+        .depthState         = {},
+        .colorBlendState =
+          {
+            .attachments = {{
+              Fvog::ColorBlendAttachmentState{
+                .blendEnable         = true,
+                .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+                .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                .colorBlendOp        = VK_BLEND_OP_ADD,
+                .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+                .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                .alphaBlendOp        = VK_BLEND_OP_ADD,
+              },
+            }},
+          },
+        .renderTargetFormats = Fvog::RenderTargetFormats{{{Fvog::detail::VkToFormat(bd->lastSurfaceFormat.format)}}},
+      },
+  });
 }
 
 
@@ -574,8 +564,9 @@ IMGUI_IMPL_API void ImGui_ImplFvog_RecreatePipeline()
 {
   ImGui_ImplFvog_Data* bd    = ImGui_ImplFvog_GetBackendData();
   ImGui_ImplFvog_InitInfo* v = &bd->VulkanInitInfo;
-  
-  bd->Pipeline = ImGui_ImplFvog_CreatePipeline(v->Device->device_, v->MSAASamples);
+
+  // TODO: Leaks pipeline!
+  bd->Pipeline = ImGui_ImplFvog_CreatePipeline(v->MSAASamples);
 }
 
 static bool ImGui_ImplFvog_CreateDeviceObjects()
@@ -585,7 +576,7 @@ static bool ImGui_ImplFvog_CreateDeviceObjects()
   if (!bd->FontSampler)
   {
     // Bilinear sampling is required by default. Set 'io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines' or 'style.AntiAliasedLinesUseTex = false' to allow point/nearest sampling.
-    bd->FontSampler = Fvog::Sampler(*bd->device, {
+    bd->FontSampler = Fvog::Sampler({
       .magFilter = VK_FILTER_LINEAR,
       .minFilter = VK_FILTER_LINEAR,
       .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -603,18 +594,14 @@ static bool ImGui_ImplFvog_CreateDeviceObjects()
 void ImGui_ImplFvog_DestroyDeviceObjects()
 {
   ImGui_ImplFvog_Data* bd = ImGui_ImplFvog_GetBackendData();
-  ImGui_ImplFvog_InitInfo* v = &bd->VulkanInitInfo;
-  ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(v->Device->device_, nullptr);
+  ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(nullptr);
   ImGui_ImplFvog_DestroyFontsTexture();
   
-  bd->ShaderModuleVert.reset();
-  bd->ShaderModuleFrag.reset();
   bd->FontSampler.reset();
-  bd->Pipeline.reset();
 
   if (bd->PipelineForViewports)
   {
-    vkDestroyPipeline(v->Device->device_, bd->PipelineForViewports, nullptr);
+    vkDestroyPipeline(Fvog::GetDevice().device_, bd->PipelineForViewports, nullptr);
     bd->PipelineForViewports = VK_NULL_HANDLE;
   }
 }
@@ -647,14 +634,12 @@ bool ImGui_ImplFvog_Init(ImGui_ImplFvog_InitInfo* info)
 
   IM_ASSERT(info->Instance != VK_NULL_HANDLE);
   IM_ASSERT(info->PhysicalDevice != VK_NULL_HANDLE);
-  IM_ASSERT(info->Device != VK_NULL_HANDLE);
   IM_ASSERT(info->Queue != VK_NULL_HANDLE);
   IM_ASSERT(info->DescriptorPool != VK_NULL_HANDLE);
   IM_ASSERT(info->MinImageCount >= 2);
   IM_ASSERT(info->ImageCount >= info->MinImageCount);
 
   bd->VulkanInitInfo = *info;
-  bd->device = info->Device;
 
   ImGui_ImplFvog_CreateDeviceObjects();
 
@@ -709,8 +694,8 @@ void ImGui_ImplFvog_SetMinImageCount(uint32_t min_image_count)
     return;
 
   IM_ASSERT(0); // FIXME-VIEWPORT: Unsupported. Need to recreate all swap chains!
-  ImGui_ImplFvog_InitInfo* v = &bd->VulkanInitInfo;
-  VkResult err = vkDeviceWaitIdle(v->Device->device_);
+
+  VkResult err = vkDeviceWaitIdle(Fvog::GetDevice().device_);
   check_vk_result(err);
   //ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(v->Device, nullptr);
 
@@ -733,7 +718,7 @@ void ImGui_ImplFvog_DestroyWindowRenderBuffers(ImGui_ImplFvog_WindowRenderBuffer
   buffers->Count = 0;
 }
 
-void ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(VkDevice, const VkAllocationCallbacks*)
+void ImGui_ImplFvogH_DestroyAllViewportsRenderBuffers(const VkAllocationCallbacks*)
 {
   ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
   for (int n = 0; n < platform_io.Viewports.Size; n++)

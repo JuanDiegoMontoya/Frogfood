@@ -10,6 +10,6 @@ namespace Fvog
   class Texture;
 }
 
-Fvog::Shader LoadShaderWithIncludes2(Fvog::Device& device, Fvog::PipelineStage stage, const std::filesystem::path& path);
+Fvog::Shader LoadShaderWithIncludes2(Fvog::PipelineStage stage, const std::filesystem::path& path);
 
-Fvog::Texture LoadTextureShrimple(Fvog::Device& device, const std::filesystem::path& path);
+Fvog::Texture LoadTextureShrimple(const std::filesystem::path& path);

@@ -22,7 +22,12 @@ namespace Fvog
   {
     VERTEX_SHADER,
     FRAGMENT_SHADER,
-    COMPUTE_SHADER
+    COMPUTE_SHADER,
+    RAYGEN_SHADER,
+    MISS_SHADER,
+    CLOSEST_HIT_SHADER,
+    ANY_HIT_SHADER,
+    INTERSECTION_SHADER,
   };
 
   /// @brief A shader object to be used in one or more GraphicsPipeline or ComputePipeline objects
@@ -34,10 +39,10 @@ namespace Fvog
     /// @param source A GLSL source string
     /// @throws ShaderCompilationException if the shader is malformed
     // Already-processed source constructor
-    explicit Shader(VkDevice device, PipelineStage stage, std::string_view source, std::string name = {});
+    explicit Shader(PipelineStage stage, std::string_view source, std::string name = {});
 
     // Path constructor (uses glslang include handling)
-    explicit Shader(VkDevice device, PipelineStage stage, const std::filesystem::path& path, std::string name = {});
+    explicit Shader(PipelineStage stage, const std::filesystem::path& path, std::string name = {});
     Shader(const Shader&) = delete;
     Shader(Shader&& old) noexcept;
     Shader& operator=(const Shader&) = delete;
@@ -56,11 +61,17 @@ namespace Fvog
       return workgroupSize_;
     }
 
+    [[nodiscard]] PipelineStage GetPipelineStage() const
+    {
+      return stage_;
+    }
+
   private:
-    void Initialize(VkDevice device, const detail::ShaderCompileInfo& info);
-    VkDevice device_;
+    void Initialize(const detail::ShaderCompileInfo& info);
+
+    std::string name_;
+    PipelineStage stage_{};
     VkShaderModule shaderModule_;
     Extent3D workgroupSize_{};
-    std::string name_;
   };
 }

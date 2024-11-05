@@ -73,6 +73,8 @@ namespace Fvog
     // TODO: maybe this should return a u64 representing a timeline semaphore value that can be waited on
     void ImmediateSubmit(const std::function<void(VkCommandBuffer)>& function) const;
 
+    bool supportsRayTracing = false;
+
     void FreeUnusedResources();
 
     // Descriptor stuff
@@ -89,17 +91,19 @@ namespace Fvog
     };
 
     constexpr static uint32_t maxResourceDescriptors = 100'000;
-    constexpr static uint32_t maxSamplerDescriptors = 100;
+    constexpr static uint32_t maxSamplerDescriptors = 1000;
     constexpr static uint32_t storageBufferBinding = 0;
     constexpr static uint32_t combinedImageSamplerBinding = 1;
     constexpr static uint32_t storageImageBinding = 2;
     constexpr static uint32_t sampledImageBinding = 3;
     constexpr static uint32_t samplerBinding = 4;
+    constexpr static uint32_t accelerationStructureBinding = 5;
     IndexAllocator storageBufferDescriptorAllocator = maxResourceDescriptors;
     IndexAllocator combinedImageSamplerDescriptorAllocator = maxResourceDescriptors;
     IndexAllocator storageImageDescriptorAllocator = maxResourceDescriptors;
     IndexAllocator sampledImageDescriptorAllocator = maxResourceDescriptors;
     IndexAllocator samplerDescriptorAllocator = maxSamplerDescriptors;
+    IndexAllocator accelerationStructureDescriptorAllocator = maxResourceDescriptors;
     VkDescriptorPool descriptorPool_{};
     VkDescriptorSetLayout descriptorSetLayout_{};
     VkDescriptorSet descriptorSet_{};
@@ -113,6 +117,7 @@ namespace Fvog
       STORAGE_IMAGE,
       SAMPLED_IMAGE,
       SAMPLER,
+      ACCELERATION_STRUCTURE,
     };
 
     class DescriptorInfo
@@ -147,6 +152,7 @@ namespace Fvog
     DescriptorInfo AllocateStorageImageDescriptor(VkImageView imageView, VkImageLayout imageLayout);
     DescriptorInfo AllocateSampledImageDescriptor(VkImageView imageView, VkImageLayout imageLayout);
     DescriptorInfo AllocateSamplerDescriptor(VkSampler sampler);
+    DescriptorInfo AllocateAccelerationStructureDescriptor(VkAccelerationStructureKHR tlas);
 
     // Queues
     VkQueue graphicsQueue_{};
@@ -193,4 +199,9 @@ namespace Fvog
 
     std::deque<std::function<bool(uint64_t)>> genericDeletionQueue_;
   };
+
+  // I love mutable global state
+  void CreateDevice(vkb::Instance& instance, VkSurfaceKHR surface);
+  [[nodiscard]] Device& GetDevice();
+  void DestroyDevice();
 }

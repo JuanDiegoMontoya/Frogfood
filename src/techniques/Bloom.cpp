@@ -1,6 +1,7 @@
 #include "Bloom.h"
 
 #include "shaders/bloom/BloomCommon.h.glsl"
+#include "Application.h"
 
 #include "Fvog/Rendering2.h"
 #include "Fvog/Shader2.h"
@@ -9,49 +10,40 @@
 
 namespace Techniques
 {
-  static Fvog::ComputePipeline CreateBloomDownsampleLowPassPipeline(Fvog::Device& device)
+  Bloom::Bloom()
   {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsampleLowPass.comp.glsl");
-
-    return Fvog::ComputePipeline(device, {
-      .name = "Bloom Downsample (low-pass)",
-      .shader = &cs,
+    downsampleLowPassPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
+      .name             = "Bloom Downsample (low-pass)",
+      .shaderModuleInfo = PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "bloom/BloomDownsampleLowPass.comp.glsl",
+      },
     });
-  }
 
-  static Fvog::ComputePipeline CreateBloomDownsamplePipeline(Fvog::Device& device)
-  {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomDownsample.comp.glsl");
-
-    return Fvog::ComputePipeline(device, {
+    downsamplePipeline = GetPipelineManager().EnqueueCompileComputePipeline({
       .name = "Bloom Downsample",
-      .shader = &cs,
+      .shaderModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "bloom/BloomDownsample.comp.glsl",
+        },
     });
-  }
 
-  static Fvog::ComputePipeline CreateBloomUpsamplePipeline(Fvog::Device& device)
-  {
-    auto cs = LoadShaderWithIncludes2(device, Fvog::PipelineStage::COMPUTE_SHADER, "shaders/bloom/BloomUpsample.comp.glsl");
-
-    return Fvog::ComputePipeline(device, {
+    upsamplePipeline = GetPipelineManager().EnqueueCompileComputePipeline({
       .name = "Bloom Upsample",
-      .shader = &cs,
+      .shaderModuleInfo =
+        PipelineManager::ShaderModuleCreateInfo{
+          .stage = Fvog::PipelineStage::COMPUTE_SHADER,
+          .path  = GetShaderDirectory() / "bloom/BloomUpsample.comp.glsl",
+        },
     });
-  }
-
-  Bloom::Bloom(Fvog::Device& device)
-    : device_(&device),
-      downsampleLowPassPipeline(CreateBloomDownsampleLowPassPipeline(device)),
-      downsamplePipeline(CreateBloomDownsamplePipeline(device)),
-      upsamplePipeline(CreateBloomUpsamplePipeline(device))
-  {
   }
 
   void Bloom::Apply(VkCommandBuffer commandBuffer, const ApplyParams& params)
   {
     assert(params.passes <= params.scratchTexture.GetCreateInfo().mipLevels && "Bloom target is too small for the number of passes");
     
-    auto linearSampler = Fvog::Sampler(*device_, {
+    auto linearSampler = Fvog::Sampler({
       .magFilter = VK_FILTER_LINEAR,
       .minFilter = VK_FILTER_LINEAR,
       .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
@@ -59,7 +51,7 @@ namespace Techniques
       .addressModeV = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
     }, "Linear Mirror Sampler");
 
-    auto ctx = Fvog::Context(*device_, commandBuffer);
+    auto ctx = Fvog::Context(commandBuffer);
     auto marker = ctx.MakeScopedDebugMarker("Bloom");
 
     ctx.ImageBarrier(params.target, VK_IMAGE_LAYOUT_GENERAL);
@@ -82,11 +74,11 @@ namespace Techniques
         {
           if (params.useLowPassFilterOnFirstPass)
           {
-            ctx.BindComputePipeline(downsampleLowPassPipeline);
+            ctx.BindComputePipeline(downsampleLowPassPipeline.GetPipeline());
           }
           else
           {
-            ctx.BindComputePipeline(downsamplePipeline);
+            ctx.BindComputePipeline(downsamplePipeline.GetPipeline());
           }
         
           sourceLod = 0;
@@ -95,7 +87,7 @@ namespace Techniques
         }
         else
         {
-          ctx.BindComputePipeline(downsamplePipeline);
+          ctx.BindComputePipeline(downsamplePipeline.GetPipeline());
 
           sourceLod = static_cast<float>(i - 1);
           sourceTex = &params.scratchTexture;
@@ -117,7 +109,7 @@ namespace Techniques
 
     {
       auto marker2 = ctx.MakeScopedDebugMarker("Upsample");
-      ctx.BindComputePipeline(upsamplePipeline);
+      ctx.BindComputePipeline(upsamplePipeline.GetPipeline());
       for (int32_t i = params.passes - 1; i >= 0; i--)
       {
         ctx.Barrier();

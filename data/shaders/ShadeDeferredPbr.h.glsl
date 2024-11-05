@@ -5,6 +5,9 @@
 #include "Color.h.glsl"
 
 #if defined(__cplusplus) || defined(SHADING_PUSH_CONSTANTS)
+#ifdef __cplusplus
+using namespace shared;
+#endif
 FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
 {
   FVOG_UINT32 globalUniformsIndex;
@@ -18,6 +21,7 @@ FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
   FVOG_UINT32 gSmoothVertexNormalIndex;
   FVOG_UINT32 gEmissionIndex;
   FVOG_UINT32 gMetallicRoughnessAoIndex;
+  Texture2D ambientOcclusion;
   
   FVOG_UINT32 pageTablesIndex;
   FVOG_UINT32 physicalPagesIndex;
@@ -28,6 +32,7 @@ FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
   FVOG_UINT32 nearestSamplerIndex;
   
   FVOG_UINT32 physicalPagesOverdrawIndex;
+  Buffer debugLinesBuffer;
 };
 #endif
 
@@ -56,15 +61,19 @@ struct GpuLight
   FVOG_UINT32 _padding;
 };
 
-#define SHADOW_FILTER_PCSS 0
-#define SHADOW_FILTER_SMRT 1
-#define SHADOW_FILTER_NONE 2
+#define SHADOW_MODE_VIRTUAL_SHADOW_MAP 0
+#define SHADOW_MODE_RAY_TRACED         1
+
+#define SHADOW_MAP_FILTER_NONE 0
+#define SHADOW_MAP_FILTER_PCSS 1
+#define SHADOW_MAP_FILTER_SMRT 2
 
 struct ShadowUniforms
 {
 #ifdef __cplusplus
   ShadowUniforms() :
-    shadowFilter(SHADOW_FILTER_PCSS),
+    shadowMode(SHADOW_MODE_VIRTUAL_SHADOW_MAP),
+    shadowMapFilter(SHADOW_MAP_FILTER_PCSS),
 
     pcfSamples(16),
     lightWidth(0.002f), // The sun's real angular radius is about 0.0087 radians.
@@ -76,10 +85,16 @@ struct ShadowUniforms
     stepsPerRay(7),
     rayStepSize(0.1f),
     heightmapThickness(0.5f),
-    sourceAngleRad(0.05f) {}
+    sourceAngleRad(0.05f),
+
+    rtNumSunShadowRays(1),
+    rtSunDiameterRadians(0.0087f),
+    rtTraceLocalLights(false)
+    {}
 #endif
 
-  FVOG_UINT32 shadowFilter;
+  FVOG_UINT32 shadowMode;
+  FVOG_UINT32 shadowMapFilter;
 
   // PCSS
   FVOG_UINT32 pcfSamples;
@@ -94,6 +109,11 @@ struct ShadowUniforms
   FVOG_FLOAT rayStepSize;
   FVOG_FLOAT heightmapThickness;
   FVOG_FLOAT sourceAngleRad;
+
+  // Ray traced
+  FVOG_UINT32 rtNumSunShadowRays;
+  FVOG_FLOAT rtSunDiameterRadians;
+  FVOG_UINT32 rtTraceLocalLights;
 };
 
 #define VSM_SHOW_CLIPMAP_ID    (1 << 0)
@@ -103,22 +123,48 @@ struct ShadowUniforms
 #define VSM_SHOW_DIRTY_PAGES   (1 << 4)
 #define BLEND_NORMALS          (1 << 5)
 #define VSM_SHOW_OVERDRAW      (1 << 6)
+#define SHOW_AO_ONLY           (1 << 7)
+
+#define GI_METHOD_CONSTANT_AMBIENT 1
+#define GI_METHOD_PATH_TRACED      2
 
 struct ShadingUniforms
 {
 #ifdef __cplusplus
   ShadingUniforms() :
+    ambientIlluminance(1, 1, 1, 0.03f),
+    skyIlluminance(.1f, .3f, .5f, 1.0f),
     debugFlags(0),
-    shadingInternalColorSpace(COLOR_SPACE_BT2020_LINEAR)
+    shadingInternalColorSpace(COLOR_SPACE_BT2020_LINEAR),
+    captureActive(0),
+    globalIlluminationMethod(GI_METHOD_CONSTANT_AMBIENT),
+    numGiRays(1),
+    numGiBounces(3)
   {}
 #endif
 
   FVOG_VEC4 sunDir;
-  FVOG_VEC4 sunStrength;
+  FVOG_VEC4 sunIlluminance;
+  FVOG_VEC4 ambientIlluminance;
+  FVOG_VEC4 skyIlluminance;
   FVOG_VEC2 random;
   FVOG_UINT32 numberOfLights;
   FVOG_UINT32 debugFlags;
   FVOG_UINT32 shadingInternalColorSpace;
+  
+  // TODO: temp rt stuff
+  FVOG_UINT32 materialBufferIndex;
+  FVOG_UINT32 instanceBufferIndex;
+  FVOG_UINT32 tlasIndex;
+  FVOG_IVEC2  captureRayPos;
+  FVOG_UINT64 tlasAddress;
+  FVOG_BOOL32 captureActive; // 1 == capture rays from one invocation, 2 == capture rays from all invocations
+
+  FVOG_UINT32 globalIlluminationMethod; // For indirect lighting only, but named this way for consistency
+  FVOG_UINT32 numGiRays; // TEMP
+  FVOG_UINT32 numGiBounces; // TEMP
+  Texture2D noiseTexture;
+  FVOG_UINT32 frameNumber;
 };
 
 #endif // SHADE_DEFERRED_PBR_H

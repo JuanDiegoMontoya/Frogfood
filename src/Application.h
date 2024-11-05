@@ -12,6 +12,7 @@
 #include <functional>
 #include <optional>
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
@@ -97,7 +98,6 @@ protected:
   // destroyList will be the last object to be automatically destroyed after the destructor returns
   DestroyList destroyList_;
   vkb::Instance instance_{};
-  std::optional<Fvog::Device> device_;
   VkSurfaceKHR surface_{};
   VkDescriptorPool imguiDescriptorPool_{};
   vkb::Swapchain swapchain_{};
@@ -139,3 +139,8 @@ private:
   bool graveHeldLastFrame = false;
   bool swapchainOk = true;
 };
+
+std::filesystem::path GetAssetDirectory();
+std::filesystem::path GetShaderDirectory();
+std::filesystem::path GetTextureDirectory();
+std::filesystem::path GetConfigDirectory();

@@ -6,6 +6,7 @@
 #include <tracy/Tracy.hpp>
 
 #include "fastgltf/util.hpp"
+#include <fastgltf/types.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace Scene
@@ -17,7 +18,6 @@ namespace Scene
 
     // Every mesh node creates a new mesh instance for now.
     // Also, not every node necessarily holds a mesh, so this may over-reserve.
-    meshInstanceIds.reserve(meshInstanceIds.size() + loadModelResult.nodes.size());
     meshIds.reserve(meshIds.size() + loadModelResult.nodes.size());
 
     // Also assume that every node holds a light. These IDs are tiny.
@@ -28,6 +28,7 @@ namespace Scene
       // First material is always default.
       constexpr auto defaultGpu = Render::GpuMaterial{
         .metallicFactor  = 0,
+        .roughnessFactor = 1,
         .baseColorFactor = {0.5f, 0.5f, 0.5f, 0.5f},
       };
       materialIds.emplace_back(renderer.RegisterMaterial({.gpuMaterial = defaultGpu}));
@@ -40,11 +41,13 @@ namespace Scene
 
     for (const auto& meshGeometry : loadModelResult.meshGeometries)
     {
+      // TODO: move arrays in
       auto info = FrogRenderer2::MeshGeometryInfo{
-        .meshlets   = meshGeometry.meshlets,
-        .vertices   = meshGeometry.vertices,
-        .indices    = meshGeometry.indices,
-        .primitives = meshGeometry.primitives,
+        .meshlets        = std::move(meshGeometry.meshlets),
+        .vertices        = std::move(meshGeometry.vertices),
+        .remappedIndices = std::move(meshGeometry.remappedIndices),
+        .primitives      = std::move(meshGeometry.primitives),
+        .originalIndices = std::move(meshGeometry.originalIndices),
       };
       meshGeometryIds.push_back(renderer.RegisterMeshGeometry(info));
     }
@@ -92,14 +95,9 @@ namespace Scene
 
       for (auto& [meshIndex, materialIndex] : node->meshes)
       {
-        auto& meshInstanceId = meshInstanceIds.emplace_back(renderer.RegisterMeshInstance({
-          .meshGeometry = meshGeometryIds[baseMeshGeometryIndex + meshIndex],
-          .material     = materialIds[materialIndex.has_value() ? baseMaterialIndex + *materialIndex : 0],
-        }));
-        
-        auto meshId = meshIds.emplace_back(renderer.SpawnMesh(meshInstanceId));
-        // TODO: make a new node instead of putting a bunch of meshes on one node (or not, honestly this is fine)
-        newNode->meshIds.push_back(meshId);
+        auto meshId     = meshIds.emplace_back(renderer.SpawnMesh(meshGeometryIds[baseMeshGeometryIndex + meshIndex]));
+        auto materialId = materialIds[materialIndex.has_value() ? baseMaterialIndex + *materialIndex : 0];
+        newNode->meshes.emplace_back(meshId, materialId);
       }
 
       if (node->light)
@@ -160,6 +158,7 @@ namespace Scene
       nodeStack.pop();
 
       const auto globalTransform = parentGlobalTransform * node->CalcLocalTransform();
+      node->globalTransform      = globalTransform;
 
       for (auto* childNode : node->children)
       {
@@ -177,11 +176,14 @@ namespace Scene
 
       if (node->isDirty)
       {
-        for (auto meshId : node->meshIds)
+        for (auto [meshId, materialId] : node->meshes)
         {
           const auto uniforms = Render::ObjectUniforms{
             .modelPrevious = globalTransform,
             .modelCurrent = globalTransform,
+            .vertexBuffer = renderer.GetVertexBufferPointerFromMesh(meshId),
+            .indexBuffer = renderer.GetOriginalIndexBufferPointerFromMesh(meshId),
+            .materialId = renderer.GetMaterialGpuIndex(materialId),
           };
           renderer.UpdateMesh(meshId, uniforms);
         }
@@ -190,12 +192,12 @@ namespace Scene
         {
           auto gpuLight = node->light;
 
-          std::array<float, 16> globalTransformArray{};
+          auto globalTransformArray = fastgltf::math::fmat4x4{};
           std::copy_n(&globalTransform[0][0], 16, globalTransformArray.data());
-          std::array<float, 3> scaleArray{};
-          std::array<float, 4> rotationArray{};
-          std::array<float, 3> translationArray{};
-          fastgltf::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
+          auto scaleArray = fastgltf::math::fvec3{};
+          auto rotationArray = fastgltf::math::fquat{};
+          auto translationArray = fastgltf::math::fvec3{};
+          fastgltf::math::decomposeTransformMatrix(globalTransformArray, scaleArray, rotationArray, translationArray);
 
           glm::quat rotation    = {rotationArray[3], rotationArray[0], rotationArray[1], rotationArray[2]};
           glm::vec3 translation = glm::make_vec3(translationArray.data());

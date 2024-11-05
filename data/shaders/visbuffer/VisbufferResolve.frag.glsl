@@ -1,6 +1,3 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : enable
-
 #include "VisbufferCommon.h.glsl"
 #include "../hzb/HZBCommon.h.glsl"
 
@@ -16,10 +13,6 @@ layout(location = 2) out vec4 o_normalAndFaceNormal;
 layout(location = 3) out vec2 o_smoothVertexNormal;
 layout(location = 4) out vec3 o_emission;
 layout(location = 5) out vec2 o_motion;
-
-FVOG_DECLARE_SAMPLERS;
-FVOG_DECLARE_SAMPLED_IMAGES(texture2D);
-FVOG_DECLARE_SAMPLED_IMAGES(utexture2D);
 
 struct PartialDerivatives
 {
@@ -251,7 +244,7 @@ void main()
   const uint primitiveId = payload & MESHLET_PRIMITIVE_MASK;
   const MeshletInstance meshletInstance = d_meshletInstances[meshletInstanceId];
   const Meshlet meshlet = d_meshlets[meshletInstance.meshletId];
-  const GpuMaterial material = d_materials[meshletInstance.materialId];
+  const GpuMaterial material = d_materials[d_transforms[meshletInstance.instanceId].materialId];
   const mat4 transform = d_transforms[meshletInstance.instanceId].modelCurrent;
   const mat4 transformPrevious = d_transforms[meshletInstance.instanceId].modelPrevious;
 
@@ -316,7 +309,7 @@ void main()
     SampleMetallicRoughness(material, uvGrad),
     SampleOcclusion(material, uvGrad));
   o_normalAndFaceNormal.xy = Vec3ToOct(normal);
-  o_normalAndFaceNormal.zw = Vec3ToOct(flatNormal);
+  o_normalAndFaceNormal.zw = Vec3ToOct(normalize(normalMatrix * flatNormal));
   o_smoothVertexNormal = Vec3ToOct(smoothWorldNormal);
   o_emission = SampleEmission(material, uvGrad);
   o_motion = MakeSmoothMotion(partialDerivatives, worldPosition, worldPositionPrevious);

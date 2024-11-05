@@ -5,6 +5,7 @@
 #include "Fvog/Texture2.h"
 #include "Fvog/Buffer2.h"
 #include "Fvog/Pipeline2.h"
+#include "PipelineManager.h"
 
 #include "shaders/Resources.h.glsl"
 
@@ -18,7 +19,7 @@ namespace Techniques
   class AutoExposure
   {
   public:
-    explicit AutoExposure(Fvog::Device& device);
+    explicit AutoExposure();
 
     struct ApplyParams
     {
@@ -67,11 +68,10 @@ namespace Techniques
       AutoExposureUniforms uniforms;
       uint32_t histogramBuckets[numBuckets];
     };
-
-    Fvog::Device* device_{};
+    
     Fvog::NDeviceBuffer<AutoExposureBufferData> dataBuffer_;
 
-    Fvog::ComputePipeline generateLuminanceHistogramPipeline_;
-    Fvog::ComputePipeline resolveLuminanceHistogramPipeline_;
+    PipelineManager::ComputePipelineKey generateLuminanceHistogramPipeline_;
+    PipelineManager::ComputePipelineKey resolveLuminanceHistogramPipeline_;
   };
 }

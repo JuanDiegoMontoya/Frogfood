@@ -6,13 +6,13 @@
 #include "Fvog/Rendering2.h"
 
 #include "Renderables.h"
-
-#include "Fvog/detail/ApiToEnum2.h"
+#include "MathUtilities.h"
 
 #include <tracy/Tracy.hpp>
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/transform.hpp>
 
 #include "ktx.h"
@@ -27,7 +27,7 @@
 #include <stb_image.h>
 
 #include <fastgltf/glm_element_traits.hpp>
-#include <fastgltf/parser.hpp>
+#include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
 
@@ -86,17 +86,6 @@ namespace Utility
       }
     }
 
-    glm::vec2 signNotZero(glm::vec2 v)
-    {
-      return glm::vec2((v.x >= 0.0f) ? +1.0f : -1.0f, (v.y >= 0.0f) ? +1.0f : -1.0f);
-    }
-
-    glm::vec2 float32x3_to_oct(glm::vec3 v)
-    {
-      glm::vec2 p = glm::vec2{v.x, v.y} * (1.0f / (abs(v.x) + abs(v.y) + abs(v.z)));
-      return (v.z <= 0.0f) ? ((1.0f - glm::abs(glm::vec2{p.y, p.x})) * signNotZero(p)) : p;
-    }
-
     auto ConvertGlAddressMode(uint32_t wrap)
     {
       switch (wrap)
@@ -146,7 +135,7 @@ namespace Utility
       return extent.width * extent.height * extent.depth * Fvog::detail::FormatStorageSize(format);
     }
 
-    std::vector<Fvog::Texture> LoadImages(Fvog::Device& device, const fastgltf::Asset& asset)
+    std::vector<Fvog::Texture> LoadImages(const fastgltf::Asset& asset)
     {
       ZoneScoped;
 
@@ -255,22 +244,21 @@ namespace Utility
         
               return MakeRawImageData(fileData.first.get(), fileData.second, filePath->mimeType, image.name);
             }
-        
-            if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&image.data))
+            if (const auto* array = std::get_if<fastgltf::sources::Array>(&image.data))
             {
-              return MakeRawImageData(vector->bytes.data(), vector->bytes.size(), vector->mimeType, image.name);
+              return MakeRawImageData(array->bytes.data(), array->bytes.size(), array->mimeType, image.name);
             }
-        
             if (const auto* view = std::get_if<fastgltf::sources::BufferView>(&image.data))
             {
               auto& bufferView = asset.bufferViews[view->bufferViewIndex];
               auto& buffer = asset.buffers[bufferView.bufferIndex];
-              if (const auto* vector = std::get_if<fastgltf::sources::Vector>(&buffer.data))
+              if (const auto* array = std::get_if<fastgltf::sources::Array>(&buffer.data))
               {
-                return MakeRawImageData(vector->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
+                return MakeRawImageData(array->bytes.data() + bufferView.byteOffset, bufferView.byteLength, view->mimeType, image.name);
               }
             }
             
+            assert(0);
             return RawImageData{};
           }();
         
@@ -327,7 +315,6 @@ namespace Utility
             else
             {
               // Use the format that the image is already in
-              //rawImage.formatIfKtx = VkBcFormatToFwog(ktx->vkFormat);
               rawImage.formatIfKtx = Fvog::detail::VkToFormat(static_cast<VkFormat>(ktx->vkFormat));
             }
         
@@ -356,6 +343,7 @@ namespace Utility
             rawImage.data.reset(pixels);
           }
 
+          ZoneTextF("Dimensions: (%d, %d)", rawImage.height, rawImage.width);
           return rawImage;
         });
 
@@ -381,7 +369,7 @@ namespace Utility
       imagesToBarrier.reserve(rawImageData.size());
 
       constexpr size_t BATCH_SIZE = 1'000'000'000;
-      auto stagingBuffer = Fvog::Buffer(device, {.size = BATCH_SIZE, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "Scene Loader Staging Buffer");
+      auto stagingBuffer = Fvog::Buffer({.size = BATCH_SIZE, .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE}, "Scene Loader Staging Buffer");
 
       auto flushImageUploads = [&] {
         ZoneScopedN("Flush Image Uploads");
@@ -389,15 +377,15 @@ namespace Utility
         // Recreate staging buffer if it's too small
         if (currentBufferOffset + imageUploadInfos.back().size > stagingBuffer.SizeBytes())
         {
-          stagingBuffer = Fvog::Buffer(device,
+          stagingBuffer = Fvog::Buffer(
             {.size = VkDeviceSize((currentBufferOffset + imageUploadInfos.back().size) * 1.5), .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE},
             "Scene Loader Staging Buffer");
         }
 
         // Fire off copies in one batch
-        device.ImmediateSubmit([&](VkCommandBuffer commandBuffer)
+        Fvog::GetDevice().ImmediateSubmit([&](VkCommandBuffer commandBuffer)
         {
-          auto ctx = Fvog::Context(device, commandBuffer);
+          auto ctx = Fvog::Context(commandBuffer);
           for (auto* loadedImage : imagesToBarrier)
           {
             ctx.ImageBarrierDiscard(*loadedImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -411,7 +399,7 @@ namespace Utility
               [&](const ImageUploadInfo& imageUpload)
               { std::memcpy(static_cast<std::byte*>(stagingBuffer.GetMappedMemory()) + imageUpload.bufferOffset, imageUpload.data, imageUpload.size); });
           }
-
+          
           for (const auto& imageUpload : imageUploadInfos)
           {
             vkCmdCopyBufferToImage2(commandBuffer, Fvog::detail::Address(VkCopyBufferToImageInfo2{
@@ -450,7 +438,7 @@ namespace Utility
           ZoneScopedN("Upload BCn Image");
           auto* ktx = image.ktx.get();
 
-          auto textureData = Fvog::CreateTexture2DMip(device, dims, image.formatIfKtx, ktx->numLevels, usage, name);
+          auto textureData = Fvog::CreateTexture2DMip(dims, image.formatIfKtx, ktx->numLevels, usage, name);
 
           for (uint32_t level = 0; level < ktx->numLevels; level++)
           {
@@ -485,8 +473,7 @@ namespace Utility
           assert(image.bits == 8);
 
           // TODO: use R8G8_UNORM for normal maps
-          auto textureData = Fvog::CreateTexture2DMip(device,
-                                                      dims,
+          auto textureData = Fvog::CreateTexture2DMip(dims,
                                                       Fvog::Format::R8G8B8A8_UNORM,
                                                       //uint32_t(1 + floor(log2(glm::max(dims.width, dims.height)))),
                                                       1,
@@ -534,10 +521,10 @@ namespace Utility
       }
 
       // Transition every loaded image to READ_ONLY
-      device.ImmediateSubmit(
+      Fvog::GetDevice().ImmediateSubmit(
         [&](VkCommandBuffer commandBuffer)
         {
-          auto ctx = Fvog::Context(device, commandBuffer);
+          auto ctx = Fvog::Context(commandBuffer);
           for (auto& loadedImage : loadedImages)
           {
             ctx.ImageBarrier(loadedImage, VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL);
@@ -553,7 +540,15 @@ namespace Utility
          rawImageData.end(),
           [](RawImageData& rawImage)
           {
-            ZoneScoped;
+            ZoneScopedN("Free image data");
+            if (!rawImage.name.empty())
+            {
+              ZoneTextF("Name: %s", rawImage.name.c_str());
+            }
+            else
+            {
+              ZoneTextF("%s", "Unnamed");
+            }
             rawImage.data.reset();
             rawImage.ktx.reset();
             rawImage.encodedPixelData.reset();
@@ -567,7 +562,7 @@ namespace Utility
     {
       glm::mat4 transform{1};
 
-      if (auto* trs = std::get_if<fastgltf::Node::TRS>(&node.transform))
+      if (auto* trs = std::get_if<fastgltf::TRS>(&node.transform))
       {
         // Note: do not use glm::make_quat because glm and glTF use different quaternion component layouts (wxyz vs xyzw)!
         auto rotation = glm::quat{trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]};
@@ -579,7 +574,7 @@ namespace Utility
         // T * R * S
         transform = glm::scale(glm::translate(translation) * rotationMat, scale);
       }
-      else if (auto* mat = std::get_if<fastgltf::Node::TransformMatrix>(&node.transform))
+      else if (auto* mat = std::get_if<fastgltf::math::fmat4x4>(&node.transform))
       {
         transform = glm::make_mat4(mat->data());
       }
@@ -687,7 +682,7 @@ namespace Utility
 
     for (size_t i = 0; i < positions.size(); i++)
     {
-      vertices[i] = {positions[i], glm::packSnorm2x16(float32x3_to_oct(normals[i])), texcoords[i]};
+      vertices[i] = {positions[i], glm::packSnorm2x16(Math::Vec3ToOct(normals[i])), texcoords[i]};
     }
 
     return vertices;
@@ -703,7 +698,7 @@ namespace Utility
     return indices;
   }
 
-  std::vector<Render::Material> LoadMaterials([[maybe_unused]] Fvog::Device& device, const fastgltf::Asset& model, std::span<Fvog::Texture> images)
+  std::vector<Render::Material> LoadMaterials(const fastgltf::Asset& model, std::span<Fvog::Texture> images)
   {
     ZoneScoped;
     auto LoadSampler = [](const fastgltf::Sampler& sampler)
@@ -717,10 +712,6 @@ namespace Utility
         samplerState.minFilter = ConvertGlFilterMode((GLint)sampler.minFilter.value());
         samplerState.mipmapMode = GetGlMipmapFilter((GLint)sampler.minFilter.value());
         samplerState.maxAnisotropy = 16;
-        //if (samplerState.minFilter != Fwog::Filter::NONE)
-        //{
-        //  samplerState.anisotropy = Fwog::SampleCount::SAMPLES_16;
-        //}
       }
       if (sampler.magFilter.has_value())
       {
@@ -740,7 +731,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_OCCLUSION_TEXTURE;
         const auto& occlusionTexture     = model.textures[loaderMaterial.occlusionTexture->textureIndex];
-        auto& image                      = images[occlusionTexture.imageIndex.value()];
+        auto& image                      = images[(occlusionTexture.imageIndex ? occlusionTexture.imageIndex : occlusionTexture.basisuImageIndex).value()];
         auto name                        = occlusionTexture.name.empty() ? "Occlusion" : occlusionTexture.name;
         auto view                        = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.occlusionTextureSampler = {
@@ -755,7 +746,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_EMISSION_TEXTURE;
         const auto& emissiveTexture     = model.textures[loaderMaterial.emissiveTexture->textureIndex];
-        auto& image                     = images[emissiveTexture.imageIndex.value()];
+        auto& image                     = images[(emissiveTexture.imageIndex ? emissiveTexture.imageIndex : emissiveTexture.basisuImageIndex).value()];
         auto name                       = emissiveTexture.name.empty() ? "Emissive" : emissiveTexture.name;
         auto view                       = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
         material.emissiveTextureSampler = {
@@ -770,7 +761,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_NORMAL_TEXTURE;
         const auto& normalTexture     = model.textures[loaderMaterial.normalTexture->textureIndex];
-        auto& image                   = images[normalTexture.imageIndex.value()];
+        auto& image                   = images[(normalTexture.imageIndex ? normalTexture.imageIndex : normalTexture.basisuImageIndex).value()];
         auto name                     = normalTexture.name.empty() ? "Normal Map" : normalTexture.name;
         auto view                     = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.normalTextureSampler = {
@@ -786,7 +777,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
         const auto& baseColorTexture  = model.textures[loaderMaterial.pbrData.baseColorTexture->textureIndex];
-        auto& image                   = images[baseColorTexture.imageIndex.value()];
+        auto& image                   = images[(baseColorTexture.imageIndex ? baseColorTexture.imageIndex : baseColorTexture.basisuImageIndex).value()];
         auto name                     = baseColorTexture.name.empty() ? "Base Color" : baseColorTexture.name;
         auto view                     = image.CreateFormatView(FormatToSrgb(image.GetCreateInfo().format), name.c_str());
         material.albedoTextureSampler = {
@@ -801,7 +792,7 @@ namespace Utility
       {
         material.gpuMaterial.flags |= Render::MaterialFlagBit::HAS_METALLIC_ROUGHNESS_TEXTURE;
         const auto& metallicRoughnessTexture     = model.textures[loaderMaterial.pbrData.metallicRoughnessTexture->textureIndex];
-        auto& image                              = images[metallicRoughnessTexture.imageIndex.value()];
+        auto& image                              = images[(metallicRoughnessTexture.imageIndex ? metallicRoughnessTexture.imageIndex : metallicRoughnessTexture.basisuImageIndex).value()];
         auto name                                = metallicRoughnessTexture.name.empty() ? "MetallicRoughness" : metallicRoughnessTexture.name;
         auto view                                = image.CreateFormatView(image.GetCreateInfo().format, name.c_str());
         material.metallicRoughnessTextureSampler = {
@@ -817,7 +808,7 @@ namespace Utility
       material.gpuMaterial.roughnessFactor  = loaderMaterial.pbrData.roughnessFactor;
       material.gpuMaterial.emissiveFactor   = glm::make_vec3(loaderMaterial.emissiveFactor.data());
       material.gpuMaterial.alphaCutoff      = loaderMaterial.alphaCutoff;
-      material.gpuMaterial.emissiveStrength = loaderMaterial.emissiveStrength.value_or(1.0f);
+      material.gpuMaterial.emissiveStrength = loaderMaterial.emissiveStrength;
       materials.emplace_back(std::move(material));
     }
 
@@ -840,7 +831,7 @@ namespace Utility
     std::vector<Fvog::Texture> images;
   };
 
-  std::optional<LoadModelResult> LoadModelFromFileBase(Fvog::Device& device, std::filesystem::path path, glm::mat4 rootTransform, bool skipMaterials)
+  std::optional<LoadModelResult> LoadModelFromFileBase(std::filesystem::path path, glm::mat4 rootTransform, bool skipMaterials)
   {
     ZoneScoped;
 
@@ -861,22 +852,22 @@ namespace Utility
       constexpr auto gltfExtensions = Extensions::KHR_texture_basisu | Extensions::KHR_mesh_quantization | Extensions::EXT_meshopt_compression |
                                       Extensions::KHR_lights_punctual | Extensions::KHR_materials_emissive_strength;
       auto parser = fastgltf::Parser(gltfExtensions);
-
-      auto data = fastgltf::GltfDataBuffer();
-      data.loadFromFile(path);
-
-      constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages | fastgltf::Options::LoadGLBBuffers;
-      if (isBinary)
+      
+      auto dataBuffer = fastgltf::GltfDataBuffer::FromPath(path);
+      if (dataBuffer.error() != fastgltf::Error::None)
       {
-        return parser.loadBinaryGLTF(&data, path.parent_path(), options);
+        std::cout << "fastgltf: failed to load data buffer. Reason: " << fastgltf::getErrorMessage(dataBuffer.error()) << '\n';
+        return dataBuffer.error();
       }
 
-      return parser.loadGLTF(&data, path.parent_path(), options);
+      constexpr auto options = fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages;
+      
+      return parser.loadGltf(dataBuffer.get(), path.parent_path(), options);
     }();
 
-    if (auto err = maybeAsset.error(); err != fastgltf::Error::None)
+    if (maybeAsset.error() != fastgltf::Error::None)
     {
-      std::cout << "glTF error: " << static_cast<uint64_t>(err) << '\n';
+      std::cout << "fastgltf: failed to load glTF. Reason: " << fastgltf::getErrorMessage(maybeAsset.error()) << '\n';
       return std::nullopt;
     }
 
@@ -893,13 +884,12 @@ namespace Utility
 
     if (!skipMaterials)
     {
-      images = LoadImages(device, asset);
-      materials = LoadMaterials(device, asset, images);
+      images = LoadImages(asset);
+      materials = LoadMaterials(asset, images);
       std::ranges::move(materials, std::back_inserter(scene.materials));
       std::ranges::move(images, std::back_inserter(scene.images));
     }
-
-    //auto uniqueAccessorCombinations = std::vector<std::pair<AccessorIndices, std::size_t>>();
+    
     auto uniqueAccessorCombinations = std::unordered_map<AccessorIndices, std::size_t, HashAccessorIndices>();
 
     // <node*, global transform>
@@ -911,12 +901,12 @@ namespace Utility
     std::stack<StackElement> nodeStack;
 
     // Create the root node for this scene
-    std::array<float, 16> rootTransformArray{};
+    auto rootTransformArray = fastgltf::math::fmat4x4{};
     std::copy_n(&rootTransform[0][0], 16, rootTransformArray.data());
-    std::array<float, 3> rootScaleArray{};
-    std::array<float, 4> rootRotationArray{};
-    std::array<float, 3> rootTranslationArray{};
-    fastgltf::decomposeTransformMatrix(rootTransformArray, rootScaleArray, rootRotationArray, rootTranslationArray);
+    auto rootScaleArray       = fastgltf::math::fvec3{};
+    auto rootRotationArray    = fastgltf::math::fquat{};
+    auto rootTranslationArray = fastgltf::math::fvec3{};
+    fastgltf::math::decomposeTransformMatrix(rootTransformArray, rootScaleArray, rootRotationArray, rootTranslationArray);
     const auto rootTranslation = glm::make_vec3(rootTranslationArray.data());
     const auto rootRotation = glm::quat{rootRotationArray[3], rootRotationArray[0], rootRotationArray[1], rootRotationArray[2]};
     const auto rootScale = glm::make_vec3(rootScaleArray.data());
@@ -945,15 +935,15 @@ namespace Utility
 
         const glm::mat4 localTransform = NodeToMat4(*gltfNode);
 
-        std::array<float, 16> localTransformArray{};
+        auto localTransformArray = fastgltf::math::fmat4x4{};
         std::copy_n(&localTransform[0][0], 16, localTransformArray.data());
-        std::array<float, 3> scaleArray{};
-        std::array<float, 4> rotationArray{};
-        std::array<float, 3> translationArray{};
+        auto scaleArray       = fastgltf::math::fvec3{};
+        auto rotationArray    = fastgltf::math::fquat{};
+        auto translationArray = fastgltf::math::fvec3{};
 
         {
           ZoneScopedN("Decompose transform matrix");
-          fastgltf::decomposeTransformMatrix(localTransformArray, scaleArray, rotationArray, translationArray);
+          fastgltf::math::decomposeTransformMatrix(localTransformArray, scaleArray, rotationArray, translationArray);
         }
 
         node->translation = glm::make_vec3(translationArray.data());
@@ -979,28 +969,26 @@ namespace Utility
             AccessorIndices accessorIndices;
             if (auto it = primitive.findAttribute("POSITION"); it != primitive.attributes.end())
             {
-              accessorIndices.positionsIndex = it->second;
+              accessorIndices.positionsIndex = it->accessorIndex;
             }
             else
             {
-              // FWOG_UNREACHABLE;
               assert(false);
             }
 
             if (auto it = primitive.findAttribute("NORMAL"); it != primitive.attributes.end())
             {
-              accessorIndices.normalsIndex = it->second;
+              accessorIndices.normalsIndex = it->accessorIndex;
             }
             else
             {
               // TODO: calculate normal
-              // FWOG_UNREACHABLE;
               assert(false);
             }
 
             if (auto it = primitive.findAttribute("TEXCOORD_0"); it != primitive.attributes.end())
             {
-              accessorIndices.texcoordsIndex = it->second;
+              accessorIndices.texcoordsIndex = it->accessorIndex;
             }
             else
             {
@@ -1008,16 +996,14 @@ namespace Utility
             }
 
             assert(primitive.indicesAccessor.has_value() && "Non-indexed meshes are not supported");
-            accessorIndices.indicesIndex = primitive.indicesAccessor;
+            accessorIndices.indicesIndex = primitive.indicesAccessor.value();
 
             size_t rawMeshIndex = uniqueAccessorCombinations.size();
 
             // Only emplace and increment counter if combo does not exist
-            //if (auto it = std::ranges::find_if(uniqueAccessorCombinations, [&](const auto& p) { return p.first == accessorIndices; });
             if (auto it = uniqueAccessorCombinations.find(accessorIndices);
                 it == uniqueAccessorCombinations.end())
             {
-              //uniqueAccessorCombinations.emplace_back(accessorIndices, rawMeshIndex);
               uniqueAccessorCombinations.emplace(accessorIndices, rawMeshIndex);
             }
             else
@@ -1026,11 +1012,15 @@ namespace Utility
               rawMeshIndex = it->second;
             }
 
-            auto materialId = primitive.materialIndex;
+            auto materialId = std::optional<size_t>();
 
-            if (skipMaterials)
+            if (skipMaterials || !primitive.materialIndex)
             {
               materialId = std::nullopt;
+            }
+            else
+            {
+              materialId = primitive.materialIndex.value();
             }
 
             node->meshes.emplace_back(rawMeshIndex, materialId);
@@ -1076,7 +1066,6 @@ namespace Utility
       std::execution::par,
       uniqueAccessorCombinations.begin(),
       uniqueAccessorCombinations.end(),
-      //scene.rawMeshes.begin(),
       [&](const auto& keyValue)
       {
         ZoneScopedN("Convert vertices and indices");
@@ -1118,12 +1107,12 @@ namespace Utility
     return scene;
   }
 
-  LoadModelResultA LoadModelFromFile(Fvog::Device& device, const std::filesystem::path& fileName, const glm::mat4& rootTransform, bool skipMaterials)
+  LoadModelResultA LoadModelFromFile(const std::filesystem::path& fileName, const glm::mat4& rootTransform, bool skipMaterials)
   {
     ZoneScoped;
     ZoneText(fileName.string().c_str(), fileName.string().size());
 
-    auto loadedScene = LoadModelFromFileBase(device, fileName, rootTransform, skipMaterials);
+    auto loadedScene = LoadModelFromFileBase(fileName, rootTransform, skipMaterials);
 
     // Give each mesh a set of "default" meshlet instances.
     auto meshletInstances     = std::vector<Render::MeshletInstance>(loadedScene->rawMeshes.size());
@@ -1151,14 +1140,14 @@ namespace Utility
         auto rawMeshlets = std::vector<meshopt_Meshlet>(maxMeshlets);
         
         meshGeometry.vertices = std::move(mesh.vertices);
-        meshGeometry.indices.resize(maxMeshlets * maxMeshletIndices);
+        meshGeometry.remappedIndices.resize(maxMeshlets * maxMeshletIndices);
         meshGeometry.primitives.resize(maxMeshlets * maxMeshletPrimitives * 3);
         
         const auto meshletCount = [&]
         {
           ZoneScopedN("Build Meshlets");
           return meshopt_buildMeshlets(rawMeshlets.data(),
-            meshGeometry.indices.data(),
+            meshGeometry.remappedIndices.data(),
             meshGeometry.primitives.data(),
             mesh.indices.data(),
             mesh.indices.size(),
@@ -1186,10 +1175,11 @@ namespace Utility
 
         // TODO: replace with rawMeshlets.back() AFTER moving rawMeshlets.resize() before this
         const auto& lastMeshlet = rawMeshlets[meshletCount - 1];
-        meshGeometry.indices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
+        meshGeometry.remappedIndices.resize(lastMeshlet.vertex_offset + lastMeshlet.vertex_count);
         meshGeometry.primitives.resize(lastMeshlet.triangle_offset + ((lastMeshlet.triangle_count * 3 + 3) & ~3));
         rawMeshlets.resize(meshletCount);
         meshGeometry.meshlets.reserve(meshletCount);
+        meshGeometry.originalIndices = std::move(mesh.indices);
 
         for (const auto& meshlet : rawMeshlets)
         {
@@ -1197,7 +1187,7 @@ namespace Utility
           auto max = glm::vec3(std::numeric_limits<float>::lowest());
           for (uint32_t i = 0; i < meshlet.triangle_count * 3; ++i)
           {
-            const auto& vertex = meshGeometry.vertices[meshGeometry.indices[meshlet.vertex_offset + meshGeometry.primitives[meshlet.triangle_offset + i]]];
+            const auto& vertex = meshGeometry.vertices[meshGeometry.remappedIndices[meshlet.vertex_offset + meshGeometry.primitives[meshlet.triangle_offset + i]]];
             min                = glm::min(min, vertex.position);
             max                = glm::max(max, vertex.position);
           }

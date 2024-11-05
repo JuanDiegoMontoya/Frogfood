@@ -6,7 +6,7 @@ project(Frogfood)
 
 set(CMAKE_CXX_STANDARD 20)
 
-option(FROGRENDER_FSR2_ENABLE "Enable FSR2 for examples that support it (currently 03_gltf_viewer). Windows only!" FALSE)
+option(FROGRENDER_FSR2_ENABLE "Enable FidelityFX Super Resolution 2. Windows only!" FALSE)
 
 find_package(Vulkan REQUIRED)
 
@@ -50,8 +50,6 @@ add_executable(frogRender
     src/Fvog/detail/SamplerCache2.h
     src/Fvog/detail/SamplerCache2.cpp
     src/Fvog/detail/Hash2.h
-    src/Pipelines2.h
-    src/Pipelines2.cpp
     src/Fvog/TriviallyCopyableByteSpan.h
     src/ImGui/imgui_impl_fvog.cpp
     src/ImGui/imgui_impl_fvog.h
@@ -60,6 +58,14 @@ add_executable(frogRender
     src/Scene.h
     src/Scene.cpp
     src/Renderables.h
+    src/Fvog/AccelerationStructure.h
+    src/Fvog/AccelerationStructure.cpp
+    src/debug/ForwardRenderer.h
+    src/debug/ForwardRenderer.cpp
+    src/techniques/ao/RayTracedAO.h
+    src/techniques/ao/RayTracedAO.cpp
+    src/PipelineManager.h
+    src/PipelineManager.cpp
 )
 
 target_compile_options(frogRender
@@ -89,11 +95,6 @@ if (${FORCE_COLORED_OUTPUT})
 endif()
 
 add_subdirectory(external)
-
-add_custom_target(copy_shaders ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders)
-add_custom_target(copy_models ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/models ${CMAKE_CURRENT_BINARY_DIR}/models)
-add_custom_target(copy_textures ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/textures ${CMAKE_CURRENT_BINARY_DIR}/textures)
-add_custom_target(copy_config ALL COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/data/config ${CMAKE_CURRENT_BINARY_DIR}/config)
 
 if (FROGRENDER_FSR2_ENABLE)
     set(FSR2_LIBS ffx_fsr2_api_x64 ffx_fsr2_api_vk_x64)
@@ -134,7 +135,6 @@ target_link_libraries(frogRender
     glslang-default-resource-limits
     SPIRV
 )
-add_dependencies(frogRender copy_shaders copy_models copy_textures copy_config)
 
 target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE ImTextureID=ImU64)
 

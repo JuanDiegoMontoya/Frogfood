@@ -8,8 +8,6 @@ FVOG_DECLARE_ARGUMENTS(CalibrateHdrArguments)
 };
 
 #ifndef __cplusplus
-FVOG_DECLARE_STORAGE_IMAGES(image2D);
-
 void main()
 {
   const ivec2 gid = ivec2(gl_GlobalInvocationID.xy);

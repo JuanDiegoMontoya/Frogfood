@@ -4,12 +4,16 @@
 #include "detail/Flags.h"
 #include "shaders/Resources.h.glsl"
 
+#include <tracy/Tracy.hpp>
+
 #include <vulkan/vulkan_core.h>
 
 #include <string>
 #include <string_view>
 #include <optional>
 #include <cstddef>
+#include <memory>
+#include <unordered_set>
 
 namespace Fvog
 {
@@ -311,5 +315,71 @@ namespace Fvog
   private:
     Buffer buffer_;
     size_t currentSize_ = 0;
+  };
+
+  // A CPU and GPU buffer pair, with CPU writes replicated on the GPU.
+  // Can be used to make index-based data structures "just work" on the GPU.
+  class ReplicatedBuffer
+  {
+  public:
+    explicit ReplicatedBuffer(size_t bufferSize, std::string name = {});
+
+    struct Alloc
+    {
+      // Offset may differ from the one returned by 
+      size_t offset;
+      VmaVirtualAllocation allocation;
+
+      bool operator==(const Alloc&) const noexcept = default;
+    };
+
+    Alloc Allocate(size_t size, size_t alignment);
+    void Free(Alloc alloc);
+
+    // Get the address of the base object for indexing
+    template<typename T>
+    const T* GetBase() const
+    {
+      return reinterpret_cast<const T*>(cpuBuffer_.get());
+    }
+
+    // Update the object at an address that aliases the array returned by GetBase.
+    template<typename T>
+    void Write(const T* address, const T& newValue)
+    {
+      ZoneScoped;
+      const auto* byteAddress = reinterpret_cast<const std::byte*>(address);
+      assert(byteAddress >= cpuBuffer_.get());
+      // Legal, address points to a non-const object in cpuBuffer.
+      *const_cast<T*>(address) = newValue;
+
+      // Mark the pages affected by the write as dirty
+      const auto offsetBytes = reinterpret_cast<uintptr_t>(byteAddress) - reinterpret_cast<uintptr_t>(cpuBuffer_.get());
+      const auto minPage     = offsetBytes / PAGE_SIZE;
+      const auto maxPage     = (offsetBytes + sizeof(T)) / PAGE_SIZE;
+      for (auto i = minPage; i <= maxPage; i++)
+      {
+        dirtyPages_.insert((uint32_t)i);
+      }
+    }
+
+    void FlushWritesToGPU(VkCommandBuffer cmd);
+
+    auto GetAllocator() const
+    {
+      return allocator_;
+    }
+
+    Buffer& GetGpuBuffer()
+    {
+      return gpuBuffer_;
+    }
+
+  private:
+    static constexpr size_t PAGE_SIZE = 1024;
+    Buffer gpuBuffer_;
+    std::unique_ptr<std::byte[]> cpuBuffer_;
+    VmaVirtualBlock allocator_;
+    std::unordered_set<uint32_t> dirtyPages_;
   };
 }

@@ -71,10 +71,12 @@
 #include <vk_mem_alloc.h>
 
 #include "FrogRenderer2.h"
+#include "Voxels/VoxelRenderer.h"
 
 int main()
 {
-  auto app = FrogRenderer2({
+  //auto app = FrogRenderer2({
+  auto app = VoxelRenderer({
     .name = "FrogRender",
   });
   app.Run();

@@ -322,4 +322,62 @@ namespace Fvog
 
     currentSize_ -= allocation.size;
   }
+
+  ReplicatedBuffer::ReplicatedBuffer(size_t bufferSize, std::string name)
+    : gpuBuffer_({.size = bufferSize, .flag = BufferFlagThingy::NONE}, std::move(name))
+  {
+    ZoneScoped;
+    cpuBuffer_ = std::make_unique_for_overwrite<std::byte[]>(bufferSize);
+    detail::CheckVkResult(vmaCreateVirtualBlock(
+      detail::Address(VmaVirtualBlockCreateInfo{
+        .size = bufferSize,
+      }),
+      &allocator_));
+  }
+
+  ReplicatedBuffer::Alloc ReplicatedBuffer::Allocate(size_t size, size_t alignment)
+  {
+    ZoneScoped;
+    auto vmaAlign       = alignment;
+    // Fixup alignment and size if alignment isn't a power of two, which is required for VMA
+    if (!std::has_single_bit(alignment))
+    {
+      size += alignment;
+      vmaAlign = std::bit_ceil(alignment * 2);
+    }
+
+    auto allocation = VmaVirtualAllocation{};
+    auto offset     = VkDeviceSize{};
+    detail::CheckVkResult(vmaVirtualAllocate(allocator_,
+      detail::Address(VmaVirtualAllocationCreateInfo{
+        .size      = size,
+        .alignment = vmaAlign,
+      }),
+      &allocation,
+      &offset));
+
+    // Push offset forward to multiple of the true alignment, then subtract that amount from the remaining size
+    auto offsetAmount = (alignment - (offset % alignment)) % alignment;
+    offset += offsetAmount;
+    return {offset, allocation};
+  }
+
+  void ReplicatedBuffer::Free(Alloc alloc)
+  {
+    ZoneScoped;
+    vmaVirtualFree(allocator_, alloc.allocation);  
+  }
+
+  void ReplicatedBuffer::FlushWritesToGPU(VkCommandBuffer cmd)
+  {
+    ZoneScoped;
+    // All pages need to be flushed or the underlying data may have invalid references/indices
+    for (uint32_t page : dirtyPages_)
+    {
+      auto offset = page * PAGE_SIZE;
+      vkCmdUpdateBuffer(cmd, gpuBuffer_.Handle(), offset, PAGE_SIZE, cpuBuffer_.get() + offset);
+    }
+
+    dirtyPages_.clear();
+  }
 } // namespace Fvog

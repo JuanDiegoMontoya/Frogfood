@@ -58,6 +58,7 @@
 #extension GL_EXT_scalar_block_layout : require	          // sane buffer layout
 #extension GL_EXT_buffer_reference : require              // BDA
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require // TODO: check support for this ext
 //#extension GL_EXT_buffer_reference2 : require              // BDA
 #extension GL_EXT_shader_image_load_formatted : require   // readable images without explicit format
 #extension GL_EXT_samplerless_texture_functions : require // texelFetch on sampled images

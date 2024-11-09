@@ -66,6 +66,8 @@ add_executable(frogRender
     src/techniques/ao/RayTracedAO.cpp
     src/PipelineManager.h
     src/PipelineManager.cpp
+    src/Voxels/VoxelRenderer.h
+    src/Voxels/VoxelRenderer.cpp
 )
 
 target_compile_options(frogRender

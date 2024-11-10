@@ -152,41 +152,70 @@ bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out 
 
 bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitSurfaceParameters hit)
 {
-	ivec3 mapPos = ivec3(floor(rayPosition));
+	// https://www.shadertoy.com/view/X3BXDd
+	vec3 mapPos = floor(rayPosition); // integer cell coordinate of initial cell
+    
+    const vec3 deltaDist = 1.0 / abs(rayDirection); // ray length required to step from one cell border to the next in x, y and z directions
 
-	//const vec3 deltaDist = abs(vec3(length(rayDirection)) / rayDirection);
-	const vec3 deltaDist = abs(1 / rayDirection);
-	
-	// Which way to step along each axis
-	const ivec3 rayStep = ivec3(sign(rayDirection));
+    const vec3 S = vec3(step(0.0, rayDirection)); // S is rayDir non-negative? 0 or 1
+    const vec3 stepDir = 2 * S - 1; // Step sign
+    
+    // if 1./abs(rayDir[i]) is inf, then rayDir[i] is 0., but then S = step(0., rayDir[i]) is 1
+    // so S cannot be 0. while deltaDist is inf, and stepDir * fract(pos) can never be 1.
+    // Therefore we should not have to worry about getting NaN here :)
+    
+	// initial distance to cell sides, then relative difference between traveled sides
+    vec3 sideDist = (S - stepDir * fract(rayPosition)) * deltaDist;   // alternative: //sideDist = (S-stepDir * (pos - map)) * deltaDist;
+    
+    for(int i = 0; i < tMax; i++)
+    {
+        // Decide which way to go!
+        vec4 conds = step(sideDist.xxyy, sideDist.yzzx); // same as vec4(sideDist.xxyy <= sideDist.yzzx);
+        
+        // This mimics the if, elseif and else clauses
+        // * is 'and', 1.-x is negation
+        vec3 cases = vec3(0);
+        cases.x = conds.x * conds.y;                    // if       x dir
+        cases.y = (1.0 - cases.x) * conds.z * conds.w;  // else if  y dir
+        cases.z = (1.0 - cases.x) * (1.0 - cases.y);    // else     z dir
+        
+        // usually would have been:     sideDist += cases * deltaDist;
+        // but this gives NaN when  cases[i] * deltaDist[i]  becomes  0. * inf 
+        // This gives NaN result in a component that should not have been affected,
+        // so we instead give negative results for inf by mapping 'cases' to +/- 1
+        // and then clamp negative values to zero afterwards, giving the correct result! :)
+        sideDist += max((2.0 * cases - 1.0) * deltaDist, 0.0);
+        
+        mapPos += cases * stepDir;
+        
+		// Putting the exit condition down here implicitly skips the first voxel
+        if(all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, ivec3(pc.dimensions))) && GetVoxelAt(ivec3(mapPos)) != 0)
+        {
+			const vec3 p = mapPos + 0.5 - stepDir * 0.5; // Point on axis plane
+			const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
 
-	vec3 sideDist = (sign(rayDirection) * (vec3(mapPos) - rayPosition) + (sign(rayDirection) * 0.5) + 0.5) * deltaDist;
-	
-	// Initialize in case ray begins inside block
-	bvec3 mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
-	
-	for (int i = 0; i < tMax; i++)
-	{
-		if (i > 0 && all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, pc.dimensions)) && GetVoxelAt(mapPos) != 0)
-		{
-			// https://www.shadertoy.com/view/X3BXDd
-			vec3 normal = vec3(ivec3(vec3(mask))) * -vec3(rayStep);
-			vec3 p = vec3(mapPos) + 0.5 - vec3(rayStep) * 0.5;
-			float t = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
-			//hit.positionWorld = rayPosition + rayDirection * max(sideDist.x, max(sideDist.y, sideDist.z));
-			hit.positionWorld = rayPosition + rayDirection * t;
-			hit.voxelPosition = mapPos;
+			// Solve ray plane intersection equation: dot(n, ro + t * rd - p) = 0.
+			// for t :
+			const float t = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
+			const vec3 hitWorldPos = rayPosition + rayDirection * t;
+			const vec3 uvw = hitWorldPos - mapPos; // Don't use fract here
+			
+			// Ugly, hacky way to get texCoord
+			vec2 texCoord = {0, 0};
+			if (normal.x > 0) texCoord = vec2(1 - uvw.z, uvw.y);
+			if (normal.x < 0) texCoord = vec2(uvw.z, uvw.y);
+			if (normal.y > 0) texCoord = vec2(uvw.x, 1 - uvw.z); // Arbitrary
+			if (normal.y < 0) texCoord = vec2(uvw.x, uvw.z);
+			if (normal.z > 0) texCoord = vec2(uvw.x, uvw.y);
+			if (normal.z < 0) texCoord = vec2(1 - uvw.x, uvw.y);
+
+			hit.voxelPosition = ivec3(mapPos);
+			hit.positionWorld = hitWorldPos;
+			hit.texCoord = texCoord;
 			hit.flatNormalWorld = normal;
-			hit.texCoord = fract(rayPosition.xz + rayDirection.xz * max(sideDist.x, max(sideDist.y, sideDist.z)));
 			return true;
-		}
-
-		// All components of mask are false except for the corresponding largest component
-		// of sideDist, which is the axis along which the ray should be incremented.
-        mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
-		sideDist += vec3(mask) * deltaDist;
-		mapPos += ivec3(vec3(mask)) * rayStep;
-	}
+        }
+    }
 
 	return false;
 }
@@ -203,17 +232,16 @@ void main()
 
 	const vec2 uv = (vec2(gid) + 0.5) / outputSize;
 	
-	const vec3 rayDir = normalize(UnprojectUV_ZO(0.99, uv, uniforms.invViewProj) - uniforms.cameraPos.xyz);
+	const vec3 rayDir = normalize(UnprojectUV_ZO(0.0001, uv, uniforms.invViewProj) - uniforms.cameraPos.xyz);
 	const vec3 rayPos = uniforms.cameraPos.xyz;
 	
 	HitSurfaceParameters hit;
 	if (vx_TraceRaySimple(rayPos, rayDir, 512, hit))
 	{
 		//imageStore(pc.outputImage, gid, vec4(hsv_to_rgb(vec3(MM_Hash3(hit.voxelPosition), 0.55, 0.8)), 1));
-		imageStore(pc.outputImage, gid, vec4(mod((hit.positionWorld), 1), 1));
-		//imageStore(pc.outputImage, gid, vec4(abs(hit.positionWorld) / 222, 1));
+		//imageStore(pc.outputImage, gid, vec4(mod(abs(hit.positionWorld + .5), 1), 1));
 		//imageStore(pc.outputImage, gid, vec4(hit.flatNormalWorld * .5 + .5, 1));
-		//imageStore(pc.outputImage, gid, vec4(hit.texCoord, 0, 1));
+		imageStore(pc.outputImage, gid, vec4(hit.texCoord, 0, 1));
 	}
 	else
 	{

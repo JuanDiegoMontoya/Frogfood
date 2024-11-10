@@ -137,6 +137,60 @@ voxel_t GetVoxelAt(ivec3 voxelCoord)
   return BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].voxels[localVoxelIndex];
 }
 
+struct HitSurfaceParameters
+{
+  vec3 voxelPosition;
+  vec3 positionWorld;
+  vec3 flatNormalWorld;
+  vec2 texCoord;
+};
+
+bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out HitSurfaceParameters hit)
+{
+	return false;
+}
+
+bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitSurfaceParameters hit)
+{
+	ivec3 mapPos = ivec3(floor(rayPosition));
+
+	//const vec3 deltaDist = abs(vec3(length(rayDirection)) / rayDirection);
+	const vec3 deltaDist = abs(1 / rayDirection);
+	
+	// Which way to step along each axis
+	const ivec3 rayStep = ivec3(sign(rayDirection));
+
+	vec3 sideDist = (sign(rayDirection) * (vec3(mapPos) - rayPosition) + (sign(rayDirection) * 0.5) + 0.5) * deltaDist;
+	
+	// Initialize in case ray begins inside block
+	bvec3 mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
+	
+	for (int i = 0; i < tMax; i++)
+	{
+		if (i > 0 && all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, pc.dimensions)) && GetVoxelAt(mapPos) != 0)
+		{
+			// https://www.shadertoy.com/view/X3BXDd
+			vec3 normal = vec3(ivec3(vec3(mask))) * -vec3(rayStep);
+			vec3 p = vec3(mapPos) + 0.5 - vec3(rayStep) * 0.5;
+			float t = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
+			//hit.positionWorld = rayPosition + rayDirection * max(sideDist.x, max(sideDist.y, sideDist.z));
+			hit.positionWorld = rayPosition + rayDirection * t;
+			hit.voxelPosition = mapPos;
+			hit.flatNormalWorld = normal;
+			hit.texCoord = fract(rayPosition.xz + rayDirection.xz * max(sideDist.x, max(sideDist.y, sideDist.z)));
+			return true;
+		}
+
+		// All components of mask are false except for the corresponding largest component
+		// of sideDist, which is the axis along which the ray should be incremented.
+        mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
+		sideDist += vec3(mask) * deltaDist;
+		mapPos += ivec3(vec3(mask)) * rayStep;
+	}
+
+	return false;
+}
+
 layout(local_size_x = 8, local_size_y = 8) in;
 void main()
 {
@@ -152,37 +206,14 @@ void main()
 	const vec3 rayDir = normalize(UnprojectUV_ZO(0.99, uv, uniforms.invViewProj) - uniforms.cameraPos.xyz);
 	const vec3 rayPos = uniforms.cameraPos.xyz;
 	
-	ivec3 mapPos = ivec3(floor(rayPos + 0.));
-
-	vec3 deltaDist = abs(vec3(length(rayDir)) / rayDir);
-	
-	ivec3 rayStep = ivec3(sign(rayDir));
-
-	vec3 sideDist = (sign(rayDir) * (vec3(mapPos) - rayPos) + (sign(rayDir) * 0.5) + 0.5) * deltaDist; 
-	
-	bvec3 mask;
-	
-	bool hit = false;
-	for (int i = 0; i < 2048; i++)
+	HitSurfaceParameters hit;
+	if (vx_TraceRaySimple(rayPos, rayDir, 512, hit))
 	{
-		if (all(greaterThanEqual(mapPos, ivec3(0))) && all(lessThan(mapPos, pc.dimensions)) && GetVoxelAt(mapPos) != 0)
-		{
-			hit = true;
-			break;
-		}
-
-        mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
-		
-		//All components of mask are false except for the corresponding largest component
-		//of sideDist, which is the axis along which the ray should be incremented.
-		
-		sideDist += vec3(mask) * deltaDist;
-		mapPos += ivec3(vec3(mask)) * rayStep;
-	}
-
-	if (hit)
-	{
-		imageStore(pc.outputImage, gid, vec4(hsv_to_rgb(vec3(MM_Hash3(mapPos), 0.55, 0.8)), 1));
+		//imageStore(pc.outputImage, gid, vec4(hsv_to_rgb(vec3(MM_Hash3(hit.voxelPosition), 0.55, 0.8)), 1));
+		imageStore(pc.outputImage, gid, vec4(mod((hit.positionWorld), 1), 1));
+		//imageStore(pc.outputImage, gid, vec4(abs(hit.positionWorld) / 222, 1));
+		//imageStore(pc.outputImage, gid, vec4(hit.flatNormalWorld * .5 + .5, 1));
+		//imageStore(pc.outputImage, gid, vec4(hit.texCoord, 0, 1));
 	}
 	else
 	{

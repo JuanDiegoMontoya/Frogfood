@@ -159,10 +159,6 @@ VoxelRenderer::VoxelRenderer(const Application::CreateInfo& createInfo)
     }
   }
 
-  //VmaStatistics stats{};
-  //vmaGetVirtualBlockStatistics(grid.buffer.GetAllocator(), &stats);
-  //__debugbreak();
-
   mainImage = Fvog::CreateTexture2D({windowFramebufferWidth, windowFramebufferHeight}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::GENERAL, "Main Image");
 
   testPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
@@ -195,6 +191,97 @@ VoxelRenderer::VoxelRenderer(const Application::CreateInfo& createInfo)
           },
       },
   });
+
+
+  using namespace glm;
+  auto TraceRay =
+    [](vec3 rayPosition, vec3 rayDirection, float tMax) -> bool
+  {
+      // https://www.shadertoy.com/view/X3BXDd
+      vec3 mapPos = floor(rayPosition); // integer cell coordinate of initial cell
+
+      const vec3 deltaDist = 1.0f / abs(rayDirection); // ray length required to step from one cell border to the next in x, y and z directions
+
+      const vec3 S       = vec3(step(0.0f, rayDirection)); // S is rayDir non-negative? 0 or 1
+      const vec3 stepDir = 2.f * S - 1.f;                     // Step sign
+
+      // if 1./abs(rayDir[i]) is inf, then rayDir[i] is 0., but then S = step(0., rayDir[i]) is 1
+      // so S cannot be 0. while deltaDist is inf, and stepDir * fract(pos) can never be 1.
+      // Therefore we should not have to worry about getting NaN here :)
+
+      // initial distance to cell sides, then relative difference between traveled sides
+      vec3 sideDist = (S - stepDir * fract(rayPosition)) * deltaDist; // alternative: //sideDist = (S-stepDir * (pos - map)) * deltaDist;
+
+      for (int i = 0; i < tMax; i++)
+      {
+        // Decide which way to go!
+        vec4 conds = step(vec4(sideDist.x, sideDist.x, sideDist.y, sideDist.y),
+          vec4(sideDist.y, sideDist.z, sideDist.z, sideDist.x)); // same as vec4(sideDist.xxyy <= sideDist.yzzx);
+
+        // This mimics the if, elseif and else clauses
+        // * is 'and', 1.-x is negation
+        vec3 cases = vec3(0);
+        cases.x    = conds.x * conds.y;                   // if       x dir
+        cases.y    = (1.0f - cases.x) * conds.z * conds.w; // else if  y dir
+        cases.z    = (1.0f - cases.x) * (1.0f - cases.y);   // else     z dir
+
+        // usually would have been:     sideDist += cases * deltaDist;
+        // but this gives NaN when  cases[i] * deltaDist[i]  becomes  0. * inf
+        // This gives NaN result in a component that should not have been affected,
+        // so we instead give negative results for inf by mapping 'cases' to +/- 1
+        // and then clamp negative values to zero afterwards, giving the correct result! :)
+        sideDist += max((2.0f * cases - 1.0f) * deltaDist, 0.0f);
+
+        mapPos += cases * stepDir;
+
+#if 0
+        // Putting the exit condition down here implicitly skips the first voxel
+        if (all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, ivec3(pc.dimensions))))
+        {
+          const voxel_t voxel = GetVoxelAt(ivec3(mapPos));
+          if (voxel != 0)
+          {
+            const vec3 p      = mapPos + 0.5 - stepDir * 0.5; // Point on axis plane
+            const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
+
+            // Solve ray plane intersection equation: dot(n, ro + t * rd - p) = 0.
+            // for t :
+            const float t          = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
+            const vec3 hitWorldPos = rayPosition + rayDirection * t;
+            const vec3 uvw         = hitWorldPos - mapPos; // Don't use fract here
+
+            // Ugly, hacky way to get texCoord
+            vec2 texCoord = {0, 0};
+            if (normal.x > 0)
+              texCoord = vec2(1 - uvw.z, uvw.y);
+            if (normal.x < 0)
+              texCoord = vec2(uvw.z, uvw.y);
+            if (normal.y > 0)
+              texCoord = vec2(uvw.x, 1 - uvw.z); // Arbitrary
+            if (normal.y < 0)
+              texCoord = vec2(uvw.x, uvw.z);
+            if (normal.z > 0)
+              texCoord = vec2(uvw.x, uvw.y);
+            if (normal.z < 0)
+              texCoord = vec2(1 - uvw.x, uvw.y);
+
+            hit.voxel           = voxel;
+            hit.voxelPosition   = ivec3(mapPos);
+            hit.positionWorld   = hitWorldPos;
+            hit.texCoord        = texCoord;
+            hit.flatNormalWorld = normal;
+            return true;
+          }
+        }
+#endif
+      }
+
+      return false;
+  };
+
+
+
+  //TraceRay({0.5f, 1.5f, 0.f}, {.864f, -0.503f, 0.f}, 100);
 }
 
 VoxelRenderer::~VoxelRenderer()
@@ -330,8 +417,17 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, [[maybe_unused]] VkCommand
   ZoneScoped;
   if (ImGui::Begin("Test"))
   {
+    GetPipelineManager().PollModifiedShaders();
+    GetPipelineManager().EnqueueModifiedShaders();
+
+    ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt, dt * 1000);
     ImGui::Text("Camera pos: (%.2f, %.2f, %.2f)", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
     ImGui::Text("Camera dir: (%.2f, %.2f, %.2f)", mainCamera.GetForwardDir().x, mainCamera.GetForwardDir().y, mainCamera.GetForwardDir().z);
+    VmaStatistics stats{};
+    vmaGetVirtualBlockStatistics(grid.buffer.GetAllocator(), &stats);
+    auto [usedSuffix, usedDivisor] = Math::BytesToSuffixAndDivisor(stats.allocationBytes);
+    auto [blockSuffix, blockDivisor] = Math::BytesToSuffixAndDivisor(stats.blockBytes);
+    ImGui::Text("Voxel memory: %.2f %s / %.2f %s", stats.allocationBytes / usedDivisor, usedSuffix, stats.blockBytes / blockDivisor, blockSuffix);
   }
   ImGui::End();
 }

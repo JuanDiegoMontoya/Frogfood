@@ -103,17 +103,29 @@ int FlattenVoxelCoord(ivec3 coord)
   return (coord.z * BL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH) + (coord.y * BL_BRICK_SIDE_LENGTH) + coord.x;
 }
 
+TopLevelBrickPtr GetTopLevelBrickPtrAt(ivec3 voxelCoord)
+{
+  GridHierarchyCoords coords = GetCoordsOfVoxelAt(voxelCoord);
+  const uint topLevelIndex = FlattenTopLevelBrickCoord(coords.topLevel);
+  return TOP_LEVEL_PTRS[pc.topLevelBrickPtrsBaseIndex + topLevelIndex];
+}
+
+// NOTE: does not check for validity of topLevelBrickIndexOrVoxelIfAllSame
+// TODO: remove after more optimal multi-level traversal is implemented.
+BottomLevelBrickPtr GetBottomLevelBrickPtrAt(ivec3 voxelCoord)
+{
+  GridHierarchyCoords coords = GetCoordsOfVoxelAt(voxelCoord);
+  const uint topLevelIndex = FlattenTopLevelBrickCoord(coords.topLevel);
+  TopLevelBrickPtr topLevelBrickPtr = TOP_LEVEL_PTRS[pc.topLevelBrickPtrsBaseIndex + topLevelIndex];
+  const uint bottomLevelIndex = FlattenBottomLevelBrickCoord(coords.bottomLevel);
+  return TOP_LEVEL_BRICKS[topLevelBrickPtr.topLevelBrickIndexOrVoxelIfAllSame].bricks[bottomLevelIndex];
+}
+
 voxel_t GetVoxelAt(ivec3 voxelCoord)
 {
-  //assert(glm::all(glm::greaterThanEqual(voxelCoord, glm::ivec3(0))));
-  //assert(glm::all(glm::lessThan(voxelCoord, dimensions_)));
-
   GridHierarchyCoords coords = GetCoordsOfVoxelAt(voxelCoord);
-  //auto [topLevelCoord, bottomLevelCoord, localVoxelCoord] = GetCoordsOfVoxelAt(voxelCoord);
 
   const uint topLevelIndex = FlattenTopLevelBrickCoord(coords.topLevel);
-  //assert(topLevelIndex < numTopLevelBricks_);
-  //const auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + topLevelIndex];
   TopLevelBrickPtr topLevelBrickPtr = TOP_LEVEL_PTRS[pc.topLevelBrickPtrsBaseIndex + topLevelIndex];
 
   if (topLevelBrickPtr.voxelsDoBeAllSame != 0)
@@ -122,8 +134,6 @@ voxel_t GetVoxelAt(ivec3 voxelCoord)
   }
 
   const uint bottomLevelIndex = FlattenBottomLevelBrickCoord(coords.bottomLevel);
-  //assert(bottomLevelIndex < CELLS_PER_TL_BRICK);
-  //auto& bottomLevelBrickPtr = buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks[bottomLevelIndex];
   BottomLevelBrickPtr bottomLevelBrickPtr = TOP_LEVEL_BRICKS[topLevelBrickPtr.topLevelBrickIndexOrVoxelIfAllSame].bricks[bottomLevelIndex];
 
   if (bottomLevelBrickPtr.voxelsDoBeAllSame != 0)
@@ -132,21 +142,175 @@ voxel_t GetVoxelAt(ivec3 voxelCoord)
   }
 
   const uint localVoxelIndex = FlattenVoxelCoord(coords.localVoxel);
-  //assert(localVoxelIndex < CELLS_PER_BL_BRICK);
-  //return buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[localVoxelIndex];
   return BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].voxels[localVoxelIndex];
 }
 
 struct HitSurfaceParameters
 {
-  vec3 voxelPosition;
-  vec3 positionWorld;
-  vec3 flatNormalWorld;
-  vec2 texCoord;
+	voxel_t voxel;
+	vec3 voxelPosition;
+	vec3 positionWorld;
+	vec3 flatNormalWorld;
+	vec2 texCoord;
 };
 
-bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out HitSurfaceParameters hit)
+float gTopLevelBricksTraversed = 0;
+float gBottomLevelBricksTraversed = 0;
+float gVoxelsTraversed = 0;
+
+// Ray position in (0, BL_BRICK_SIDE_LENGTH)
+bool vx_TraceRayVoxels(vec3 rayPosition, vec3 rayDirection, BottomLevelBrickPtr bottomLevelBrickPtr)
 {
+	rayPosition = clamp(rayPosition, vec3(0.0001), vec3(7.9999));
+	vec3 mapPos = floor(rayPosition);
+    const vec3 deltaDist = 1.0 / abs(rayDirection);
+    const vec3 S = vec3(step(0.0, rayDirection));
+    const vec3 stepDir = 2 * S - 1;
+    vec3 sideDist = (S - stepDir * fract(rayPosition)) * deltaDist;
+	vec3 cases = vec3(0);
+
+    while (all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, ivec3(BL_BRICK_SIDE_LENGTH))))
+    {
+		gVoxelsTraversed++;
+		const uint localVoxelIndex = FlattenVoxelCoord(ivec3(mapPos));
+		voxel_t voxel = BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].voxels[localVoxelIndex];
+		if (voxel != 0)
+		{
+			return true;
+		}
+
+        vec4 conds = step(sideDist.xxyy, sideDist.yzzx); // same as vec4(sideDist.xxyy <= sideDist.yzzx);
+        
+        cases.x = conds.x * conds.y;                    // if       x dir
+        cases.y = (1.0 - cases.x) * conds.z * conds.w;  // else if  y dir
+        cases.z = (1.0 - cases.x) * (1.0 - cases.y);    // else     z dir
+        
+        sideDist += max((2.0 * cases - 1.0) * deltaDist, 0.0);
+        
+        mapPos += cases * stepDir;
+	}
+
+	return false;
+}
+
+// Ray position in (0, TL_BRICK_SIDE_LENGTH)
+bool vx_TraceRayBottomLevelBricks(vec3 rayPosition, vec3 rayDirection, TopLevelBrickPtr topLevelBrickPtr)
+{
+	rayPosition = clamp(rayPosition, vec3(0.0001), vec3(7.9999));
+	vec3 mapPos = floor(rayPosition);
+    const vec3 deltaDist = 1.0 / abs(rayDirection);
+    const vec3 S = vec3(step(0.0, rayDirection));
+    const vec3 stepDir = 2 * S - 1;
+    vec3 sideDist = (S - stepDir * fract(rayPosition)) * deltaDist;
+	vec3 cases = vec3(0);
+
+    for (int i = 0; all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, ivec3(TL_BRICK_SIDE_LENGTH))); i++)
+    {
+		const uint bottomLevelIndex = FlattenBottomLevelBrickCoord(ivec3(mapPos));
+		BottomLevelBrickPtr bottomLevelBrickPtr = TOP_LEVEL_BRICKS[topLevelBrickPtr.topLevelBrickIndexOrVoxelIfAllSame].bricks[bottomLevelIndex];
+		if (!(bottomLevelBrickPtr.voxelsDoBeAllSame == 1 && bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame == 0))
+		{
+			gBottomLevelBricksTraversed++;
+			const vec3 p = mapPos + 0.5 - stepDir * 0.5; // Point on axis plane
+			const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
+			// Degenerate if ray starts inside a homogeneous bottom-level brick
+			const float t = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
+			const vec3 hitWorldPos = rayPosition + rayDirection * t;
+			vec3 uvw = hitWorldPos - mapPos;
+			
+			if (i == 0)
+			{
+				uvw = (rayPosition - mapPos);
+			}
+
+           vec3 mini = ((mapPos-rayPosition) + 0.5 - 0.5*vec3(stepDir))*deltaDist;
+           float d = max (mini.x, max (mini.y, mini.z));
+           vec3 intersect = rayPosition + rayDirection*d;
+           vec3 uv3d = intersect - mapPos;
+
+			if (bottomLevelBrickPtr.voxelsDoBeAllSame == 1)
+			{
+				return true;
+			}
+
+			if (vx_TraceRayVoxels(uvw * BL_BRICK_SIDE_LENGTH, rayDirection, bottomLevelBrickPtr))
+			{
+				return true;
+			}
+		}
+
+        vec4 conds = step(sideDist.xxyy, sideDist.yzzx); // same as vec4(sideDist.xxyy <= sideDist.yzzx);
+        
+        cases.x = conds.x * conds.y;                    // if       x dir
+        cases.y = (1.0 - cases.x) * conds.z * conds.w;  // else if  y dir
+        cases.z = (1.0 - cases.x) * (1.0 - cases.y);    // else     z dir
+        
+        sideDist += max((2.0 * cases - 1.0) * deltaDist, 0.0);
+        
+        mapPos += cases * stepDir;
+	}
+
+	return false;
+}
+
+// Trace ray that traverses top-level grids.
+// TODO: output the hit TopLevelBrickPtr to reduce reads in subsequent granular traces.
+bool vx_TraceRayTopLevelBricks(vec3 rayPosition, vec3 rayDirection, float tMax)
+{
+	rayPosition /= TL_BRICK_VOXELS_PER_SIDE;
+	vec3 mapPos = floor(rayPosition);
+    const vec3 deltaDist = 1.0 / abs(rayDirection);
+    const vec3 S = vec3(step(0.0, rayDirection));
+    const vec3 stepDir = 2 * S - 1;
+    vec3 sideDist = (S - stepDir * fract(rayPosition)) * deltaDist;
+	
+	vec3 cases = sideDist;
+
+    for (int i = 0; i < 5; i++)
+    {
+		// For the top level, traversal outside the map area is ok, just skip
+        if(all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, pc.topLevelBricksDims)))
+		{
+			gTopLevelBricksTraversed++;
+			const uint topLevelIndex = FlattenTopLevelBrickCoord(ivec3(mapPos));
+			TopLevelBrickPtr topLevelBrickPtr = TOP_LEVEL_PTRS[pc.topLevelBrickPtrsBaseIndex + topLevelIndex];
+			if (!(topLevelBrickPtr.voxelsDoBeAllSame == 1 && topLevelBrickPtr.topLevelBrickIndexOrVoxelIfAllSame == 0)) // If brick is not all air
+			{
+				const vec3 p = mapPos + 0.5 - stepDir * 0.5; // Point on axis plane
+				const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
+				// Degenerate if ray starts inside a homogeneous top-level brick
+				const float t = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
+				const vec3 hitWorldPos = rayPosition + rayDirection * t; // TODO?????
+				vec3 uvw = hitWorldPos - mapPos; // Don't use fract here
+
+				if (i == 0)
+				{
+					uvw = (rayPosition - mapPos);
+				}
+
+				if (topLevelBrickPtr.voxelsDoBeAllSame == 1)
+				{
+					return true;
+				}
+
+				if (vx_TraceRayBottomLevelBricks(uvw * TL_BRICK_SIDE_LENGTH, rayDirection, topLevelBrickPtr))
+				{
+					return true;
+				}
+			}
+		}
+
+        vec4 conds = step(sideDist.xxyy, sideDist.yzzx); // same as vec4(sideDist.xxyy <= sideDist.yzzx);
+        
+        cases.x = conds.x * conds.y;                    // if       x dir
+        cases.y = (1.0 - cases.x) * conds.z * conds.w;  // else if  y dir
+        cases.z = (1.0 - cases.x) * (1.0 - cases.y);    // else     z dir
+        
+        sideDist += max((2.0 * cases - 1.0) * deltaDist, 0.0);
+        
+        mapPos += cases * stepDir;
+	}
+
 	return false;
 }
 
@@ -189,31 +353,36 @@ bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitS
         mapPos += cases * stepDir;
         
 		// Putting the exit condition down here implicitly skips the first voxel
-        if(all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, ivec3(pc.dimensions))) && GetVoxelAt(ivec3(mapPos)) != 0)
+        if(all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, ivec3(pc.dimensions))))
         {
-			const vec3 p = mapPos + 0.5 - stepDir * 0.5; // Point on axis plane
-			const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
+			const voxel_t voxel = GetVoxelAt(ivec3(mapPos));
+			if (voxel != 0)
+			{
+				const vec3 p = mapPos + 0.5 - stepDir * 0.5; // Point on axis plane
+				const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
 
-			// Solve ray plane intersection equation: dot(n, ro + t * rd - p) = 0.
-			// for t :
-			const float t = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
-			const vec3 hitWorldPos = rayPosition + rayDirection * t;
-			const vec3 uvw = hitWorldPos - mapPos; // Don't use fract here
-			
-			// Ugly, hacky way to get texCoord
-			vec2 texCoord = {0, 0};
-			if (normal.x > 0) texCoord = vec2(1 - uvw.z, uvw.y);
-			if (normal.x < 0) texCoord = vec2(uvw.z, uvw.y);
-			if (normal.y > 0) texCoord = vec2(uvw.x, 1 - uvw.z); // Arbitrary
-			if (normal.y < 0) texCoord = vec2(uvw.x, uvw.z);
-			if (normal.z > 0) texCoord = vec2(uvw.x, uvw.y);
-			if (normal.z < 0) texCoord = vec2(1 - uvw.x, uvw.y);
+				// Solve ray plane intersection equation: dot(n, ro + t * rd - p) = 0.
+				// for t :
+				const float t = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
+				const vec3 hitWorldPos = rayPosition + rayDirection * t;
+				const vec3 uvw = hitWorldPos - mapPos; // Don't use fract here
+				
+				// Ugly, hacky way to get texCoord
+				vec2 texCoord = {0, 0};
+				if (normal.x > 0) texCoord = vec2(1 - uvw.z, uvw.y);
+				if (normal.x < 0) texCoord = vec2(uvw.z, uvw.y);
+				if (normal.y > 0) texCoord = vec2(uvw.x, 1 - uvw.z); // Arbitrary
+				if (normal.y < 0) texCoord = vec2(uvw.x, uvw.z);
+				if (normal.z > 0) texCoord = vec2(uvw.x, uvw.y);
+				if (normal.z < 0) texCoord = vec2(1 - uvw.x, uvw.y);
 
-			hit.voxelPosition = ivec3(mapPos);
-			hit.positionWorld = hitWorldPos;
-			hit.texCoord = texCoord;
-			hit.flatNormalWorld = normal;
-			return true;
+				hit.voxel = voxel;
+				hit.voxelPosition = ivec3(mapPos);
+				hit.positionWorld = hitWorldPos;
+				hit.texCoord = texCoord;
+				hit.flatNormalWorld = normal;
+				return true;
+			}
         }
     }
 
@@ -235,16 +404,26 @@ void main()
 	const vec3 rayDir = normalize(UnprojectUV_ZO(0.0001, uv, uniforms.invViewProj) - uniforms.cameraPos.xyz);
 	const vec3 rayPos = uniforms.cameraPos.xyz;
 	
-	HitSurfaceParameters hit;
-	if (vx_TraceRaySimple(rayPos, rayDir, 512, hit))
+	vec3 o_color = {0, 0, 0};
+
+	//HitSurfaceParameters hit;
+	//if (vx_TraceRayMultiLevel2(rayPos, rayDir, 512, hit))
+	if (vx_TraceRayTopLevelBricks(rayPos, rayDir, 512))
 	{
 		//imageStore(pc.outputImage, gid, vec4(hsv_to_rgb(vec3(MM_Hash3(hit.voxelPosition), 0.55, 0.8)), 1));
 		//imageStore(pc.outputImage, gid, vec4(mod(abs(hit.positionWorld + .5), 1), 1));
 		//imageStore(pc.outputImage, gid, vec4(hit.flatNormalWorld * .5 + .5, 1));
-		imageStore(pc.outputImage, gid, vec4(hit.texCoord, 0, 1));
+		//imageStore(pc.outputImage, gid, vec4(hit.texCoord, 0, 1));
+		o_color += vec3(0.5);
 	}
 	else
 	{
-		imageStore(pc.outputImage, gid, vec4(rayDir * .5 + .5, 1));
+		o_color += rayDir * .5 + .5;
 	}
+	o_color += vec3(gTopLevelBricksTraversed / 8, gBottomLevelBricksTraversed / 64, gVoxelsTraversed / 512);
+	//o_color = vec3(gTopLevelBricksTraversed / 8);
+	//o_color = vec3(gBottomLevelBricksTraversed / 64);
+	//o_color = vec3(gVoxelsTraversed / 512);
+
+	imageStore(pc.outputImage, gid, vec4(o_color, 1));
 }

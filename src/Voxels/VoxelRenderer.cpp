@@ -12,8 +12,10 @@
 #include "Fvog/detail/ApiToEnum2.h"
 
 #include "tracy/Tracy.hpp"
+#include "GLFW/glfw3.h" // TODO: remove
 
 #include <memory>
+#include <type_traits>
 
 GridHierarchy::GridHierarchy(glm::ivec3 topLevelBrickDims)
   : buffer(1'000'000'000, "World"),
@@ -25,8 +27,20 @@ GridHierarchy::GridHierarchy(glm::ivec3 topLevelBrickDims)
   assert(topLevelBricksDims_.x > 0 && topLevelBricksDims_.y > 0 && topLevelBricksDims_.z > 0);
   
   topLevelBrickPtrs = buffer.Allocate(sizeof(TopLevelBrickPtr) * numTopLevelBricks_, sizeof(TopLevelBrickPtr));
+  for (size_t i = 0; i < numTopLevelBricks_; i++)
+  {
+    auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + i];
+    std::construct_at(&topLevelBrickPtr);
+    topLevelBrickPtr = {.voxelsDoBeAllSame = true, .voxelIfAllSame = 0 };
+    buffer.MarkDirtyPages(&topLevelBrickPtr);
+  }
   topLevelBrickPtrsBaseIndex = uint32_t(topLevelBrickPtrs.offset / sizeof(TopLevelBrickPtr));
 }
+
+static_assert(std::is_trivially_constructible_v<GridHierarchy::TopLevelBrick>);
+static_assert(std::is_trivially_constructible_v<GridHierarchy::TopLevelBrickPtr>);
+static_assert(std::is_trivially_constructible_v<GridHierarchy::BottomLevelBrick>);
+static_assert(std::is_trivially_constructible_v<GridHierarchy::BottomLevelBrickPtr>);
 
 GridHierarchy::GridHierarchyCoords GridHierarchy::GetCoordsOfVoxelAt(glm::ivec3 voxelCoord)
 {
@@ -73,6 +87,7 @@ GridHierarchy::voxel_t GridHierarchy::GetVoxelAt(glm::ivec3 voxelCoord)
 
 void GridHierarchy::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
 {
+  ZoneScoped;
   assert(glm::all(glm::greaterThanEqual(voxelCoord, glm::ivec3(0))));
   assert(glm::all(glm::lessThan(voxelCoord, dimensions_)));
 
@@ -80,27 +95,33 @@ void GridHierarchy::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
 
   const auto topLevelIndex = FlattenTopLevelBrickCoord(topLevelCoord);
   assert(topLevelIndex < numTopLevelBricks_);
-  const auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + topLevelIndex];
+  auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + topLevelIndex];
 
   if (topLevelBrickPtr.voxelsDoBeAllSame)
   {
     // Make a top-level brick
-    buffer.Write(&topLevelBrickPtr, TopLevelBrickPtr{.voxelsDoBeAllSame = false, .topLevelBrick = AllocateTopLevelBrick()});
+    topLevelBrickPtr = TopLevelBrickPtr{.voxelsDoBeAllSame = false, .topLevelBrick = AllocateTopLevelBrick()};
+    buffer.MarkDirtyPages(&topLevelBrickPtr);
   }
 
   const auto bottomLevelIndex = FlattenBottomLevelBrickCoord(bottomLevelCoord);
   assert(bottomLevelIndex < CELLS_PER_TL_BRICK);
+  assert(topLevelBrickPtr.topLevelBrick < buffer.SizeBytes() / sizeof(TopLevelBrick));
   auto& bottomLevelBrickPtr = buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks[bottomLevelIndex];
 
   if (bottomLevelBrickPtr.voxelsDoBeAllSame)
   {
     // Make a bottom-level brick
-    buffer.Write(&bottomLevelBrickPtr, BottomLevelBrickPtr{.voxelsDoBeAllSame = false, .bottomLevelBrick = AllocateBottomLevelBrick()});
+    bottomLevelBrickPtr = BottomLevelBrickPtr{.voxelsDoBeAllSame = false, .bottomLevelBrick = AllocateBottomLevelBrick()};
+    buffer.MarkDirtyPages(&bottomLevelBrickPtr);
   }
 
   const auto localVoxelIndex = FlattenVoxelCoord(localVoxelCoord);
   assert(localVoxelIndex < CELLS_PER_BL_BRICK);
-  buffer.Write(&buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[localVoxelIndex], voxel);
+  assert(bottomLevelBrickPtr.bottomLevelBrick < buffer.SizeBytes() / sizeof(BottomLevelBrick));
+  auto& dstVoxel = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[localVoxelIndex];
+  dstVoxel = voxel;
+  buffer.MarkDirtyPages(&dstVoxel);
 }
 
 int GridHierarchy::FlattenTopLevelBrickCoord(glm::ivec3 coord) const
@@ -108,34 +129,46 @@ int GridHierarchy::FlattenTopLevelBrickCoord(glm::ivec3 coord) const
   return (coord.z * topLevelBricksDims_.x * topLevelBricksDims_.y) + (coord.y * topLevelBricksDims_.x) + coord.x;
 }
 
-int GridHierarchy::FlattenBottomLevelBrickCoord(glm::ivec3 coord) const
+int GridHierarchy::FlattenBottomLevelBrickCoord(glm::ivec3 coord)
 {
   return (coord.z * TL_BRICK_SIDE_LENGTH * TL_BRICK_SIDE_LENGTH) + (coord.y * TL_BRICK_SIDE_LENGTH) + coord.x;
 }
 
-int GridHierarchy::FlattenVoxelCoord(glm::ivec3 coord) const
+int GridHierarchy::FlattenVoxelCoord(glm::ivec3 coord)
 {
   return (coord.z * BL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH) + (coord.y * BL_BRICK_SIDE_LENGTH) + coord.x;
 }
 
 uint32_t GridHierarchy::AllocateTopLevelBrick()
 {
+  ZoneScoped;
   // The alignment of the allocation should be the size of the object being allocated so it can be indexed from the base ptr
-  auto allocation = buffer.Allocate(sizeof(TopLevelBrick) * numTopLevelBricks_, sizeof(TopLevelBrick));
+  auto allocation = buffer.Allocate(sizeof(TopLevelBrick), sizeof(TopLevelBrick));
   auto index = uint32_t(allocation.offset / sizeof(TopLevelBrick));
   topLevelBrickIndexToAlloc.emplace(index, allocation);
   // Initialize
-  buffer.Write(&buffer.GetBase<TopLevelBrick>()[index], TopLevelBrick{});
+  auto& top = buffer.GetBase<TopLevelBrick>()[index];
+  std::construct_at(&top);
+  for (auto& bottomLevelBrickPtr : top.bricks)
+  {
+    bottomLevelBrickPtr.voxelsDoBeAllSame = true;
+    bottomLevelBrickPtr.voxelIfAllSame    = 0;
+  }
+  buffer.MarkDirtyPages(&top);
   return index;
 }
 
 uint32_t GridHierarchy::AllocateBottomLevelBrick()
 {
-  auto allocation = buffer.Allocate(sizeof(BottomLevelBrick) * numTopLevelBricks_, sizeof(BottomLevelBrick));
-  auto index = uint32_t(allocation.offset / sizeof(BottomLevelBrick));
+  ZoneScoped;
+  auto allocation = buffer.Allocate(sizeof(BottomLevelBrick), sizeof(BottomLevelBrick));
+  auto index      = uint32_t(allocation.offset / sizeof(BottomLevelBrick));
   bottomLevelBrickIndexToAlloc.emplace(index, allocation);
   // Initialize
-  buffer.Write(&buffer.GetBase<BottomLevelBrick>()[index], BottomLevelBrick{});
+  auto& bottom = buffer.GetBase<BottomLevelBrick>()[index];
+  std::construct_at(&bottom);
+  std::memset(&bottom, 0, sizeof(bottom));
+  buffer.MarkDirtyPages(&bottom);
   return index;
 }
 
@@ -143,21 +176,6 @@ VoxelRenderer::VoxelRenderer(const Application::CreateInfo& createInfo)
   : Application(createInfo)
 {
   ZoneScoped;
-
-  for (int i = 0; i < grid.dimensions_.x; i++)
-  for (int j = 0; j < grid.dimensions_.y; j++)
-  for (int k = 0; k < grid.dimensions_.z; k++)
-  {
-    glm::vec3 p = {i, j, k};
-    if ((glm::distance(p, glm::vec3(50, 30, 20)) < 10) || (glm::distance(p, glm::vec3(90, 30, 20)) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
-    {
-      grid.SetVoxelAt({i, j, k}, 1);
-    }
-    else
-    {
-      grid.SetVoxelAt({i, j, k}, 0);
-    }
-  }
 
   mainImage = Fvog::CreateTexture2D({windowFramebufferWidth, windowFramebufferHeight}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::GENERAL, "Main Image");
 
@@ -335,6 +353,25 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
   }
 
   ctx.Barrier();
+
+  auto t = (float)glfwGetTime();
+  for (int i = 0; i < grid.dimensions_.x; i++)
+    for (int j = 0; j < grid.dimensions_.y; j++)
+      for (int k = 0; k < grid.dimensions_.z; k++)
+      {
+        glm::vec3 p      = {i, j, k};
+        const auto left  = glm::vec3(50, 30, 20);
+        const auto right = glm::vec3(90, 30, 20);
+        const auto rot   = glm::mat3(glm::rotate(t, glm::vec3{1, 2, 3}));
+        if ((glm::distance(p, rot * left) < 10) || (glm::distance(p, rot * right) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
+        {
+          grid.SetVoxelAt({i, j, k}, 1);
+        }
+        else
+        {
+          grid.SetVoxelAt({i, j, k}, 0);
+        }
+      }
 
   grid.buffer.FlushWritesToGPU(commandBuffer);
 

@@ -4,8 +4,6 @@
 #include "detail/Flags.h"
 #include "shaders/Resources.h.glsl"
 
-#include <tracy/Tracy.hpp>
-
 #include <vulkan/vulkan_core.h>
 
 #include <string>
@@ -338,20 +336,17 @@ namespace Fvog
 
     // Get the address of the base object for indexing
     template<typename T>
-    const T* GetBase() const
+    T* GetBase()
     {
-      return reinterpret_cast<const T*>(cpuBuffer_.get());
+      return reinterpret_cast<T*>(cpuBuffer_.get());
     }
 
     // Update the object at an address that aliases the array returned by GetBase.
     template<typename T>
-    void Write(const T* address, const T& newValue)
+    void MarkDirtyPages(const T* address)
     {
-      ZoneScoped;
       const auto* byteAddress = reinterpret_cast<const std::byte*>(address);
       assert(byteAddress >= cpuBuffer_.get());
-      // Legal, address points to a non-const object in cpuBuffer.
-      *const_cast<T*>(address) = newValue;
 
       // Mark the pages affected by the write as dirty
       const auto offsetBytes = reinterpret_cast<uintptr_t>(byteAddress) - reinterpret_cast<uintptr_t>(cpuBuffer_.get());
@@ -373,6 +368,11 @@ namespace Fvog
     Buffer& GetGpuBuffer()
     {
       return gpuBuffer_;
+    }
+
+    size_t SizeBytes() const
+    {
+      return gpuBuffer_.SizeBytes();
     }
 
   private:

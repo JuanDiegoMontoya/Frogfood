@@ -107,6 +107,7 @@ FetchContent_Declare(
     GIT_TAG         v0.11.1
 )
 
+option(TRACY_ON_DEMAND "" ON)
 option(TRACY_ENABLE "Enable profiling" ON)
 option(TRACY_ONLY_IPV4 "IPv4 only" ON)
 

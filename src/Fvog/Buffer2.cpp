@@ -328,6 +328,7 @@ namespace Fvog
   {
     ZoneScoped;
     cpuBuffer_ = std::make_unique_for_overwrite<std::byte[]>(bufferSize);
+    std::memset(cpuBuffer_.get(), 0xCD, bufferSize);
     detail::CheckVkResult(vmaCreateVirtualBlock(
       detail::Address(VmaVirtualBlockCreateInfo{
         .size = bufferSize,
@@ -359,6 +360,7 @@ namespace Fvog
     // Push offset forward to multiple of the true alignment, then subtract that amount from the remaining size
     auto offsetAmount = (alignment - (offset % alignment)) % alignment;
     offset += offsetAmount;
+    assert(offset % alignment == 0);
     return {offset, allocation};
   }
 

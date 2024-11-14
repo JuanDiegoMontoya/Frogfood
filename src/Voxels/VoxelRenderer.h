@@ -63,37 +63,37 @@ struct GridHierarchy
   // The storage of a "chunk"
   struct BottomLevelBrick
   {
-    voxel_t voxels[CELLS_PER_BL_BRICK]{};
+    voxel_t voxels[CELLS_PER_BL_BRICK];
   };
 
   struct BottomLevelBrickPtr
   {
-    bool voxelsDoBeAllSame = true;
+    bool voxelsDoBeAllSame;
     union
     {
       //BottomLevelBrick* bottomLevelBrick;
       uint32_t bottomLevelBrick;
-      voxel_t voxelIfAllSame{};
+      voxel_t voxelIfAllSame;
     };
   };
 
   struct TopLevelBrick
   {
-    BottomLevelBrickPtr bricks[CELLS_PER_TL_BRICK]{};
+    BottomLevelBrickPtr bricks[CELLS_PER_TL_BRICK];
   };
 
   struct TopLevelBrickPtr
   {
-    bool voxelsDoBeAllSame = true;
+    bool voxelsDoBeAllSame;
     union
     {
       //TopLevelBrick* topLevelBrick;
       uint32_t topLevelBrick;
-      voxel_t voxelIfAllSame{};
+      voxel_t voxelIfAllSame;
     };
   };
 
-  explicit GridHierarchy(glm::ivec3 topLevelBricksDims);
+  explicit GridHierarchy(glm::ivec3 topLevelBrickDims);
 
   struct GridHierarchyCoords
   {
@@ -106,8 +106,8 @@ struct GridHierarchy
   void SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel);
 
   int FlattenTopLevelBrickCoord(glm::ivec3 coord) const;
-  int FlattenBottomLevelBrickCoord(glm::ivec3 coord) const;
-  int FlattenVoxelCoord(glm::ivec3 coord) const;
+  static int FlattenBottomLevelBrickCoord(glm::ivec3 coord);
+  static int FlattenVoxelCoord(glm::ivec3 coord);
   uint32_t AllocateTopLevelBrick();
   uint32_t AllocateBottomLevelBrick();
 
@@ -115,7 +115,7 @@ struct GridHierarchy
   //std::unique_ptr<TopLevelBrickPtr[]> topLevelBricks;
   Fvog::ReplicatedBuffer::Alloc topLevelBrickPtrs{};
   uint32_t topLevelBrickPtrsBaseIndex{};
-  int numTopLevelBricks_{};
+  size_t numTopLevelBricks_{};
   glm::ivec3 topLevelBricksDims_{};
   glm::ivec3 dimensions_{};
   std::unordered_map<uint32_t, Fvog::ReplicatedBuffer::Alloc> topLevelBrickIndexToAlloc;
@@ -137,7 +137,7 @@ private:
   void OnGui(double dt, VkCommandBuffer commandBuffer) override;
   void OnPathDrop(std::span<const char*> paths) override;
 
-  GridHierarchy grid{{3, 2, 1}};
+  GridHierarchy grid{{2, 1, 1}};
 
   std::optional<Fvog::Texture> mainImage;
   Fvog::NDeviceBuffer<Temp::Uniforms> perFrameUniforms;

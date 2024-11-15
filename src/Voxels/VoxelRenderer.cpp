@@ -124,6 +124,75 @@ void GridHierarchy::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
   buffer.MarkDirtyPages(&dstVoxel);
 }
 
+void GridHierarchy::CollapseGrids()
+{
+  // Check all voxels of each bottom-level brick
+  for (size_t i = 0; i < numTopLevelBricks_; i++)
+  {
+    auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + i];
+    if (topLevelBrickPtr.voxelsDoBeAllSame)
+    {
+      continue;
+    }
+
+    for (auto& bottomLevelBrickPtr : buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks)
+    {
+      if (bottomLevelBrickPtr.voxelsDoBeAllSame)
+      {
+        continue;
+      }
+
+      const voxel_t firstVoxel = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[0];
+      bool allSame      = true;
+      for (const auto& voxel : buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels)
+      {
+        if (firstVoxel != voxel)
+        {
+          allSame = false;
+          break;
+        }
+      }
+
+      if (allSame)
+      {
+        FreeBottomLevelBrick(bottomLevelBrickPtr.bottomLevelBrick);
+        bottomLevelBrickPtr.voxelsDoBeAllSame = true;
+        bottomLevelBrickPtr.voxelIfAllSame    = firstVoxel;
+        buffer.MarkDirtyPages(&bottomLevelBrickPtr);
+      }
+    }
+  }
+
+  // Check just the top-level grids after collapsing bottom-levels
+  for (size_t i = 0; i < numTopLevelBricks_; i++)
+  {
+    auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + i];
+    if (topLevelBrickPtr.voxelsDoBeAllSame)
+    {
+      continue;
+    }
+
+    const voxel_t firstVoxel = buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks[0].voxelIfAllSame;
+    bool allSame = true;
+    for (auto& bottomLevelBrickPtr : buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks)
+    {
+      if (!bottomLevelBrickPtr.voxelsDoBeAllSame || bottomLevelBrickPtr.voxelIfAllSame != firstVoxel)
+      {
+        allSame = false;
+        break;
+      }
+    }
+
+    if (allSame)
+    {
+      FreeTopLevelBrick(topLevelBrickPtr.topLevelBrick);
+      topLevelBrickPtr.voxelsDoBeAllSame = true;
+      topLevelBrickPtr.voxelIfAllSame    = firstVoxel;
+      buffer.MarkDirtyPages(&topLevelBrickPtr);
+    }
+  }
+}
+
 int GridHierarchy::FlattenTopLevelBrickCoord(glm::ivec3 coord) const
 {
   return (coord.z * topLevelBricksDims_.x * topLevelBricksDims_.y) + (coord.y * topLevelBricksDims_.x) + coord.x;
@@ -172,10 +241,79 @@ uint32_t GridHierarchy::AllocateBottomLevelBrick()
   return index;
 }
 
+void GridHierarchy::FreeTopLevelBrick(uint32_t index)
+{
+  auto it = topLevelBrickIndexToAlloc.find(index);
+  assert(it != topLevelBrickIndexToAlloc.end());
+  buffer.Free(it->second);
+}
+
+void GridHierarchy::FreeBottomLevelBrick(uint32_t index)
+{
+  auto it = bottomLevelBrickIndexToAlloc.find(index);
+  assert(it != bottomLevelBrickIndexToAlloc.end());
+  buffer.Free(it->second);
+}
+
+	
+
+float de1(glm::vec3 p0)
+{
+  using namespace glm;
+  vec4 p = vec4(p0, 1.);
+  for (int i = 0; i < 8; i++)
+  {
+    p.x   = mod(p.x - 1.0f, 2.0f) - 1.0f;
+    p.y   = mod(p.y - 1.0f, 2.0f) - 1.0f;
+    p.z   = mod(p.z - 1.0f, 2.0f) - 1.0f;
+    p *= 1.4f / dot(vec3(p), vec3(p));
+  }
+  return length(vec2(p.x, p.z) / p.w) * 0.25f;
+}
+
+float de2(glm::vec3 p)
+{
+  using namespace glm;
+  p           = {p.x, p.z, p.y};
+  vec3 cSize  = vec3(1., 1., 1.3);
+  float scale = 1.;
+  for (int i = 0; i < 12; i++)
+  {
+    p        = 2.0f * clamp(p, -cSize, cSize) - p;
+    float r2 = dot(p, p);
+    float k  = max((2.f) / (r2), .027f);
+    p *= k;
+    scale *= k;
+  }
+  float l   = length(vec2(p.x, p.y));
+  float rxy = l - 4.0f;
+  float n   = l * p.z;
+  rxy       = max(rxy, -(n) / 4.f);
+  return (rxy) / abs(scale);
+}
+
 VoxelRenderer::VoxelRenderer(const Application::CreateInfo& createInfo)
   : Application(createInfo)
 {
   ZoneScoped;
+
+  for (int i = 0; i < grid.dimensions_.x; i++)
+    for (int j = 0; j < grid.dimensions_.y; j++)
+      for (int k = 0; k < grid.dimensions_.z; k++)
+      {
+        glm::vec3 p      = {i, j, k};
+        //const auto left  = glm::vec3(50, 30, 20);
+        //const auto right = glm::vec3(90, 30, 20);
+        //if ((glm::distance(p, left) < 10) || (glm::distance(p, right) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
+        //if (de2(p / 70.f + 2.0f) < 0.001f)
+        {
+          grid.SetVoxelAt({i, j, k}, 1);
+        }
+        //else
+        {
+          //grid.SetVoxelAt({i, j, k}, 0);
+        }
+      }
 
   mainImage = Fvog::CreateTexture2D({windowFramebufferWidth, windowFramebufferHeight}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::GENERAL, "Main Image");
 
@@ -354,25 +492,6 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, VkCommandBuffer command
 
   ctx.Barrier();
 
-  auto t = (float)glfwGetTime();
-  for (int i = 0; i < grid.dimensions_.x; i++)
-    for (int j = 0; j < grid.dimensions_.y; j++)
-      for (int k = 0; k < grid.dimensions_.z; k++)
-      {
-        glm::vec3 p      = {i, j, k};
-        const auto left  = glm::vec3(50, 30, 20);
-        const auto right = glm::vec3(90, 30, 20);
-        const auto rot   = glm::mat3(glm::rotate(t, glm::vec3{1, 2, 3}));
-        if ((glm::distance(p, rot * left) < 10) || (glm::distance(p, rot * right) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
-        {
-          grid.SetVoxelAt({i, j, k}, 1);
-        }
-        else
-        {
-          grid.SetVoxelAt({i, j, k}, 0);
-        }
-      }
-
   grid.buffer.FlushWritesToGPU(commandBuffer);
 
   ctx.Barrier();
@@ -465,6 +584,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, [[maybe_unused]] VkCommand
     auto [usedSuffix, usedDivisor] = Math::BytesToSuffixAndDivisor(stats.allocationBytes);
     auto [blockSuffix, blockDivisor] = Math::BytesToSuffixAndDivisor(stats.blockBytes);
     ImGui::Text("Voxel memory: %.2f %s / %.2f %s", stats.allocationBytes / usedDivisor, usedSuffix, stats.blockBytes / blockDivisor, blockSuffix);
+
+    if (ImGui::Button("Collapse da grid"))
+    {
+      grid.CollapseGrids();
+    }
   }
   ImGui::End();
 }

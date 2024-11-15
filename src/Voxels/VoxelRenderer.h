@@ -58,7 +58,7 @@ struct GridHierarchy
   static constexpr int VOXELS_PER_TL_BRICK      = CELLS_PER_TL_BRICK * CELLS_PER_BL_BRICK * CELLS_PER_TL_BRICK;
   static constexpr int TL_BRICK_VOXELS_PER_SIDE = TL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH;
 
-  using voxel_t = unsigned char;
+  using voxel_t = uint32_t;
 
   // The storage of a "chunk"
   struct BottomLevelBrick
@@ -104,12 +104,15 @@ struct GridHierarchy
   GridHierarchyCoords GetCoordsOfVoxelAt(glm::ivec3 voxelCoord);
   voxel_t GetVoxelAt(glm::ivec3 voxelCoord);
   void SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel);
+  void CollapseGrids();
 
   int FlattenTopLevelBrickCoord(glm::ivec3 coord) const;
   static int FlattenBottomLevelBrickCoord(glm::ivec3 coord);
   static int FlattenVoxelCoord(glm::ivec3 coord);
   uint32_t AllocateTopLevelBrick();
   uint32_t AllocateBottomLevelBrick();
+  void FreeTopLevelBrick(uint32_t index);
+  void FreeBottomLevelBrick(uint32_t index);
 
   Fvog::ReplicatedBuffer buffer;
   //std::unique_ptr<TopLevelBrickPtr[]> topLevelBricks;
@@ -137,7 +140,7 @@ private:
   void OnGui(double dt, VkCommandBuffer commandBuffer) override;
   void OnPathDrop(std::span<const char*> paths) override;
 
-  GridHierarchy grid{{2, 1, 1}};
+  GridHierarchy grid{{1, 1, 1}};
 
   std::optional<Fvog::Texture> mainImage;
   Fvog::NDeviceBuffer<Temp::Uniforms> perFrameUniforms;

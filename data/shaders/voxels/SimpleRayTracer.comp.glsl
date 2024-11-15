@@ -13,7 +13,7 @@ const int CELLS_PER_TL_BRICK   = TL_BRICK_SIDE_LENGTH * TL_BRICK_SIDE_LENGTH * T
 const int VOXELS_PER_TL_BRICK      = CELLS_PER_TL_BRICK * CELLS_PER_BL_BRICK * CELLS_PER_TL_BRICK;
 const int TL_BRICK_VOXELS_PER_SIDE = TL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH;
 
-#define voxel_t uint8_t
+#define voxel_t uint
 
 struct BottomLevelBrick
 {
@@ -151,7 +151,7 @@ struct HitSurfaceParameters
 	vec3 voxelPosition;
 	vec3 positionWorld;
 	vec3 flatNormalWorld;
-	vec2 texCoord;
+	vec2 texCoords;
 };
 
 float gTopLevelBricksTraversed = 0;
@@ -166,6 +166,17 @@ struct vx_InitialDDAState
 	vec3 S;
 	vec3 stepDir;
 };
+
+vec2 vx_GetTexCoords(vec3 normal, vec3 uvw)
+{
+	// Ugly, hacky way to get texCoords, but squirreled away in a function
+	if (normal.x > 0) return vec2(1 - uvw.z, uvw.y);
+	if (normal.x < 0) return vec2(uvw.z, uvw.y);
+	if (normal.y > 0) return vec2(uvw.x, 1 - uvw.z); // Arbitrary
+	if (normal.y < 0) return vec2(uvw.x, uvw.z);
+	if (normal.z > 0) return vec2(uvw.x, uvw.y);
+	return vec2(1 - uvw.x, uvw.y);
+}
 
 // Ray position in (0, BL_BRICK_SIDE_LENGTH)
 bool vx_TraceRayVoxels(vec3 rayPosition, vec3 rayDirection, BottomLevelBrickPtr bottomLevelBrickPtr, vx_InitialDDAState init, vec3 cases, out HitSurfaceParameters hit)
@@ -197,19 +208,10 @@ bool vx_TraceRayVoxels(vec3 rayPosition, vec3 rayDirection, BottomLevelBrickPtr 
 				hitWorldPos = rayPosition;
 			}
 
-			// Ugly, hacky way to get texCoord
-			vec2 texCoord = {0, 0};
-			if (normal.x > 0) texCoord = vec2(1 - uvw.z, uvw.y);
-			if (normal.x < 0) texCoord = vec2(uvw.z, uvw.y);
-			if (normal.y > 0) texCoord = vec2(uvw.x, 1 - uvw.z); // Arbitrary
-			if (normal.y < 0) texCoord = vec2(uvw.x, uvw.z);
-			if (normal.z > 0) texCoord = vec2(uvw.x, uvw.y);
-			if (normal.z < 0) texCoord = vec2(1 - uvw.x, uvw.y);
-
 			hit.voxel = voxel;
 			hit.voxelPosition = ivec3(mapPos);
 			hit.positionWorld = hitWorldPos;
-			hit.texCoord = texCoord;
+			hit.texCoords = vx_GetTexCoords(normal, uvw);
 			hit.flatNormalWorld = normal;
 			return true;
 		}
@@ -259,6 +261,12 @@ bool vx_TraceRayBottomLevelBricks(vec3 rayPosition, vec3 rayDirection, TopLevelB
 
 			if (bottomLevelBrickPtr.voxelsDoBeAllSame == 1)
 			{
+				hit.voxel = voxel_t(bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame);
+				// Hack, but seems to work
+				hit.voxelPosition = ivec3(hitWorldPos * BL_BRICK_SIDE_LENGTH - EPSILON);
+				hit.positionWorld = hitWorldPos * BL_BRICK_SIDE_LENGTH;
+				hit.texCoords = fract(vx_GetTexCoords(normal, uvw) * BL_BRICK_SIDE_LENGTH); // Might behave poorly
+				hit.flatNormalWorld = normal;
 				return true;
 			}
 
@@ -302,7 +310,7 @@ bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out 
 
 	vec3 cases = sideDist;
 
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 50; i++)
     {
 		// For the top level, traversal outside the map area is ok, just skip
         if(all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, pc.topLevelBricksDims)))
@@ -327,6 +335,12 @@ bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out 
 
 				if (topLevelBrickPtr.voxelsDoBeAllSame == 1)
 				{
+					hit.voxel = voxel_t(topLevelBrickPtr.topLevelBrickIndexOrVoxelIfAllSame);
+					// Hack, but seems to work
+					hit.voxelPosition = ivec3(hitWorldPos * TL_BRICK_VOXELS_PER_SIDE - EPSILON);
+					hit.positionWorld = hitWorldPos * TL_BRICK_VOXELS_PER_SIDE;
+					hit.texCoords = fract(vx_GetTexCoords(normal, uvw) * TL_BRICK_VOXELS_PER_SIDE); // Might behave poorly
+					hit.flatNormalWorld = normal;
 					return true;
 				}
 
@@ -406,19 +420,10 @@ bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitS
 				const vec3 hitWorldPos = rayPosition + rayDirection * t;
 				const vec3 uvw = hitWorldPos - mapPos; // Don't use fract here
 				
-				// Ugly, hacky way to get texCoord
-				vec2 texCoord = {0, 0};
-				if (normal.x > 0) texCoord = vec2(1 - uvw.z, uvw.y);
-				if (normal.x < 0) texCoord = vec2(uvw.z, uvw.y);
-				if (normal.y > 0) texCoord = vec2(uvw.x, 1 - uvw.z); // Arbitrary
-				if (normal.y < 0) texCoord = vec2(uvw.x, uvw.z);
-				if (normal.z > 0) texCoord = vec2(uvw.x, uvw.y);
-				if (normal.z < 0) texCoord = vec2(1 - uvw.x, uvw.y);
-
 				hit.voxel = voxel;
 				hit.voxelPosition = ivec3(mapPos);
 				hit.positionWorld = hitWorldPos;
-				hit.texCoord = texCoord;
+				hit.texCoords = vx_GetTexCoords(normal, uvw);
 				hit.flatNormalWorld = normal;
 				return true;
 			}
@@ -446,14 +451,14 @@ void main()
 	vec3 o_color = {0, 0, 0};
 
 	HitSurfaceParameters hit;
-	//if (vx_TraceRaySimple(rayPos, rayDir, 512, hit))
+	//if (vx_TraceRaySimple(rayPos, rayDir, 5120, hit))
 	if (vx_TraceRayMultiLevel(rayPos, rayDir, 512, hit))
 	{
-		//o_color += vec3(hsv_to_rgb(vec3(MM_Hash3(hit.voxelPosition), 0.55, 0.8)));
+		o_color += vec3(hsv_to_rgb(vec3(MM_Hash3(ivec3(hit.voxelPosition) % 3), 0.55, 0.8)));
 		//o_color += vec3(mod(abs(hit.positionWorld + .5), 1));
 		//o_color += vec3(hit.positionWorld / 200);
 		//o_color += vec3(hit.flatNormalWorld * .5 + .5);
-		o_color += vec3(hit.texCoord, 0);
+		//o_color += vec3(hit.texCoords, 0);
 		//o_color += vec3(0.5);
 
 		// Shadow

@@ -305,13 +305,13 @@ VoxelRenderer::VoxelRenderer(const Application::CreateInfo& createInfo)
         //const auto left  = glm::vec3(50, 30, 20);
         //const auto right = glm::vec3(90, 30, 20);
         //if ((glm::distance(p, left) < 10) || (glm::distance(p, right) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
-        //if (de2(p / 70.f + 2.0f) < 0.001f)
+        if (de2(p / 20.f + 2.0f) < 0.011f)
         {
           grid.SetVoxelAt({i, j, k}, 1);
         }
-        //else
+        else
         {
-          //grid.SetVoxelAt({i, j, k}, 0);
+          grid.SetVoxelAt({i, j, k}, 0);
         }
       }
 

@@ -140,7 +140,7 @@ private:
   void OnGui(double dt, VkCommandBuffer commandBuffer) override;
   void OnPathDrop(std::span<const char*> paths) override;
 
-  GridHierarchy grid{{1, 1, 1}};
+  GridHierarchy grid{{4, 4, 4}};
 
   std::optional<Fvog::Texture> mainImage;
   Fvog::NDeviceBuffer<Temp::Uniforms> perFrameUniforms;

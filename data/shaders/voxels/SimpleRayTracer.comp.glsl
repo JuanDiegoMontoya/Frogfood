@@ -433,6 +433,105 @@ bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitS
 	return false;
 }
 
+vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal)
+{
+	vec3 indirectIlluminance = {0, 0, 0};
+
+	// This state must be independent of the state used for sampling a direction
+    //uint randState = PCG_Hash(shadingUniforms.frameNumber + PCG_Hash(gid.y + PCG_Hash(gid.x)));
+	uint randState = PCG_Hash(gid.y + PCG_Hash(gid.x));
+
+    // All pixels should have the same sequence
+    //uint noiseOffsetState = PCG_Hash(shadingUniforms.frameNumber);
+	uint noiseOffsetState = 0;
+
+const uint NUM_SAMPLES = 5;
+const uint NUM_BOUNCES = 2;
+    for (uint ptSample = 0; ptSample < NUM_SAMPLES; ptSample++)
+    {
+      // These additional sources of randomness are useful when the noise texture is a low resolution
+      //const vec2 perSampleNoise = shadingUniforms.random + Hammersley(ptSample, shadingUniforms.numGiBounces);
+		const vec2 perSampleNoise = Hammersley(ptSample, NUM_SAMPLES);
+
+      //vec3 prevRayDir = -fragToCameraDir;
+      vec3 curRayPos = rayPosition;
+      //Surface curSurface = surface;
+
+      vec3 throughput = {1, 1, 1};
+      for (uint bounce = 0; bounce < NUM_BOUNCES; bounce++)
+      {
+        const ivec2 noiseOffset = ivec2(PCG_RandU32(noiseOffsetState), PCG_RandU32(noiseOffsetState));
+        //const vec2 noiseTextureSample = texelFetch(shadingUniforms.noiseTexture, (gid + noiseOffset) % textureSize(shadingUniforms.noiseTexture, 0), 0).xy;
+        const vec2 noiseTextureSample = {PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1)};
+        const vec2 xi = fract(perSampleNoise + noiseTextureSample);
+        const vec3 curRayDir = normalize(map_to_unit_hemisphere_cosine_weighted(xi, normal));
+		//return curRayDir * .5 + .5;
+        const float cos_theta = clamp(dot(normal, curRayDir), 0, 1);
+        if (cos_theta <= 0) // Terminate path
+        {
+          break;
+        }
+        const float pdf = cosine_weighted_hemisphere_PDF(cos_theta);
+        ASSERT_MSG(isfinite(pdf), "PDF is not finite!\n");
+        //const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
+        const vec3 brdf_over_pdf = vec3(1) / M_PI / pdf; // Lambertian
+        //const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf; // Cook-Torrance
+
+        throughput *= cos_theta * brdf_over_pdf;
+
+        HitSurfaceParameters hit;
+        //if (TraceRayOpaqueMasked(curRayPos, curRayDir, 10000, hit))
+        if (vx_TraceRayMultiLevel(curRayPos, curRayDir, 10000, hit))
+        {
+          //indirectIlluminance += throughput * hit.emission;
+
+          //prevRayDir = curRayDir;
+          curRayPos = hit.positionWorld + hit.flatNormalWorld * 0.0001;
+			normal = hit.flatNormalWorld;
+
+          //curSurface.albedo = hit.albedo.rgb;
+          //curSurface.normal = hit.smoothNormalWorld;
+          //curSurface.position = hit.positionWorld;
+          //curSurface.metallic = hit.metallic;
+          //curSurface.perceptualRoughness = hit.roughness;
+          //curSurface.reflectance = 0.5;
+          //curSurface.f90 = 1.0;
+
+          // Sun NEE. Direct illumination is handled outside this loop, so no further attenuation is required.
+        //   const uint numSunShadowRays = 1;
+        //   const float sunShadow = ShadowSunRayTraced(hit.positionWorld + hit.flatNormalWorld * 0.0001,
+        //     -shadingUniforms.sunDir.xyz,
+        //     hit.smoothNormalWorld,
+        //     shadowUniforms.rtSunDiameterRadians,
+        //     xi,
+        //     numSunShadowRays);
+
+        //   indirectIlluminance += sunColor_internal_space * 
+        //     throughput * 
+        //     //BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
+        //     //(curSurface.albedo / M_PI) * 
+        //     (vec3(1) / M_PI) * 
+        //     clamp(dot(hit.smoothNormalWorld, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
+        //     sunShadow / 
+        //     solid_angle_mapping_PDF(radians(0.5));
+        }
+        else
+        {
+          // Miss, add sky contribution
+        //   const vec3 skyEmittance = color_convert_src_to_dst(shadingUniforms.skyIlluminance.rgb * shadingUniforms.skyIlluminance.a,
+        //     COLOR_SPACE_sRGB_LINEAR,
+        //     shadingUniforms.shadingInternalColorSpace);
+			//const vec3 skyEmittance = {.1, .3, .5};
+			const vec3 skyEmittance = curRayDir * .5 + .5;
+          indirectIlluminance += skyEmittance * throughput;
+          break;
+        }
+      }
+    }
+
+    return indirectIlluminance / NUM_SAMPLES;
+}
+
 layout(local_size_x = 8, local_size_y = 8) in;
 void main()
 {
@@ -463,17 +562,20 @@ void main()
 
 		// Shadow
 		const vec3 sunDir = normalize(vec3(.7, 1, .3));
-		if (vx_TraceRayMultiLevel(hit.positionWorld + sunDir * 1e-4, sunDir, 512, hit))
+		HitSurfaceParameters hit2;
+		if (vx_TraceRayMultiLevel(hit.positionWorld + sunDir * 1e-4, sunDir, 512, hit2))
 		{
 			o_color *= .1;
 		}
+
+		o_color += TraceIndirectLighting(gid, hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld);
 	}
 	else
 	{
 		o_color += rayDir * .5 + .5;
 	}
 
-	o_color += vec3(gTopLevelBricksTraversed / 8, gBottomLevelBricksTraversed / 64, gVoxelsTraversed / 512);
+	//o_color += vec3(gTopLevelBricksTraversed / 8, gBottomLevelBricksTraversed / 64, gVoxelsTraversed / 512);
 	//o_color = vec3(gTopLevelBricksTraversed / 8);
 	//o_color = vec3(gBottomLevelBricksTraversed / 64);
 	//o_color = vec3(gVoxelsTraversed / 512);

@@ -4,12 +4,10 @@
 #include "Fvog/Texture2.h"
 #include "PipelineManager.h"
 
-#include "vk_mem_alloc.h"
-
 #include <glm/vec3.hpp>
 
-#include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <optional>
 
 namespace Temp
@@ -71,7 +69,6 @@ struct GridHierarchy
     bool voxelsDoBeAllSame;
     union
     {
-      //BottomLevelBrick* bottomLevelBrick;
       uint32_t bottomLevelBrick;
       voxel_t voxelIfAllSame;
     };
@@ -87,7 +84,6 @@ struct GridHierarchy
     bool voxelsDoBeAllSame;
     union
     {
-      //TopLevelBrick* topLevelBrick;
       uint32_t topLevelBrick;
       voxel_t voxelIfAllSame;
     };
@@ -104,7 +100,10 @@ struct GridHierarchy
   GridHierarchyCoords GetCoordsOfVoxelAt(glm::ivec3 voxelCoord);
   voxel_t GetVoxelAt(glm::ivec3 voxelCoord);
   void SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel);
-  void CollapseGrids();
+  void CoalesceBricksSLOW();
+  void CoalesceDirtyBricks();
+  void CoalesceTopLevelBrick(TopLevelBrickPtr& topLevelBrickPtr);
+  void CoalesceBottomLevelBrick(BottomLevelBrickPtr& bottomLevelBrickPtr);
 
   int FlattenTopLevelBrickCoord(glm::ivec3 coord) const;
   static int FlattenBottomLevelBrickCoord(glm::ivec3 coord);
@@ -115,7 +114,6 @@ struct GridHierarchy
   void FreeBottomLevelBrick(uint32_t index);
 
   Fvog::ReplicatedBuffer buffer;
-  //std::unique_ptr<TopLevelBrickPtr[]> topLevelBricks;
   Fvog::ReplicatedBuffer::Alloc topLevelBrickPtrs{};
   uint32_t topLevelBrickPtrsBaseIndex{};
   size_t numTopLevelBricks_{};
@@ -123,6 +121,10 @@ struct GridHierarchy
   glm::ivec3 dimensions_{};
   std::unordered_map<uint32_t, Fvog::ReplicatedBuffer::Alloc> topLevelBrickIndexToAlloc;
   std::unordered_map<uint32_t, Fvog::ReplicatedBuffer::Alloc> bottomLevelBrickIndexToAlloc;
+
+  // Used to determine which bricks to look at when coalescing the grid
+  std::unordered_set<TopLevelBrickPtr*> dirtyTopLevelBricks;
+  std::unordered_set<BottomLevelBrickPtr*> dirtyBottomLevelBricks;
 };
 
 class VoxelRenderer final : public Application
@@ -140,7 +142,7 @@ private:
   void OnGui(double dt, VkCommandBuffer commandBuffer) override;
   void OnPathDrop(std::span<const char*> paths) override;
 
-  GridHierarchy grid{{4, 4, 4}};
+  GridHierarchy grid{{2, 2, 2}};
 
   std::optional<Fvog::Texture> mainImage;
   Fvog::NDeviceBuffer<Temp::Uniforms> perFrameUniforms;

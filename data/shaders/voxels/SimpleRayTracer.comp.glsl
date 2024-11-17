@@ -310,7 +310,7 @@ bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out 
 
 	vec3 cases = sideDist;
 
-    for (int i = 0; i < 50; i++)
+    for (int i = 0; i < 150; i++)
     {
 		// For the top level, traversal outside the map area is ok, just skip
         if(all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, pc.topLevelBricksDims)))
@@ -445,8 +445,8 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal)
     //uint noiseOffsetState = PCG_Hash(shadingUniforms.frameNumber);
 	uint noiseOffsetState = 0;
 
-const uint NUM_SAMPLES = 5;
-const uint NUM_BOUNCES = 2;
+	const uint NUM_SAMPLES = 5;
+	const uint NUM_BOUNCES = 2;
     for (uint ptSample = 0; ptSample < NUM_SAMPLES; ptSample++)
     {
       // These additional sources of randomness are useful when the noise texture is a low resolution

@@ -87,7 +87,7 @@ GridHierarchy::voxel_t GridHierarchy::GetVoxelAt(glm::ivec3 voxelCoord)
 
 void GridHierarchy::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
 {
-  ZoneScoped;
+  //ZoneScoped;
   assert(glm::all(glm::greaterThanEqual(voxelCoord, glm::ivec3(0))));
   assert(glm::all(glm::lessThan(voxelCoord, dimensions_)));
 
@@ -122,10 +122,14 @@ void GridHierarchy::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
   auto& dstVoxel = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[localVoxelIndex];
   dstVoxel = voxel;
   buffer.MarkDirtyPages(&dstVoxel);
+  dirtyTopLevelBricks.insert(&topLevelBrickPtr);
+  dirtyBottomLevelBricks.insert(&bottomLevelBrickPtr);
 }
 
-void GridHierarchy::CollapseGrids()
+void GridHierarchy::CoalesceBricksSLOW()
 {
+  ZoneScoped;
+
   // Check all voxels of each bottom-level brick
   for (size_t i = 0; i < numTopLevelBricks_; i++)
   {
@@ -137,29 +141,7 @@ void GridHierarchy::CollapseGrids()
 
     for (auto& bottomLevelBrickPtr : buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks)
     {
-      if (bottomLevelBrickPtr.voxelsDoBeAllSame)
-      {
-        continue;
-      }
-
-      const voxel_t firstVoxel = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[0];
-      bool allSame      = true;
-      for (const auto& voxel : buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels)
-      {
-        if (firstVoxel != voxel)
-        {
-          allSame = false;
-          break;
-        }
-      }
-
-      if (allSame)
-      {
-        FreeBottomLevelBrick(bottomLevelBrickPtr.bottomLevelBrick);
-        bottomLevelBrickPtr.voxelsDoBeAllSame = true;
-        bottomLevelBrickPtr.voxelIfAllSame    = firstVoxel;
-        buffer.MarkDirtyPages(&bottomLevelBrickPtr);
-      }
+      CoalesceBottomLevelBrick(bottomLevelBrickPtr);
     }
   }
 
@@ -172,25 +154,78 @@ void GridHierarchy::CollapseGrids()
       continue;
     }
 
-    const voxel_t firstVoxel = buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks[0].voxelIfAllSame;
-    bool allSame = true;
-    for (auto& bottomLevelBrickPtr : buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks)
-    {
-      if (!bottomLevelBrickPtr.voxelsDoBeAllSame || bottomLevelBrickPtr.voxelIfAllSame != firstVoxel)
-      {
-        allSame = false;
-        break;
-      }
-    }
+    CoalesceTopLevelBrick(topLevelBrickPtr);
+  }
 
-    if (allSame)
+  dirtyTopLevelBricks.clear();
+  dirtyBottomLevelBricks.clear();
+}
+
+void GridHierarchy::CoalesceDirtyBricks()
+{
+  for (auto* bottomLevelBrickPtr : dirtyBottomLevelBricks)
+  {
+    CoalesceBottomLevelBrick(*bottomLevelBrickPtr);
+  }
+
+  for (auto* topLevelBrickPtr : dirtyTopLevelBricks)
+  {
+    CoalesceTopLevelBrick(*topLevelBrickPtr);
+  }
+
+  dirtyTopLevelBricks.clear();
+  dirtyBottomLevelBricks.clear();
+}
+
+void GridHierarchy::CoalesceTopLevelBrick(TopLevelBrickPtr& topLevelBrickPtr)
+{
+  ZoneScoped;
+
+  // Brick is already coalesced
+  if (topLevelBrickPtr.voxelsDoBeAllSame)
+  {
+    return;
+  }
+
+  const voxel_t firstVoxel = buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks[0].voxelIfAllSame;
+  for (auto& bottomLevelBrickPtr : buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks)
+  {
+    if (!bottomLevelBrickPtr.voxelsDoBeAllSame || bottomLevelBrickPtr.voxelIfAllSame != firstVoxel)
     {
-      FreeTopLevelBrick(topLevelBrickPtr.topLevelBrick);
-      topLevelBrickPtr.voxelsDoBeAllSame = true;
-      topLevelBrickPtr.voxelIfAllSame    = firstVoxel;
-      buffer.MarkDirtyPages(&topLevelBrickPtr);
+      return;
     }
   }
+  
+  FreeTopLevelBrick(topLevelBrickPtr.topLevelBrick);
+  topLevelBrickPtr.voxelsDoBeAllSame = true;
+  topLevelBrickPtr.voxelIfAllSame    = firstVoxel;
+  buffer.MarkDirtyPages(&topLevelBrickPtr);
+}
+
+void GridHierarchy::CoalesceBottomLevelBrick(BottomLevelBrickPtr& bottomLevelBrickPtr)
+{
+  ZoneScoped;
+
+  // Brick is already coalesced
+  if (bottomLevelBrickPtr.voxelsDoBeAllSame)
+  {
+    return;
+  }
+
+  const voxel_t firstVoxel = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[0];
+  for (const auto& voxel : buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels)
+  {
+    if (firstVoxel != voxel)
+    {
+      return;
+    }
+  }
+  
+  FreeBottomLevelBrick(bottomLevelBrickPtr.bottomLevelBrick);
+  bottomLevelBrickPtr.voxelsDoBeAllSame = true;
+  bottomLevelBrickPtr.voxelIfAllSame    = firstVoxel;
+  buffer.MarkDirtyPages(&bottomLevelBrickPtr);
+
 }
 
 int GridHierarchy::FlattenTopLevelBrickCoord(glm::ivec3 coord) const
@@ -246,6 +281,7 @@ void GridHierarchy::FreeTopLevelBrick(uint32_t index)
   auto it = topLevelBrickIndexToAlloc.find(index);
   assert(it != topLevelBrickIndexToAlloc.end());
   buffer.Free(it->second);
+  topLevelBrickIndexToAlloc.erase(it);
 }
 
 void GridHierarchy::FreeBottomLevelBrick(uint32_t index)
@@ -253,9 +289,9 @@ void GridHierarchy::FreeBottomLevelBrick(uint32_t index)
   auto it = bottomLevelBrickIndexToAlloc.find(index);
   assert(it != bottomLevelBrickIndexToAlloc.end());
   buffer.Free(it->second);
+  bottomLevelBrickIndexToAlloc.erase(it);
 }
 
-	
 
 float de1(glm::vec3 p0)
 {
@@ -292,27 +328,54 @@ float de2(glm::vec3 p)
   return (rxy) / abs(scale);
 }
 
+float de3(glm::vec3 p)
+{
+  float h = (sin(p.x * 0.11f) * 10 + 10) + (sin(p.z * 0.11f) * 10 + 10);
+  return p.y > h;
+}
+
 VoxelRenderer::VoxelRenderer(const Application::CreateInfo& createInfo)
   : Application(createInfo)
 {
   ZoneScoped;
 
-  for (int i = 0; i < grid.dimensions_.x; i++)
-    for (int j = 0; j < grid.dimensions_.y; j++)
-      for (int k = 0; k < grid.dimensions_.z; k++)
+  // Top level bricks
+  for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
+    for (int j = 0; j < grid.topLevelBricksDims_.y; j++)
+      for (int i = 0; i < grid.topLevelBricksDims_.x; i++)
       {
-        glm::vec3 p      = {i, j, k};
-        //const auto left  = glm::vec3(50, 30, 20);
-        //const auto right = glm::vec3(90, 30, 20);
-        //if ((glm::distance(p, left) < 10) || (glm::distance(p, right) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
-        if (de2(p / 20.f + 2.0f) < 0.011f)
-        {
-          grid.SetVoxelAt({i, j, k}, 1);
-        }
-        else
-        {
-          grid.SetVoxelAt({i, j, k}, 0);
-        }
+        const auto tl          = glm::ivec3{i, j, k};
+
+        // Bottom level bricks
+        for (int c = 0; c < GridHierarchy::TL_BRICK_SIDE_LENGTH; c++)
+          for (int b = 0; b < GridHierarchy::TL_BRICK_SIDE_LENGTH; b++)
+            for (int a = 0; a < GridHierarchy::TL_BRICK_SIDE_LENGTH; a++)
+            {
+              const auto bl = glm::ivec3{a, b, c};
+
+              // Voxels
+              for (int z = 0; z < GridHierarchy::BL_BRICK_SIDE_LENGTH; z++)
+                for (int y = 0; y < GridHierarchy::BL_BRICK_SIDE_LENGTH; y++)
+                  for (int x = 0; x < GridHierarchy::BL_BRICK_SIDE_LENGTH; x++)
+                  {
+                    const auto local = glm::ivec3{x, y, z};
+                    const auto p     = tl * GridHierarchy::TL_BRICK_VOXELS_PER_SIDE + bl * GridHierarchy::BL_BRICK_SIDE_LENGTH + local;
+                    // const auto left  = glm::vec3(50, 30, 20);
+                    // const auto right = glm::vec3(90, 30, 20);
+                    // if ((glm::distance(p, left) < 10) || (glm::distance(p, right) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
+                    if (de2(glm::vec3(p) / 10.f + 2.0f) < 0.011f)
+                    //if (de3(p) < 0.011f)
+                    {
+                      grid.SetVoxelAt(p, 1);
+                    }
+                    else
+                    {
+                      grid.SetVoxelAt(p, 0);
+                    }
+                  }
+            }
+
+        grid.CoalesceDirtyBricks();
       }
 
   mainImage = Fvog::CreateTexture2D({windowFramebufferWidth, windowFramebufferHeight}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::GENERAL, "Main Image");
@@ -587,7 +650,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, [[maybe_unused]] VkCommand
 
     if (ImGui::Button("Collapse da grid"))
     {
-      grid.CollapseGrids();
+      grid.CoalesceDirtyBricks();
     }
   }
   ImGui::End();

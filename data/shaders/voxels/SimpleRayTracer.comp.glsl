@@ -433,7 +433,17 @@ bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitS
 	return false;
 }
 
-vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal)
+vec3 GetHitAlbedo(HitSurfaceParameters hit)
+{
+		return vec3(hsv_to_rgb(vec3(MM_Hash3(ivec3(hit.voxelPosition) % 3), 0.55, 0.8)));
+		//return vec3(mod(abs(hit.positionWorld + .5), 1));
+		//return vec3(hit.positionWorld / 200);
+		//return vec3(hit.flatNormalWorld * .5 + .5);
+		//return vec3(hit.texCoords, 0);
+		//return vec3(0.5);
+}
+
+vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, HitSurfaceParameters initialHit)
 {
 	vec3 indirectIlluminance = {0, 0, 0};
 
@@ -445,6 +455,7 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal)
     //uint noiseOffsetState = PCG_Hash(shadingUniforms.frameNumber);
 	uint noiseOffsetState = 0;
 
+	vec3 currentAlbedo = GetHitAlbedo(initialHit);
 	const uint NUM_SAMPLES = 5;
 	const uint NUM_BOUNCES = 2;
     for (uint ptSample = 0; ptSample < NUM_SAMPLES; ptSample++)
@@ -474,20 +485,22 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal)
         const float pdf = cosine_weighted_hemisphere_PDF(cos_theta);
         ASSERT_MSG(isfinite(pdf), "PDF is not finite!\n");
         //const vec3 brdf_over_pdf = curSurface.albedo / M_PI / pdf; // Lambertian
-        const vec3 brdf_over_pdf = vec3(1) / M_PI / pdf; // Lambertian
+        const vec3 brdf_over_pdf = currentAlbedo / M_PI / pdf; // Lambertian
         //const vec3 brdf_over_pdf = BRDF(-prevRayDir, curRayDir, curSurface) / pdf; // Cook-Torrance
 
         throughput *= cos_theta * brdf_over_pdf;
 
         HitSurfaceParameters hit;
-        //if (TraceRayOpaqueMasked(curRayPos, curRayDir, 10000, hit))
         if (vx_TraceRayMultiLevel(curRayPos, curRayDir, 10000, hit))
         {
           //indirectIlluminance += throughput * hit.emission;
+		  if (ivec3(hit.voxelPosition / 4) % 4 == ivec3(0))
+		  	indirectIlluminance += throughput * 5;
 
           //prevRayDir = curRayDir;
           curRayPos = hit.positionWorld + hit.flatNormalWorld * 0.0001;
 			normal = hit.flatNormalWorld;
+			currentAlbedo = GetHitAlbedo(hit);
 
           //curSurface.albedo = hit.albedo.rgb;
           //curSurface.normal = hit.smoothNormalWorld;
@@ -553,22 +566,17 @@ void main()
 	//if (vx_TraceRaySimple(rayPos, rayDir, 5120, hit))
 	if (vx_TraceRayMultiLevel(rayPos, rayDir, 512, hit))
 	{
-		o_color += vec3(hsv_to_rgb(vec3(MM_Hash3(ivec3(hit.voxelPosition) % 3), 0.55, 0.8)));
-		//o_color += vec3(mod(abs(hit.positionWorld + .5), 1));
-		//o_color += vec3(hit.positionWorld / 200);
-		//o_color += vec3(hit.flatNormalWorld * .5 + .5);
-		//o_color += vec3(hit.texCoords, 0);
-		//o_color += vec3(0.5);
+		o_color += GetHitAlbedo(hit);
 
 		// Shadow
 		const vec3 sunDir = normalize(vec3(.7, 1, .3));
 		HitSurfaceParameters hit2;
 		if (vx_TraceRayMultiLevel(hit.positionWorld + sunDir * 1e-4, sunDir, 512, hit2))
 		{
-			o_color *= .1;
+			o_color *= .01;
 		}
 
-		o_color += TraceIndirectLighting(gid, hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld);
+		o_color += TraceIndirectLighting(gid, hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, hit);
 	}
 	else
 	{
@@ -580,5 +588,6 @@ void main()
 	//o_color = vec3(gBottomLevelBricksTraversed / 64);
 	//o_color = vec3(gVoxelsTraversed / 512);
 
+	//o_color = o_color / (1 + o_color); // Reinhard
 	imageStore(pc.outputImage, gid, vec4(pow(o_color, vec3(1/2.2)), 1));
 }

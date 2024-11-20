@@ -68,6 +68,11 @@ add_executable(frogRender
     src/PipelineManager.cpp
     src/Voxels/VoxelRenderer.h
     src/Voxels/VoxelRenderer.cpp
+    src/Voxels/Game.cpp
+    src/Voxels/Game.h
+    src/Voxels/ClassImplMacros.h
+    src/Voxels/PlayerHead.h
+    src/Voxels/PlayerHead.cpp
 )
 
 target_compile_options(frogRender
@@ -136,6 +141,7 @@ target_link_libraries(frogRender
     glslang
     glslang-default-resource-limits
     SPIRV
+    EnTT
 )
 
 target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE ImTextureID=ImU64)

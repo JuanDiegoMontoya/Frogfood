@@ -107,11 +107,17 @@ FetchContent_Declare(
     GIT_TAG         v0.11.1
 )
 
+FetchContent_Declare(
+    EnTT
+    GIT_REPOSITORY https://github.com/skypjack/entt.git
+    GIT_TAG        v3.13.2
+)
+
 option(TRACY_ON_DEMAND "" ON)
 option(TRACY_ENABLE "Enable profiling" ON)
 option(TRACY_ONLY_IPV4 "IPv4 only" ON)
 
-FetchContent_MakeAvailable(glm fastgltf ktx meshoptimizer tracy volk vkbootstrap vma glslang)
+FetchContent_MakeAvailable(glm fastgltf ktx meshoptimizer tracy volk vkbootstrap vma glslang EnTT)
 
 set(FSR2_SOURCE ${fsr2_SOURCE_DIR} PARENT_SCOPE)
 

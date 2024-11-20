@@ -443,6 +443,18 @@ vec3 GetHitAlbedo(HitSurfaceParameters hit)
 		//return vec3(0.5);
 }
 
+float TraceSunRay(vec3 rayPosition)
+{
+	const vec3 sunDir = normalize(vec3(.7, 1, .3));
+	HitSurfaceParameters hit2;
+	if (vx_TraceRayMultiLevel(rayPosition, sunDir, 512, hit2))
+	{
+		return 0;
+	}
+
+	return 1;
+}
+
 vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, HitSurfaceParameters initialHit)
 {
 	vec3 indirectIlluminance = {0, 0, 0};
@@ -518,15 +530,18 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, HitSurfaceP
         //     shadowUniforms.rtSunDiameterRadians,
         //     xi,
         //     numSunShadowRays);
+		const float sunShadow = TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4);
 
-        //   indirectIlluminance += sunColor_internal_space * 
-        //     throughput * 
-        //     //BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
-        //     //(curSurface.albedo / M_PI) * 
-        //     (vec3(1) / M_PI) * 
-        //     clamp(dot(hit.smoothNormalWorld, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
-        //     sunShadow / 
-        //     solid_angle_mapping_PDF(radians(0.5));
+          //indirectIlluminance += sunColor_internal_space * 
+          indirectIlluminance +=  
+            throughput * 
+            //BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
+            //(curSurface.albedo / M_PI) * 
+            (currentAlbedo / M_PI) * 
+            //clamp(dot(hit.flatNormalWorld, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
+            sunShadow * 100000 /
+            //sunShadow / 
+            solid_angle_mapping_PDF(radians(0.5));
         }
         else
         {
@@ -569,12 +584,7 @@ void main()
 		o_color += GetHitAlbedo(hit);
 
 		// Shadow
-		const vec3 sunDir = normalize(vec3(.7, 1, .3));
-		HitSurfaceParameters hit2;
-		if (vx_TraceRayMultiLevel(hit.positionWorld + sunDir * 1e-4, sunDir, 512, hit2))
-		{
-			o_color *= .01;
-		}
+		o_color *= TraceSunRay(hit.positionWorld);
 
 		o_color += TraceIndirectLighting(gid, hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, hit);
 	}

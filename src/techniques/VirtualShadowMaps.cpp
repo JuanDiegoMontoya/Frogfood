@@ -4,6 +4,7 @@
 #include "shaders/Config.shared.h"
 
 #include "../RendererUtilities.h"
+#include "Voxels/Assets.h"
 
 #include <Fvog/Buffer2.h>
 #include <Fvog/Rendering2.h>

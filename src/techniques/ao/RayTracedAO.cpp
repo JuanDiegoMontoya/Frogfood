@@ -3,6 +3,7 @@
 #include "Fvog/Rendering2.h"
 #include "../../RendererUtilities.h"
 #include "Fvog/AccelerationStructure.h"
+#include "Voxels/Assets.h"
 #include "shaders/ao/rtao/RayTracedAO.comp.glsl"
 
 #include <tracy/Tracy.hpp>

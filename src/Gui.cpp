@@ -35,6 +35,7 @@
 #include "IconsFontAwesome6.h"
 
 #include "vk_mem_alloc.h"
+#include "Voxels/Assets.h"
 
 namespace
 {

@@ -18,22 +18,13 @@ void Game::Run()
 
   const auto start = std::chrono::steady_clock::now();
   const double tickLength = 1.0 / tickHz_;
-
   double fixedUpdateAccum = 0;
 
   while (isRunning_)
   {
     const auto now = std::chrono::steady_clock::now();
-
     const auto realDeltaTime = std::chrono::duration_cast<std::chrono::microseconds>(now - start).count() / 1'000'000.0;
-
     fixedUpdateAccum += realDeltaTime * gameDeltaTimeScale;
-
-    while (fixedUpdateAccum > tickLength)
-    {
-      fixedUpdateAccum -= tickLength;
-      // TODO: call game FixedUpdate
-    }
 
     const auto dt = DeltaTime{
       .game = static_cast<float>(realDeltaTime * gameDeltaTimeScale),
@@ -42,12 +33,24 @@ void Game::Run()
 
     if (head_)
     {
-      head_->VariableUpdate(dt, *world_);
+      head_->VariableUpdatePre(dt, *world_);
+    }
+
+    while (fixedUpdateAccum > tickLength)
+    {
+      fixedUpdateAccum -= tickLength;
+      // TODO: call game FixedUpdate
+      world_->FixedUpdate(static_cast<float>(tickLength));
+    }
+
+    if (head_)
+    {
+      head_->VariableUpdatePost(dt, *world_);
     }
   }
 }
 
-void World::FixedUpdate(DeltaTime)
+void World::FixedUpdate(float)
 {
 
   ticks++;

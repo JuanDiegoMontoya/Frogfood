@@ -2,6 +2,8 @@
 #include "RendererUtilities.h"
 #include "Fvog/Rendering2.h"
 #include "Application.h"
+#include "Voxels/Assets.h"
+
 #include <vector>
 #include <tracy/Tracy.hpp>
 

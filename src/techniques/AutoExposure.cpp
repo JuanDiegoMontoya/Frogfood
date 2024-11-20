@@ -6,6 +6,7 @@
 #include "Fvog/Shader2.h"
 
 #include "../RendererUtilities.h"
+#include "Voxels/Assets.h"
 
 #include <cmath>
 

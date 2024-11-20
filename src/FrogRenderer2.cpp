@@ -7,6 +7,7 @@
 #include "Fvog/Shader2.h"
 #include "Fvog/detail/Common.h"
 #include "Fvog/detail/ApiToEnum2.h"
+#include "Voxels/Assets.h"
 using namespace Fvog::detail;
 
 #include "shaders/Config.shared.h"

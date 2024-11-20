@@ -2,6 +2,7 @@
 #include "VoxelRenderer.h"
 #include "VoxelRenderer.h"
 
+#include "Assets.h"
 #include "MathUtilities.h"
 #include "PipelineManager.h"
 #include "imgui.h"

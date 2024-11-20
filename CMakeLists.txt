@@ -73,6 +73,8 @@ add_executable(frogRender
     src/Voxels/ClassImplMacros.h
     src/Voxels/PlayerHead.h
     src/Voxels/PlayerHead.cpp
+    src/Voxels/Assets.h
+    src/Voxels/Assets.cpp
 )
 
 target_compile_options(frogRender

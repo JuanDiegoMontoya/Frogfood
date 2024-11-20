@@ -17,7 +17,7 @@ class World
 public:
   NO_COPY_NO_MOVE(World);
   explicit World() = default;
-  void FixedUpdate(DeltaTime dt);
+  void FixedUpdate(float dt);
 
 private:
   uint64_t ticks = 0;
@@ -43,14 +43,18 @@ public:
   explicit Head() = default;
   virtual ~Head() = default;
 
-  virtual void VariableUpdate(DeltaTime dt, World& world) = 0;
+  // Before FixedUpdate
+  virtual void VariableUpdatePre(DeltaTime dt, World& world) = 0;
+
+  // After FixedUpdate
+  virtual void VariableUpdatePost(DeltaTime dt, World& world) = 0;
 };
 
 class NullHead final : public Head
 {
 public:
-
-  void VariableUpdate(DeltaTime, World&) override {}
+  void VariableUpdatePre(DeltaTime, World&) override {}
+  void VariableUpdatePost(DeltaTime, World&) override {}
 };
 
 // Game class used for client and server

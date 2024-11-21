@@ -2,7 +2,8 @@
 #include <cstdint>
 #include <memory>
 
-#include "entt/entt.hpp"
+#include "entt/entity/registry.hpp"
+#include "entt/entity/entity.hpp"
 
 #include "ClassImplMacros.h"
 
@@ -19,8 +20,30 @@ public:
   explicit World() = default;
   void FixedUpdate(float dt);
 
+  template<typename T>
+  decltype(auto) CreateSingletonComponent()
+  {
+    assert(registry_.view<T>().size() == 0);
+    auto entity = registry_.create();
+    return registry_.emplace<T>(entity);
+  }
+
+  template<typename T>
+  [[nodiscard]] decltype(auto) GetSingletonComponent()
+  {
+    auto view = registry_.view<T>();
+    assert(view.size() == 1);
+    auto&& [_, c] = *view.each().begin();
+    return c;
+  }
+
+  entt::registry& GetRegistry()
+  {
+    return registry_;
+  }
+
 private:
-  uint64_t ticks = 0;
+  uint64_t ticks_ = 0;
   entt::registry registry_;
 };
 
@@ -56,6 +79,8 @@ public:
   void VariableUpdatePre(DeltaTime, World&) override {}
   void VariableUpdatePost(DeltaTime, World&) override {}
 };
+
+struct QuitGame {};
 
 // Game class used for client and server
 class Game

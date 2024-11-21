@@ -166,7 +166,6 @@ namespace Fvog
 
   GraphicsPipeline::~GraphicsPipeline()
   {
-    // TODO: put this into a queue for delayed deletion
     if (pipeline_ != VK_NULL_HANDLE)
     {
       Fvog::GetDevice().genericDeletionQueue_.emplace_back(
@@ -236,11 +235,16 @@ namespace Fvog
 
   ComputePipeline::~ComputePipeline()
   {
-    // TODO: put this into a queue for delayed deletion
-    if (pipeline_ != VK_NULL_HANDLE)
-    {
-      vkDestroyPipeline(Fvog::GetDevice().device_, pipeline_, nullptr);
-    }
+    Fvog::GetDevice().genericDeletionQueue_.emplace_back(
+      [pipeline = pipeline_, frameOfLastUse = Fvog::GetDevice().frameNumber](uint64_t value) -> bool
+      {
+        if (value >= frameOfLastUse)
+        {
+          vkDestroyPipeline(Fvog::GetDevice().device_, pipeline, nullptr);
+          return true;
+        }
+        return false;
+      });
   }
 
   ComputePipeline::ComputePipeline(ComputePipeline&& old) noexcept

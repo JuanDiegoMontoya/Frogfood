@@ -11,6 +11,8 @@
 
 struct GLFWwindow;
 
+class VoxelRenderer;
+
 namespace tracy
 {
   class VkCtx;
@@ -43,6 +45,7 @@ public:
     bool maximize                = false;
     bool decorate                = true;
     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    World* world                 = nullptr;
   };
 
   PlayerHead(const CreateInfo& createInfo);
@@ -50,10 +53,11 @@ public:
   ~PlayerHead() override;
 
 private:
+  friend class VoxelRenderer; // TODO: HACK
   // Create swapchain size-dependent resources
   std::function<void(uint32_t newWidth, uint32_t newHeight)> framebufferResizeCallback_;
-  std::function<void(float dt, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex)> renderCallback_;
-  std::function<void(float dt, VkCommandBuffer commandBuffer)> guiCallback_;
+  std::function<void(float dt, World& world, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex)> renderCallback_;
+  std::function<void(float dt, World& world, VkCommandBuffer commandBuffer)> guiCallback_;
 
   // destroyList will be the last object to be automatically destroyed after the destructor returns
   DestroyList2 destroyList_;
@@ -89,10 +93,12 @@ private:
 
   void RemakeSwapchain(uint32_t newWidth, uint32_t newHeight);
   void Draw();
+  World* worldThisFrame_{};
   double timeOfLastDraw = 0;
 
   glm::dvec2 cursorFrameOffset{};
   bool cursorJustEnteredWindow = true;
   bool graveHeldLastFrame      = false;
   bool swapchainOk             = true;
+  std::unique_ptr<VoxelRenderer> voxelRenderer_;
 };

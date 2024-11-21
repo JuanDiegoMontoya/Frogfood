@@ -73,13 +73,16 @@
 #include "FrogRenderer2.h"
 #include "Voxels/VoxelRenderer.h"
 
+#include "Voxels/Game.h"
+
 int main()
 {
   //auto app = FrogRenderer2({
-  auto app = VoxelRenderer({
-    .name = "FrogRender",
-  });
-  app.Run();
+  //  .name = "FrogRender",
+  //});
+  //app.Run();
+  auto game = Game(10);
+  game.Run();
 
   return 0;
 }

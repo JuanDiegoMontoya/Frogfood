@@ -17,6 +17,7 @@
 #include "Fvog/detail/ApiToEnum2.h"
 #include "Fvog/detail/Common.h"
 #include "PipelineManager.h"
+#include "VoxelRenderer.h"
 
 #include "ImGui/imgui_impl_fvog.h"
 #include <imgui.h>
@@ -58,7 +59,7 @@ namespace
   std::vector<VkImageView> MakeSwapchainImageViews(VkDevice device, std::span<const VkImage> swapchainImages, VkFormat format)
   {
     auto imageViews = std::vector<VkImageView>();
-    for (auto image : swapchainImages)
+    for (int i = 0; auto image : swapchainImages)
     {
       VkImageView imageView{};
       Fvog::detail::CheckVkResult(vkCreateImageView(device,
@@ -77,6 +78,24 @@ namespace
         nullptr,
         &imageView));
       imageViews.emplace_back(imageView);
+
+      // TODO: gate behind compile-time switch
+      vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+        Fvog::detail::Address(VkDebugUtilsObjectNameInfoEXT{
+          .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+          .objectType   = VK_OBJECT_TYPE_IMAGE,
+          .objectHandle = reinterpret_cast<uint64_t>(image),
+          .pObjectName  = (std::string("Swapchain Image ") + std::to_string(i)).c_str(),
+        }));
+      vkSetDebugUtilsObjectNameEXT(Fvog::GetDevice().device_,
+        Fvog::detail::Address(VkDebugUtilsObjectNameInfoEXT{
+          .sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+          .objectType   = VK_OBJECT_TYPE_IMAGE_VIEW,
+          .objectHandle = reinterpret_cast<uint64_t>(imageView),
+          .pObjectName  = (std::string("Swapchain Image View ") + std::to_string(i)).c_str(),
+        }));
+
+      i++;
     }
     return imageViews;
   }
@@ -153,8 +172,9 @@ static auto MakeVkbSwapchain(const vkb::Device& device,
     .value();
 }
 
-void PlayerHead::VariableUpdatePre(DeltaTime, World&)
+void PlayerHead::VariableUpdatePre(DeltaTime dt, World& world)
 {
+  worldThisFrame_   = &world;
   cursorFrameOffset = {0.0, 0.0};
 
   if (swapchainOk)
@@ -166,22 +186,34 @@ void PlayerHead::VariableUpdatePre(DeltaTime, World&)
     glfwWaitEvents();
     return;
   }
-}
 
-void PlayerHead::VariableUpdatePost(DeltaTime, World&)
-{
-  ZoneScopedN("Frame");
-
-  if (!swapchainOk)
+  if (!cursorIsActive)
   {
-    return;
-  }
-
-  if (shouldRemakeSwapchainNextFrame)
-  {
-    swapchainFormat_ = nextSwapchainFormat_; // "Flush" nextSwapchainFormat_
-    RemakeSwapchain(windowFramebufferWidth, windowFramebufferHeight);
-    shouldRemakeSwapchainNextFrame = false;
+    auto& mainCamera        = world.GetSingletonComponent<Temp::View>();
+    const float dtf         = dt.game;
+    const glm::vec3 forward = mainCamera.GetForwardDir();
+    const glm::vec3 right   = glm::normalize(glm::cross(forward, {0, 1, 0}));
+    float tempCameraSpeed   = 4.5f;
+    // TODO: Move strafing/flying to flying camera controller, then put in system to run in FixedUpdate
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+      tempCameraSpeed *= 4.0f;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+      tempCameraSpeed *= 0.25f;
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+      mainCamera.position += forward * dtf * tempCameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+      mainCamera.position -= forward * dtf * tempCameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+      mainCamera.position += right * dtf * tempCameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+      mainCamera.position -= right * dtf * tempCameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+      mainCamera.position.y -= dtf * tempCameraSpeed;
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+      mainCamera.position.y += dtf * tempCameraSpeed;
+    mainCamera.yaw += static_cast<float>(cursorFrameOffset.x * 0.0025f);
+    mainCamera.pitch += static_cast<float>(cursorFrameOffset.y * 0.0025f);
+    mainCamera.pitch = glm::clamp(mainCamera.pitch, -glm::half_pi<float>() + 1e-4f, glm::half_pi<float>() - 1e-4f);
   }
 
   // Close the app if the user presses Escape.
@@ -193,6 +225,7 @@ void PlayerHead::VariableUpdatePost(DeltaTime, World&)
   // Sleep for a bit if the window is not focused
   if (!glfwGetWindowAttrib(window, GLFW_FOCUSED))
   {
+    // TODO: Use sleep_until so we don't skip game ticks
     std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
   }
 
@@ -217,10 +250,32 @@ void PlayerHead::VariableUpdatePost(DeltaTime, World&)
     cursorPos.x = 0;
     cursorPos.y = 0;
   }
+}
+
+void PlayerHead::VariableUpdatePost(DeltaTime, World& world)
+{
+  ZoneScopedN("Frame");
+
+  if (!swapchainOk)
+  {
+    return;
+  }
+
+  if (shouldRemakeSwapchainNextFrame)
+  {
+    swapchainFormat_ = nextSwapchainFormat_; // "Flush" nextSwapchainFormat_
+    RemakeSwapchain(windowFramebufferWidth, windowFramebufferHeight);
+    shouldRemakeSwapchainNextFrame = false;
+  }
 
   if (windowFramebufferWidth > 0 && windowFramebufferHeight > 0)
   {
     Draw();
+  }
+
+  if (glfwWindowShouldClose(window))
+  {
+    world.CreateSingletonComponent<QuitGame>();
   }
 }
 
@@ -418,6 +473,8 @@ PlayerHead::PlayerHead(const CreateInfo& createInfo) : presentMode(createInfo.pr
   ImGui_ImplFvog_Init(&imguiVulkanInitInfo);
   ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
+  voxelRenderer_ = std::make_unique<VoxelRenderer>(this, *createInfo.world);
+
   glfwSetInputMode(window, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
 
   // Inform the user that the renderer is done loading
@@ -427,6 +484,8 @@ PlayerHead::PlayerHead(const CreateInfo& createInfo) : presentMode(createInfo.pr
 PlayerHead::~PlayerHead()
 {
   ZoneScoped;
+
+  voxelRenderer_.reset();
 
   // Must happen before device is destroyed, thus cannot go in the destroy list
   ImGui_ImplFvog_Shutdown();
@@ -540,14 +599,14 @@ void PlayerHead::Draw()
       if (renderCallback_)
       {
         TracyVkZone(tracyVkContext_, commandBuffer, "OnRender");
-        renderCallback_((float)dtDraw, commandBuffer, swapchainImageIndex);
+        renderCallback_((float)dtDraw, *worldThisFrame_, commandBuffer, swapchainImageIndex);
       }
     }
     {
       if (guiCallback_)
       {
         TracyVkZone(tracyVkContext_, commandBuffer, "OnGui");
-        guiCallback_((float)dtDraw, commandBuffer);
+        guiCallback_((float)dtDraw, *worldThisFrame_, commandBuffer);
       }
     }
   }

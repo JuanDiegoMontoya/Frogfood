@@ -75,6 +75,10 @@ add_executable(frogRender
     src/Voxels/PlayerHead.cpp
     src/Voxels/Assets.h
     src/Voxels/Assets.cpp
+    src/Voxels/TwoLevelGrid.h
+    src/Voxels/TwoLevelGrid.cpp
+    src/Voxels/SketchyBuffer.h
+    src/Voxels/SketchyBuffer.cpp
 )
 
 target_compile_options(frogRender

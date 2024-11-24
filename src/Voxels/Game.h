@@ -1,17 +1,22 @@
 #pragma once
-#include <cstdint>
-#include <memory>
+#include "ClassImplMacros.h"
 
 #include "entt/entity/registry.hpp"
 #include "entt/entity/entity.hpp"
+#include "glm/vec3.hpp"
+#include "glm/gtc/quaternion.hpp"
 
-#include "ClassImplMacros.h"
+#include <cstdint>
+#include <memory>
+#include <unordered_map>
 
 struct DeltaTime
 {
   float game; // Affected by game effects that scale the passage of time.
   float real; // Real time, unaffected by gameplay, inexorably marching on.
 };
+
+struct Singleton {};
 
 class World
 {
@@ -25,6 +30,7 @@ public:
   {
     assert(registry_.view<T>().size() == 0);
     auto entity = registry_.create();
+    registry_.emplace<Singleton>(entity);
     return registry_.emplace<T>(entity);
   }
 
@@ -41,6 +47,8 @@ public:
   {
     return registry_;
   }
+
+  void InitializeGameState();
 
 private:
   uint64_t ticks_ = 0;
@@ -80,13 +88,63 @@ public:
   void VariableUpdatePost(DeltaTime, World&) override {}
 };
 
-struct QuitGame {};
+// Return to desktop
+struct CloseApplication {};
+
+// Close server (if applicable), then return to main menu if head, or close app if headless
+struct ReturnToMenu {};
+
+enum class GameState
+{
+  MENU,
+  GAME,
+  PAUSED,
+};
+
+enum class InputAxis
+{
+  STRAFE,
+  FORWARD,
+  SPRINT,
+  WALK,
+};
+
+// Networked (client -> server)
+// When a server receives these, they attach it to the corresponding player.
+struct InputState
+{
+  float strafe  = 0;
+  float forward = 0;
+  float elevate = 0; // For flying controller
+  bool sprint   = false;
+  bool walk     = false;
+};
+
+// Networked (client -> server)
+struct InputLookState
+{
+  float pitch = 0;
+  float yaw   = 0;
+};
+
+struct Player
+{
+  uint32_t id = 0;
+};
+
+struct Transform
+{
+  glm::vec3 position;
+  float scale;
+  glm::quat rotation;
+};
+
+struct NoclipCharacterController {};
 
 // Game class used for client and server
 class Game
 {
 public:
-  // If a head is supplied, the game instance is not running headlessly (i.e. someone is playing)
   explicit Game(uint32_t tickHz);
   void Run();
 

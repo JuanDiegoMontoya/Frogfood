@@ -57,14 +57,9 @@ float de3(glm::vec3 p)
   return p.y > h;
 }
 
-VoxelRenderer::VoxelRenderer(PlayerHead* head, World& world) : head_(head)
+VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
 {
   ZoneScoped;
-
-  // TODO: This should probably be done on-the-fly, otherwise we're basically requiring only one world to exist.
-  auto& mainView = world.CreateSingletonComponent<Temp::View>();
-
-  mainView.position = {-4, 10, -4};
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -286,7 +281,21 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   ctx.Barrier();
 
-  const auto view_from_world = world.GetSingletonComponent<Temp::View>().GetViewMatrix();
+  auto viewMat = glm::mat4(1);
+  auto position = glm::vec3();
+  for (auto&& [entity, inputLook, transform, player] : world.GetRegistry().view<InputLookState, Transform, Player>().each())
+  {
+    // TODO: use better way of seeing which player we own
+    if (player.id == 0)
+    {
+      position = transform.position;
+      // Flip z axis to correspond with Vulkan's NDC space.
+      auto rotation = glm::mat4(glm::vec4(1, 0, 0, 0), glm::vec4(0, 1, 0, 0), glm::vec4(0, 0, -1, 0), glm::vec4(0, 0, 0, 1)) * glm::mat4_cast(glm::inverse(transform.rotation));
+      viewMat  = glm::translate(rotation, -position);
+    }
+  }
+
+  const auto view_from_world = viewMat;
   //const auto clip_from_view = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
   const auto clip_from_view  = Math::InfReverseZPerspectiveRH(glm::radians(65.0f), (float)head_->windowFramebufferWidth / head_->windowFramebufferHeight, 0.1f);
   const auto clip_from_world = clip_from_view * view_from_world;
@@ -300,7 +309,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .invViewProj            = glm::inverse(clip_from_world),
       .proj                   = glm::mat4{},
       .invProj                = glm::mat4{},
-      .cameraPos              = glm::vec4(world.GetSingletonComponent<Temp::View>().position, 0),
+      .cameraPos              = glm::vec4(position, 0),
       .meshletCount           = 0,
       .maxIndices             = 0,
       .bindlessSamplerLodBias = 0,
@@ -361,25 +370,63 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
-  if (ImGui::Begin("Test"))
+  auto& gameState = world.GetSingletonComponent<GameState>();
+  switch (gameState)
   {
-    GetPipelineManager().PollModifiedShaders();
-    GetPipelineManager().EnqueueModifiedShaders();
-
-    auto& mainCamera = world.GetSingletonComponent<Temp::View>();
-    ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt, dt * 1000);
-    ImGui::Text("Camera pos: (%.2f, %.2f, %.2f)", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
-    ImGui::Text("Camera dir: (%.2f, %.2f, %.2f)", mainCamera.GetForwardDir().x, mainCamera.GetForwardDir().y, mainCamera.GetForwardDir().z);
-    VmaStatistics stats{};
-    vmaGetVirtualBlockStatistics(grid.buffer.GetAllocator(), &stats);
-    auto [usedSuffix, usedDivisor] = Math::BytesToSuffixAndDivisor(stats.allocationBytes);
-    auto [blockSuffix, blockDivisor] = Math::BytesToSuffixAndDivisor(stats.blockBytes);
-    ImGui::Text("Voxel memory: %.2f %s / %.2f %s", stats.allocationBytes / usedDivisor, usedSuffix, stats.blockBytes / blockDivisor, blockSuffix);
-
-    if (ImGui::Button("Collapse da grid"))
+  case GameState::MENU:
+    if (ImGui::Begin("Menu"))
     {
-      grid.CoalesceDirtyBricks();
+      if (ImGui::Button("Play"))
+      {
+        gameState = GameState::GAME;
+        world.InitializeGameState();
+      }
     }
+    ImGui::End();
+    break;
+  case GameState::GAME:
+    if (ImGui::Begin("Test"))
+    {
+      GetPipelineManager().PollModifiedShaders();
+      GetPipelineManager().EnqueueModifiedShaders();
+
+      //auto& mainCamera = world.GetSingletonComponent<Temp::View>();
+      ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt, dt * 1000);
+      //ImGui::Text("Camera pos: (%.2f, %.2f, %.2f)", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
+      //ImGui::Text("Camera dir: (%.2f, %.2f, %.2f)", mainCamera.GetForwardDir().x, mainCamera.GetForwardDir().y, mainCamera.GetForwardDir().z);
+      VmaStatistics stats{};
+      vmaGetVirtualBlockStatistics(grid.buffer.GetAllocator(), &stats);
+      auto [usedSuffix, usedDivisor]   = Math::BytesToSuffixAndDivisor(stats.allocationBytes);
+      auto [blockSuffix, blockDivisor] = Math::BytesToSuffixAndDivisor(stats.blockBytes);
+      ImGui::Text("Voxel memory: %.2f %s / %.2f %s", stats.allocationBytes / usedDivisor, usedSuffix, stats.blockBytes / blockDivisor, blockSuffix);
+
+      if (ImGui::Button("Collapse da grid"))
+      {
+        grid.CoalesceDirtyBricks();
+      }
+    }
+    ImGui::End();
+    break;
+  case GameState::PAUSED:
+    if (ImGui::Begin("Paused"))
+    {
+      if (ImGui::Button("Unpause"))
+      {
+        gameState = GameState::GAME;
+      }
+
+      if (ImGui::Button("Exit to main menu"))
+      {
+        gameState = GameState::MENU;
+      }
+
+      if (ImGui::Button("Exit to desktop"))
+      {
+        world.CreateSingletonComponent<CloseApplication>();
+      }
+    }
+    ImGui::End();
+    break;
+  default:;
   }
-  ImGui::End();
 }

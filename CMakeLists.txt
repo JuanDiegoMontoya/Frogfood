@@ -79,6 +79,8 @@ add_executable(frogRender
     src/Voxels/TwoLevelGrid.cpp
     src/Voxels/SketchyBuffer.h
     src/Voxels/SketchyBuffer.cpp
+    src/Voxels/Input.h
+    src/Voxels/Input.cpp
 )
 
 target_compile_options(frogRender

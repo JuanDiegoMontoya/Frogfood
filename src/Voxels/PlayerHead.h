@@ -1,6 +1,7 @@
 #pragma once
 #include "ClassImplMacros.h"
 #include "Game.h"
+#include "Input.h"
 
 #include "vulkan/vulkan_core.h"
 #include "VkBootstrap.h"
@@ -76,12 +77,9 @@ private:
 
   tracy::VkCtx* tracyVkContext_{};
   GLFWwindow* window;
-  bool cursorIsActive     = true;
 
   uint32_t windowFramebufferWidth{};
   uint32_t windowFramebufferHeight{};
-
-  glm::dvec2 cursorPos{};
 
   // Resizing from UI is deferred until next frame so texture handles remain valid when ImGui is rendered
   bool shouldResizeNextFrame          = false;
@@ -95,10 +93,8 @@ private:
   void Draw();
   World* worldThisFrame_{};
   double timeOfLastDraw = 0;
-
-  glm::dvec2 cursorFrameOffset{};
-  bool cursorJustEnteredWindow = true;
-  bool graveHeldLastFrame      = false;
+  
   bool swapchainOk             = true;
   std::unique_ptr<VoxelRenderer> voxelRenderer_;
+  std::unique_ptr<InputSystem> inputSystem_;
 };

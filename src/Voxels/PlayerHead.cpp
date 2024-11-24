@@ -109,23 +109,13 @@ public:
   static void CursorPosCallback(GLFWwindow* window, double currentCursorX, double currentCursorY)
   {
     auto* app = static_cast<PlayerHead*>(glfwGetWindowUserPointer(window));
-    if (app->cursorJustEnteredWindow)
-    {
-      app->cursorPos               = {currentCursorX, currentCursorY};
-      app->cursorJustEnteredWindow = false;
-    }
-
-    app->cursorFrameOffset += glm::dvec2{currentCursorX - app->cursorPos.x, app->cursorPos.y - currentCursorY};
-    app->cursorPos = {currentCursorX, currentCursorY};
+    app->inputSystem_->CursorPosCallback(currentCursorX, currentCursorY);
   }
 
   static void CursorEnterCallback(GLFWwindow* window, int entered)
   {
     auto* app = static_cast<PlayerHead*>(glfwGetWindowUserPointer(window));
-    if (entered)
-    {
-      app->cursorJustEnteredWindow = true;
-    }
+    app->inputSystem_->CursorEnterCallback(entered);
   }
 
   static void FramebufferResizeCallback(GLFWwindow* window, int newWidth, int newHeight)
@@ -175,81 +165,8 @@ static auto MakeVkbSwapchain(const vkb::Device& device,
 void PlayerHead::VariableUpdatePre(DeltaTime dt, World& world)
 {
   worldThisFrame_   = &world;
-  cursorFrameOffset = {0.0, 0.0};
 
-  if (swapchainOk)
-  {
-    glfwPollEvents();
-  }
-  else
-  {
-    glfwWaitEvents();
-    return;
-  }
-
-  if (!cursorIsActive)
-  {
-    auto& mainCamera        = world.GetSingletonComponent<Temp::View>();
-    const float dtf         = dt.game;
-    const glm::vec3 forward = mainCamera.GetForwardDir();
-    const glm::vec3 right   = glm::normalize(glm::cross(forward, {0, 1, 0}));
-    float tempCameraSpeed   = 4.5f;
-    // TODO: Move strafing/flying to flying camera controller, then put in system to run in FixedUpdate
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-      tempCameraSpeed *= 4.0f;
-    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
-      tempCameraSpeed *= 0.25f;
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-      mainCamera.position += forward * dtf * tempCameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-      mainCamera.position -= forward * dtf * tempCameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-      mainCamera.position += right * dtf * tempCameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-      mainCamera.position -= right * dtf * tempCameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-      mainCamera.position.y -= dtf * tempCameraSpeed;
-    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-      mainCamera.position.y += dtf * tempCameraSpeed;
-    mainCamera.yaw += static_cast<float>(cursorFrameOffset.x * 0.0025f);
-    mainCamera.pitch += static_cast<float>(cursorFrameOffset.y * 0.0025f);
-    mainCamera.pitch = glm::clamp(mainCamera.pitch, -glm::half_pi<float>() + 1e-4f, glm::half_pi<float>() - 1e-4f);
-  }
-
-  // Close the app if the user presses Escape.
-  if (glfwGetKey(window, GLFW_KEY_ESCAPE))
-  {
-    glfwSetWindowShouldClose(window, true);
-  }
-
-  // Sleep for a bit if the window is not focused
-  if (!glfwGetWindowAttrib(window, GLFW_FOCUSED))
-  {
-    // TODO: Use sleep_until so we don't skip game ticks
-    std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
-  }
-
-  // Toggle the cursor if the grave accent (tilde) key is pressed.
-  if (glfwGetKey(window, GLFW_KEY_GRAVE_ACCENT) && graveHeldLastFrame == false)
-  {
-    cursorIsActive          = !cursorIsActive;
-    cursorJustEnteredWindow = true;
-    graveHeldLastFrame      = true;
-    glfwSetInputMode(window, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
-  }
-
-  if (!glfwGetKey(window, GLFW_KEY_GRAVE_ACCENT))
-  {
-    graveHeldLastFrame = false;
-  }
-
-  // Prevent the cursor from clicking ImGui widgets when it is disabled.
-  if (!cursorIsActive)
-  {
-    glfwSetCursorPos(window, 0, 0);
-    cursorPos.x = 0;
-    cursorPos.y = 0;
-  }
+  inputSystem_->VariableUpdatePre(dt, world, swapchainOk);
 }
 
 void PlayerHead::VariableUpdatePost(DeltaTime, World& world)
@@ -275,7 +192,7 @@ void PlayerHead::VariableUpdatePost(DeltaTime, World& world)
 
   if (glfwWindowShouldClose(window))
   {
-    world.CreateSingletonComponent<QuitGame>();
+    world.CreateSingletonComponent<CloseApplication>();
   }
 }
 
@@ -474,8 +391,7 @@ PlayerHead::PlayerHead(const CreateInfo& createInfo) : presentMode(createInfo.pr
   ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
   voxelRenderer_ = std::make_unique<VoxelRenderer>(this, *createInfo.world);
-
-  glfwSetInputMode(window, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+  inputSystem_   = std::make_unique<InputSystem>(window);
 
   // Inform the user that the renderer is done loading
   glfwRequestWindowAttention(window);

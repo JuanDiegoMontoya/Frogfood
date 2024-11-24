@@ -81,7 +81,7 @@ int main()
   //  .name = "FrogRender",
   //});
   //app.Run();
-  auto game = Game(10);
+  auto game = Game(30);
   game.Run();
 
   return 0;

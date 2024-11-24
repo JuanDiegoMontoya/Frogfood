@@ -16,23 +16,6 @@
 
 namespace Temp
 {
-  struct View
-  {
-    glm::vec3 position{};
-    float pitch{}; // pitch angle in radians
-    float yaw{};   // yaw angle in radians
-
-    glm::vec3 GetForwardDir() const
-    {
-      return glm::vec3{cos(pitch) * cos(yaw), sin(pitch), cos(pitch) * sin(yaw)};
-    }
-
-    glm::mat4 GetViewMatrix() const
-    {
-      return glm::lookAt(position, position + GetForwardDir(), glm::vec3(0, 1, 0));
-    }
-  };
-
   struct Uniforms
   {
     glm::mat4 viewProj;

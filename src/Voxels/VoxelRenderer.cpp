@@ -290,8 +290,15 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     {
       position = transform.position;
       // Flip z axis to correspond with Vulkan's NDC space.
-      auto rotation = glm::mat4(glm::vec4(1, 0, 0, 0), glm::vec4(0, 1, 0, 0), glm::vec4(0, 0, -1, 0), glm::vec4(0, 0, 0, 1)) * glm::mat4_cast(glm::inverse(transform.rotation));
+      auto rotationQuat = transform.rotation;
+      if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
+      {
+        // Because the player has its own variable delta pitch and yaw updates, we only care about smoothing positions here
+        position = renderTransform->transform.position;
+      }
+      auto rotation = glm::mat4(glm::vec4(1, 0, 0, 0), glm::vec4(0, 1, 0, 0), glm::vec4(0, 0, -1, 0), glm::vec4(0, 0, 0, 1)) * glm::mat4_cast(glm::inverse(rotationQuat));
       viewMat  = glm::translate(rotation, -position);
+      break;
     }
   }
 

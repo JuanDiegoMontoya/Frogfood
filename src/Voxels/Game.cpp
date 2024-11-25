@@ -6,7 +6,7 @@
 
 #include <chrono>
 
-Game::Game(uint32_t tickHz) : tickHz_(tickHz)
+Game::Game(uint32_t tickHz)
 {
   world_ = std::make_unique<World>();
 #ifdef GAME_HEADLESS
@@ -23,6 +23,9 @@ Game::Game(uint32_t tickHz) : tickHz_(tickHz)
   });
   world_->CreateSingletonComponent<GameState>() = GameState::MENU;
 #endif
+
+  world_->CreateSingletonComponent<TimeScale>();
+  world_->CreateSingletonComponent<TickRate>().hz = tickHz;
 }
 
 void Game::Run()
@@ -30,18 +33,21 @@ void Game::Run()
   isRunning_ = true;
 
   auto previousTimestamp  = std::chrono::steady_clock::now();
-  const double tickDuration = 1.0 / tickHz_;
   double fixedUpdateAccum = 0;
 
   while (isRunning_)
   {
+    const auto timeScale      = world_->GetSingletonComponent<TimeScale>().scale;
+    const auto tickHz         = world_->GetSingletonComponent<TickRate>().hz;
+    const double tickDuration = 1.0 / tickHz;
+
     const auto currentTimestamp = std::chrono::steady_clock::now();
     const auto realDeltaTime    = std::chrono::duration_cast<std::chrono::microseconds>(currentTimestamp - previousTimestamp).count() / 1'000'000.0;
-    fixedUpdateAccum += realDeltaTime * gameDeltaTimeScale;
+    fixedUpdateAccum += realDeltaTime * timeScale;
     previousTimestamp = currentTimestamp;
 
     const auto dt = DeltaTime{
-      .game = static_cast<float>(realDeltaTime * gameDeltaTimeScale),
+      .game = static_cast<float>(realDeltaTime * timeScale),
       .real = static_cast<float>(realDeltaTime),
     };
 
@@ -53,6 +59,7 @@ void Game::Run()
     while (fixedUpdateAccum > tickDuration)
     {
       fixedUpdateAccum -= tickDuration;
+      // TODO: Networking update before FixedUpdate
       world_->FixedUpdate(static_cast<float>(tickDuration));
     }
 
@@ -72,6 +79,13 @@ void World::FixedUpdate(float dt)
 {
   if (GetSingletonComponent<GameState>() == GameState::GAME)
   {
+    // Update previous transforms before updating it (this should be done after updating the game state from networking)
+    for (auto&& [entity, transform, interpolatedTransform] : registry_.view<Transform, InterpolatedTransform>().each())
+    {
+      interpolatedTransform.accumulator = 0;
+      interpolatedTransform.previousTransform = transform;
+    }
+
     // Clamp movement input
     for (auto&& [entity, input] : registry_.view<InputState>().each())
     {
@@ -119,4 +133,6 @@ void World::InitializeGameState()
   registry_.emplace<InputLookState>(p);
   registry_.emplace<Transform>(p);
   registry_.emplace<NoclipCharacterController>(p);
+  registry_.emplace<InterpolatedTransform>(p);
+  registry_.emplace<RenderTransform>(p);
 }

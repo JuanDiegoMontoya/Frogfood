@@ -169,9 +169,21 @@ void PlayerHead::VariableUpdatePre(DeltaTime dt, World& world)
   inputSystem_->VariableUpdatePre(dt, world, swapchainOk);
 }
 
-void PlayerHead::VariableUpdatePost(DeltaTime, World& world)
+void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
 {
   ZoneScopedN("Frame");
+
+  for (auto&& [entity, transform, interpolatedTransform] : world.GetRegistry().view<Transform, InterpolatedTransform>().each())
+  {
+    interpolatedTransform.accumulator += dt.game;
+    if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
+    {
+      const auto alpha                    = interpolatedTransform.accumulator * world.GetSingletonComponent<TickRate>().hz;
+      renderTransform->transform.position = glm::mix(interpolatedTransform.previousTransform.position, transform.position, alpha);
+      renderTransform->transform.rotation = glm::slerp(interpolatedTransform.previousTransform.rotation, transform.rotation, alpha);
+      renderTransform->transform.scale    = glm::mix(interpolatedTransform.previousTransform.scale, transform.scale, alpha);
+    }
+  }
 
   if (!swapchainOk)
   {

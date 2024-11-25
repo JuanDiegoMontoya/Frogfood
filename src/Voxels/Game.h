@@ -139,7 +139,30 @@ struct Transform
   glm::quat rotation;
 };
 
+// Use with Transform for smooth object movement
+struct InterpolatedTransform
+{
+  // 0 = use previousTransform, 1 = use Transform
+  float accumulator;
+  Transform previousTransform;
+};
+
+struct RenderTransform
+{
+  Transform transform;
+};
+
 struct NoclipCharacterController {};
+
+struct TimeScale
+{
+  float scale = 1;
+};
+
+struct TickRate
+{
+  uint32_t hz;
+};
 
 // Game class used for client and server
 class Game
@@ -149,9 +172,7 @@ public:
   void Run();
 
 private:
-  uint32_t tickHz_{};
   bool isRunning_ = false;
-  float gameDeltaTimeScale = 1;
   std::unique_ptr<Head> head_;
   std::unique_ptr<Networking> networking_;
   std::unique_ptr<World> world_;

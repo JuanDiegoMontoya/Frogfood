@@ -62,11 +62,19 @@ private:
   void OnRender(double dt, World& world, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex);
   void OnGui(double dt, World& world, VkCommandBuffer commandBuffer);
 
-  TwoLevelGrid grid{{2, 2, 2}};
+  struct Frame
+  {
+    std::optional<Fvog::Texture> sceneColor;
+    constexpr static Fvog::Format sceneColorFormat = Fvog::Format::R8G8B8A8_UNORM;
+    std::optional<Fvog::Texture> sceneDepth;
+    constexpr static Fvog::Format sceneDepthFormat = Fvog::Format::D32_SFLOAT;
+  };
+  Frame frame;
 
-  std::optional<Fvog::Texture> mainImage;
+  TwoLevelGrid grid{{2, 2, 2}};
+  
   Fvog::NDeviceBuffer<Temp::Uniforms> perFrameUniforms;
-  PipelineManager::ComputePipelineKey testPipeline;
+  PipelineManager::GraphicsPipelineKey testPipeline;
   PipelineManager::GraphicsPipelineKey debugTexturePipeline;
   PlayerHead* head_;
 };

@@ -560,37 +560,34 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, HitSurfaceP
     return indirectIlluminance / NUM_SAMPLES;
 }
 
-layout(local_size_x = 8, local_size_y = 8) in;
+layout(location = 0) in vec2 uv;
+layout(location = 0) out vec4 o_color;
+
 void main()
 {
-	const ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
-	const ivec2 outputSize = imageSize(pc.outputImage);
-	if (any(greaterThanEqual(gid, outputSize)))
-	{
-		return;
-	}
-
-	const vec2 uv = (vec2(gid) + 0.5) / outputSize;
-	
-	const vec3 rayDir = normalize(UnprojectUV_ZO(0.0001, uv, uniforms.invViewProj) - uniforms.cameraPos.xyz);
+	const vec3 rayDir = normalize(UnprojectUV_ZO(0.99, uv, uniforms.invViewProj) - uniforms.cameraPos.xyz);
 	const vec3 rayPos = uniforms.cameraPos.xyz;
 	
-	vec3 o_color = {0, 0, 0};
+	vec3 color = {0, 0, 0};
 
 	HitSurfaceParameters hit;
 	//if (vx_TraceRaySimple(rayPos, rayDir, 5120, hit))
 	if (vx_TraceRayMultiLevel(rayPos, rayDir, 512, hit))
 	{
-		o_color += GetHitAlbedo(hit);
+		color += GetHitAlbedo(hit);
 
 		// Shadow
-		o_color *= TraceSunRay(hit.positionWorld);
+		color *= TraceSunRay(hit.positionWorld);
 
-		o_color += TraceIndirectLighting(gid, hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, hit);
+		color += TraceIndirectLighting(ivec2(gl_FragCoord), hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, hit);
+
+		const vec4 posClip = uniforms.viewProj * vec4(hit.positionWorld, 1.0);
+		gl_FragDepth = posClip.z / posClip.w;
 	}
 	else
 	{
-		o_color += rayDir * .5 + .5;
+		color += rayDir * .5 + .5;
+		gl_FragDepth = 0;
 	}
 
 	//o_color += vec3(gTopLevelBricksTraversed / 8, gBottomLevelBricksTraversed / 64, gVoxelsTraversed / 512);
@@ -599,5 +596,6 @@ void main()
 	//o_color = vec3(gVoxelsTraversed / 512);
 
 	//o_color = o_color / (1 + o_color); // Reinhard
-	imageStore(pc.outputImage, gid, vec4(pow(o_color, vec3(1/2.2)), 1));
+	//imageStore(pc.outputImage, gid, vec4(pow(o_color, vec3(1/2.2)), 1));
+	o_color = vec4(pow(color, vec3(1 / 2.2)), 1);
 }

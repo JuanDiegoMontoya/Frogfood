@@ -10,56 +10,162 @@
 #include "volk.h"
 #include "Fvog/detail/ApiToEnum2.h"
 
+#include "tiny_obj_loader.h"
 #include "tracy/Tracy.hpp"
 #include "GLFW/glfw3.h" // TODO: remove
 
 #include <memory>
+#include <numeric>
 #include <type_traits>
 
-float de1(glm::vec3 p0)
+namespace
 {
-  using namespace glm;
-  vec4 p = vec4(p0, 1.);
-  for (int i = 0; i < 8; i++)
+  float de1(glm::vec3 p0)
   {
-    p.x   = mod(p.x - 1.0f, 2.0f) - 1.0f;
-    p.y   = mod(p.y - 1.0f, 2.0f) - 1.0f;
-    p.z   = mod(p.z - 1.0f, 2.0f) - 1.0f;
-    p *= 1.4f / dot(vec3(p), vec3(p));
+    using namespace glm;
+    vec4 p = vec4(p0, 1.);
+    for (int i = 0; i < 8; i++)
+    {
+      p.x = mod(p.x - 1.0f, 2.0f) - 1.0f;
+      p.y = mod(p.y - 1.0f, 2.0f) - 1.0f;
+      p.z = mod(p.z - 1.0f, 2.0f) - 1.0f;
+      p *= 1.4f / dot(vec3(p), vec3(p));
+    }
+    return length(vec2(p.x, p.z) / p.w) * 0.25f;
   }
-  return length(vec2(p.x, p.z) / p.w) * 0.25f;
-}
 
-float de2(glm::vec3 p)
-{
-  using namespace glm;
-  p           = {p.x, p.z, p.y};
-  vec3 cSize  = vec3(1., 1., 1.3);
-  float scale = 1.;
-  for (int i = 0; i < 12; i++)
+  float de2(glm::vec3 p)
   {
-    p        = 2.0f * clamp(p, -cSize, cSize) - p;
-    float r2 = dot(p, p);
-    float k  = max((2.f) / (r2), .027f);
-    p *= k;
-    scale *= k;
+    using namespace glm;
+    p           = {p.x, p.z, p.y};
+    vec3 cSize  = vec3(1., 1., 1.3);
+    float scale = 1.;
+    for (int i = 0; i < 12; i++)
+    {
+      p        = 2.0f * clamp(p, -cSize, cSize) - p;
+      float r2 = dot(p, p);
+      float k  = max((2.f) / (r2), .027f);
+      p *= k;
+      scale *= k;
+    }
+    float l   = length(vec2(p.x, p.y));
+    float rxy = l - 4.0f;
+    float n   = l * p.z;
+    rxy       = max(rxy, -(n) / 4.f);
+    return (rxy) / abs(scale);
   }
-  float l   = length(vec2(p.x, p.y));
-  float rxy = l - 4.0f;
-  float n   = l * p.z;
-  rxy       = max(rxy, -(n) / 4.f);
-  return (rxy) / abs(scale);
-}
 
-float de3(glm::vec3 p)
-{
-  float h = (sin(p.x * 0.11f) * 10 + 10) + (sin(p.z * 0.11f) * 10 + 10);
-  return p.y > h;
-}
+  float de3(glm::vec3 p)
+  {
+    float h = (sin(p.x * 0.11f) * 10 + 10) + (sin(p.z * 0.11f) * 10 + 10);
+    return p.y > h;
+  }
+  
+  using index_t = uint32_t;
+
+  struct Vertex
+  {
+    glm::vec3 position{};
+    glm::vec3 normal{};
+    glm::vec3 color{};
+  };
+
+  struct Mesh
+  {
+    std::optional<Fvog::TypedBuffer<Vertex>> vertexBuffer;
+    std::optional<Fvog::TypedBuffer<index_t>> indexBuffer;
+    std::vector<Vertex> vertices;
+    std::vector<index_t> indices;
+  };
+
+  Mesh LoadObjFile(const std::filesystem::path& path)
+  {
+    tinyobj::ObjReader reader;
+    if (!reader.ParseFromFile(path.string()))
+    {
+      //std::cout << "TinyObjReader error: " << reader.Error() << '\n';
+      throw std::runtime_error("Failed to parse obj");
+    }
+
+    if (!reader.Warning().empty())
+    {
+      //std::cout << "TinyObjReader warning: " << reader.Warning() << '\n';
+    }
+
+    auto& attrib = reader.GetAttrib();
+    auto& shapes = reader.GetShapes();
+    // auto& materials = reader.GetMaterials();
+
+    auto mesh = Mesh{};
+
+    // Loop over shapes
+    for (const auto& shape : shapes)
+    {
+      // Loop over faces(polygon)
+      size_t index_offset = 0;
+      for (const auto& fv : shape.mesh.num_face_vertices)
+      {
+        // Loop over vertices in the face.
+        for (size_t v = 0; v < fv; v++)
+        {
+          auto vertex = Vertex{};
+
+          // access to vertex
+          tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
+          tinyobj::real_t vx   = attrib.vertices[3 * size_t(idx.vertex_index) + 0];
+          tinyobj::real_t vy   = attrib.vertices[3 * size_t(idx.vertex_index) + 1];
+          tinyobj::real_t vz   = attrib.vertices[3 * size_t(idx.vertex_index) + 2];
+
+          vertex.position = {vx, vy, vz};
+
+          // Check if `normal_index` is zero or positive. negative = no normal data
+          if (idx.normal_index >= 0)
+          {
+            tinyobj::real_t nx = attrib.normals[3 * size_t(idx.normal_index) + 0];
+            tinyobj::real_t ny = attrib.normals[3 * size_t(idx.normal_index) + 1];
+            tinyobj::real_t nz = attrib.normals[3 * size_t(idx.normal_index) + 2];
+            vertex.normal      = {nx, ny, nz};
+          }
+
+          //// Check if `texcoord_index` is zero or positive. negative = no texcoord data
+          // if (idx.texcoord_index >= 0)
+          //{
+          //   tinyobj::real_t tx = attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
+          //   tinyobj::real_t ty = attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
+          //   vertex.texcoord = { tx, ty };
+          // }
+
+          // Optional: vertex colors
+          tinyobj::real_t red   = attrib.colors[3 * size_t(idx.vertex_index) + 0];
+          tinyobj::real_t green = attrib.colors[3 * size_t(idx.vertex_index) + 1];
+          tinyobj::real_t blue  = attrib.colors[3 * size_t(idx.vertex_index) + 2];
+          vertex.color          = {red, green, blue};
+
+          mesh.vertices.push_back(vertex);
+        }
+        index_offset += fv;
+      }
+    }
+
+    mesh.indices = std::vector<index_t>(mesh.vertices.size());
+    std::iota(mesh.indices.begin(), mesh.indices.end(), 0);
+    
+    mesh.indexBuffer.emplace(Fvog::TypedBufferCreateInfo{.count = (uint32_t)mesh.indices.size(), .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE});
+    mesh.vertexBuffer.emplace(Fvog::TypedBufferCreateInfo{.count = (uint32_t)mesh.vertices.size(), .flag = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE});
+    memcpy(mesh.indexBuffer->GetMappedMemory(), mesh.indices.data(), mesh.indices.size() * sizeof(index_t));
+    memcpy(mesh.vertexBuffer->GetMappedMemory(), mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex));
+
+    return mesh;
+  }
+
+  Mesh g_testMesh; // TODO: TEMP
+} // namespace
 
 VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
 {
   ZoneScoped;
+
+  g_testMesh = LoadObjFile(GetAssetDirectory() / "models/frog.obj");
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -104,15 +210,26 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
         grid.CoalesceDirtyBricks();
       }
 
-  mainImage =
-    Fvog::CreateTexture2D({head_->windowFramebufferWidth, head_->windowFramebufferHeight}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::GENERAL, "Main Image");
-
-  testPipeline = GetPipelineManager().EnqueueCompileComputePipeline({
-    .name = "Test pipeline",
-    .shaderModuleInfo =
+  testPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Render voxels",
+    .vertexModuleInfo =
       PipelineManager::ShaderModuleCreateInfo{
-        .stage = Fvog::PipelineStage::COMPUTE_SHADER,
-        .path  = GetShaderDirectory() / "voxels/SimpleRayTracer.comp.glsl",
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "FullScreenTri.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "voxels/SimpleRayTracer.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {Frame::sceneColorFormat},
+            .depthAttachmentFormat = Frame::sceneDepthFormat,
+          },
       },
   });
 
@@ -228,11 +345,14 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
 
 
   //TraceRay({0.5f, 1.5f, 0.f}, {.864f, -0.503f, 0.f}, 100);
+
+  OnFramebufferResize(head_->windowFramebufferWidth, head_->windowFramebufferHeight);
 }
 
 VoxelRenderer::~VoxelRenderer()
 {
   ZoneScoped;
+  g_testMesh = {};
   vkDeviceWaitIdle(Fvog::GetDevice().device_);
 
   Fvog::GetDevice().FreeUnusedResources();
@@ -245,14 +365,24 @@ VoxelRenderer::~VoxelRenderer()
 //#endif
 }
 
-void VoxelRenderer::OnFramebufferResize([[maybe_unused]] uint32_t newWidth, [[maybe_unused]] uint32_t newHeight)
+void VoxelRenderer::OnFramebufferResize(uint32_t newWidth, uint32_t newHeight)
 {
   ZoneScoped;
+
+  const auto extent = VkExtent2D{newWidth, newHeight};
+  frame.sceneColor  = Fvog::CreateTexture2D(extent, Frame::sceneColorFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene color");
+  frame.sceneDepth  = Fvog::CreateTexture2D(extent, Frame::sceneDepthFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene depth");
 }
 
 void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex)
 {
   ZoneScoped;
+
+  if (head_->shouldResizeNextFrame)
+  {
+    OnFramebufferResize(head_->windowFramebufferWidth, head_->windowFramebufferHeight);
+    head_->shouldResizeNextFrame = false;
+  }
 
   const auto nearestSampler = Fvog::Sampler({
     .magFilter     = VK_FILTER_NEAREST,
@@ -307,7 +437,9 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
   const auto clip_from_view  = Math::InfReverseZPerspectiveRH(glm::radians(65.0f), (float)head_->windowFramebufferWidth / head_->windowFramebufferHeight, 0.1f);
   const auto clip_from_world = clip_from_view * view_from_world;
 
-  ctx.BindComputePipeline(testPipeline.GetPipeline());
+  ctx.ImageBarrierDiscard(frame.sceneColor.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(frame.sceneDepth.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+
   perFrameUniforms.UpdateData(commandBuffer,
     Temp::Uniforms{
       .viewProj               = clip_from_world,
@@ -324,17 +456,32 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .alphaHashScale         = 0,
     });
 
-  ctx.SetPushConstants(Temp::PushConstants{
-    .topLevelBricksDims         = grid.topLevelBricksDims_,
-    .topLevelBrickPtrsBaseIndex = grid.topLevelBrickPtrsBaseIndex,
-    .dimensions                 = grid.dimensions_,
-    .bufferIdx                  = grid.buffer.GetGpuBuffer().GetResourceHandle().index,
-    .uniformBufferIndex         = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
-    .outputImage                = mainImage->ImageView().GetImage2D(),
-  });
-
-  ctx.ImageBarrierDiscard(mainImage.value(), VK_IMAGE_LAYOUT_GENERAL);
-  ctx.DispatchInvocations(mainImage->GetCreateInfo().extent);
+  {
+    auto colorAttachment = Fvog::RenderColorAttachment{
+      .texture = frame.sceneColor.value().ImageView(),
+      .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+    };
+    auto depthAttachment = Fvog::RenderDepthStencilAttachment{
+      .texture = frame.sceneDepth.value().ImageView(),
+      .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+    };
+    ctx.BeginRendering({
+      .name             = "Render voxels",
+      .colorAttachments = {&colorAttachment, 1},
+      .depthAttachment  = depthAttachment,
+    });
+    ctx.BindGraphicsPipeline(testPipeline.GetPipeline());
+    ctx.SetPushConstants(Temp::PushConstants{
+      .topLevelBricksDims         = grid.topLevelBricksDims_,
+      .topLevelBrickPtrsBaseIndex = grid.topLevelBrickPtrsBaseIndex,
+      .dimensions                 = grid.dimensions_,
+      .bufferIdx                  = grid.buffer.GetGpuBuffer().GetResourceHandle().index,
+      .uniformBufferIndex         = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
+      //.outputImage                = mainImage->ImageView().GetImage2D(),
+    });
+    ctx.Draw(3, 1, 0, 0);
+    ctx.EndRendering();
+  }
 
   ctx.Barrier();
   ctx.ImageBarrier(head_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -362,7 +509,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
   vkCmdSetScissor(commandBuffer, 0, 1, &renderArea);
   ctx.BindGraphicsPipeline(debugTexturePipeline.GetPipeline());
   auto pushConstants = Temp::DebugTextureArguments{
-    .textureIndex = mainImage->ImageView().GetSampledResourceHandle().index,
+    .textureIndex = frame.sceneColor->ImageView().GetSampledResourceHandle().index,
     .samplerIndex = nearestSampler.GetResourceHandle().index,
   };
 

@@ -233,7 +233,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
           },
       },
   });
-
+  
   meshPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Render meshes",
     .vertexModuleInfo =
@@ -515,14 +515,17 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .colorAttachments = {&colorAttachment, 1},
       .depthAttachment  = depthAttachment,
     });
+    const auto voxels = Temp::Voxels{
+      .topLevelBricksDims         = grid.topLevelBricksDims_,
+      .topLevelBrickPtrsBaseIndex = grid.topLevelBrickPtrsBaseIndex,
+      .dimensions                 = grid.dimensions_,
+      .bufferIdx                  = grid.buffer.GetGpuBuffer().GetResourceHandle().index,
+    };
     {
       // Voxels
       ctx.BindGraphicsPipeline(testPipeline.GetPipeline());
       ctx.SetPushConstants(Temp::PushConstants{
-        .topLevelBricksDims         = grid.topLevelBricksDims_,
-        .topLevelBrickPtrsBaseIndex = grid.topLevelBrickPtrsBaseIndex,
-        .dimensions                 = grid.dimensions_,
-        .bufferIdx                  = grid.buffer.GetGpuBuffer().GetResourceHandle().index,
+        .voxels = voxels,
         .uniformBufferIndex         = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
         //.outputImage                = mainImage->ImageView().GetImage2D(),
       });
@@ -535,6 +538,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       ctx.SetPushConstants(Temp::MeshArgs{
         .objects = meshUniformz.GetDeviceAddress(),
         .frame = perFrameUniforms.GetDeviceBuffer().GetDeviceAddress(),
+        .voxels = voxels,
       });
       ctx.DrawIndexed((uint32_t)g_testMesh.indices.size(), (uint32_t)meshUniformz.Size(), 0, 0, 0);
     }

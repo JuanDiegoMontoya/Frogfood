@@ -95,23 +95,34 @@ void World::FixedUpdate(float dt)
     }
 
     // Apply movement input
+    auto playerTransform = Transform{};
     for (auto&& [entity, player, input, transform] : registry_.view<Player, InputState, Transform, NoclipCharacterController>().each())
     {
-      const auto rot       = glm::mat3_cast(transform.rotation);
-      const auto right     = rot[0];
-      const auto forward   = rot[2];
-      auto tempCameraSpeed = 4.5f;
-      tempCameraSpeed *= input.sprint ? 4.0f : 1.0f;
-      tempCameraSpeed *= input.walk ? 0.25f : 1.0f;
-      transform.position += input.forward * forward * dt * tempCameraSpeed;
-      transform.position += input.strafe * right * dt * tempCameraSpeed;
-      transform.position.y += input.elevate * dt * tempCameraSpeed;
+      if (player.id == 0)
+      {
+        const auto rot       = glm::mat3_cast(transform.rotation);
+        const auto right     = rot[0];
+        const auto forward   = rot[2];
+        auto tempCameraSpeed = 4.5f;
+        tempCameraSpeed *= input.sprint ? 4.0f : 1.0f;
+        tempCameraSpeed *= input.walk ? 0.25f : 1.0f;
+        transform.position += input.forward * forward * dt * tempCameraSpeed;
+        transform.position += input.strafe * right * dt * tempCameraSpeed;
+        transform.position.y += input.elevate * dt * tempCameraSpeed;
+        playerTransform = transform;
+      }
     }
 
     // End of tick, reset input
     for (auto&& [entity, input] : registry_.view<InputState>().each())
     {
       input = {};
+    }
+
+    // Player "holds" entity
+    for (auto&& [entity, transform] : registry_.view<Transform, TempMesh>().each())
+    {
+      transform.position = playerTransform.position + glm::mat3_cast(playerTransform.rotation)[2] * 5.0f;
     }
   }
 
@@ -145,4 +156,6 @@ void World::InitializeGameState()
   ep.rotation = glm::identity<glm::quat>();
   ep.scale    = 1;
   registry_.emplace<TempMesh>(e);
+  registry_.emplace<InterpolatedTransform>(e);
+  registry_.emplace<RenderTransform>(e);
 }

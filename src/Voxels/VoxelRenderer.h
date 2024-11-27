@@ -32,14 +32,17 @@ namespace Temp
     float alphaHashScale;
   };
 
-  FVOG_DECLARE_ARGUMENTS(PushConstants)
+  struct Voxels
   {
     FVOG_IVEC3 topLevelBricksDims;
     FVOG_UINT32 topLevelBrickPtrsBaseIndex;
     FVOG_IVEC3 dimensions;
     FVOG_UINT32 bufferIdx;
+  };
+  FVOG_DECLARE_ARGUMENTS(PushConstants)
+  {
+    Voxels voxels;
     FVOG_UINT32 uniformBufferIndex;
-    shared::Image2D outputImage;
   };
 
   FVOG_DECLARE_ARGUMENTS(DebugTextureArguments)
@@ -52,6 +55,7 @@ namespace Temp
   {
     VkDeviceAddress objects;
     VkDeviceAddress frame;
+    Voxels voxels;
   };
 
   struct ObjectUniforms

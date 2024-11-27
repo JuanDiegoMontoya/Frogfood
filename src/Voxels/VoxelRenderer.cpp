@@ -225,10 +225,35 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
     .state =
       {
         .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+        .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL},
         .renderTargetFormats =
           {
             .colorAttachmentFormats = {Frame::sceneColorFormat},
             .depthAttachmentFormat = Frame::sceneDepthFormat,
+          },
+      },
+  });
+
+  meshPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Render meshes",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "voxels/Forward.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "voxels/Forward.frag.glsl",
+      },
+    .state =
+      {
+        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+        .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = VK_COMPARE_OP_GREATER},
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {Frame::sceneColorFormat},
+            .depthAttachmentFormat  = Frame::sceneDepthFormat,
           },
       },
   });
@@ -456,6 +481,25 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .alphaHashScale         = 0,
     });
 
+  auto meshUniformzVec = std::vector<Temp::ObjectUniforms>();
+  for (auto&& [entity, transform] : world.GetRegistry().view<Transform, TempMesh>().each())
+  {
+    Transform actualTransform = transform;
+    if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
+    {
+      actualTransform = renderTransform->transform;
+    }
+    auto worldFromObject = glm::translate(glm::mat4_cast(actualTransform.rotation), actualTransform.position);
+    meshUniformzVec.emplace_back(worldFromObject, g_testMesh.vertexBuffer->GetDeviceAddress());
+  }
+
+  auto meshUniformz = Fvog::TypedBuffer<Temp::ObjectUniforms>({
+    .count = (uint32_t)meshUniformzVec.size(),
+    .flag  = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE,
+  });
+
+  memcpy(meshUniformz.GetMappedMemory(), meshUniformzVec.data(), meshUniformzVec.size() * sizeof(Temp::ObjectUniforms));
+
   {
     auto colorAttachment = Fvog::RenderColorAttachment{
       .texture = frame.sceneColor.value().ImageView(),
@@ -463,23 +507,37 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     };
     auto depthAttachment = Fvog::RenderDepthStencilAttachment{
       .texture = frame.sceneDepth.value().ImageView(),
-      .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+      .loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
+      .clearValue = {.depth = 0},
     };
     ctx.BeginRendering({
       .name             = "Render voxels",
       .colorAttachments = {&colorAttachment, 1},
       .depthAttachment  = depthAttachment,
     });
-    ctx.BindGraphicsPipeline(testPipeline.GetPipeline());
-    ctx.SetPushConstants(Temp::PushConstants{
-      .topLevelBricksDims         = grid.topLevelBricksDims_,
-      .topLevelBrickPtrsBaseIndex = grid.topLevelBrickPtrsBaseIndex,
-      .dimensions                 = grid.dimensions_,
-      .bufferIdx                  = grid.buffer.GetGpuBuffer().GetResourceHandle().index,
-      .uniformBufferIndex         = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
-      //.outputImage                = mainImage->ImageView().GetImage2D(),
-    });
-    ctx.Draw(3, 1, 0, 0);
+    {
+      // Voxels
+      ctx.BindGraphicsPipeline(testPipeline.GetPipeline());
+      ctx.SetPushConstants(Temp::PushConstants{
+        .topLevelBricksDims         = grid.topLevelBricksDims_,
+        .topLevelBrickPtrsBaseIndex = grid.topLevelBrickPtrsBaseIndex,
+        .dimensions                 = grid.dimensions_,
+        .bufferIdx                  = grid.buffer.GetGpuBuffer().GetResourceHandle().index,
+        .uniformBufferIndex         = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
+        //.outputImage                = mainImage->ImageView().GetImage2D(),
+      });
+      ctx.BindIndexBuffer(g_testMesh.indexBuffer.value(), 0, VK_INDEX_TYPE_UINT32);
+      ctx.Draw(3, 1, 0, 0);
+    }
+    {
+      // Meshes
+      ctx.BindGraphicsPipeline(meshPipeline.GetPipeline());
+      ctx.SetPushConstants(Temp::MeshArgs{
+        .objects = meshUniformz.GetDeviceAddress(),
+        .frame = perFrameUniforms.GetDeviceBuffer().GetDeviceAddress(),
+      });
+      ctx.DrawIndexed((uint32_t)g_testMesh.indices.size(), (uint32_t)meshUniformz.Size(), 0, 0, 0);
+    }
     ctx.EndRendering();
   }
 

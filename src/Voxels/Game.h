@@ -164,6 +164,8 @@ struct TickRate
   uint32_t hz;
 };
 
+struct TempMesh {};
+
 // Game class used for client and server
 class Game
 {

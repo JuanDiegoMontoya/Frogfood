@@ -131,8 +131,18 @@ void World::InitializeGameState()
   registry_.emplace<Player>(p);
   registry_.emplace<InputState>(p);
   registry_.emplace<InputLookState>(p);
-  registry_.emplace<Transform>(p);
+  auto& tp = registry_.emplace<Transform>(p);
+  tp.position = {0, 0, 0};
+  tp.rotation = glm::identity<glm::quat>();
+  tp.scale    = 1;
   registry_.emplace<NoclipCharacterController>(p);
   registry_.emplace<InterpolatedTransform>(p);
   registry_.emplace<RenderTransform>(p);
+
+  auto e = registry_.create();
+  auto& ep    = registry_.emplace<Transform>(e);
+  ep.position = {0, 0, 0};
+  ep.rotation = glm::identity<glm::quat>();
+  ep.scale    = 1;
+  registry_.emplace<TempMesh>(e);
 }

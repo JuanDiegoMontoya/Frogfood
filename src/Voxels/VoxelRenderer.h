@@ -47,6 +47,19 @@ namespace Temp
     FVOG_UINT32 textureIndex;
     FVOG_UINT32 samplerIndex;
   };
+
+  FVOG_DECLARE_ARGUMENTS(MeshArgs)
+  {
+    VkDeviceAddress objects;
+    VkDeviceAddress frame;
+  };
+
+  struct ObjectUniforms
+  {
+    glm::mat4 worldFromObject;
+    VkDeviceAddress vertexBuffer;
+  };
+
 } // namespace Temp
 
 class VoxelRenderer
@@ -75,6 +88,7 @@ private:
   
   Fvog::NDeviceBuffer<Temp::Uniforms> perFrameUniforms;
   PipelineManager::GraphicsPipelineKey testPipeline;
+  PipelineManager::GraphicsPipelineKey meshPipeline;
   PipelineManager::GraphicsPipelineKey debugTexturePipeline;
   PlayerHead* head_;
 };

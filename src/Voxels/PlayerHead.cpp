@@ -178,7 +178,7 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
     interpolatedTransform.accumulator += dt.game;
     if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
     {
-      const auto alpha                    = interpolatedTransform.accumulator * world.GetSingletonComponent<TickRate>().hz;
+      const auto alpha                    = interpolatedTransform.accumulator * world.GetRegistry().ctx().get<TickRate>().hz;
       renderTransform->transform.position = glm::mix(interpolatedTransform.previousTransform.position, transform.position, alpha);
       renderTransform->transform.rotation = glm::slerp(interpolatedTransform.previousTransform.rotation, transform.rotation, alpha);
       renderTransform->transform.scale    = glm::mix(interpolatedTransform.previousTransform.scale, transform.scale, alpha);
@@ -204,7 +204,7 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
 
   if (glfwWindowShouldClose(window))
   {
-    world.CreateSingletonComponent<CloseApplication>();
+    world.GetRegistry().ctx().emplace<CloseApplication>();
   }
 }
 

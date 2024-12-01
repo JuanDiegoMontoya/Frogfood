@@ -27,7 +27,7 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
 
   if (!cursorIsActive)
   {
-    if (world.GetSingletonComponent<GameState>() == GameState::GAME)
+    if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
     {
       for (auto&& [entity, player, input, inputLook, transform] : world.GetRegistry().view<Player, InputState, InputLookState, Transform>().each())
       {

@@ -489,7 +489,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     {
       actualTransform = renderTransform->transform;
     }
-    auto worldFromObject = glm::translate(glm::mat4_cast(actualTransform.rotation), actualTransform.position);
+    auto worldFromObject = glm::translate(glm::mat4(1), actualTransform.position) * glm::mat4_cast(actualTransform.rotation);
     meshUniformzVec.emplace_back(worldFromObject, g_testMesh.vertexBuffer->GetDeviceAddress());
   }
 
@@ -586,7 +586,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
-  auto& gameState = world.GetSingletonComponent<GameState>();
+  auto& gameState = world.GetRegistry().ctx().get<GameState>();
   switch (gameState)
   {
   case GameState::MENU:
@@ -638,7 +638,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
 
       if (ImGui::Button("Exit to desktop"))
       {
-        world.CreateSingletonComponent<CloseApplication>();
+        world.GetRegistry().ctx().emplace<CloseApplication>();
       }
     }
     ImGui::End();

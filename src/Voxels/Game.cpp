@@ -1,14 +1,18 @@
 #include "Game.h"
 #ifndef GAME_HEADLESS
 #include "PlayerHead.h"
-#endif
 #include "Input.h"
+#endif
+#include "Physics.h"
+
+#include "entt/entity/handle.hpp"
 
 #include <chrono>
 
 Game::Game(uint32_t tickHz)
 {
   world_ = std::make_unique<World>();
+  Physics::Initialize(*world_);
 #ifdef GAME_HEADLESS
   head_ = std::make_unique<NullHead>();
   world_->CreateSingletonComponent<GameState>() = GameState::GAME;
@@ -21,11 +25,16 @@ Game::Game(uint32_t tickHz)
     .presentMode = VK_PRESENT_MODE_FIFO_KHR,
     .world       = world_.get(),
   });
-  world_->CreateSingletonComponent<GameState>() = GameState::MENU;
+  world_->GetRegistry().ctx().emplace<GameState>() = GameState::MENU;
 #endif
 
-  world_->CreateSingletonComponent<TimeScale>();
-  world_->CreateSingletonComponent<TickRate>().hz = tickHz;
+  world_->GetRegistry().ctx().emplace<TimeScale>();
+  world_->GetRegistry().ctx().emplace<TickRate>().hz = tickHz;
+}
+
+Game::~Game()
+{
+  Physics::Terminate();
 }
 
 void Game::Run()
@@ -37,8 +46,8 @@ void Game::Run()
 
   while (isRunning_)
   {
-    const auto timeScale      = world_->GetSingletonComponent<TimeScale>().scale;
-    const auto tickHz         = world_->GetSingletonComponent<TickRate>().hz;
+    const auto timeScale      = world_->GetRegistry().ctx().get<TimeScale>().scale;
+    const auto tickHz         = world_->GetRegistry().ctx().get<TickRate>().hz;
     const double tickDuration = 1.0 / tickHz;
 
     const auto currentTimestamp = std::chrono::steady_clock::now();
@@ -60,6 +69,7 @@ void Game::Run()
     {
       fixedUpdateAccum -= tickDuration;
       // TODO: Networking update before FixedUpdate
+      Physics::FixedUpdate(static_cast<float>(tickDuration), *world_);
       world_->FixedUpdate(static_cast<float>(tickDuration));
     }
 
@@ -68,7 +78,7 @@ void Game::Run()
       head_->VariableUpdatePost(dt, *world_);
     }
 
-    if (!world_->GetRegistry().view<CloseApplication>().empty())
+    if (world_->GetRegistry().ctx().contains<CloseApplication>())
     {
       isRunning_ = false;
     }
@@ -77,7 +87,7 @@ void Game::Run()
 
 void World::FixedUpdate(float dt)
 {
-  if (GetSingletonComponent<GameState>() == GameState::GAME)
+  if (registry_.ctx().get<GameState>() == GameState::GAME)
   {
     // Update previous transforms before updating it (this should be done after updating the game state from networking)
     for (auto&& [entity, transform, interpolatedTransform] : registry_.view<Transform, InterpolatedTransform>().each())
@@ -120,19 +130,21 @@ void World::FixedUpdate(float dt)
     }
 
     // Player "holds" entity
-    for (auto&& [entity, transform] : registry_.view<Transform, TempMesh>().each())
-    {
-      transform.position = playerTransform.position + glm::mat3_cast(playerTransform.rotation)[2] * 5.0f;
-    }
+    //for (auto&& [entity, transform] : registry_.view<Transform, TempMesh>().each())
+    //{
+    //  transform.position = playerTransform.position + glm::mat3_cast(playerTransform.rotation)[2] * 5.0f;
+    //}
   }
 
   ticks_++;
 }
 
+#include "Jolt/Physics/Collision/Shape/PlaneShape.h"
+#include "Jolt/Physics/Collision/Shape/SphereShape.h"
+
 void World::InitializeGameState()
 {
-  // Erase every entity that isn't holding a singleton component
-  for (auto e : registry_.view<entt::entity>(entt::exclude<Singleton>))
+  for (auto e : registry_.view<entt::entity>())
   {
     registry_.destroy(e);
   }
@@ -158,4 +170,40 @@ void World::InitializeGameState()
   registry_.emplace<TempMesh>(e);
   registry_.emplace<InterpolatedTransform>(e);
   registry_.emplace<RenderTransform>(e);
+
+  auto planeSettings = JPH::PlaneShapeSettings(JPH::Plane(JPH::Vec3(0, 1, 0), 0));
+  planeSettings.SetEmbedded();
+  auto& plane      = planeSettings.Create().Get();
+  plane->SetEmbedded();
+  
+  auto pe = registry_.create();
+  Physics::AddRigidBody({registry_, pe}, {
+    .shape = plane.GetPtr(),
+    .activate = false,
+    .motionType = JPH::EMotionType::Static,
+    .layer = Physics::Layers::NON_MOVING,
+  });
+
+  auto sphereSettings = JPH::SphereShapeSettings(1);
+  sphereSettings.SetEmbedded();
+  auto sphere = sphereSettings.Create().Get();
+  sphere->SetEmbedded();
+
+  for (int i = 0; i < 10; i++)
+  {
+    auto a = registry_.create();
+    auto& at = registry_.emplace<Transform>(a);
+    at.position = {0, 5 + i * 2, i * .1f};
+    at.rotation = glm::identity<glm::quat>();
+    at.scale    = 1;
+    registry_.emplace<TempMesh>(a);
+    registry_.emplace<InterpolatedTransform>(a);
+    registry_.emplace<RenderTransform>(a);
+    Physics::AddRigidBody({registry_, a}, {
+      .shape = sphere.GetPtr(),
+      .activate = true,
+      .motionType = JPH::EMotionType::Dynamic,
+      .layer = Physics::Layers::MOVING,
+    });
+  }
 }

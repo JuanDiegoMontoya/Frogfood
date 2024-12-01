@@ -113,6 +113,43 @@ FetchContent_Declare(
     GIT_TAG        v3.13.2
 )
 
+set(DOUBLE_PRECISION OFF)
+#set(GENERATE_DEBUG_SYMBOLS ON)
+#set(OVERRIDE_CXX_FLAGS ON)
+set(CROSS_PLATFORM_DETERMINISTIC OFF)
+#set(INTERPROCEDURAL_OPTIMIZATION ON)
+set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF)
+set(CPP_EXCEPTIONS_ENABLED ON)
+set(CPP_RTTI_ENABLED ON)
+set(OBJECT_LAYER_BITS 16)
+set(USE_SSE4_1 ON)
+set(USE_SSE4_2 ON)
+set(USE_AVX ON)
+set(USE_AVX2 ON)
+set(USE_AVX512 OFF)
+set(USE_LZCNT ON)
+set(USE_TZCNT ON)
+set(USE_F16C ON)
+set(USE_FMADD ON)
+FetchContent_Declare(
+    JoltPhysics
+    GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics
+    GIT_TAG v5.2.0
+)
+if(NOT JoltPhysics_POPULATED)
+    FetchContent_MakeAvailable(JoltPhysics)
+
+    set(PHYSICS_REPO_ROOT ${joltphysics_SOURCE_DIR})
+    include(${joltphysics_SOURCE_DIR}/Jolt/Jolt.cmake)
+    target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:RelWithDebInfo>:JPH_PROFILE_ENABLED;JPH_DEBUG_RENDERER>")
+    if (FLOATING_POINT_EXCEPTIONS_ENABLED AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+        target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:RelWithDebInfo>:JPH_FLOATING_POINT_EXCEPTIONS_ENABLED>")
+    endif()
+endif()
+
+target_include_directories(frogRender PUBLIC ${joltphysics_SOURCE_DIR}/..)
+target_link_libraries(frogRender PRIVATE Jolt)
+
 option(TRACY_ON_DEMAND "" ON)
 option(TRACY_ENABLE "Enable profiling" ON)
 option(TRACY_ONLY_IPV4 "IPv4 only" ON)

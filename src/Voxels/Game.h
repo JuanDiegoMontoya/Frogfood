@@ -16,32 +16,12 @@ struct DeltaTime
   float real; // Real time, unaffected by gameplay, inexorably marching on.
 };
 
-struct Singleton {};
-
 class World
 {
 public:
   NO_COPY_NO_MOVE(World);
   explicit World() = default;
   void FixedUpdate(float dt);
-
-  template<typename T>
-  decltype(auto) CreateSingletonComponent()
-  {
-    assert(registry_.view<T>().size() == 0);
-    auto entity = registry_.create();
-    registry_.emplace<Singleton>(entity);
-    return registry_.emplace<T>(entity);
-  }
-
-  template<typename T>
-  [[nodiscard]] decltype(auto) GetSingletonComponent()
-  {
-    auto view = registry_.view<T>();
-    assert(view.size() == 1);
-    auto&& [_, c] = *view.each().begin();
-    return c;
-  }
 
   entt::registry& GetRegistry()
   {
@@ -170,7 +150,9 @@ struct TempMesh {};
 class Game
 {
 public:
+  NO_COPY_NO_MOVE(Game);
   explicit Game(uint32_t tickHz);
+  ~Game();
   void Run();
 
 private:

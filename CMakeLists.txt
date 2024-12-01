@@ -82,6 +82,8 @@ add_executable(frogRender
     src/Voxels/SketchyBuffer.cpp
     src/Voxels/Input.h
     src/Voxels/Input.cpp
+    src/Voxels/Physics.h
+    src/Voxels/Physics.cpp
 )
 
 target_compile_options(frogRender

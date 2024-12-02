@@ -1,7 +1,9 @@
 #include "Physics.h"
-#include "Game.h"
+#include "Voxels/Game.h"
+#include "Voxels/TwoLevelGrid.h"
 
-#include "TwoLevelGrid.h"
+#include "PhysicsUtils.h"
+#include "TwoLevelGridShape.h"
 
 #include "Jolt/Jolt.h"
 #include "Jolt/RegisterTypes.h"
@@ -23,8 +25,6 @@
 
 #include "entt/entity/handle.hpp"
 
-#define GLM_ENABLE_EXPERIMENTAL
-#include "glm/gtx/component_wise.hpp"
 #include "glm/vec3.hpp"
 #include "glm/gtc/quaternion.hpp"
 
@@ -36,26 +36,6 @@ namespace Physics
 {
   namespace
   {
-    JPH::Vec3 ToJolt(glm::vec3 v)
-    {
-      return JPH::Vec3(v.x, v.y, v.z);
-    }
-
-    JPH::Quat ToJolt(glm::quat q)
-    {
-      return JPH::Quat(q.x, q.y, q.z, q.w);
-    }
-
-    glm::vec3 ToGlm(JPH::Vec3 v)
-    {
-      return glm::vec3(v.GetX(), v.GetY(), v.GetZ());
-    }
-
-    glm::quat ToGlm(JPH::Quat q)
-    {
-      return glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ());
-    }
-
     namespace BroadPhaseLayers
     {
       constexpr JPH::BroadPhaseLayer NON_MOVING(0);
@@ -128,156 +108,6 @@ namespace Physics
       }
     };
 
-    class TwoLevelGridShape final : public JPH::Shape
-    {
-    public:
-      TwoLevelGridShape(const TwoLevelGrid& twoLevelGrid)
-        : Shape(JPH::EShapeType::User1, JPH::EShapeSubType::User1),
-          twoLevelGrid_(&twoLevelGrid)
-      {
-        
-      }
-
-      const TwoLevelGrid* twoLevelGrid_;
-
-      static void CollideTwoLevelGrid([[maybe_unused]] const Shape* inShape1,
-        [[maybe_unused]] const Shape* inShape2,
-        [[maybe_unused]] JPH::Vec3Arg inScale1,
-        [[maybe_unused]] JPH::Vec3Arg inScale2,
-        [[maybe_unused]] JPH::Mat44Arg inCenterOfMassTransform1,
-        [[maybe_unused]] JPH::Mat44Arg inCenterOfMassTransform2,
-        [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator1,
-        [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator2,
-        [[maybe_unused]] const JPH::CollideShapeSettings& inCollideShapeSettings,
-        [[maybe_unused]] JPH::CollideShapeCollector& ioCollector,
-        [[maybe_unused]] const JPH::ShapeFilter& inShapeFilter)
-      {
-        assert(false);
-      }
-
-      static void CastTwoLevelGrid([[maybe_unused]] const JPH::ShapeCast& inShapeCast,
-        [[maybe_unused]] const JPH::ShapeCastSettings& inShapeCastSettings,
-        [[maybe_unused]] const JPH::Shape* inShape,
-        [[maybe_unused]] JPH::Vec3Arg inScale,
-        [[maybe_unused]] const JPH::ShapeFilter& inShapeFilter,
-        [[maybe_unused]] JPH::Mat44Arg inCenterOfMassTransform2,
-        [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator1,
-        [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator2,
-        [[maybe_unused]] JPH::CastShapeCollector& ioCollector)
-      {
-        assert(false);
-      }
-
-      static void sRegister()
-      {
-        JPH::CollisionDispatch::sRegisterCollideShape(JPH::EShapeSubType::User1, JPH::EShapeSubType::Box, CollideTwoLevelGrid);
-        JPH::CollisionDispatch::sRegisterCastShape(JPH::EShapeSubType::User1, JPH::EShapeSubType::Box, CastTwoLevelGrid);
-        JPH::CollisionDispatch::sRegisterCollideShape(JPH::EShapeSubType::Box, JPH::EShapeSubType::User1, JPH::CollisionDispatch::sReversedCollideShape);
-        JPH::CollisionDispatch::sRegisterCastShape(JPH::EShapeSubType::Box, JPH::EShapeSubType::User1, JPH::CollisionDispatch::sReversedCastShape);
-      }
-
-      void CastRay([[maybe_unused]] const JPH::RayCast& inRay,
-        [[maybe_unused]] const JPH::RayCastSettings& inRayCastSettings,
-        [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator,
-        [[maybe_unused]] JPH::CastRayCollector& ioCollector,
-        [[maybe_unused]] const JPH::ShapeFilter& inShapeFilter) const override
-      {
-        assert(false);
-      }
-
-      bool CastRay([[maybe_unused]] const JPH::RayCast& inRay,
-        [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator,
-        [[maybe_unused]] JPH::RayCastResult& ioHit) const override
-      {
-        assert(false);
-      }
-
-      void CollidePoint([[maybe_unused]] JPH::Vec3Arg inPoint,
-        [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator,
-        [[maybe_unused]] JPH::CollidePointCollector& ioCollector,
-        [[maybe_unused]] const JPH::ShapeFilter& inShapeFilter) const override
-      {
-        assert(false);
-      }
-
-      void CollideSoftBodyVertices([[maybe_unused]] JPH::Mat44Arg inCenterOfMassTransform,
-        [[maybe_unused]] JPH::Vec3Arg inScale,
-        [[maybe_unused]] const JPH::CollideSoftBodyVertexIterator& inVertices,
-        [[maybe_unused]] JPH::uint inNumVertices,
-        [[maybe_unused]] int inCollidingShapeIndex) const override
-      {
-        assert(false);
-      }
-
-      float GetInnerRadius() const override
-      {
-        return float(glm::compMin(twoLevelGrid_->dimensions_)) / 2.0f;
-      }
-
-      JPH::AABox GetLocalBounds() const override
-      {
-        return JPH::AABox(JPH::Vec3Arg(0, 0, 0), JPH::Vec3Arg((float)twoLevelGrid_->dimensions_.x, (float)twoLevelGrid_->dimensions_.y, (float)twoLevelGrid_->dimensions_.z));
-      }
-
-      JPH::MassProperties GetMassProperties() const override
-      {
-        assert(false);
-        return {};
-      }
-
-      const JPH::PhysicsMaterial* GetMaterial([[maybe_unused]] const JPH::SubShapeID& inSubShapeID) const override
-      {
-        assert(false);
-        return nullptr;
-      }
-
-      Stats GetStats() const override
-      {
-        return Stats(sizeof(*this), 0);
-      }
-
-      JPH::uint GetSubShapeIDBitsRecursive() const override
-      {
-        assert(0);
-        return 0;
-      }
-
-      void GetSubmergedVolume([[maybe_unused]] JPH::Mat44Arg inCenterOfMassTransform,
-        [[maybe_unused]] JPH::Vec3Arg inScale,
-        [[maybe_unused]] const JPH::Plane& inSurface,
-        [[maybe_unused]] float& outTotalVolume,
-        [[maybe_unused]] float& outSubmergedVolume,
-        [[maybe_unused]] JPH::Vec3& outCenterOfBuoyancy) const override
-      {
-        assert(false);
-      }
-
-      JPH::Vec3 GetSurfaceNormal([[maybe_unused]] const JPH::SubShapeID& inSubShapeID, [[maybe_unused]] JPH::Vec3Arg inLocalSurfacePosition) const override
-      {
-        assert(false);
-        return {};
-      }
-
-      int GetTrianglesNext(GetTrianglesContext&, int, JPH::Float3*, const JPH::PhysicsMaterial**) const override
-      {
-        assert(false);
-        return 0;
-      }
-
-      void GetTrianglesStart(GetTrianglesContext&, const JPH::AABox&, JPH::Vec3Arg, JPH::QuatArg, JPH::Vec3Arg) const override
-      {
-        assert(false);
-      }
-
-      float GetVolume() const override
-      {
-        assert(false);
-        return 0;
-      }
-    private:
-
-    };
-
     struct ContactPair
     {
       JPH::BodyID inBody1;
@@ -300,6 +130,8 @@ namespace Physics
 
       std::vector<std::unique_ptr<JPH::Body, BodyDeleter>> bodies;
       std::vector<ContactPair> contactPairs;
+      // The deltaTime that is recommended by Jolt's docs to achieve a stable simulation.
+      // The number of subticks is dynamic to keep the substep dt around this target.
       constexpr static float targetRate = 1.0f / 60.0f;
     };
     std::unique_ptr<StaticVars> s;

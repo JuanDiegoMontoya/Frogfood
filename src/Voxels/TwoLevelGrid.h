@@ -1,6 +1,5 @@
 #pragma once
 #include "SketchyBuffer.h"
-#include "Fvog/Buffer2.h"
 #include "glm/vec3.hpp"
 
 #include <cstdint>

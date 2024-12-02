@@ -7,7 +7,7 @@
 #include "Fvog/Rendering2.h"
 #include "Fvog/detail/Common.h"
 
-#include "Physics.h" // TODO: remove
+#include "Physics/Physics.h" // TODO: remove
 
 #include "volk.h"
 #include "Fvog/detail/ApiToEnum2.h"
@@ -22,47 +22,6 @@
 
 namespace
 {
-  float de1(glm::vec3 p0)
-  {
-    using namespace glm;
-    vec4 p = vec4(p0, 1.);
-    for (int i = 0; i < 8; i++)
-    {
-      p.x = mod(p.x - 1.0f, 2.0f) - 1.0f;
-      p.y = mod(p.y - 1.0f, 2.0f) - 1.0f;
-      p.z = mod(p.z - 1.0f, 2.0f) - 1.0f;
-      p *= 1.4f / dot(vec3(p), vec3(p));
-    }
-    return length(vec2(p.x, p.z) / p.w) * 0.25f;
-  }
-
-  float de2(glm::vec3 p)
-  {
-    using namespace glm;
-    p           = {p.x, p.z, p.y};
-    vec3 cSize  = vec3(1., 1., 1.3);
-    float scale = 1.;
-    for (int i = 0; i < 12; i++)
-    {
-      p        = 2.0f * clamp(p, -cSize, cSize) - p;
-      float r2 = dot(p, p);
-      float k  = max((2.f) / (r2), .027f);
-      p *= k;
-      scale *= k;
-    }
-    float l   = length(vec2(p.x, p.y));
-    float rxy = l - 4.0f;
-    float n   = l * p.z;
-    rxy       = max(rxy, -(n) / 4.f);
-    return (rxy) / abs(scale);
-  }
-
-  float de3(glm::vec3 p)
-  {
-    float h = (sin(p.x * 0.11f) * 10 + 10) + (sin(p.z * 0.11f) * 10 + 10);
-    return p.y > h;
-  }
-  
   using index_t = uint32_t;
 
   struct Vertex
@@ -172,45 +131,6 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
   head_->guiCallback_ = [this](float dt, World& world, VkCommandBuffer cmd) { OnGui(dt, world, cmd); };
-
-  // Top level bricks
-  for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
-    for (int j = 0; j < grid.topLevelBricksDims_.y; j++)
-      for (int i = 0; i < grid.topLevelBricksDims_.x; i++)
-      {
-        const auto tl = glm::ivec3{i, j, k};
-
-        // Bottom level bricks
-        for (int c = 0; c < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; c++)
-          for (int b = 0; b < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; b++)
-            for (int a = 0; a < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; a++)
-            {
-              const auto bl = glm::ivec3{a, b, c};
-
-              // Voxels
-              for (int z = 0; z < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; z++)
-                for (int y = 0; y < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; y++)
-                  for (int x = 0; x < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; x++)
-                  {
-                    const auto local = glm::ivec3{x, y, z};
-                    const auto p     = tl * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE + bl * TwoLevelGrid::BL_BRICK_SIDE_LENGTH + local;
-                    // const auto left  = glm::vec3(50, 30, 20);
-                    // const auto right = glm::vec3(90, 30, 20);
-                    // if ((glm::distance(p, left) < 10) || (glm::distance(p, right) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
-                    if (de2(glm::vec3(p) / 10.f + 2.0f) < 0.011f)
-                    //if (de3(p) < 0.011f)
-                    {
-                      grid.SetVoxelAt(p, 1);
-                    }
-                    else
-                    {
-                      grid.SetVoxelAt(p, 0);
-                    }
-                  }
-            }
-
-        grid.CoalesceDirtyBricks();
-      }
 
   testPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Render voxels",
@@ -434,7 +354,11 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   ctx.Barrier();
 
-  grid.buffer.FlushWritesToGPU(commandBuffer);
+  if (world.GetRegistry().ctx().contains<TwoLevelGrid>())
+  {
+    auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
+    grid.buffer.FlushWritesToGPU(commandBuffer);
+  }
 
   ctx.Barrier();
 
@@ -491,7 +415,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     {
       actualTransform = renderTransform->transform;
     }
-    auto worldFromObject = glm::translate(glm::mat4(1), actualTransform.position) * glm::mat4_cast(actualTransform.rotation);
+    auto worldFromObject = glm::translate(glm::mat4(1), actualTransform.position) * glm::mat4_cast(actualTransform.rotation) * glm::scale(glm::mat4(1), glm::vec3(actualTransform.scale));
     meshUniformzVec.emplace_back(worldFromObject, g_testMesh.vertexBuffer->GetDeviceAddress());
   }
 
@@ -502,7 +426,9 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   memcpy(meshUniformz.GetMappedMemory(), meshUniformzVec.data(), meshUniformzVec.size() * sizeof(Temp::ObjectUniforms));
 
+  if (world.GetRegistry().ctx().contains<TwoLevelGrid>())
   {
+    auto& grid           = world.GetRegistry().ctx().get<TwoLevelGrid>();
     auto colorAttachment = Fvog::RenderColorAttachment{
       .texture = frame.sceneColor.value().ImageView(),
       .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -611,6 +537,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
       ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt, dt * 1000);
       //ImGui::Text("Camera pos: (%.2f, %.2f, %.2f)", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
       //ImGui::Text("Camera dir: (%.2f, %.2f, %.2f)", mainCamera.GetForwardDir().x, mainCamera.GetForwardDir().y, mainCamera.GetForwardDir().z);
+      auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
       VmaStatistics stats{};
       vmaGetVirtualBlockStatistics(grid.buffer.GetAllocator(), &stats);
       auto [usedSuffix, usedDivisor]   = Math::BytesToSuffixAndDivisor(stats.allocationBytes);

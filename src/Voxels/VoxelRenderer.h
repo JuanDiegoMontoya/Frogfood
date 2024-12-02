@@ -87,8 +87,6 @@ private:
     constexpr static Fvog::Format sceneDepthFormat = Fvog::Format::D32_SFLOAT;
   };
   Frame frame;
-
-  TwoLevelGrid grid{{2, 2, 2}};
   
   Fvog::NDeviceBuffer<Temp::Uniforms> perFrameUniforms;
   PipelineManager::GraphicsPipelineKey testPipeline;

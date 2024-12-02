@@ -7,6 +7,8 @@
 #include "Fvog/Rendering2.h"
 #include "Fvog/detail/Common.h"
 
+#include "Physics.h" // TODO: remove
+
 #include "volk.h"
 #include "Fvog/detail/ApiToEnum2.h"
 
@@ -586,8 +588,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
-  auto& gameState = world.GetRegistry().ctx().get<GameState>();
-  switch (gameState)
+  switch (auto& gameState = world.GetRegistry().ctx().get<GameState>())
   {
   case GameState::MENU:
     if (ImGui::Begin("Menu"))
@@ -644,5 +645,99 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
     ImGui::End();
     break;
   default:;
+  }
+
+  if (world.GetRegistry().ctx().get<Debugging>().showDebugGui)
+  {
+    if (ImGui::Begin("Entities"))
+    {
+      auto& registry = world.GetRegistry();
+      for (auto e : registry.view<entt::entity>())
+      {
+        ImGui::PushID((int)e);
+        bool opened = false;
+        if (auto* s = registry.try_get<Name>(e))
+        {
+          opened = ImGui::TreeNode("entity", "%u (%s)", e, s->name.c_str());
+        }
+        else
+        {
+          opened = ImGui::TreeNode("entity", "%u", e);
+        }
+        if (opened)
+        {
+          if (auto* t = registry.try_get<Transform>(e))
+          {
+            ImGui::SeparatorText("Transform");
+            ImGui::DragFloat3("Position", &t->position[0], 0.25f);
+            ImGui::DragFloat4("Rotation", &t->rotation[0], 0.125f);
+            ImGui::DragFloat("Scale", &t->scale, 0.125f);
+          }
+          if (auto* it = registry.try_get<InterpolatedTransform>(e))
+          {
+            ImGui::SeparatorText("InterpolatedTransform");
+            ImGui::Text("Accumulator: %f", it->accumulator * world.GetRegistry().ctx().get<TickRate>().hz);
+            const auto& tr = it->previousTransform;
+            ImGui::Text("Position: %f, %f, %f", tr.position[0], tr.position[1], tr.position[2]);
+            ImGui::Text("Rotation: %f, %f, %f, %f", tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z);
+            ImGui::Text("Scale: %f", tr.scale);
+          }
+          if (auto* rt = registry.try_get<RenderTransform>(e))
+          {
+            ImGui::SeparatorText("RenderTransform");
+            const auto& tr = rt->transform;
+            ImGui::Text("Position: %f, %f, %f", tr.position[0], tr.position[1], tr.position[2]);
+            ImGui::Text("Rotation: %f, %f, %f, %f", tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z);
+            ImGui::Text("Scale: %f", tr.scale);
+          }
+          if (auto* p = registry.try_get<Player>(e))
+          {
+            ImGui::SeparatorText("Player");
+          }
+          if (registry.all_of<NoclipCharacterController>(e))
+          {
+            ImGui::SeparatorText("NoclipCharacterController");
+          }
+          if (auto* is = registry.try_get<InputState>(e))
+          {
+            ImGui::SeparatorText("InputState");
+          }
+          if (auto* ils = registry.try_get<InputLookState>(e))
+          {
+            ImGui::SeparatorText("InputLookState");
+          }
+          if (auto* rb = registry.try_get<Physics::RigidBody>(e))
+          {
+            ImGui::SeparatorText("RigidBody");
+          }
+          if (registry.all_of<TempMesh>(e))
+          {
+            ImGui::SeparatorText("TempMesh");
+          }
+          ImGui::TreePop();
+        }
+        ImGui::Separator();
+        ImGui::PopID();
+      }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Context"))
+    {
+      auto& ctx   = world.GetRegistry().ctx();
+      auto& debug = ctx.get<Debugging>();
+      ImGui::Checkbox("Show Debug GUI", &debug.showDebugGui);
+      ImGui::Checkbox("Force Show Cursor", &debug.forceShowCursor);
+
+      ImGui::Text("Game state: %s", GameStateToStr(ctx.get<GameState>()));
+      ImGui::Text("Time: %f", ctx.get<float>("time"_hs));
+
+      ImGui::SliderFloat("Time Scale", &ctx.get<TimeScale>().scale, 0, 4, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+
+      auto min = uint32_t(5);
+      auto max = uint32_t(120);
+      ImGui::SliderScalar("Tick Rate", ImGuiDataType_U32, &world.GetRegistry().ctx().get<TickRate>().hz, &min, &max, "%u");
+    }
+    ImGui::End();
   }
 }

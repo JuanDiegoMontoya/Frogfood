@@ -300,6 +300,7 @@ namespace Physics
 
       std::vector<std::unique_ptr<JPH::Body, BodyDeleter>> bodies;
       std::vector<ContactPair> contactPairs;
+      constexpr static float targetRate = 1.0f / 60.0f;
     };
     std::unique_ptr<StaticVars> s;
 
@@ -327,7 +328,7 @@ namespace Physics
     };
   }
 
-  RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings settings)
+  RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings& settings)
   {
     auto position = glm::vec3(0);
     auto rotation = glm::quat(1, 0, 0, 0);
@@ -401,10 +402,8 @@ namespace Physics
   
   void FixedUpdate(float dt, World& world)
   {
-    // e.g. if dt=1/10 and target=1/60, take 6 steps
-    constexpr float target = 1.0f / 60.0f;
-    const auto steps       = static_cast<int>(std::max(1.0f, std::ceil(dt / target)));
-    s->engine->Update(dt, steps, s->tempAllocator.get(), s->jobSystem.get());
+    const auto substeps = static_cast<int>(std::ceil(dt / s->targetRate));
+    s->engine->Update(dt, substeps, s->tempAllocator.get(), s->jobSystem.get());
 
     // Update transform of each entity with a RigidBody component
     for (auto&& [entity, rigidBody, transform] : world.GetRegistry().view<RigidBody, Transform>().each())

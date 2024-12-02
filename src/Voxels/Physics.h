@@ -32,7 +32,7 @@ namespace Physics
     JPH::BodyID body;
   };
 
-  RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings settings);
+  RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings& settings);
 
   void Initialize(World& world);
   void Terminate();

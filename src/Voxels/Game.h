@@ -9,11 +9,27 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <string>
+
+using namespace entt::literals;
+
+struct Name
+{
+  // TODO: Should be variant<const char*, std::string> and have helper to extract C string.
+  // We don't want to force an allocation for a name that's probably going to be a literal.
+  std::string name;
+};
 
 struct DeltaTime
 {
   float game; // Affected by game effects that scale the passage of time.
   float real; // Real time, unaffected by gameplay, inexorably marching on.
+};
+
+struct Debugging
+{
+  bool showDebugGui    = false;
+  bool forceShowCursor = false;
 };
 
 class World
@@ -81,6 +97,17 @@ enum class GameState
   PAUSED,
 };
 
+inline const char* GameStateToStr(GameState g)
+{
+  if (g == GameState::MENU)
+    return "MENU";
+  if (g == GameState::GAME)
+    return "GAME";
+  if (g == GameState::PAUSED)
+    return "PAUSED";
+  return "UNKNOWN";
+}
+
 enum class InputAxis
 {
   STRAFE,
@@ -93,11 +120,14 @@ enum class InputAxis
 // When a server receives these, they attach it to the corresponding player.
 struct InputState
 {
-  float strafe  = 0;
-  float forward = 0;
-  float elevate = 0; // For flying controller
-  bool sprint   = false;
-  bool walk     = false;
+  float strafe      = 0;
+  float forward     = 0;
+  float elevate     = 0; // For flying controller
+  bool sprint       = false;
+  bool walk         = false;
+  bool usePrimary   = false;
+  bool useSecondary = false;
+  bool interact     = false;
 };
 
 // Networked (client -> server)

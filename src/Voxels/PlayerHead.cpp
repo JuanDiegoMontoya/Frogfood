@@ -173,15 +173,18 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
 {
   ZoneScopedN("Frame");
 
-  for (auto&& [entity, transform, interpolatedTransform] : world.GetRegistry().view<Transform, InterpolatedTransform>().each())
+  if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
   {
-    interpolatedTransform.accumulator += dt.game;
-    if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
+    for (auto&& [entity, transform, interpolatedTransform] : world.GetRegistry().view<Transform, InterpolatedTransform>().each())
     {
-      const auto alpha                    = interpolatedTransform.accumulator * world.GetRegistry().ctx().get<TickRate>().hz;
-      renderTransform->transform.position = glm::mix(interpolatedTransform.previousTransform.position, transform.position, alpha);
-      renderTransform->transform.rotation = glm::slerp(interpolatedTransform.previousTransform.rotation, transform.rotation, alpha);
-      renderTransform->transform.scale    = glm::mix(interpolatedTransform.previousTransform.scale, transform.scale, alpha);
+      interpolatedTransform.accumulator += dt.game;
+      if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
+      {
+        const auto alpha                    = glm::clamp(interpolatedTransform.accumulator * (float)world.GetRegistry().ctx().get<TickRate>().hz, 0.0f, 1.0f);
+        renderTransform->transform.position = glm::mix(interpolatedTransform.previousTransform.position, transform.position, alpha);
+        renderTransform->transform.rotation = glm::slerp(interpolatedTransform.previousTransform.rotation, transform.rotation, alpha);
+        renderTransform->transform.scale    = glm::mix(interpolatedTransform.previousTransform.scale, transform.scale, alpha);
+      }
     }
   }
 

@@ -2,6 +2,7 @@
 
 #include "GLFW/glfw3.h"
 #include "glm/vec3.hpp"
+#include "imgui.h"
 
 #include <thread>
 #include <chrono>
@@ -25,6 +26,8 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
     return;
   }
 
+  glfwSetInputMode(window_, GLFW_CURSOR, cursorIsActive || world.GetRegistry().ctx().get<Debugging>().forceShowCursor ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+
   if (!cursorIsActive)
   {
     if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
@@ -40,12 +43,14 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
           input.strafe -= glfwGetKey(window_, GLFW_KEY_A) == GLFW_PRESS ? 1 : 0;
           input.elevate += glfwGetKey(window_, GLFW_KEY_E) == GLFW_PRESS ? 1 : 0;
           input.elevate -= glfwGetKey(window_, GLFW_KEY_Q) == GLFW_PRESS ? 1 : 0;
-          input.sprint = glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? true : false;
-          input.walk = glfwGetKey(window_, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ? true : false;
+          input.sprint       = glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? true : false;
+          input.walk         = glfwGetKey(window_, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ? true : false;
+          input.usePrimary   = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_1) == GLFW_PRESS ? true : false;
+          input.useSecondary = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_2) == GLFW_PRESS ? true : false;
+          input.interact     = glfwGetKey(window_, GLFW_KEY_F) == GLFW_PRESS ? true : false;
           inputLook.yaw += static_cast<float>(cursorFrameOffset.x * 0.0025f);
           inputLook.pitch -= static_cast<float>(cursorFrameOffset.y * 0.0025f); // Subtract due to rendering hack that flips the camera
           transform.rotation = glm::angleAxis(inputLook.yaw, glm::vec3{0, 1, 0}) * glm::angleAxis(inputLook.pitch, glm::vec3{1, 0, 0});
-          ;
           break;
         }
       }
@@ -53,15 +58,34 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
   }
 
   // Close the app if the user presses Escape.
-  if (glfwGetKey(window_, GLFW_KEY_ESCAPE))
+  if (ImGui::GetKeyPressedAmount(ImGuiKey_Escape, 10000, 1))
   {
-    glfwSetWindowShouldClose(window_, true);
+    auto& state = world.GetRegistry().ctx().get<GameState>();
+    if (state == GameState::PAUSED)
+    {
+      state = GameState::GAME;
+    }
+    else if (state == GameState::GAME)
+    {
+      state = GameState::PAUSED;
+    }
+  }
+
+  auto& debug = world.GetRegistry().ctx().get<Debugging>();
+  if (ImGui::GetKeyPressedAmount(ImGuiKey_F1, 10000, 1))
+  {
+    debug.showDebugGui = !debug.showDebugGui;
+  }
+
+  if (ImGui::GetKeyPressedAmount(ImGuiKey_F2, 10000, 1))
+  {
+    debug.forceShowCursor = !debug.forceShowCursor;
   }
 
   // Sleep for a bit if the window is not focused
   if (!glfwGetWindowAttrib(window_, GLFW_FOCUSED))
   {
-    // TODO: Use sleep_until so we don't skip game ticks
+    // Use to render less- game will catch up
     std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
   }
 
@@ -71,7 +95,6 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
     cursorIsActive          = !cursorIsActive;
     cursorJustEnteredWindow = true;
     graveHeldLastFrame      = true;
-    glfwSetInputMode(window_, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
   }
 
   if (!glfwGetKey(window_, GLFW_KEY_GRAVE_ACCENT))

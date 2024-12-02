@@ -10,9 +10,10 @@ void main()
   ObjectUniforms object = pc.objects.uniforms[gl_InstanceIndex];
   Vertex vertex = object.vertexBuffer.vertices[gl_VertexIndex];
 
+  const mat4 worldFromObject = pc.objects.uniforms[gl_InstanceIndex].worldFromObject;
   o_color = vertex.color;
-  o_normal = vertex.normal;
-  const vec4 worldPos = pc.objects.uniforms[gl_InstanceIndex].worldFromObject * vec4(vertex.position, 1.0);
+  o_normal = inverse(transpose(mat3(worldFromObject))) * vertex.normal;
+  const vec4 worldPos = worldFromObject * vec4(vertex.position, 1.0);
   o_worldPosition = worldPos.xyz;
 
   gl_Position = pc.frame.clipFromWorld * worldPos;

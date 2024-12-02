@@ -33,7 +33,7 @@ void main()
 		color += albedo;
 
 		// Shadow
-		color *= TraceSunRay(hit.positionWorld);
+		color *= TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4);
 
 		color += albedo * TraceIndirectLighting(ivec2(gl_FragCoord), hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld);
 

@@ -34,7 +34,7 @@ TwoLevelGrid::TwoLevelGrid(glm::ivec3 topLevelBrickDims)
   topLevelBrickPtrsBaseIndex = uint32_t(topLevelBrickPtrs.offset / sizeof(TopLevelBrickPtr));
 }
 
-TwoLevelGrid::GridHierarchyCoords TwoLevelGrid::GetCoordsOfVoxelAt(glm::ivec3 voxelCoord)
+TwoLevelGrid::GridHierarchyCoords TwoLevelGrid::GetCoordsOfVoxelAt(glm::ivec3 voxelCoord) const
 {
   const auto topLevelCoord    = voxelCoord / TL_BRICK_VOXELS_PER_SIDE;
   const auto bottomLevelCoord = (voxelCoord / BL_BRICK_SIDE_LENGTH) % TL_BRICK_SIDE_LENGTH;
@@ -47,10 +47,14 @@ TwoLevelGrid::GridHierarchyCoords TwoLevelGrid::GetCoordsOfVoxelAt(glm::ivec3 vo
   return {topLevelCoord, bottomLevelCoord, localVoxelCoord};
 }
 
-TwoLevelGrid::voxel_t TwoLevelGrid::GetVoxelAt(glm::ivec3 voxelCoord)
+TwoLevelGrid::voxel_t TwoLevelGrid::GetVoxelAt(glm::ivec3 voxelCoord) const
 {
-  assert(glm::all(glm::greaterThanEqual(voxelCoord, glm::ivec3(0))));
-  assert(glm::all(glm::lessThan(voxelCoord, dimensions_)));
+  //assert(glm::all(glm::greaterThanEqual(voxelCoord, glm::ivec3(0))));
+  //assert(glm::all(glm::lessThan(voxelCoord, dimensions_)));
+  if (glm::any(glm::lessThan(voxelCoord, glm::ivec3(0))) || glm::any(glm::greaterThanEqual(voxelCoord, dimensions_)))
+  {
+    return 0;
+  }
 
   auto [topLevelCoord, bottomLevelCoord, localVoxelCoord] = GetCoordsOfVoxelAt(voxelCoord);
 

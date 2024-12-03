@@ -88,6 +88,9 @@ void Game::Run()
   }
 }
 
+#include "Jolt/Physics/Collision/Shape/PlaneShape.h"
+#include "Jolt/Physics/Collision/Shape/SphereShape.h"
+
 void World::FixedUpdate(float dt)
 {
   if (registry_.ctx().get<GameState>() == GameState::GAME)
@@ -126,6 +129,29 @@ void World::FixedUpdate(float dt)
         transform.position += input.strafe * right * tempCameraSpeed;
         transform.position.y += input.elevate * tempCameraSpeed;
         playerTransform = transform;
+
+        if (input.interact)
+        {
+          auto sphereSettings = JPH::SphereShapeSettings(1);
+          sphereSettings.SetEmbedded();
+          auto sphere = sphereSettings.Create().Get();
+
+          auto e      = registry_.create();
+          auto& et    = registry_.emplace<Transform>(e);
+          et.position = playerTransform.position + glm::mat3_cast(playerTransform.rotation)[2] * 5.0f;
+          et.rotation = glm::identity<glm::quat>();
+          et.scale    = 1;
+          registry_.emplace<InterpolatedTransform>(e);
+          registry_.emplace<RenderTransform>(e);
+          registry_.emplace<TempMesh>(e);
+          registry_.emplace<Name>(e, "Fall ball");
+          Physics::AddRigidBody({registry_, e}, {
+            .shape = sphere,
+            .activate = true,
+            .motionType = JPH::EMotionType::Dynamic,
+            .layer = Physics::Layers::MOVING,
+          });
+        }
       }
     }
 
@@ -144,9 +170,6 @@ void World::FixedUpdate(float dt)
 
   ticks_++;
 }
-
-#include "Jolt/Physics/Collision/Shape/PlaneShape.h"
-#include "Jolt/Physics/Collision/Shape/SphereShape.h"
 
 namespace
 {
@@ -199,7 +222,7 @@ void World::InitializeGameState()
     registry_.destroy(e);
   }
 
-  auto& grid = registry_.ctx().emplace<TwoLevelGrid>(glm::vec3{1, 2, 1});
+  auto& grid = registry_.ctx().emplace<TwoLevelGrid>(glm::vec3{1, 1, 1});
   // Top level bricks
   for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
     for (int j = 0; j < grid.topLevelBricksDims_.y; j++)
@@ -279,14 +302,14 @@ void World::InitializeGameState()
 
   auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));
 
-  //auto ve = registry_.create();
-  //registry_.emplace<Name>(ve).name = "Voxels";
-  //Physics::AddRigidBody({registry_, ve}, {
-  //  .shape = twoLevelGridShape,
-  //  .activate = false,
-  //  .motionType = JPH::EMotionType::Static,
-  //  .layer = Physics::Layers::NON_MOVING,
-  //});
+  auto ve = registry_.create();
+  registry_.emplace<Name>(ve).name = "Voxels";
+  Physics::AddRigidBody({registry_, ve}, {
+    .shape = twoLevelGridShape,
+    .activate = false,
+    .motionType = JPH::EMotionType::Static,
+    .layer = Physics::Layers::NON_MOVING,
+  });
 
   auto sphereSettings = JPH::SphereShapeSettings(1);
   sphereSettings.SetEmbedded();

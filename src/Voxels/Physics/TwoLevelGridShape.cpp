@@ -1,23 +1,63 @@
 #include "TwoLevelGridShape.h"
 
+#include "Jolt/Physics/Collision/Shape/SphereShape.h"
+#include "Jolt/Physics/Collision/Shape/BoxShape.h"
+#include "Jolt/Geometry/AABox.h"
+#include "Jolt/Geometry/Sphere.h"
+
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/component_wise.hpp"
 
 #include <cassert>
 
-void Physics::TwoLevelGridShape::CollideTwoLevelGrid([[maybe_unused]] const Shape* inShape1,
-  [[maybe_unused]] const Shape* inShape2,
-  [[maybe_unused]] JPH::Vec3Arg inScale1,
-  [[maybe_unused]] JPH::Vec3Arg inScale2,
-  [[maybe_unused]] JPH::Mat44Arg inCenterOfMassTransform1,
-  [[maybe_unused]] JPH::Mat44Arg inCenterOfMassTransform2,
-  [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator1,
-  [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator2,
-  [[maybe_unused]] const JPH::CollideShapeSettings& inCollideShapeSettings,
-  [[maybe_unused]] JPH::CollideShapeCollector& ioCollector,
-  [[maybe_unused]] const JPH::ShapeFilter& inShapeFilter)
+void Physics::TwoLevelGridShape::CollideTwoLevelGrid(const Shape* inShape1,
+  const Shape* inShape2,
+  JPH::Vec3Arg inScale1,
+  JPH::Vec3Arg inScale2,
+  JPH::Mat44Arg inCenterOfMassTransform1,
+  JPH::Mat44Arg inCenterOfMassTransform2,
+  const JPH::SubShapeIDCreator& inSubShapeIDCreator1,
+  const JPH::SubShapeIDCreator& inSubShapeIDCreator2,
+  const JPH::CollideShapeSettings& inCollideShapeSettings,
+  JPH::CollideShapeCollector& ioCollector,
+  const JPH::ShapeFilter& inShapeFilter)
 {
-  assert(false);
+  assert(inShape1->GetType() == JPH::EShapeType::User1);
+  auto* s1 = static_cast<const TwoLevelGridShape*>(inShape1);
+
+  const auto transform2_to_1 = inCenterOfMassTransform1.InversedRotationTranslation() * inCenterOfMassTransform2;
+  const auto mBoundsOf2InSpaceOf1 = inShape2->GetLocalBounds().Scaled(inScale2).Transformed(transform2_to_1);
+
+  // Test shape against every voxel AABB in its bounds
+  // TODO: Investigate using AABox4.h to accelerate collision tests
+  const auto s2min    = mBoundsOf2InSpaceOf1.GetCenter() - mBoundsOf2InSpaceOf1.GetExtent();
+  const auto s2max    = mBoundsOf2InSpaceOf1.GetCenter() + mBoundsOf2InSpaceOf1.GetExtent();
+  const auto boxShape = JPH::Ref(new JPH::BoxShape({0.5f, 0.5f, 0.5f}));
+  for (int z = (int)std::floor(s2min.GetZ()); z < (int)std::ceil(s2max.GetZ()); z++)
+  for (int y = (int)std::floor(s2min.GetY()); y < (int)std::ceil(s2max.GetY()); y++)
+  for (int x = (int)std::floor(s2min.GetX()); x < (int)std::ceil(s2max.GetX()); x++)
+  {
+    // Skip voxel if non-solid
+    if (s1->twoLevelGrid_->GetVoxelAt({x, y, z}) == 0)
+    {
+      continue;
+    }
+    //const auto vBox = JPH::AABox(JPH::Vec3Arg(x + 0.5f, y + 0.5f, z + 0.5f), 0.5f);
+    const auto boxCenterOfMassTransform = inCenterOfMassTransform1.PreTranslated({x + 0.5f, y + 0.5f, z + 0.5f});
+    JPH::CollisionDispatch::sCollideShapeVsShape(boxShape,
+      inShape2,
+      inScale1,
+      inScale2,
+      boxCenterOfMassTransform,
+      inCenterOfMassTransform2,
+      // If there's ever an assert tripped in Jolt's hash map (e.g. for very big shapes), this hack is probably the culprit.
+      // Each collision with a different voxel needs a unique shape ID.
+      inSubShapeIDCreator1.PushID(s1->twoLevelGrid_->FlattenBottomLevelBrickCoord({x, y, z}), 16),
+      inSubShapeIDCreator2,
+      inCollideShapeSettings,
+      ioCollector,
+      inShapeFilter);
+  }
 }
 
 void Physics::TwoLevelGridShape::CastTwoLevelGrid([[maybe_unused]] const JPH::ShapeCast& inShapeCast,

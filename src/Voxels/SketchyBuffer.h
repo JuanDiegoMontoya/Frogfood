@@ -34,6 +34,12 @@ public:
     return reinterpret_cast<T*>(cpuBuffer_.get());
   }
 
+  template<typename T>
+  const T* GetBase() const
+  {
+    return reinterpret_cast<const T*>(cpuBuffer_.get());
+  }
+
   auto GetAllocator() const
   {
     return allocator_;

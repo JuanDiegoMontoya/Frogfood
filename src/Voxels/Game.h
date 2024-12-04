@@ -123,6 +123,7 @@ struct InputState
   float strafe      = 0;
   float forward     = 0;
   float elevate     = 0; // For flying controller
+  bool jump         = false;
   bool sprint       = false;
   bool walk         = false;
   bool usePrimary   = false;

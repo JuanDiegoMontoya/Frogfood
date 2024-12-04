@@ -90,6 +90,8 @@ void Game::Run()
 
 #include "Jolt/Physics/Collision/Shape/PlaneShape.h"
 #include "Jolt/Physics/Collision/Shape/SphereShape.h"
+#include "Jolt/Physics/Collision/Shape/CapsuleShape.h"
+#include "Physics/PhysicsUtils.h"
 
 void World::FixedUpdate(float dt)
 {
@@ -113,21 +115,56 @@ void World::FixedUpdate(float dt)
       input.elevate = glm::clamp(input.elevate, -1.0f, 1.0f);
     }
 
-    // Apply movement input
+    // Apply player input
     auto playerTransform = Transform{};
-    for (auto&& [entity, player, input, transform] : registry_.view<Player, InputState, Transform, NoclipCharacterController>().each())
+    for (auto&& [entity, player, input, transform] : registry_.view<Player, InputState, Transform>().each())
     {
       if (player.id == 0)
       {
-        const auto rot       = glm::mat3_cast(transform.rotation);
-        const auto right     = rot[0];
-        const auto forward   = rot[2];
-        auto tempCameraSpeed = 4.5f * dt;
-        tempCameraSpeed *= input.sprint ? 4.0f : 1.0f;
-        tempCameraSpeed *= input.walk ? 0.25f : 1.0f;
-        transform.position += input.forward * forward * tempCameraSpeed;
-        transform.position += input.strafe * right * tempCameraSpeed;
-        transform.position.y += input.elevate * tempCameraSpeed;
+        // Movement
+        if (registry_.all_of<NoclipCharacterController>(entity))
+        {
+          const auto rot       = glm::mat3_cast(transform.rotation);
+          const auto right     = rot[0];
+          const auto forward   = rot[2];
+          auto tempCameraSpeed = 4.5f * dt;
+          tempCameraSpeed *= input.sprint ? 4.0f : 1.0f;
+          tempCameraSpeed *= input.walk ? 0.25f : 1.0f;
+          transform.position += input.forward * forward * tempCameraSpeed;
+          transform.position += input.strafe * right * tempCameraSpeed;
+          transform.position.y += input.elevate * tempCameraSpeed;
+        }
+
+        if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
+        {
+          const auto rot   = glm::mat3_cast(transform.rotation);
+          const auto right = rot[0];
+          const auto gUp = glm::vec3(0, 1, 0);
+          // right and up will never be collinear if roll doesn't change
+          const auto forward = glm::normalize(glm::cross(right, gUp));
+
+          // Physics engine factors in deltaTime already
+          float tempSpeed = 4;
+          tempSpeed *= input.sprint ? 2.0f : 1.0f;
+          tempSpeed *= input.walk ? 0.5f : 1.0f;
+
+          auto velocity = glm::vec3(0);
+          velocity += input.forward * forward * tempSpeed;
+          velocity += input.strafe * right * tempSpeed;
+
+          if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
+          {
+            velocity += input.jump ? gUp * 8.0f : glm::vec3(0);
+          }
+          if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::InAir)
+          {
+            const auto prevY = cc->character->GetLinearVelocity().GetY();
+            velocity += glm::vec3{0, prevY - 15 * dt, 0};
+          }
+
+          cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
+        }
+
         playerTransform = transform;
 
         if (input.interact)
@@ -145,12 +182,13 @@ void World::FixedUpdate(float dt)
           registry_.emplace<RenderTransform>(e);
           registry_.emplace<TempMesh>(e);
           registry_.emplace<Name>(e, "Fall ball");
-          Physics::AddRigidBody({registry_, e}, {
-            .shape = sphere,
-            .activate = true,
-            .motionType = JPH::EMotionType::Dynamic,
-            .layer = Physics::Layers::MOVING,
-          });
+          Physics::AddRigidBody({registry_, e},
+            {
+              .shape      = sphere,
+              .activate   = true,
+              .motionType = JPH::EMotionType::Dynamic,
+              .layer      = Physics::Layers::MOVING,
+            });
         }
       }
     }
@@ -262,6 +300,8 @@ void World::InitializeGameState()
         grid.CoalesceDirtyBricks();
       }
 
+  auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(0.5f, 0.25f));
+
   // Make player entity
   auto p = registry_.create();
   registry_.emplace<Name>(p).name = "Player";
@@ -269,12 +309,16 @@ void World::InitializeGameState()
   registry_.emplace<InputState>(p);
   registry_.emplace<InputLookState>(p);
   auto& tp = registry_.emplace<Transform>(p);
-  tp.position = {0, 0, 0};
+  tp.position = {-2, 3, -2};
   tp.rotation = glm::identity<glm::quat>();
   tp.scale    = 1;
-  registry_.emplace<NoclipCharacterController>(p);
+  //registry_.emplace<NoclipCharacterController>(p);
   registry_.emplace<InterpolatedTransform>(p);
   registry_.emplace<RenderTransform>(p);
+  auto cc = Physics::AddCharacterController({registry_, p}, {
+    .shape = playerCapsule,
+  });
+  cc.character->SetMaxStrength(10000000);
 
   auto e = registry_.create();
   registry_.emplace<Name>(e).name = "Test";

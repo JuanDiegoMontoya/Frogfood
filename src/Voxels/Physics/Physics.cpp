@@ -110,11 +110,9 @@ namespace Physics
 
     struct ContactPair
     {
-      JPH::BodyID inBody1;
-      JPH::BodyID inBody2;
+      entt::entity entity1;
+      entt::entity entity2;
     };
-
-    struct BodyDeleter;
 
     struct StaticVars
     {
@@ -125,25 +123,20 @@ namespace Physics
       std::unique_ptr<ObjectLayerPairFilterImpl> objectVsObjectLayerFilter;
       std::unique_ptr<JPH::PhysicsSystem> engine;
       std::unique_ptr<struct ContactListenerImpl> contactListener;
+      std::unique_ptr<struct CharacterContactListenerImpl> characterContactListener;
+      std::unique_ptr<JPH::CharacterVsCharacterCollisionSimple> characterCollisionInterface;
       JPH::BodyInterface* bodyInterface{};
       std::shared_mutex contactListenerMutex;
 
-      std::vector<std::unique_ptr<JPH::Body, BodyDeleter>> bodies;
+      std::vector<JPH::CharacterVirtual*> allCharacters;
       std::vector<ContactPair> contactPairs;
       // The deltaTime that is recommended by Jolt's docs to achieve a stable simulation.
       // The number of subticks is dynamic to keep the substep dt around this target.
       constexpr static float targetRate = 1.0f / 60.0f;
+
+      glm::vec3 gravity = {0, -10, 0};
     };
     std::unique_ptr<StaticVars> s;
-
-    struct BodyDeleter
-    {
-      void operator()(JPH::Body* body)
-      {
-        s->bodyInterface->RemoveBody(body->GetID());
-        s->bodyInterface->DestroyBody(body->GetID());
-      }
-    };
 
     struct ContactListenerImpl final : JPH::ContactListener
     {
@@ -155,7 +148,22 @@ namespace Physics
         [[maybe_unused]] JPH::ContactSettings& ioSettings) override
       {
         auto lock = std::unique_lock(s->contactListenerMutex);
-        s->contactPairs.emplace_back(inBody1.GetID(), inBody2.GetID());
+        s->contactPairs.emplace_back(static_cast<entt::entity>(inBody1.GetUserData()), static_cast<entt::entity>(inBody2.GetUserData()));
+      }
+    };
+
+    struct CharacterContactListenerImpl final : JPH::CharacterContactListener
+    {
+      void OnContactAdded(const JPH::CharacterVirtual* inCharacter,
+        const JPH::BodyID& inBodyID2,
+        [[maybe_unused]] const JPH::SubShapeID& inSubShapeID2,
+        [[maybe_unused]] JPH::RVec3Arg inContactPosition,
+        [[maybe_unused]] JPH::Vec3Arg inContactNormal,
+        [[maybe_unused]] JPH::CharacterContactSettings& ioSettings) override
+      {
+        auto lock = std::unique_lock(s->contactListenerMutex);
+        auto e2 = static_cast<entt::entity>(s->bodyInterface->GetUserData(inBodyID2));
+        s->contactPairs.emplace_back(static_cast<entt::entity>(inCharacter->GetUserData()), e2);
       }
     };
   }
@@ -179,11 +187,41 @@ namespace Physics
     return handle.emplace_or_replace<RigidBody>(bodyId);
   }
 
+  CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings)
+  {
+    auto position = glm::vec3(0);
+    auto rotation = glm::quat(1, 0, 0, 0);
+    if (auto* t = handle.try_get<Transform>())
+    {
+      position = t->position;
+      rotation = t->rotation;
+    }
+
+    auto characterSettings = JPH::CharacterVirtualSettings();
+    characterSettings.mShape = settings.shape;
+    characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -1);
+    // TODO: use mInnerBodyShape to give character a physical presence (to be detected by ray casts, etc.)
+    auto* character = new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
+    character->SetListener(s->characterContactListener.get());
+
+    s->allCharacters.emplace_back(character);
+    s->characterCollisionInterface->Add(character);
+    return handle.emplace_or_replace<CharacterController>(character);
+  }
+
   void OnRigidBodyDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& p = registry.get<RigidBody>(entity);
     s->bodyInterface->RemoveBody(p.body);
     s->bodyInterface->DestroyBody(p.body);
+  }
+
+  void OnCharacterControllerDestroy(entt::registry& registry, entt::entity entity)
+  {
+    auto& c = registry.get<CharacterController>(entity);
+    std::erase(s->allCharacters, c.character);
+    s->characterCollisionInterface->Remove(c.character);
+    delete c.character;
   }
 
   void Initialize(World& world)
@@ -218,8 +256,11 @@ namespace Physics
       *s->broadPhaseLayerInterface,
       *s->objectVsBroadPhaseLayerFilter,
       *s->objectVsObjectLayerFilter);
+    s->engine->SetGravity(ToJolt(s->gravity));
 
     s->contactListener = std::make_unique<ContactListenerImpl>();
+    s->characterContactListener = std::make_unique<CharacterContactListenerImpl>();
+    s->characterCollisionInterface = std::make_unique<JPH::CharacterVsCharacterCollisionSimple>();
     s->engine->SetContactListener(s->contactListener.get());
     
     s->bodyInterface = &s->engine->GetBodyInterface();
@@ -234,6 +275,32 @@ namespace Physics
   
   void FixedUpdate(float dt, World& world)
   {
+    // Update characters first
+    for (auto* character : s->allCharacters)
+    {
+      character->ExtendedUpdate(dt,
+        ToJolt(s->gravity),
+        JPH::CharacterVirtual::ExtendedUpdateSettings{
+          //.mStickToFloorStepDown             =,
+          //.mWalkStairsStepUp                 =,
+          //.mWalkStairsMinStepForward         =,
+          //.mWalkStairsStepForwardTest        =,
+          //.mWalkStairsCosAngleForwardContact =,
+          //.mWalkStairsStepDownExtra          =,
+        },
+        s->engine->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+        s->engine->GetDefaultLayerFilter(Layers::MOVING),
+        {},
+        {},
+        *s->tempAllocator);
+
+      auto entity = static_cast<entt::entity>(character->GetUserData());
+      if (auto* t = world.GetRegistry().try_get<Transform>(entity))
+      {
+        t->position = ToGlm(character->GetPosition());
+      }
+    }
+
     const auto substeps = static_cast<int>(std::ceil(dt / s->targetRate));
     s->engine->Update(dt, substeps, s->tempAllocator.get(), s->jobSystem.get());
 
@@ -243,5 +310,8 @@ namespace Physics
       transform.position = ToGlm(s->bodyInterface->GetPosition(rigidBody.body));
       transform.rotation = ToGlm(s->bodyInterface->GetRotation(rigidBody.body));
     }
+
+    // TODO: Invoke contact callbacks
+    s->contactPairs.clear();
   }
 } // namespace Physics

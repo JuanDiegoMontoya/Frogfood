@@ -79,6 +79,10 @@ void Physics::TwoLevelGridShape::sRegister()
   JPH::CollisionDispatch::sRegisterCastShape(JPH::EShapeSubType::User1, JPH::EShapeSubType::Sphere, CastTwoLevelGrid);
   JPH::CollisionDispatch::sRegisterCollideShape(JPH::EShapeSubType::Sphere, JPH::EShapeSubType::User1, JPH::CollisionDispatch::sReversedCollideShape);
   JPH::CollisionDispatch::sRegisterCastShape(JPH::EShapeSubType::Sphere, JPH::EShapeSubType::User1, JPH::CollisionDispatch::sReversedCastShape);
+  JPH::CollisionDispatch::sRegisterCollideShape(JPH::EShapeSubType::User1, JPH::EShapeSubType::Capsule, CollideTwoLevelGrid);
+  JPH::CollisionDispatch::sRegisterCastShape(JPH::EShapeSubType::User1, JPH::EShapeSubType::Capsule, CastTwoLevelGrid);
+  JPH::CollisionDispatch::sRegisterCollideShape(JPH::EShapeSubType::Capsule, JPH::EShapeSubType::User1, JPH::CollisionDispatch::sReversedCollideShape);
+  JPH::CollisionDispatch::sRegisterCastShape(JPH::EShapeSubType::Capsule, JPH::EShapeSubType::User1, JPH::CollisionDispatch::sReversedCastShape);
 }
 
 void Physics::TwoLevelGridShape::CastRay([[maybe_unused]] const JPH::RayCast& inRay,

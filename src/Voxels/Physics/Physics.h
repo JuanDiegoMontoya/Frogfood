@@ -4,6 +4,7 @@
 #include "Jolt/Physics/Body/MotionType.h"
 #include "Jolt/Physics/Collision/Shape/Shape.h"
 #include "Jolt/Physics/Collision/ObjectLayer.h"
+#include "Jolt/Physics/Character/CharacterVirtual.h"
 
 #include "entt/fwd.hpp"
 
@@ -21,7 +22,7 @@ namespace Physics
 
   struct RigidBodySettings
   {
-    JPH::Shape* shape{};
+    const JPH::Shape* shape{};
     bool activate = true;
     JPH::EMotionType motionType = JPH::EMotionType::Dynamic;
     JPH::ObjectLayer layer = Layers::MOVING;
@@ -32,7 +33,18 @@ namespace Physics
     JPH::BodyID body;
   };
 
+  struct CharacterControllerSettings
+  {
+    const JPH::Shape* shape{};
+  };
+
+  struct CharacterController
+  {
+    JPH::CharacterVirtual* character;
+  };
+
   RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings& settings);
+  CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings);
 
   void Initialize(World& world);
   void Terminate();

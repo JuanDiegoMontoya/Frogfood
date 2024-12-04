@@ -621,9 +621,17 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
           {
             ImGui::SeparatorText("Player");
           }
-          if (registry.all_of<NoclipCharacterController>(e))
+          bool hasNoclipCharacterController = registry.all_of<NoclipCharacterController>(e);
+          if (ImGui::Checkbox("NoclipCharacterController", &hasNoclipCharacterController))
           {
-            ImGui::SeparatorText("NoclipCharacterController");
+            if (!hasNoclipCharacterController)
+            {
+              registry.remove<NoclipCharacterController>(e);
+            }
+            else
+            {
+              registry.emplace<NoclipCharacterController>(e);
+            }
           }
           if (auto* is = registry.try_get<InputState>(e))
           {

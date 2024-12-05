@@ -5,6 +5,7 @@
 #include "Jolt/Physics/Collision/Shape/Shape.h"
 #include "Jolt/Physics/Collision/ObjectLayer.h"
 #include "Jolt/Physics/Character/CharacterVirtual.h"
+#include "Jolt/Physics/Character/Character.h"
 
 #include "entt/fwd.hpp"
 
@@ -43,8 +44,19 @@ namespace Physics
     JPH::CharacterVirtual* character;
   };
 
+  struct CharacterControllerShrimpleSettings
+  {
+    const JPH::Shape* shape{};
+  };
+
+  struct CharacterControllerShrimple
+  {
+    JPH::Character* character;
+  };
+
   RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings& settings);
   CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings);
+  CharacterControllerShrimple& AddCharacterControllerShrimple(entt::handle handle, const CharacterControllerShrimpleSettings& settings);
 
   void Initialize(World& world);
   void Terminate();

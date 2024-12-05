@@ -129,6 +129,7 @@ namespace Physics
       std::shared_mutex contactListenerMutex;
 
       std::vector<JPH::CharacterVirtual*> allCharacters;
+      std::vector<JPH::Character*> allCharactersShrimple;
       std::vector<ContactPair> contactPairs;
       // The deltaTime that is recommended by Jolt's docs to achieve a stable simulation.
       // The number of subticks is dynamic to keep the substep dt around this target.
@@ -181,7 +182,7 @@ namespace Physics
     auto bodyId = s->bodyInterface->CreateAndAddBody(
       JPH::BodyCreationSettings(settings.shape, ToJolt(position), ToJolt(rotation), settings.motionType, settings.layer),
       settings.activate ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
-    
+
     s->bodyInterface->SetUserData(bodyId, static_cast<JPH::uint64>(handle.entity()));
 
     return handle.emplace_or_replace<RigidBody>(bodyId);
@@ -198,8 +199,12 @@ namespace Physics
     }
 
     auto characterSettings = JPH::CharacterVirtualSettings();
+    characterSettings.SetEmbedded();
     characterSettings.mShape = settings.shape;
-    characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -1);
+    characterSettings.mEnhancedInternalEdgeRemoval = true;
+    //characterSettings.mCharacterPadding = 0;
+    //characterSettings.mPredictiveContactDistance = -0.02f;
+    characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -0.5f);
     // TODO: use mInnerBodyShape to give character a physical presence (to be detected by ray casts, etc.)
     auto* character = new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
     character->SetListener(s->characterContactListener.get());
@@ -207,6 +212,32 @@ namespace Physics
     s->allCharacters.emplace_back(character);
     s->characterCollisionInterface->Add(character);
     return handle.emplace_or_replace<CharacterController>(character);
+  }
+
+  CharacterControllerShrimple& AddCharacterControllerShrimple(entt::handle handle, const CharacterControllerShrimpleSettings& settings)
+  {
+    auto position = glm::vec3(0);
+    auto rotation = glm::quat(1, 0, 0, 0);
+    if (auto* t = handle.try_get<Transform>())
+    {
+      position = t->position;
+      rotation = t->rotation;
+    }
+
+    auto characterSettings = JPH::CharacterSettings();
+    characterSettings.SetEmbedded();
+    characterSettings.mLayer = Layers::MOVING;
+    characterSettings.mUp = {0, 1, 0};
+    characterSettings.mShape = settings.shape;
+    //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -1);
+    //characterSettings.mEnhancedInternalEdgeRemoval = true;
+    auto* character = new JPH::Character(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
+    character->AddToPhysicsSystem();
+    s->bodyInterface->SetRestitution(character->GetBodyID(), 0);
+
+    s->allCharactersShrimple.emplace_back(character);
+
+    return handle.emplace_or_replace<CharacterControllerShrimple>(character);
   }
 
   void OnRigidBodyDestroy(entt::registry& registry, entt::entity entity)
@@ -221,6 +252,14 @@ namespace Physics
     auto& c = registry.get<CharacterController>(entity);
     std::erase(s->allCharacters, c.character);
     s->characterCollisionInterface->Remove(c.character);
+    delete c.character;
+  }
+
+  void OnCharacterControllerShrimpleDestroy(entt::registry& registry, entt::entity entity)
+  {
+    auto& c = registry.get<CharacterControllerShrimple>(entity);
+    std::erase(s->allCharactersShrimple, c.character);
+    c.character->RemoveFromPhysicsSystem();
     delete c.character;
   }
 
@@ -303,6 +342,17 @@ namespace Physics
 
     const auto substeps = static_cast<int>(std::ceil(dt / s->targetRate));
     s->engine->Update(dt, substeps, s->tempAllocator.get(), s->jobSystem.get());
+
+    for (auto* character : s->allCharactersShrimple)
+    {
+      character->PostSimulation(1e-4f);
+
+      auto entity = static_cast<entt::entity>(s->bodyInterface->GetUserData(character->GetBodyID()));
+      if (auto* t = world.GetRegistry().try_get<Transform>(entity))
+      {
+        t->position = ToGlm(character->GetPosition());
+      }
+    }
 
     // Update transform of each entity with a RigidBody component
     for (auto&& [entity, rigidBody, transform] : world.GetRegistry().view<RigidBody, Transform>().each())

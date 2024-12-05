@@ -6,7 +6,6 @@
 #include "Jolt/Physics/Collision/CollideShape.h"
 #include "Jolt/Physics/Collision/CollisionDispatch.h"
 
-
 namespace Physics
 {
   class TwoLevelGridShape final : public JPH::Shape

@@ -91,6 +91,7 @@ void Game::Run()
 #include "Jolt/Physics/Collision/Shape/PlaneShape.h"
 #include "Jolt/Physics/Collision/Shape/SphereShape.h"
 #include "Jolt/Physics/Collision/Shape/CapsuleShape.h"
+#include "Jolt/Physics/Collision/Shape/BoxShape.h"
 #include "Physics/PhysicsUtils.h"
 
 void World::FixedUpdate(float dt)
@@ -144,8 +145,8 @@ void World::FixedUpdate(float dt)
           const auto forward = glm::normalize(glm::cross(right, gUp));
 
           // Physics engine factors in deltaTime already
-          float tempSpeed = 4;
-          tempSpeed *= input.sprint ? 2.0f : 1.0f;
+          float tempSpeed = 2;
+          tempSpeed *= input.sprint ? 200.0f : 1.0f;
           tempSpeed *= input.walk ? 0.5f : 1.0f;
 
           auto velocity = glm::vec3(0);
@@ -156,13 +157,18 @@ void World::FixedUpdate(float dt)
           {
             velocity += input.jump ? gUp * 8.0f : glm::vec3(0);
           }
-          if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::InAir)
+          else//if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::InAir)
           {
             const auto prevY = cc->character->GetLinearVelocity().GetY();
             velocity += glm::vec3{0, prevY - 15 * dt, 0};
+            //velocity += glm::vec3{0, -15 * dt, 0};
           }
 
+          //cc->character->CheckCollision(cc->character->GetPosition(), cc->character->GetRotation(), Physics::ToJolt(velocity), 1e-4f, )
           cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
+          printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
+          //cc->character->AddLinearVelocity(Physics::ToJolt(velocity ));
+          //cc->character->AddImpulse(Physics::ToJolt(velocity));
         }
 
         playerTransform = transform;
@@ -301,6 +307,8 @@ void World::InitializeGameState()
       }
 
   auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(0.5f, 0.25f));
+  //auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(0.5f)));
+  //auto playerCapsule = JPH::Ref(new JPH::SphereShape(0.5f));
 
   // Make player entity
   auto p = registry_.create();
@@ -309,16 +317,16 @@ void World::InitializeGameState()
   registry_.emplace<InputState>(p);
   registry_.emplace<InputLookState>(p);
   auto& tp = registry_.emplace<Transform>(p);
-  tp.position = {-2, 3, -2};
+  tp.position = {2, 65, 2};
   tp.rotation = glm::identity<glm::quat>();
   tp.scale    = 1;
-  //registry_.emplace<NoclipCharacterController>(p);
   registry_.emplace<InterpolatedTransform>(p);
   registry_.emplace<RenderTransform>(p);
-  auto cc = Physics::AddCharacterController({registry_, p}, {
-    .shape = playerCapsule,
-  });
-  cc.character->SetMaxStrength(10000000);
+  registry_.emplace<NoclipCharacterController>(p);
+  //auto cc = Physics::AddCharacterController({registry_, p}, {
+  //  .shape = playerCapsule,
+  //});
+  //cc.character->SetMaxStrength(10000000);
 
   auto e = registry_.create();
   registry_.emplace<Name>(e).name = "Test";

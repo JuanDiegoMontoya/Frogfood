@@ -1,5 +1,7 @@
 #include "TwoLevelGridShape.h"
 
+#include "PhysicsUtils.h"
+
 #include "Jolt/Physics/Collision/Shape/SphereShape.h"
 #include "Jolt/Physics/Collision/Shape/BoxShape.h"
 #include "Jolt/Geometry/AABox.h"
@@ -9,6 +11,8 @@
 #include "glm/gtx/component_wise.hpp"
 
 #include <cassert>
+
+constexpr float VX_EPSILON = 1e-4f;
 
 void Physics::TwoLevelGridShape::CollideTwoLevelGrid(const Shape* inShape1,
   const Shape* inShape2,
@@ -32,7 +36,7 @@ void Physics::TwoLevelGridShape::CollideTwoLevelGrid(const Shape* inShape1,
   // TODO: Investigate using AABox4.h to accelerate collision tests
   const auto s2min    = boundsOf2InSpaceOf1.GetCenter() - boundsOf2InSpaceOf1.GetExtent();
   const auto s2max    = boundsOf2InSpaceOf1.GetCenter() + boundsOf2InSpaceOf1.GetExtent();
-  const auto boxShape = JPH::Ref(new JPH::BoxShape({0.5f - 1e-3f, 0.5f - 1e-3f, 0.5f - 1e-3f}));
+  const auto boxShape = JPH::BoxShape({0.5f - VX_EPSILON, 0.5f - VX_EPSILON, 0.5f - VX_EPSILON});
   for (int z = (int)std::floor(s2min.GetZ()); z < (int)std::ceil(s2max.GetZ()); z++)
   for (int y = (int)std::floor(s2min.GetY()); y < (int)std::ceil(s2max.GetY()); y++)
   for (int x = (int)std::floor(s2min.GetX()); x < (int)std::ceil(s2max.GetX()); x++)
@@ -44,7 +48,7 @@ void Physics::TwoLevelGridShape::CollideTwoLevelGrid(const Shape* inShape1,
     }
 
     const auto boxCenterOfMassTransform = inCenterOfMassTransform1.PreTranslated({x + 0.5f, y + 0.5f, z + 0.5f});
-    JPH::CollisionDispatch::sCollideShapeVsShape(boxShape,
+    JPH::CollisionDispatch::sCollideShapeVsShape(&boxShape,
       inShape2,
       inScale1,
       inScale2,
@@ -89,19 +93,14 @@ void Physics::TwoLevelGridShape::CastTwoLevelGrid(const JPH::ShapeCast& inShapeC
   const auto castBoundsWorldSpace = JPH::AABox::sFromTwoPoints(min, max);
 
   auto shapeCastSettings2 = inShapeCastSettings;
+  //shapeCastSettings2.mUseShrunkenShapeAndConvexRadius = true;
   //shapeCastSettings2.mReturnDeepestPoint = true;
-
+  
   // Test cast shape against every voxel AABB in its bounds
   const auto castMin  = castBoundsWorldSpace.GetCenter() - castBoundsWorldSpace.GetExtent();
   const auto castMax  = castBoundsWorldSpace.GetCenter() + castBoundsWorldSpace.GetExtent();
-  printf("castMin = %d, %d, %d. castMax = %d, %d, %d\n",
-    (int)std::floor(castMin.GetX()),
-    (int)std::floor(castMin.GetY()),
-    (int)std::floor(castMin.GetZ()),
-    (int)std::ceil(castMax.GetX()),
-    (int)std::ceil(castMax.GetY()),
-    (int)std::ceil(castMax.GetZ()));
-  const auto boxShape = JPH::Ref(new JPH::BoxShape({0.5f - 1e-3f, 0.5f - 1e-3f, 0.5f - 1e-3f}));
+  const auto boxShape = JPH::BoxShape({0.5f - VX_EPSILON, 0.5f - VX_EPSILON, 0.5f - VX_EPSILON});
+  boxShape.SetEmbedded();
   for (int z = (int)std::floor(castMin.GetZ()); z < (int)std::ceil(castMax.GetZ()); z++)
   for (int y = (int)std::floor(castMin.GetY()); y < (int)std::ceil(castMax.GetY()); y++)
   for (int x = (int)std::floor(castMin.GetX()); x < (int)std::ceil(castMax.GetX()); x++)
@@ -112,11 +111,14 @@ void Physics::TwoLevelGridShape::CastTwoLevelGrid(const JPH::ShapeCast& inShapeC
       continue;
     }
 
-    const auto boxCenterOfMassTransform = inCenterOfMassTransform2.PreTranslated({x + 0.5f, y + 0.5f, z + 0.5f});
+    auto negVec     = JPH::Vec3{-x - 0.5f, -y - 0.5f, -z - 0.5f};
+    auto posVec     = JPH::Vec3{x + 0.5f, y + 0.5f, z + 0.5f};
+    auto shapeCast2                     = inShapeCast.PostTranslated(negVec);
+    const auto boxCenterOfMassTransform = inCenterOfMassTransform2.PreTranslated(posVec);
     //JPH::CollisionDispatch::sCastShapeVsShapeWorldSpace(inShapeCast,
-    JPH::CollisionDispatch::sCastShapeVsShapeLocalSpace(inShapeCast,
+    JPH::CollisionDispatch::sCastShapeVsShapeLocalSpace(shapeCast2,
       shapeCastSettings2,
-      boxShape,
+      &boxShape,
       inScale,
       inShapeFilter,
       boxCenterOfMassTransform,
@@ -211,21 +213,53 @@ void Physics::TwoLevelGridShape::GetSubmergedVolume([[maybe_unused]] JPH::Mat44A
   [[maybe_unused]] const JPH::Plane& inSurface,
   [[maybe_unused]] float& outTotalVolume,
   [[maybe_unused]] float& outSubmergedVolume,
-  [[maybe_unused]] JPH::Vec3& outCenterOfBuoyancy) const
+  [[maybe_unused]] JPH::Vec3& outCenterOfBuoyancy
+#ifdef JPH_DEBUG_RENDERER
+  , [[maybe_unused]] JPH::RVec3Arg inBaseOffset
+#endif
+) const
 {
   assert(false);
 }
 
 JPH::Vec3 Physics::TwoLevelGridShape::GetSurfaceNormal([[maybe_unused]] const JPH::SubShapeID& inSubShapeID, [[maybe_unused]] JPH::Vec3Arg inLocalSurfacePosition) const
 {
+  // Check both voxels on the edge (from the component that is nearest to an integer), then use the position of the solid one.
+  const auto inLocalPos     = inLocalSurfacePosition;
+  const auto absDiffFromInt = JPH::Vec3(
+    abs(inLocalPos.GetX() - round(inLocalPos.GetX())),
+    abs(inLocalPos.GetY() - round(inLocalPos.GetY())),
+    abs(inLocalPos.GetZ() - round(inLocalPos.GetZ())));
+  const auto nearestIntCompIdx = absDiffFromInt.GetLowestComponentIndex();
 
-  // This is brittle. It requires the surface position to be slightly *inside* the voxel, but since voxels share surface positions it's highly subject to floating-point error.
-  // TODO: To be more robust, check both voxels on the edge (from the component that is nearest to an integer), then use the position of the solid one.
-  const auto voxel = JPH::Vec3(std::floor(inLocalSurfacePosition[0]), std::floor(inLocalSurfacePosition[1]), std::floor(inLocalSurfacePosition[2]));
-  const auto dir   = (inLocalSurfacePosition - (voxel + JPH::Vec3::sReplicate(0.5f)));
+  auto pos0 = inLocalPos;
+  pos0.SetComponent(nearestIntCompIdx, floor(inLocalPos[nearestIntCompIdx]));
+
+  auto pos1 = inLocalPos;
+  pos1.SetComponent(nearestIntCompIdx, ceil(inLocalPos[nearestIntCompIdx]));
+
+  const auto v0pos = glm::ivec3(glm::floor(ToGlm(pos0)));
+  const auto v1pos = glm::ivec3(glm::floor(ToGlm(pos1)));
+
+  auto v0 = twoLevelGrid_->GetVoxelAt(v0pos);
+  //auto v1 = twoLevelGrid_->GetVoxelAt(glm::ivec3(ToGlm(pos1)));
+
+  // Choose position of solid voxel, which is the one we're colliding with. If both voxels are solid (which shouldn't happen), pick an arbitrary position.
+  auto voxel = JPH::Vec3();
+  if (v0 != 0)
+  {
+    voxel = ToJolt(v0pos);
+  }
+  else
+  {
+    voxel = ToJolt(v1pos);
+  }
+
+  // Find the greatest component of the difference between the voxel pos and surface pos.
+  const auto dir   = inLocalSurfacePosition - (voxel + JPH::Vec3::sReplicate(0.5f));
   const auto idx   = dir.Abs().GetHighestComponentIndex();
   auto normal      = JPH::Vec3::sReplicate(0);
-  normal.SetComponent(idx, 1 * dir.GetSign()[idx]);
+  normal.SetComponent(idx, dir.GetSign()[idx]);
   //printf("%f, %f, %f\n", normal[0], normal[1], normal[2]);
   //printf("%f, %f, %f\n", dir[0], dir[1], dir[2]);
   return normal;
@@ -254,3 +288,15 @@ float Physics::TwoLevelGridShape::GetVolume() const
   assert(false);
   return 0;
 }
+
+#ifdef JPH_DEBUG_RENDERER
+void Physics::TwoLevelGridShape::Draw([[maybe_unused]] JPH::DebugRenderer* inRenderer,
+  [[maybe_unused]] JPH::RMat44Arg inCenterOfMassTransform,
+  [[maybe_unused]] JPH::Vec3Arg inScale,
+  [[maybe_unused]] JPH::ColorArg inColor,
+  [[maybe_unused]] bool inUseMaterialColors,
+  [[maybe_unused]] bool inDrawWireframe) const
+{
+  //assert(false);
+}
+#endif

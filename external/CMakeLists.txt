@@ -141,7 +141,7 @@ if(NOT JoltPhysics_POPULATED)
 
     set(PHYSICS_REPO_ROOT ${joltphysics_SOURCE_DIR})
     include(${joltphysics_SOURCE_DIR}/Jolt/Jolt.cmake)
-    target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:RelWithDebInfo>:JPH_PROFILE_ENABLED;JPH_DEBUG_RENDERER>")
+    target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:Debug,RelWithDebInfo>:JPH_PROFILE_ENABLED;JPH_DEBUG_RENDERER>")
     if (FLOATING_POINT_EXCEPTIONS_ENABLED AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
         target_compile_definitions(Jolt PUBLIC "$<$<CONFIG:RelWithDebInfo>:JPH_FLOATING_POINT_EXCEPTIONS_ENABLED>")
     endif()

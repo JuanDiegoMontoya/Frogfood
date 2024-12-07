@@ -88,6 +88,9 @@ add_executable(frogRender
     src/Voxels/Physics/TwoLevelGridShape.cpp
     src/Voxels/Physics/PhysicsUtils.h
     src/Voxels/Physics/PhysicsUtils.cpp
+    src/Voxels/Physics/DebugRenderer.h
+    src/Voxels/Physics/DebugRenderer.cpp
+    src/debug/Shapes.h
 )
 
 target_compile_options(frogRender

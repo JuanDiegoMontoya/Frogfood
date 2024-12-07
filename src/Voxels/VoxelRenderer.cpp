@@ -6,8 +6,12 @@
 #include "imgui.h"
 #include "Fvog/Rendering2.h"
 #include "Fvog/detail/Common.h"
+#include "shaders/Config.shared.h"
 
 #include "Physics/Physics.h" // TODO: remove
+#ifdef JPH_DEBUG_RENDERER
+#include "Physics/DebugRenderer.h"
+#endif
 
 #include "volk.h"
 #include "Fvog/detail/ApiToEnum2.h"
@@ -119,6 +123,13 @@ namespace
     return mesh;
   }
 
+  FVOG_DECLARE_ARGUMENTS(DebugLinesPushConstants)
+  {
+    FVOG_UINT32 vertexBufferIndex;
+    FVOG_UINT32 globalUniformsIndex;
+    FVOG_UINT32 useGpuVertexBuffer;
+  };
+
   Mesh g_testMesh; // TODO: TEMP
 } // namespace
 
@@ -202,6 +213,41 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
       },
   });
 
+  debugLinesPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Debug Lines",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "debug/Debug.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "debug/VertexColor.frag.glsl",
+      },
+    .state =
+      {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST},
+        .rasterizationState =
+          {
+            .cullMode                = VK_CULL_MODE_NONE,
+            .depthBiasEnable         = true,
+            .depthBiasConstantFactor = 1,
+            .lineWidth               = 2,
+          },
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {Frame::sceneColorFormat},
+            .depthAttachmentFormat  = Frame::sceneDepthFormat,
+          },
+      },
+  });
 
   using namespace glm;
   auto TraceRay =
@@ -428,6 +474,20 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   if (world.GetRegistry().ctx().contains<TwoLevelGrid>())
   {
+#ifdef JPH_DEBUG_RENDERER
+    const auto* debugRenderer = dynamic_cast<const Physics::DebugRenderer*>(JPH::DebugRenderer::sInstance);
+    assert(debugRenderer);
+    const auto& debugLines = debugRenderer->GetLines();
+    if (!debugLines.empty())
+    {
+      if (!lineVertexBuffer || lineVertexBuffer->Size() < debugLines.size() * sizeof(Debug::Line))
+      {
+        lineVertexBuffer.emplace((uint32_t)debugLines.size(), "Debug Lines");
+      }
+      lineVertexBuffer->UpdateData(commandBuffer, debugLines);
+    }
+#endif
+
     auto& grid           = world.GetRegistry().ctx().get<TwoLevelGrid>();
     auto colorAttachment = Fvog::RenderColorAttachment{
       .texture = frame.sceneColor.value().ImageView(),
@@ -469,6 +529,16 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         .voxels = voxels,
       });
       ctx.DrawIndexed((uint32_t)g_testMesh.indices.size(), (uint32_t)meshUniformz.Size(), 0, 0, 0);
+
+#ifdef JPH_DEBUG_RENDERER
+      ctx.BindGraphicsPipeline(debugLinesPipeline.GetPipeline());
+      ctx.SetPushConstants(DebugLinesPushConstants{
+        .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,
+        .globalUniformsIndex = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
+        .useGpuVertexBuffer  = 0,
+      });
+      ctx.Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
+#endif // JPH_DEBUG_RENDERER
     }
     ctx.EndRendering();
   }

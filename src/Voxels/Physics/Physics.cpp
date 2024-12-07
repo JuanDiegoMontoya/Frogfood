@@ -5,6 +5,10 @@
 #include "PhysicsUtils.h"
 #include "TwoLevelGridShape.h"
 
+#ifdef JPH_DEBUG_RENDERER
+#include "DebugRenderer.h"
+#endif
+
 #include "Jolt/Jolt.h"
 #include "Jolt/RegisterTypes.h"
 #include "Jolt/Core/Factory.h"
@@ -20,6 +24,7 @@
 #include "Jolt/Physics/Body/BodyActivationListener.h"
 #include "Jolt/Physics/Character/CharacterVirtual.h"
 #include "Jolt/Physics/Character/Character.h"
+#include "Jolt/Physics/Collision/CollisionCollectorImpl.h"
 #include "Jolt/Physics/Collision/ContactListener.h"
 #include "Jolt/Physics/Collision/CollisionDispatch.h"
 
@@ -118,6 +123,9 @@ namespace Physics
     {
       std::unique_ptr<JPH::TempAllocatorImpl> tempAllocator;
       std::unique_ptr<JPH::JobSystemThreadPool> jobSystem;
+#ifdef JPH_DEBUG_RENDERER
+      std::unique_ptr<DebugRenderer> debugRenderer;
+#endif
       std::unique_ptr<BPLayerInterfaceImpl> broadPhaseLayerInterface;
       std::unique_ptr<ObjectVsBroadPhaseLayerFilterImpl> objectVsBroadPhaseLayerFilter;
       std::unique_ptr<ObjectLayerPairFilterImpl> objectVsObjectLayerFilter;
@@ -202,9 +210,9 @@ namespace Physics
     characterSettings.SetEmbedded();
     characterSettings.mShape = settings.shape;
     characterSettings.mEnhancedInternalEdgeRemoval = true;
-    //characterSettings.mCharacterPadding = 0;
-    //characterSettings.mPredictiveContactDistance = -0.02f;
-    characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -0.5f);
+    characterSettings.mCharacterPadding = 0.00002f;
+    //characterSettings.mPredictiveContactDistance = 0.22f;
+    //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -0.5f);
     // TODO: use mInnerBodyShape to give character a physical presence (to be detected by ray casts, etc.)
     auto* character = new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
     character->SetListener(s->characterContactListener.get());
@@ -277,6 +285,10 @@ namespace Physics
 
     s->tempAllocator = std::make_unique<JPH::TempAllocatorImpl>(10 * 1024 * 1024);
     s->jobSystem     = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
+
+#ifdef JPH_DEBUG_RENDERER
+    s->debugRenderer = std::make_unique<DebugRenderer>();
+#endif
 
     s->broadPhaseLayerInterface      = std::make_unique<BPLayerInterfaceImpl>();
     s->objectVsBroadPhaseLayerFilter = std::make_unique<ObjectVsBroadPhaseLayerFilterImpl>();
@@ -363,5 +375,163 @@ namespace Physics
 
     // TODO: Invoke contact callbacks
     s->contactPairs.clear();
+
+#ifdef JPH_DEBUG_RENDERER
+    s->debugRenderer->ClearPrimitives();
+    for (auto&& [entity, player, transform] : world.GetRegistry().view<Player, Transform>().each())
+    {
+      if (player.id == 0)
+      {
+        s->debugRenderer->SetCameraPos(ToJolt(transform.position));
+
+        // Create shape cast
+        using namespace JPH;
+        const Vec3 start            = ToJolt(transform.position + transform.GetForward() * 3.0f - transform.GetRight());
+        const Vec3 direction        = ToJolt(2.0f * transform.GetRight() + glm::vec3(0, -.5f, 0));
+        //const Vec3 base_offset      = start + 0.5f * direction;
+        const Vec3 base_offset = start + 0.5f * direction;
+        RefConst<Shape> shape       = new CapsuleShape(0.5f, 0.25f);
+        //Mat44 rotation        = Mat44::sRotation(Vec3::sAxisX(), 0.1f * JPH_PI) * Mat44::sRotation(Vec3::sAxisY(), 0.2f * JPH_PI);
+        Mat44 rotation        = Mat44::sIdentity();
+        RShapeCast shape_cast = RShapeCast::sFromWorldTransform(shape, Vec3::sReplicate(1.0f), RMat44::sTranslation(start) * rotation, direction);
+
+        // Settings
+        ShapeCastSettings settings;
+        //settings.mUseShrunkenShapeAndConvexRadius = mUseShrunkenShapeAndConvexRadius;
+        //settings.mActiveEdgeMode                  = mActiveEdgeMode;
+        //settings.mBackFaceModeTriangles           = mBackFaceModeTriangles;
+        //settings.mBackFaceModeConvex              = mBackFaceModeConvex;
+        //settings.mReturnDeepestPoint              = mReturnDeepestPoint;
+        //settings.mCollectFacesMode                = mCollectFacesMode;
+
+        int mMaxHits = 256;
+
+        // Cast shape
+        Array<ShapeCastResult> hits;
+        if (mMaxHits == 0)
+        {
+          AnyHitCollisionCollector<CastShapeCollector> collector;
+          s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
+          if (collector.HadHit())
+            hits.push_back(collector.mHit);
+        }
+        else if (mMaxHits == 1)
+        {
+          ClosestHitCollisionCollector<CastShapeCollector> collector;
+          s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
+          if (collector.HadHit())
+            hits.push_back(collector.mHit);
+        }
+        else
+        {
+          AllHitCollisionCollector<CastShapeCollector> collector;
+          s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
+          collector.Sort();
+          hits.insert(hits.end(), collector.mHits.begin(), collector.mHits.end());
+          if ((int)hits.size() > mMaxHits)
+            hits.resize(mMaxHits);
+        }
+
+        const bool had_hit = !hits.empty();
+        if (had_hit)
+        {
+          // Fill in results
+          //ShapeCastResult& first_hit = hits.front();
+          //outPosition                = shape_cast.GetPointOnRay(first_hit.mFraction);
+          //outFraction                = first_hit.mFraction;
+          //outID                      = first_hit.mBodyID2;
+
+          // Draw results
+          RVec3 prev_position = start;
+          bool c              = false;
+          for (const ShapeCastResult& hit : hits)
+          {
+            // Draw line
+            RVec3 position = shape_cast.GetPointOnRay(hit.mFraction);
+            s->debugRenderer->DrawLine(prev_position, position, c ? Color::sGrey : Color::sWhite);
+            c             = !c;
+            prev_position = position;
+
+            BodyLockRead lock(s->engine->GetBodyLockInterface(), hit.mBodyID2);
+            if (lock.Succeeded())
+            {
+              const Body& hit_body = lock.GetBody();
+
+              // Draw shape
+              Color color = hit_body.IsDynamic() ? Color::sYellow : Color::sOrange;
+  #ifdef JPH_DEBUG_RENDERER
+              shape_cast.mShape->Draw(s->debugRenderer.get(),
+                shape_cast.mCenterOfMassStart.PostTranslated(hit.mFraction * shape_cast.mDirection),
+                Vec3::sReplicate(1.0f),
+                color,
+                false,
+                false);
+  #endif // JPH_DEBUG_RENDERER
+
+              // Draw normal
+              JPH::RVec3 contact_position1 = base_offset + hit.mContactPointOn1;
+              JPH::RVec3 contact_position2 = base_offset + hit.mContactPointOn2;
+              JPH::Vec3 normal             = hit.mPenetrationAxis.Normalized();
+              s->debugRenderer->DrawArrow(contact_position2, contact_position2 - normal, Color::sGreen, 0.01f); // Flip to make it point towards the cast body
+
+              // Contact position 1
+              s->debugRenderer->DrawMarker(contact_position1, Color::sGreen, 0.1f);
+
+              // Draw perpendicular axis to indicate contact position 2
+              Vec3 perp1 = normal.GetNormalizedPerpendicular();
+              Vec3 perp2 = normal.Cross(perp1);
+              s->debugRenderer->DrawLine(contact_position2 - 0.1f * perp1, contact_position2 + 0.1f * perp1, color);
+              s->debugRenderer->DrawLine(contact_position2 - 0.1f * perp2, contact_position2 + 0.1f * perp2, color);
+
+              // Draw material
+              //const PhysicsMaterial* material2 = hit_body.GetShape()->GetMaterial(hit.mSubShapeID2);
+              //s->debugRenderer->DrawText3D(position, material2->GetDebugName());
+
+              // Draw faces
+              s->debugRenderer->DrawWirePolygon(RMat44::sTranslation(base_offset), hit.mShape1Face, Color::sYellow, 0.01f);
+              s->debugRenderer->DrawWirePolygon(RMat44::sTranslation(base_offset), hit.mShape2Face, Color::sRed, 0.01f);
+            }
+          }
+
+          // Draw remainder of line
+          s->debugRenderer->DrawLine(shape_cast.GetPointOnRay(hits.back().mFraction), start + direction, Color::sRed);
+        }
+        else
+        {
+          // Draw 'miss'
+          s->debugRenderer->DrawLine(start, start + direction, Color::sRed);
+  #ifdef JPH_DEBUG_RENDERER
+          shape_cast.mShape
+            ->Draw(s->debugRenderer.get(), shape_cast.mCenterOfMassStart.PostTranslated(shape_cast.mDirection), Vec3::sReplicate(1.0f), Color::sRed, false, false);
+  #endif // JPH_DEBUG_RENDERER
+        }
+      }
+    }
+    s->engine->DrawBodies(
+      JPH::BodyManager::DrawSettings{
+        //.mDrawGetSupportFunction        = true,
+        //.mDrawSupportDirection          = true,
+        //.mDrawGetSupportingFace         = true,
+        .mDrawShape                     = true,
+        //.mDrawShapeWireframe            =,
+        //.mDrawShapeColor                =,
+        .mDrawBoundingBox               = true,
+        //.mDrawCenterOfMassTransform     = true,
+        //.mDrawWorldTransform            = true,
+        .mDrawVelocity                  = true,
+        //.mDrawMassAndInertia            =,
+        //.mDrawSleepStats                =,
+        //.mDrawSoftBodyVertices          =,
+        //.mDrawSoftBodyVertexVelocities  =,
+        //.mDrawSoftBodyEdgeConstraints   =,
+        //.mDrawSoftBodyBendConstraints   =,
+        //.mDrawSoftBodyVolumeConstraints =,
+        //.mDrawSoftBodySkinConstraints   =,
+        //.mDrawSoftBodyLRAConstraints    =,
+        //.mDrawSoftBodyPredictedBounds   =,
+        //.mDrawSoftBodyConstraintColor   =,
+      },
+      s->debugRenderer.get());
+#endif
   }
 } // namespace Physics

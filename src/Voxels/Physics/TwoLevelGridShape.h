@@ -77,7 +77,11 @@ namespace Physics
       const JPH::Plane& inSurface,
       float& outTotalVolume,
       float& outSubmergedVolume,
-      JPH::Vec3& outCenterOfBuoyancy) const override;
+      JPH::Vec3& outCenterOfBuoyancy,
+#ifdef JPH_DEBUG_RENDERER
+      JPH::RVec3Arg inBaseOffset
+#endif
+    ) const override;
 
     JPH::Vec3 GetSurfaceNormal(const JPH::SubShapeID& inSubShapeID, JPH::Vec3Arg inLocalSurfacePosition) const override;
 
@@ -87,6 +91,13 @@ namespace Physics
 
     float GetVolume() const override;
 
-  private:
+#ifdef JPH_DEBUG_RENDERER
+    void Draw(JPH::DebugRenderer* inRenderer,
+      JPH::RMat44Arg inCenterOfMassTransform,
+      JPH::Vec3Arg inScale,
+      JPH::ColorArg inColor,
+      bool inUseMaterialColors,
+      bool inDrawWireframe) const override;
+#endif
   };
 } // namespace Physics

@@ -166,7 +166,7 @@ void World::FixedUpdate(float dt)
 
           //cc->character->CheckCollision(cc->character->GetPosition(), cc->character->GetRotation(), Physics::ToJolt(velocity), 1e-4f, )
           cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
-          printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
+          //printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
           //cc->character->AddLinearVelocity(Physics::ToJolt(velocity ));
           //cc->character->AddImpulse(Physics::ToJolt(velocity));
         }
@@ -183,7 +183,7 @@ void World::FixedUpdate(float dt)
           auto& et    = registry_.emplace<Transform>(e);
           et.position = playerTransform.position + glm::mat3_cast(playerTransform.rotation)[2] * 5.0f;
           et.rotation = glm::identity<glm::quat>();
-          et.scale    = 1;
+          et.scale    = .99f;
           registry_.emplace<InterpolatedTransform>(e);
           registry_.emplace<RenderTransform>(e);
           registry_.emplace<TempMesh>(e);
@@ -317,15 +317,15 @@ void World::InitializeGameState()
   registry_.emplace<InputState>(p);
   registry_.emplace<InputLookState>(p);
   auto& tp = registry_.emplace<Transform>(p);
-  tp.position = {2, 65, 2};
+  tp.position = {2, 78, 2};
   tp.rotation = glm::identity<glm::quat>();
   tp.scale    = 1;
   registry_.emplace<InterpolatedTransform>(p);
   registry_.emplace<RenderTransform>(p);
-  registry_.emplace<NoclipCharacterController>(p);
-  //auto cc = Physics::AddCharacterController({registry_, p}, {
-  //  .shape = playerCapsule,
-  //});
+  //registry_.emplace<NoclipCharacterController>(p);
+  auto cc = Physics::AddCharacterController({registry_, p}, {
+    .shape = playerCapsule,
+  });
   //cc.character->SetMaxStrength(10000000);
 
   auto e = registry_.create();
@@ -374,7 +374,7 @@ void World::InitializeGameState()
     auto& at = registry_.emplace<Transform>(a);
     at.position = {0, 5 + i * 2, i * .1f};
     at.rotation = glm::identity<glm::quat>();
-    at.scale    = 1;
+    at.scale    = .99f;
     registry_.emplace<TempMesh>(a);
     registry_.emplace<InterpolatedTransform>(a);
     registry_.emplace<RenderTransform>(a);
@@ -385,4 +385,19 @@ void World::InitializeGameState()
       .layer = Physics::Layers::MOVING,
     });
   }
+}
+
+glm::vec3 Transform::GetForward() const
+{
+  return glm::mat3_cast(rotation)[2];
+}
+
+glm::vec3 Transform::GetRight() const
+{
+  return glm::mat3_cast(rotation)[0];
+}
+
+glm::vec3 Transform::GetUp() const
+{
+  return glm::mat3_cast(rotation)[1];
 }

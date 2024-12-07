@@ -5,6 +5,10 @@
 #include "PlayerHead.h"
 #include "TwoLevelGrid.h"
 
+#ifdef JPH_DEBUG_RENDERER
+#include "Physics/DebugRenderer.h"
+#endif
+
 #include "glm/vec3.hpp"
 #include "glm/mat4x4.hpp"
 #include "glm/vec4.hpp"
@@ -92,5 +96,7 @@ private:
   PipelineManager::GraphicsPipelineKey testPipeline;
   PipelineManager::GraphicsPipelineKey meshPipeline;
   PipelineManager::GraphicsPipelineKey debugTexturePipeline;
+  PipelineManager::GraphicsPipelineKey debugLinesPipeline;
+  std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
   PlayerHead* head_;
 };

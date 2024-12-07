@@ -7,6 +7,7 @@
 #include "techniques/AutoExposure.h"
 #include "techniques/VirtualShadowMaps.h"
 #include "debug/ForwardRenderer.h"
+#include "debug/Shapes.h"
 #include "techniques/ao/RayTracedAO.h"
 #include "PipelineManager.h"
 
@@ -118,32 +119,6 @@ inline glm::vec3 SphericalToCartesian(float elevation, float azimuth, float radi
     radius * std::sin(elevation) * std::sin(azimuth)
   };
 }
-
-namespace Debug
-{
-  struct Line
-  {
-    glm::vec3 aPosition;
-    glm::vec4 aColor;
-    glm::vec3 bPosition;
-    glm::vec4 bColor;
-  };
-
-  struct Aabb
-  {
-    glm::vec3 center;
-    glm::vec3 halfExtent;
-    glm::vec4 color;
-  };
-
-  struct Rect
-  {
-    glm::vec2 minOffset;
-    glm::vec2 maxOffset;
-    glm::vec4 color;
-    float depth;
-  };
-} // namespace Debug
 
 class FrogRenderer2 final : public Application
 {

@@ -148,6 +148,10 @@ struct Transform
   glm::vec3 position;
   float scale;
   glm::quat rotation;
+
+  glm::vec3 GetForward() const;
+  glm::vec3 GetRight() const;
+  glm::vec3 GetUp() const;
 };
 
 // Use with Transform for smooth object movement

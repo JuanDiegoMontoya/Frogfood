@@ -146,7 +146,7 @@ void World::FixedUpdate(float dt)
 
           // Physics engine factors in deltaTime already
           float tempSpeed = 2;
-          tempSpeed *= input.sprint ? 200.0f : 1.0f;
+          tempSpeed *= input.sprint ? 3.0f : 1.0f;
           tempSpeed *= input.walk ? 0.5f : 1.0f;
 
           auto velocity = glm::vec3(0);
@@ -166,7 +166,7 @@ void World::FixedUpdate(float dt)
 
           //cc->character->CheckCollision(cc->character->GetPosition(), cc->character->GetRotation(), Physics::ToJolt(velocity), 1e-4f, )
           cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
-          //printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
+          printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
           //cc->character->AddLinearVelocity(Physics::ToJolt(velocity ));
           //cc->character->AddImpulse(Physics::ToJolt(velocity));
         }

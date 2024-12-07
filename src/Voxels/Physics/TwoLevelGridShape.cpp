@@ -12,7 +12,11 @@
 
 #include <cassert>
 
-constexpr float VX_EPSILON = 1e-4f;
+// Amount to shrink block size by.
+constexpr float VX_EPSILON = 0;
+
+// Amount by which to expand the AABB of shapes tested against the grid. This is a hack to make the player not stick to surfaces.
+constexpr float VX_AABB_EPSILON = 1e-1f;
 
 void Physics::TwoLevelGridShape::CollideTwoLevelGrid(const Shape* inShape1,
   const Shape* inShape2,
@@ -37,9 +41,9 @@ void Physics::TwoLevelGridShape::CollideTwoLevelGrid(const Shape* inShape1,
   const auto s2min    = boundsOf2InSpaceOf1.GetCenter() - boundsOf2InSpaceOf1.GetExtent();
   const auto s2max    = boundsOf2InSpaceOf1.GetCenter() + boundsOf2InSpaceOf1.GetExtent();
   const auto boxShape = JPH::BoxShape({0.5f - VX_EPSILON, 0.5f - VX_EPSILON, 0.5f - VX_EPSILON});
-  for (int z = (int)std::floor(s2min.GetZ()); z < (int)std::ceil(s2max.GetZ()); z++)
-  for (int y = (int)std::floor(s2min.GetY()); y < (int)std::ceil(s2max.GetY()); y++)
-  for (int x = (int)std::floor(s2min.GetX()); x < (int)std::ceil(s2max.GetX()); x++)
+  for (int z = (int)std::floor(s2min.GetZ() - VX_AABB_EPSILON); z < (int)std::ceil(s2max.GetZ() + VX_AABB_EPSILON); z++)
+  for (int y = (int)std::floor(s2min.GetY() - VX_AABB_EPSILON); y < (int)std::ceil(s2max.GetY() + VX_AABB_EPSILON); y++)
+  for (int x = (int)std::floor(s2min.GetX() - VX_AABB_EPSILON); x < (int)std::ceil(s2max.GetX() + VX_AABB_EPSILON); x++)
   {
     // Skip voxel if non-solid
     if (s1->twoLevelGrid_->GetVoxelAt({x, y, z}) == 0)
@@ -72,7 +76,7 @@ void Physics::TwoLevelGridShape::CastTwoLevelGrid(const JPH::ShapeCast& inShapeC
   const JPH::Shape* inShape,
   JPH::Vec3Arg inScale,
   const JPH::ShapeFilter& inShapeFilter,
-  JPH::Mat44Arg inCenterOfMassTransform2,
+  [[maybe_unused]] JPH::Mat44Arg inCenterOfMassTransform2,
   const JPH::SubShapeIDCreator& inSubShapeIDCreator1,
   const JPH::SubShapeIDCreator& inSubShapeIDCreator2,
   JPH::CastShapeCollector& ioCollector)
@@ -101,9 +105,9 @@ void Physics::TwoLevelGridShape::CastTwoLevelGrid(const JPH::ShapeCast& inShapeC
   const auto castMax  = castBoundsWorldSpace.GetCenter() + castBoundsWorldSpace.GetExtent();
   const auto boxShape = JPH::BoxShape({0.5f - VX_EPSILON, 0.5f - VX_EPSILON, 0.5f - VX_EPSILON});
   boxShape.SetEmbedded();
-  for (int z = (int)std::floor(castMin.GetZ()); z < (int)std::ceil(castMax.GetZ()); z++)
-  for (int y = (int)std::floor(castMin.GetY()); y < (int)std::ceil(castMax.GetY()); y++)
-  for (int x = (int)std::floor(castMin.GetX()); x < (int)std::ceil(castMax.GetX()); x++)
+  for (int z = (int)std::floor(castMin.GetZ() - VX_AABB_EPSILON); z < (int)std::ceil(castMax.GetZ() + VX_AABB_EPSILON); z++)
+  for (int y = (int)std::floor(castMin.GetY() - VX_AABB_EPSILON); y < (int)std::ceil(castMax.GetY() + VX_AABB_EPSILON); y++)
+  for (int x = (int)std::floor(castMin.GetX() - VX_AABB_EPSILON); x < (int)std::ceil(castMax.GetX() + VX_AABB_EPSILON); x++)
   {
     // Skip voxel if non-solid
     if (s2->twoLevelGrid_->GetVoxelAt({x, y, z}) == 0)
@@ -114,7 +118,9 @@ void Physics::TwoLevelGridShape::CastTwoLevelGrid(const JPH::ShapeCast& inShapeC
     auto negVec     = JPH::Vec3{-x - 0.5f, -y - 0.5f, -z - 0.5f};
     auto posVec     = JPH::Vec3{x + 0.5f, y + 0.5f, z + 0.5f};
     auto shapeCast2                     = inShapeCast.PostTranslated(negVec);
-    const auto boxCenterOfMassTransform = inCenterOfMassTransform2.PreTranslated(posVec);
+    //const auto boxCenterOfMassTransform = inCenterOfMassTransform2.PreTranslated(posVec);
+    const auto boxCenterOfMassTransform = JPH::Mat44::sIdentity();
+    //const auto boxCenterOfMassTransform = inCenterOfMassTransform2;
     //JPH::CollisionDispatch::sCastShapeVsShapeWorldSpace(inShapeCast,
     JPH::CollisionDispatch::sCastShapeVsShapeLocalSpace(shapeCast2,
       shapeCastSettings2,

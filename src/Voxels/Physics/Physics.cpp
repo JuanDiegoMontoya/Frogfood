@@ -210,7 +210,8 @@ namespace Physics
     characterSettings.SetEmbedded();
     characterSettings.mShape = settings.shape;
     characterSettings.mEnhancedInternalEdgeRemoval = true;
-    characterSettings.mCharacterPadding = 0.00002f;
+    characterSettings.mPredictiveContactDistance   = 1e-3f;
+    //characterSettings.mCharacterPadding = 0.00002f;
     //characterSettings.mPredictiveContactDistance = 0.22f;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -0.5f);
     // TODO: use mInnerBodyShape to give character a physical presence (to be detected by ray casts, etc.)
@@ -337,7 +338,7 @@ namespace Physics
           //.mWalkStairsMinStepForward         =,
           //.mWalkStairsStepForwardTest        =,
           //.mWalkStairsCosAngleForwardContact =,
-          //.mWalkStairsStepDownExtra          =,
+          //.mWalkStairsStepDownExtra = {0, -0.22f, 0},
         },
         s->engine->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
         s->engine->GetDefaultLayerFilter(Layers::MOVING),
@@ -384,6 +385,7 @@ namespace Physics
       {
         s->debugRenderer->SetCameraPos(ToJolt(transform.position));
 
+#if 0
         // Create shape cast
         using namespace JPH;
         const Vec3 start            = ToJolt(transform.position + transform.GetForward() * 3.0f - transform.GetRight());
@@ -505,6 +507,7 @@ namespace Physics
             ->Draw(s->debugRenderer.get(), shape_cast.mCenterOfMassStart.PostTranslated(shape_cast.mDirection), Vec3::sReplicate(1.0f), Color::sRed, false, false);
   #endif // JPH_DEBUG_RENDERER
         }
+#endif
       }
     }
     s->engine->DrawBodies(

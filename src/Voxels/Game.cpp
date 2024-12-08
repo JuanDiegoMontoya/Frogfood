@@ -196,11 +196,11 @@ void World::FixedUpdate(float dt)
         transform.position.y += input.elevate * tempCameraSpeed;
       }
 
-      if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
+      if (registry_.any_of<Physics::CharacterController, Physics::CharacterControllerShrimple>(entity))
       {
         const auto rot   = glm::mat3_cast(transform.rotation);
         const auto right = rot[0];
-        const auto gUp = glm::vec3(0, 1, 0);
+        const auto gUp   = glm::vec3(0, 1, 0);
         // right and up will never be collinear if roll doesn't change
         const auto forward = glm::normalize(glm::cross(right, gUp));
 
@@ -213,22 +213,39 @@ void World::FixedUpdate(float dt)
         velocity += input.forward * forward * tempSpeed;
         velocity += input.strafe * right * tempSpeed;
 
-        if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
+        if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
         {
-          velocity += input.jump ? gUp * 8.0f : glm::vec3(0);
-        }
-        else//if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::InAir)
-        {
-          const auto prevY = cc->character->GetLinearVelocity().GetY();
-          velocity += glm::vec3{0, prevY - 15 * dt, 0};
-          //velocity += glm::vec3{0, -15 * dt, 0};
+          if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
+          {
+            velocity += input.jump ? gUp * 8.0f : glm::vec3(0);
+          }
+          else // if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::InAir)
+          {
+            const auto prevY = cc->character->GetLinearVelocity().GetY();
+            velocity += glm::vec3{0, prevY - 15 * dt, 0};
+            // velocity += glm::vec3{0, -15 * dt, 0};
+          }
+
+          // cc->character->CheckCollision(cc->character->GetPosition(), cc->character->GetRotation(), Physics::ToJolt(velocity), 1e-4f, )
+          cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
+          // printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
+          // cc->character->AddLinearVelocity(Physics::ToJolt(velocity ));
+          // cc->character->AddImpulse(Physics::ToJolt(velocity));
         }
 
-        //cc->character->CheckCollision(cc->character->GetPosition(), cc->character->GetRotation(), Physics::ToJolt(velocity), 1e-4f, )
-        cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
-        //printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
-        //cc->character->AddLinearVelocity(Physics::ToJolt(velocity ));
-        //cc->character->AddImpulse(Physics::ToJolt(velocity));
+        if (auto* cs = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
+        {
+          if (cs->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
+          {
+            velocity += input.jump ? gUp * 8.0f : glm::vec3(0);
+          }
+          else
+          {
+            const auto prevY = cs->character->GetLinearVelocity().GetY();
+            velocity += glm::vec3{0, prevY - 15 * dt, 0};
+          }
+          cs->character->SetLinearVelocity(Physics::ToJolt(velocity));
+        }
       }
     }
 
@@ -253,7 +270,8 @@ void World::FixedUpdate(float dt)
         //registry_.emplace<SimpleEnemyBehavior>(e);
         registry_.emplace<PathfindingEnemyBehavior>(e);
         registry_.emplace<InputState>(e);
-        Physics::AddCharacterController({registry_, e}, {sphere});
+        //Physics::AddCharacterController({registry_, e}, {sphere});
+        Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
         //Physics::AddRigidBody({registry_, e},
         //  {
         //    .shape      = sphere,
@@ -269,12 +287,6 @@ void World::FixedUpdate(float dt)
     {
       input = {};
     }
-
-    // Player "holds" entity
-    //for (auto&& [entity, transform] : registry_.view<Transform, TempMesh>().each())
-    //{
-    //  transform.position = playerTransform.position + glm::mat3_cast(playerTransform.rotation)[2] * 5.0f;
-    //}
   }
 
   ticks_++;

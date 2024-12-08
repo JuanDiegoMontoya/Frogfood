@@ -249,14 +249,14 @@ namespace Physics
     return handle.emplace_or_replace<CharacterControllerShrimple>(character);
   }
 
-  void OnRigidBodyDestroy(entt::registry& registry, entt::entity entity)
+  static void OnRigidBodyDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& p = registry.get<RigidBody>(entity);
     s->bodyInterface->RemoveBody(p.body);
     s->bodyInterface->DestroyBody(p.body);
   }
 
-  void OnCharacterControllerDestroy(entt::registry& registry, entt::entity entity)
+  static void OnCharacterControllerDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& c = registry.get<CharacterController>(entity);
     std::erase(s->allCharacters, c.character);
@@ -264,7 +264,7 @@ namespace Physics
     delete c.character;
   }
 
-  void OnCharacterControllerShrimpleDestroy(entt::registry& registry, entt::entity entity)
+  static void OnCharacterControllerShrimpleDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& c = registry.get<CharacterControllerShrimple>(entity);
     std::erase(s->allCharactersShrimple, c.character);
@@ -275,6 +275,8 @@ namespace Physics
   void Initialize(World& world)
   {
     world.GetRegistry().on_destroy<RigidBody>().connect<&OnRigidBodyDestroy>();
+    world.GetRegistry().on_destroy<CharacterController>().connect<&OnCharacterControllerDestroy>();
+    world.GetRegistry().on_destroy<CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleDestroy>();
     s = std::make_unique<StaticVars>();
 
     JPH::RegisterDefaultAllocator();

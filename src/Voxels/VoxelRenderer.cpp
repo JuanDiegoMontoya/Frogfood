@@ -474,17 +474,21 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   if (world.GetRegistry().ctx().contains<TwoLevelGrid>())
   {
+    auto lines = std::vector<Debug::Line>();
+    const auto& ecsLines = world.GetRegistry().ctx().get<std::vector<Debug::Line>>();
+    lines.insert(lines.end(), ecsLines.begin(), ecsLines.end());
 #ifdef JPH_DEBUG_RENDERER
     const auto* debugRenderer = dynamic_cast<const Physics::DebugRenderer*>(JPH::DebugRenderer::sInstance);
     assert(debugRenderer);
-    const auto& debugLines = debugRenderer->GetLines();
-    if (!debugLines.empty())
+    auto physicsLines = debugRenderer->GetLines();
+    lines.insert(lines.end(), physicsLines.begin(), physicsLines.end());
+    if (!lines.empty())
     {
-      if (!lineVertexBuffer || lineVertexBuffer->Size() < debugLines.size() * sizeof(Debug::Line))
+      if (!lineVertexBuffer || lineVertexBuffer->Size() < lines.size() * sizeof(Debug::Line))
       {
-        lineVertexBuffer.emplace((uint32_t)debugLines.size(), "Debug Lines");
+        lineVertexBuffer.emplace((uint32_t)lines.size(), "Debug Lines");
       }
-      lineVertexBuffer->UpdateData(commandBuffer, debugLines);
+      lineVertexBuffer->UpdateData(commandBuffer, lines);
     }
 #endif
 
@@ -537,7 +541,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         .globalUniformsIndex = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
         .useGpuVertexBuffer  = 0,
       });
-      ctx.Draw(uint32_t(debugLines.size() * 2), 1, 0, 0);
+      ctx.Draw(uint32_t(lines.size() * 2), 1, 0, 0);
 #endif // JPH_DEBUG_RENDERER
     }
     ctx.EndRendering();

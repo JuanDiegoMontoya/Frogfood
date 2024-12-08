@@ -91,6 +91,8 @@ add_executable(frogRender
     src/Voxels/Physics/DebugRenderer.h
     src/Voxels/Physics/DebugRenderer.cpp
     src/debug/Shapes.h
+    src/Voxels/Pathfinding.h
+    src/Voxels/Pathfinding.cpp
 )
 
 target_compile_options(frogRender

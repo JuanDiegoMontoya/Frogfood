@@ -2,10 +2,12 @@
 #ifndef GAME_HEADLESS
 #include "PlayerHead.h"
 #include "Input.h"
+#include "debug/Shapes.h"
 #endif
 #include "Physics/Physics.h"
 #include "Physics/TwoLevelGridShape.h"
 #include "TwoLevelGrid.h"
+#include "Pathfinding.h"
 
 #include "entt/entity/handle.hpp"
 
@@ -17,7 +19,7 @@ Game::Game(uint32_t tickHz)
   Physics::Initialize(*world_);
 #ifdef GAME_HEADLESS
   head_ = std::make_unique<NullHead>();
-  world_->CreateSingletonComponent<GameState>() = GameState::GAME;
+  world_->GetRegistry().ctx().emplace<GameState>() = GameState::GAME;
   world_->InitializeGameState();
 #else
   head_ = std::make_unique<PlayerHead>(PlayerHead::CreateInfo{
@@ -28,6 +30,7 @@ Game::Game(uint32_t tickHz)
     .world       = world_.get(),
   });
   world_->GetRegistry().ctx().emplace<GameState>() = GameState::MENU;
+  world_->GetRegistry().ctx().emplace<std::vector<Debug::Line>>();
 #endif
 
   world_->GetRegistry().ctx().emplace<Debugging>();
@@ -99,6 +102,9 @@ void World::FixedUpdate(float dt)
   if (registry_.ctx().get<GameState>() == GameState::GAME)
   {
     registry_.ctx().get<float>("time"_hs) += dt;
+#ifndef GAME_HEADLESS
+    registry_.ctx().get<std::vector<Debug::Line>>().clear();
+#endif
     // Update previous transforms before updating it (this should be done after updating the game state from networking)
     for (auto&& [entity, transform, interpolatedTransform] : registry_.view<Transform, InterpolatedTransform>().each())
     {
@@ -117,7 +123,7 @@ void World::FixedUpdate(float dt)
     }
 
     // Generate input for enemies
-    for (auto&& [entity, input, transform] : registry_.view<InputState, SimpleEnemyBehavior, Transform>().each())
+    for (auto&& [entity, input, transform] : registry_.view<InputState, Transform>(entt::exclude<Player>).each())
     {
       // Pick a player to go towards (in this case it is just the first)
       auto players = registry_.view<Player>();
@@ -126,14 +132,49 @@ void World::FixedUpdate(float dt)
         auto pe = players.front();
         if (auto* pt = registry_.try_get<Transform>(pe))
         {
-          if (pt->position.y > transform.position.y)
+          if (registry_.all_of<SimpleEnemyBehavior>(entity))
           {
-            input.jump = true;
+            if (pt->position.y > transform.position.y)
+            {
+              input.jump = true;
+            }
+
+            transform.rotation = glm::quatLookAt(glm::normalize(pt->position - transform.position), {0, 1, 0});
+
+            input.forward = 1;
           }
-          
-          transform.rotation = glm::quatLookAt(glm::normalize(pt->position - transform.position), {0, 1, 0});
-          
-          input.forward = 1;
+
+          if (registry_.all_of<PathfindingEnemyBehavior>(entity))
+          {
+            const auto& grid = registry_.ctx().get<TwoLevelGrid>();
+            auto path        = Pathfinding::FindPath(grid, glm::ivec3(transform.position), 1, glm::ivec3(pt->position));
+
+            if (!path.empty())
+            {
+#ifndef GAME_HEADLESS
+              // Render path
+              auto& lines = registry_.ctx().get<std::vector<Debug::Line>>();
+              for (size_t i = 1; i < path.size(); i++)
+              {
+                constexpr auto offset = glm::vec3(0.5f, 0, 0.5f);
+                lines.emplace_back(Debug::Line{
+                  .aPosition = path[i - 1] + offset,
+                  .aColor    = glm::vec4(0, 0, 1, 1),
+                  .bPosition = path[i + 0] + offset,
+                  .bColor    = glm::vec4(0, 0, 1, 1),
+                });
+              }
+#endif
+
+              const auto nextNode = path.front() + glm::vec3(0.5f, 0, 0.5f);
+              if (nextNode.y > transform.position.y)
+              {
+                input.jump = true;
+              }
+              transform.rotation = glm::quatLookAt(glm::normalize(nextNode + glm::vec3(0, 1, 0) - transform.position), {0, 1, 0});
+              input.forward = 1;
+            }
+          }
         }
       }
     }
@@ -196,7 +237,7 @@ void World::FixedUpdate(float dt)
     {
       if (input.interact)
       {
-        auto sphereSettings = JPH::SphereShapeSettings(1);
+        auto sphereSettings = JPH::SphereShapeSettings(0.4f);
         sphereSettings.SetEmbedded();
         auto sphere = sphereSettings.Create().Get();
 
@@ -204,12 +245,13 @@ void World::FixedUpdate(float dt)
         auto& et    = registry_.emplace<Transform>(e);
         et.position = transform.position + transform.GetForward() * 5.0f;
         et.rotation = glm::identity<glm::quat>();
-        et.scale    = .99f;
+        et.scale    = 0.4f;
         registry_.emplace<InterpolatedTransform>(e);
         registry_.emplace<RenderTransform>(e);
         registry_.emplace<TempMesh>(e);
         registry_.emplace<Name>(e, "Fall ball");
-        registry_.emplace<SimpleEnemyBehavior>(e);
+        //registry_.emplace<SimpleEnemyBehavior>(e);
+        registry_.emplace<PathfindingEnemyBehavior>(e);
         registry_.emplace<InputState>(e);
         Physics::AddCharacterController({registry_, e}, {sphere});
         //Physics::AddRigidBody({registry_, e},

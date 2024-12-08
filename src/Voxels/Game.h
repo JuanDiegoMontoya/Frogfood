@@ -182,6 +182,7 @@ struct TickRate
 struct TempMesh {};
 
 struct SimpleEnemyBehavior {};
+struct PathfindingEnemyBehavior {};
 
 // Game class used for client and server
 class Game

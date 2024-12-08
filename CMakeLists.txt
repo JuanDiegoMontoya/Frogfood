@@ -162,7 +162,7 @@ target_link_libraries(frogRender
     EnTT
 )
 
-target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE ImTextureID=ImU64)
+target_compile_definitions(glm INTERFACE GLM_FORCE_LEFT_HANDED GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE ImTextureID=ImU64)
 
 if (MSVC)
     target_compile_definitions(frogRender PUBLIC STBI_MSC_SECURE_CRT)

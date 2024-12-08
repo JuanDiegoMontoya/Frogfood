@@ -6,6 +6,7 @@
 #include <glm/packing.hpp>
 
 #include <cstdint>
+#include <utility>
 
 namespace Math
 {
@@ -18,6 +19,13 @@ namespace Math
       0.0f, 0.0f, 0.0f, -1.0f, 
       0.0f, 0.0f, zNear, 0.0f
     };
+  }
+  
+  inline glm::mat4 InfReverseZPerspectiveLH(float fovY_radians, float aspectWbyH, float zNear)
+  {
+    auto mat = InfReverseZPerspectiveRH(fovY_radians, aspectWbyH, zNear);
+    std::swap(mat[1], mat[2]);
+    return mat;
   }
 
   inline constexpr uint32_t PreviousPower2(uint32_t x)

@@ -130,14 +130,9 @@ void World::FixedUpdate(float dt)
           {
             input.jump = true;
           }
-
-          const auto forward = glm::normalize(transform.position - pt->position);
-          const auto gUp     = glm::vec3(0, 1, 0);
-          const auto right   = glm::normalize(glm::cross(forward, gUp));
-          const auto lUp     = glm::normalize(glm::cross(right, forward));
-          const auto rotMat  = glm::mat3(right, lUp, -forward);
-          transform.rotation = glm::quat_cast(rotMat);
-
+          
+          transform.rotation = glm::quatLookAt(glm::normalize(pt->position - transform.position), {0, 1, 0});
+          
           input.forward = 1;
         }
       }
@@ -207,7 +202,7 @@ void World::FixedUpdate(float dt)
 
         auto e      = registry_.create();
         auto& et    = registry_.emplace<Transform>(e);
-        et.position = transform.position + glm::mat3_cast(transform.rotation)[2] * 5.0f;
+        et.position = transform.position + transform.GetForward() * 5.0f;
         et.rotation = glm::identity<glm::quat>();
         et.scale    = .99f;
         registry_.emplace<InterpolatedTransform>(e);

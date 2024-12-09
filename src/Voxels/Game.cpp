@@ -146,8 +146,7 @@ void World::FixedUpdate(float dt)
 
           if (registry_.all_of<PathfindingEnemyBehavior>(entity))
           {
-            const auto& grid = registry_.ctx().get<TwoLevelGrid>();
-            auto path        = Pathfinding::FindPath(grid, glm::ivec3(transform.position), 1, glm::ivec3(pt->position));
+            auto path = Pathfinding::FindPath(*this, glm::ivec3(transform.position), 1, glm::ivec3(pt->position));
 
             if (!path.empty())
             {

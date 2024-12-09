@@ -3,9 +3,9 @@
 
 #include "glm/vec3.hpp"
 
-struct TwoLevelGrid;
+class World;
 
 namespace Pathfinding
 {
-  std::vector<glm::vec3> FindPath(const TwoLevelGrid& grid, glm::ivec3 startPos, int height, glm::ivec3 goal);
+  std::vector<glm::vec3> FindPath(const World& world, glm::ivec3 startPos, int height, glm::ivec3 goal);
 }

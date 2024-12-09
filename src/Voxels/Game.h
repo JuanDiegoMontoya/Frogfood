@@ -44,6 +44,11 @@ public:
     return registry_;
   }
 
+  const entt::registry& GetRegistry() const
+  {
+    return registry_;
+  }
+
   void InitializeGameState();
 
 private:

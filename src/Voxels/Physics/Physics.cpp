@@ -9,6 +9,8 @@
 #include "DebugRenderer.h"
 #endif
 
+#include "tracy/Tracy.hpp"
+
 #include "Jolt/Jolt.h"
 #include "Jolt/RegisterTypes.h"
 #include "Jolt/Core/Factory.h"
@@ -329,9 +331,11 @@ namespace Physics
   
   void FixedUpdate(float dt, World& world)
   {
+    ZoneScoped;
     // Update characters first
     for (auto* character : s->allCharacters)
     {
+      ZoneScopedN("CharacterVirtual->ExtendedUpdate");
       character->ExtendedUpdate(dt,
         ToJolt(s->gravity),
         JPH::CharacterVirtual::ExtendedUpdateSettings{
@@ -360,6 +364,7 @@ namespace Physics
 
     for (auto* character : s->allCharactersShrimple)
     {
+      ZoneScopedN("Character->PostSimulation");
       character->PostSimulation(1e-4f);
 
       auto entity = static_cast<entt::entity>(s->bodyInterface->GetUserData(character->GetBodyID()));

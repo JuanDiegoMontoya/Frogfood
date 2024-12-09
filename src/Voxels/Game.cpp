@@ -37,6 +37,7 @@ Game::Game(uint32_t tickHz)
   world_->GetRegistry().ctx().emplace<TimeScale>();
   world_->GetRegistry().ctx().emplace<TickRate>().hz = tickHz;
   world_->GetRegistry().ctx().emplace_as<float>("time"_hs) = 0; // TODO: TEMP
+  world_->GetRegistry().ctx().emplace<Pathfinding::PathCache>(); // Note: should be invalidated when voxel grid changes
 }
 
 Game::~Game()
@@ -146,8 +147,9 @@ void World::FixedUpdate(float dt)
 
           if (registry_.all_of<PathfindingEnemyBehavior>(entity))
           {
-            auto path = Pathfinding::FindPath(*this, glm::ivec3(transform.position), 1, glm::ivec3(pt->position));
-
+            //auto path = Pathfinding::FindPath(*this, {.start = glm::ivec3(transform.position), .goal = glm::ivec3(pt->position), .height = 1, .w = 1.5f});
+            const auto& path = registry_.ctx().get<Pathfinding::PathCache>().FindOrGetCachedPath(*this, {.start = glm::ivec3(transform.position), .goal = glm::ivec3(pt->position), .height = 1, .w = 1.5f});
+            
             if (!path.empty())
             {
 #ifndef GAME_HEADLESS

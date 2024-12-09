@@ -6,11 +6,15 @@
 #include "debug/Shapes.h"
 #endif
 
-#define GLM_ENABLE_EXPERIMENTAL
 #include "Game.h"
+#include "HashUtilities.h"
+
+#define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/hash.hpp"
 #include "glm/gtx/component_wise.hpp"
 #include "glm/gtc/epsilon.hpp"
+
+#include "tracy/Tracy.hpp"
 
 #include <queue>
 #include <unordered_set>
@@ -23,6 +27,7 @@ namespace Pathfinding
     // height = number of blocks of clearance above the floor to fit through a gap
     auto GetNeighbors(const TwoLevelGrid& grid, glm::ivec3 pos, int height)
     {
+      ZoneScoped;
       auto neighbors = std::vector<glm::ivec3>();
 
       // See if this node is a suitable place to stand for a character of a given height. If not, there are no neighbors.
@@ -81,9 +86,13 @@ namespace Pathfinding
       return std::vector(path.rbegin(), path.rend());
     }
 
-    // The actual cost to move from pos0 to pos1 (they must be adjacent)
-    float DetermineCost([[maybe_unused]] const TwoLevelGrid& grid, [[maybe_unused]] glm::ivec3 pos0, [[maybe_unused]] glm::ivec3 pos1)
+    // The actual cost to move from posFrom to posTo (they must be adjacent)
+    float DetermineCost([[maybe_unused]] const TwoLevelGrid& grid, [[maybe_unused]] glm::ivec3 posFrom, [[maybe_unused]] glm::ivec3 posTo)
     {
+      if (posFrom.y > posTo.y)
+      {
+        return 0.5;
+      }
       return 1;
     }
 
@@ -94,8 +103,9 @@ namespace Pathfinding
     }
   } // namespace
 
-  std::vector<glm::vec3> FindPath(const World& world, glm::ivec3 startPos, int height, glm::ivec3 goal)
+  std::vector<glm::vec3> FindPath(const World& world, const FindPathParams& params)
   {
+    ZoneScoped;
     struct FNode
     {
       glm::ivec3 pos;
@@ -104,10 +114,10 @@ namespace Pathfinding
 
     const auto cmp = [&](FNode left, FNode right)
     {
-      // Euclidean distance tiebreaker leads to significantly better paths.
+      // Euclidean distance^2 tiebreaker leads to significantly better paths.
       if (glm::epsilonEqual(left.priority, right.priority, 1e-3f))
       {
-        return glm::distance(glm::vec3(left.pos), glm::vec3(goal)) > glm::distance(glm::vec3(right.pos), glm::vec3(goal));
+        return glm::dot(glm::vec3(left.pos), glm::vec3(params.goal)) > glm::dot(glm::vec3(right.pos), glm::vec3(params.goal));
       }
       return left.priority > right.priority;
     };
@@ -115,11 +125,11 @@ namespace Pathfinding
     auto cameFrom  = std::unordered_map<glm::ivec3, glm::ivec3>();
     auto costSoFar = std::unordered_map<glm::ivec3, float>();
     
-    frontier.emplace(startPos, 0.0f);
-    costSoFar.emplace(startPos, 0.0f);
-    cameFrom.emplace(startPos, startPos);
+    frontier.emplace(params.start, 0.0f);
+    costSoFar.emplace(params.start, 0.0f);
+    cameFrom.emplace(params.start, params.start);
 
-    constexpr auto MAX_ITERATIONS = 1000;
+    constexpr auto MAX_ITERATIONS = 400;
     const auto& grid              = world.GetRegistry().ctx().get<TwoLevelGrid>();
     for (int i = 0; !frontier.empty() && i < MAX_ITERATIONS; i++)
     {
@@ -138,24 +148,45 @@ namespace Pathfinding
 #endif
 
       const auto currentCost = costSoFar.at(current);
-      for (auto next : GetNeighbors(grid, current, height))
+      for (auto next : GetNeighbors(grid, current, params.height))
       {
         const auto newCost = currentCost + DetermineCost(grid, current, next);
         if (auto it = costSoFar.find(next); it == costSoFar.end() || newCost < it->second)
         {
-          frontier.emplace(next, newCost + HeuristicCost(grid, next, goal));
+          frontier.emplace(next, newCost + params.w * HeuristicCost(grid, next, params.goal));
           costSoFar[next] = newCost;
           cameFrom[next] = current;
         }
 
-        if (next == goal)
+        if (next == params.goal)
         {
-          return ReconstructPath(cameFrom, startPos, goal);
+          ZoneTextF("Iterations: %d", i);
+          return ReconstructPath(cameFrom, params.start, params.goal);
         }
       }
     }
 
     // No path found.
+    [[maybe_unused]] const char* text = "No path found";
+    ZoneText(text, sizeof(text));
     return {};
   }
+
+  const Path& PathCache::FindOrGetCachedPath(const World& world, const FindPathParams& params)
+  {
+    ZoneScoped;
+    if (auto* p = cache_.get(params))
+    {
+      return *p;
+    }
+
+    auto path = FindPath(world, params);
+    return cache_.set(params, path);
+  }
 } // namespace Pathfinding
+
+std::size_t std::hash<Pathfinding::FindPathParams>::operator()(const Pathfinding::FindPathParams& p) const noexcept
+{
+  auto tup = std::make_tuple(p.start, p.goal, p.height, p.w);
+  return ::hash<decltype(tup)>{}(tup);
+}

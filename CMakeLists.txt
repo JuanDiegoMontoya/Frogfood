@@ -93,6 +93,8 @@ add_executable(frogRender
     src/debug/Shapes.h
     src/Voxels/Pathfinding.h
     src/Voxels/Pathfinding.cpp
+    src/Voxels/LRUCache.h
+    src/HashUtilities.h
 )
 
 target_compile_options(frogRender

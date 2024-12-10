@@ -79,7 +79,7 @@ namespace Pathfinding
 
       while (current != start)
       {
-        path.push_back(current);
+        path.emplace_back(glm::vec3(current) + glm::vec3(0.5f));
         current = cameFrom.at(current);
       }
 
@@ -89,10 +89,18 @@ namespace Pathfinding
     // The actual cost to move from posFrom to posTo (they must be adjacent)
     float DetermineCost([[maybe_unused]] const TwoLevelGrid& grid, [[maybe_unused]] glm::ivec3 posFrom, [[maybe_unused]] glm::ivec3 posTo)
     {
+      // Reduce cost of falling.
       if (posFrom.y > posTo.y)
       {
         return 0.5;
       }
+
+      // If not falling, but there is no air under destination, increase cost.
+      if (grid.GetVoxelAt(posTo - glm::ivec3(0, 1, 0)) == 0)
+      {
+        return 1.125f;
+      }
+
       return 1;
     }
 
@@ -129,7 +137,7 @@ namespace Pathfinding
     costSoFar.emplace(params.start, 0.0f);
     cameFrom.emplace(params.start, params.start);
 
-    constexpr auto MAX_ITERATIONS = 400;
+    constexpr auto MAX_ITERATIONS = 1000;
     const auto& grid              = world.GetRegistry().ctx().get<TwoLevelGrid>();
     for (int i = 0; !frontier.empty() && i < MAX_ITERATIONS; i++)
     {

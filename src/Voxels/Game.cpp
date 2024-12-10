@@ -11,6 +11,8 @@
 
 #include "entt/entity/handle.hpp"
 
+#include "tracy/Tracy.hpp"
+
 #include <chrono>
 
 Game::Game(uint32_t tickHz)
@@ -100,6 +102,7 @@ void Game::Run()
 
 void World::FixedUpdate(float dt)
 {
+  ZoneScoped;
   if (registry_.ctx().get<GameState>() == GameState::GAME)
   {
     registry_.ctx().get<float>("time"_hs) += dt;
@@ -124,56 +127,119 @@ void World::FixedUpdate(float dt)
     }
 
     // Generate input for enemies
-    for (auto&& [entity, input, transform] : registry_.view<InputState, Transform>(entt::exclude<Player>).each())
     {
-      // Pick a player to go towards (in this case it is just the first)
-      auto players = registry_.view<Player>();
-      if (!players.empty())
+      ZoneScopedN("Pathfinding");
+      for (auto&& [entity, input, transform] : registry_.view<InputState, Transform>(entt::exclude<Player>).each())
       {
-        auto pe = players.front();
-        if (auto* pt = registry_.try_get<Transform>(pe))
+        // Pick a player to go towards (in this case it is just the first)
+        auto players = registry_.view<Player>();
+        if (!players.empty())
         {
-          if (registry_.all_of<SimpleEnemyBehavior>(entity))
+          auto pe = players.front();
+          if (auto* pt = registry_.try_get<Transform>(pe))
           {
-            if (pt->position.y > transform.position.y)
+            if (registry_.all_of<SimpleEnemyBehavior>(entity))
             {
-              input.jump = true;
-            }
-
-            transform.rotation = glm::quatLookAt(glm::normalize(pt->position - transform.position), {0, 1, 0});
-
-            input.forward = 1;
-          }
-
-          if (registry_.all_of<PathfindingEnemyBehavior>(entity))
-          {
-            //auto path = Pathfinding::FindPath(*this, {.start = glm::ivec3(transform.position), .goal = glm::ivec3(pt->position), .height = 1, .w = 1.5f});
-            const auto& path = registry_.ctx().get<Pathfinding::PathCache>().FindOrGetCachedPath(*this, {.start = glm::ivec3(transform.position), .goal = glm::ivec3(pt->position), .height = 1, .w = 1.5f});
-            
-            if (!path.empty())
-            {
-#ifndef GAME_HEADLESS
-              // Render path
-              auto& lines = registry_.ctx().get<std::vector<Debug::Line>>();
-              for (size_t i = 1; i < path.size(); i++)
-              {
-                constexpr auto offset = glm::vec3(0.5f, 0, 0.5f);
-                lines.emplace_back(Debug::Line{
-                  .aPosition = path[i - 1] + offset,
-                  .aColor    = glm::vec4(0, 0, 1, 1),
-                  .bPosition = path[i + 0] + offset,
-                  .bColor    = glm::vec4(0, 0, 1, 1),
-                });
-              }
-#endif
-
-              const auto nextNode = path.front() + glm::vec3(0.5f, 0, 0.5f);
-              if (nextNode.y > transform.position.y)
+              if (pt->position.y > transform.position.y)
               {
                 input.jump = true;
               }
-              transform.rotation = glm::quatLookAt(glm::normalize(nextNode + glm::vec3(0, 1, 0) - transform.position), {0, 1, 0});
+
+              transform.rotation = glm::quatLookAt(glm::normalize(pt->position - transform.position), {0, 1, 0});
+
               input.forward = 1;
+            }
+
+            if (registry_.all_of<PathfindingEnemyBehavior>(entity))
+            {
+              auto* cp            = registry_.try_get<Pathfinding::CachedPath>(entity);
+              bool shouldFindPath = true;
+              if (cp)
+              {
+                cp->updateAccum += dt;
+                if (cp->updateAccum >= cp->timeBetweenUpdates)
+                {
+                  cp->updateAccum = 0;
+                  cp->progress    = 0;
+                }
+                else
+                {
+                  shouldFindPath = false;
+                }
+              }
+
+              Pathfinding::Path path;
+
+              const auto myFootPos = glm::ivec3(GetFootPosition({registry_, entity}));
+
+              // Get cached path.
+              if (cp && !shouldFindPath)
+              {
+                path = cp->path;
+              }
+              else
+              {
+                // For ground characters, cast the player down. That way, if the player is in the air, the character will at least try to get under them instead of giving up.
+                auto targetFootPos          = glm::ivec3(pt->position);
+                const auto& playerCharacter = registry_.get<Physics::CharacterController>(pe).character;
+                const auto* playerShape     = playerCharacter->GetShape();
+                auto shapeCast              = JPH::RShapeCast::sFromWorldTransform(playerShape, {1, 1, 1}, playerCharacter->GetWorldTransform(), {0, -5, 0});
+                auto shapeCastCollector     = Physics::NearestHitCollector();
+                Physics::GetNarrowPhaseQuery().CastShape(shapeCast, {}, {}, shapeCastCollector);
+                if (shapeCastCollector.nearest)
+                {
+                  targetFootPos = Physics::ToGlm(shapeCast.GetPointOnRay(shapeCastCollector.nearest->mFraction - 1e-2f));
+                }
+
+                const auto myHeight = (int)std::ceil(GetHeight({registry_, entity}));
+                // path                 = Pathfinding::FindPath(*this, {.start = myFootPos, .goal = targetFootPos, .height = myHeight, .w = 1.5f});
+                path = registry_.ctx().get<Pathfinding::PathCache>().FindOrGetCachedPath(*this,
+                  {
+                    .start  = glm::ivec3(myFootPos),
+                    .goal   = glm::ivec3(targetFootPos),
+                    .height = myHeight,
+                    .w      = 1.5f,
+                  });
+
+                if (cp)
+                {
+                  cp->path = path;
+                }
+              }
+
+              if (!path.empty())
+              {
+#ifndef GAME_HEADLESS
+                // Render path
+                auto& lines = registry_.ctx().get<std::vector<Debug::Line>>();
+                for (size_t i = 1; i < path.size(); i++)
+                {
+                  lines.emplace_back(Debug::Line{
+                    .aPosition = path[i - 1],
+                    .aColor    = glm::vec4(0, 0, 1, 1),
+                    .bPosition = path[i + 0],
+                    .bColor    = glm::vec4(0, 0, 1, 1),
+                  });
+                }
+#endif
+
+                auto nextNode = path.front();
+                if (cp && cp->progress < path.size())
+                {
+                  nextNode = path[cp->progress];
+                  if (cp->progress < path.size() - 1 && glm::distance(nextNode, glm::vec3(myFootPos)) <= 1.0f)
+                  {
+                    cp->progress++;
+                  }
+                }
+
+                if (nextNode.y > myFootPos.y + 0.5f)
+                {
+                  input.jump = true;
+                }
+                transform.rotation = glm::quatLookAt(glm::normalize(nextNode - transform.position), {0, 1, 0});
+                input.forward      = 1;
+              }
             }
           }
         }
@@ -255,9 +321,12 @@ void World::FixedUpdate(float dt)
     {
       if (input.interact)
       {
-        auto sphereSettings = JPH::SphereShapeSettings(0.4f);
-        sphereSettings.SetEmbedded();
-        auto sphere = sphereSettings.Create().Get();
+        //auto sphereSettings = JPH::SphereShapeSettings(0.4f);
+        //sphereSettings.SetEmbedded();
+        //auto sphere = sphereSettings.Create().Get();
+        //auto sphere   = JPH::Ref(new JPH::BoxShape({0.4f, 1.9f, 0.4f}));
+        auto sphere   = JPH::Ref(new JPH::CapsuleShape(0.4f, 0.4f));
+        sphere->SetDensity(.33f);
 
         auto e      = registry_.create();
         auto& et    = registry_.emplace<Transform>(e);
@@ -270,6 +339,7 @@ void World::FixedUpdate(float dt)
         registry_.emplace<Name>(e, "Fall ball");
         //registry_.emplace<SimpleEnemyBehavior>(e);
         registry_.emplace<PathfindingEnemyBehavior>(e);
+        registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
         registry_.emplace<InputState>(e);
         //Physics::AddCharacterController({registry_, e}, {sphere});
         Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
@@ -478,4 +548,30 @@ glm::vec3 Transform::GetRight() const
 glm::vec3 Transform::GetUp() const
 {
   return glm::mat3_cast(rotation)[1];
+}
+
+glm::vec3 GetFootPosition(entt::handle handle)
+{
+  const auto* t = handle.try_get<Transform>();
+  assert(t);
+
+  if (const auto* s = handle.try_get<Physics::Shape>())
+  {
+    const auto floorOffsetY = -s->shape->GetLocalBounds().GetExtent().GetY();
+    return t->position + glm::vec3(0, floorOffsetY + 1e-1f, 0); // Needs fairly large epsilon because feet can penetrate ground in physics sim.
+  }
+
+  return t->position - glm::vec3(0, t->scale, 0);
+}
+
+float GetHeight(entt::handle handle)
+{
+  if (const auto* s = handle.try_get<Physics::Shape>())
+  {
+    return s->shape->GetLocalBounds().GetExtent().GetY() * 2.0f;
+  }
+
+  const auto* t = handle.try_get<Transform>();
+  assert(t);
+  return t->scale * 2.0f;
 }

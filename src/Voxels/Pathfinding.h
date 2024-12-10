@@ -30,8 +30,17 @@ namespace Pathfinding
     bool operator==(const FindPathParams&) const noexcept = default;
   };
 
-
   using Path = std::vector<glm::vec3>;
+
+  // Intended to be used as a component.
+  struct CachedPath
+  {
+    Path path; // TODO: Use shared_ptr?
+    uint32_t progress = 0; // Index of path segment to move towards.
+    float updateAccum = 1000;
+    float timeBetweenUpdates = 1;
+    // float jitter = ? // Randomize time between updates so they don't happen simultaneously.
+  };
 
   // w: WA* weight factor. When w = 1, algorithm is A*. When w < 0, algorithm approaches Dijkstra's. When w > 1, algorithm approaches greedy BFS.
   Path FindPath(const World& world, const FindPathParams& params);

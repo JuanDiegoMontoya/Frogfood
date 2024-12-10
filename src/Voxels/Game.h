@@ -56,6 +56,9 @@ private:
   entt::registry registry_;
 };
 
+glm::vec3 GetFootPosition(entt::handle handle);
+float GetHeight(entt::handle handle);
+
 class Networking
 {
 public:

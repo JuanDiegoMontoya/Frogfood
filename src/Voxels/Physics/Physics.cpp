@@ -195,6 +195,7 @@ namespace Physics
 
     s->bodyInterface->SetUserData(bodyId, static_cast<JPH::uint64>(handle.entity()));
 
+    handle.emplace_or_replace<Shape>().shape = settings.shape;
     return handle.emplace_or_replace<RigidBody>(bodyId);
   }
 
@@ -222,6 +223,7 @@ namespace Physics
 
     s->allCharacters.emplace_back(character);
     s->characterCollisionInterface->Add(character);
+    handle.emplace_or_replace<Shape>().shape = settings.shape;
     return handle.emplace_or_replace<CharacterController>(character);
   }
 
@@ -248,6 +250,7 @@ namespace Physics
 
     s->allCharactersShrimple.emplace_back(character);
 
+    handle.emplace_or_replace<Shape>().shape = settings.shape;
     return handle.emplace_or_replace<CharacterControllerShrimple>(character);
   }
 
@@ -274,11 +277,33 @@ namespace Physics
     delete c.character;
   }
 
+  void NearestHitCollector::AddHit(const ResultType& inResult)
+  {
+    if (!nearest || nearest->mFraction > inResult.mFraction)
+    {
+      nearest = inResult;
+      this->UpdateEarlyOutFraction(nearest->mFraction);
+    }
+  }
+
+  const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery()
+  {
+    return s->engine->GetNarrowPhaseQuery();
+  }
+
+  const JPH::BodyInterface& GetBodyInterface()
+  {
+    return *s->bodyInterface;
+  }
+
   void Initialize(World& world)
   {
     world.GetRegistry().on_destroy<RigidBody>().connect<&OnRigidBodyDestroy>();
+    world.GetRegistry().on_destroy<RigidBody>().connect<&entt::registry::remove<Shape>>();
     world.GetRegistry().on_destroy<CharacterController>().connect<&OnCharacterControllerDestroy>();
+    world.GetRegistry().on_destroy<CharacterController>().connect<&entt::registry::remove<Shape>>();
     world.GetRegistry().on_destroy<CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleDestroy>();
+    world.GetRegistry().on_destroy<CharacterControllerShrimple>().connect<&entt::registry::remove<Shape>>();
     s = std::make_unique<StaticVars>();
 
     JPH::RegisterDefaultAllocator();
@@ -399,7 +424,7 @@ namespace Physics
         const Vec3 direction        = ToJolt(2.0f * transform.GetRight() + glm::vec3(0, -.5f, 0));
         //const Vec3 base_offset      = start + 0.5f * direction;
         const Vec3 base_offset = start + 0.5f * direction;
-        RefConst<Shape> shape       = new CapsuleShape(0.5f, 0.25f);
+        auto shape       = JPH::RefConst(new CapsuleShape(0.5f, 0.25f));
         //Mat44 rotation        = Mat44::sRotation(Vec3::sAxisX(), 0.1f * JPH_PI) * Mat44::sRotation(Vec3::sAxisY(), 0.2f * JPH_PI);
         Mat44 rotation        = Mat44::sIdentity();
         RShapeCast shape_cast = RShapeCast::sFromWorldTransform(shape, Vec3::sReplicate(1.0f), RMat44::sTranslation(start) * rotation, direction);

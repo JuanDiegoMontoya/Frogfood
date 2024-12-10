@@ -6,11 +6,14 @@
 #include "Jolt/Physics/Collision/ObjectLayer.h"
 #include "Jolt/Physics/Character/CharacterVirtual.h"
 #include "Jolt/Physics/Character/Character.h"
+#include "Jolt/Physics/PhysicsSystem.h"
+#include "Jolt/Physics/Collision/ShapeCast.h"
 
 #include "entt/fwd.hpp"
 
-class World;
+#include <optional>
 
+class World;
 
 namespace Physics
 {
@@ -54,9 +57,25 @@ namespace Physics
     JPH::Character* character;
   };
 
+  // Automatically added when one of the Add* functions is called.
+  struct Shape
+  {
+    JPH::RefConst<JPH::Shape> shape;
+  };
+
   RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings& settings);
   CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings);
   CharacterControllerShrimple& AddCharacterControllerShrimple(entt::handle handle, const CharacterControllerShrimpleSettings& settings);
+
+  struct NearestHitCollector : JPH::CastShapeCollector
+  {
+    void AddHit(const ResultType& inResult) override;
+
+    std::optional<ResultType> nearest;
+  };
+
+  const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery();
+  const JPH::BodyInterface& GetBodyInterface();
 
   void Initialize(World& world);
   void Terminate();

@@ -183,6 +183,11 @@ struct Texture2D
   FVOG_UINT32 texIdx;
 };
 
+struct UTexture2D
+{
+  FVOG_UINT32 texIdx;
+};
+
 struct Texture3D
 {
   FVOG_UINT32 texIdx;
@@ -232,6 +237,11 @@ vec4 texelFetch(Texture2D tex, ivec2 coord, int level)
 {
   //ASSERT_MSG(tex.type == FVOG_DESCRIPTOR_TYPE_SAMPLED_IMAGE, "texelFetch: Invalid descriptor type!\n");
   return texelFetch(Fvog_texture2D(tex.texIdx), coord, level);
+}
+
+uvec4 texelFetch(UTexture2D tex, ivec2 coord, int level)
+{
+  return texelFetch(Fvog_utexture2D(tex.texIdx), coord, level);
 }
 
 vec4 textureLod(Texture2D tex, Sampler sam, vec2 uv, float lod)

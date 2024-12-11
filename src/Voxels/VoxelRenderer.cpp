@@ -20,6 +20,8 @@
 #include "tracy/Tracy.hpp"
 #include "GLFW/glfw3.h" // TODO: remove
 
+#include "tracy/TracyVulkan.hpp"
+
 #include <memory>
 #include <numeric>
 #include <type_traits>
@@ -161,7 +163,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
         .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL},
         .renderTargetFormats =
           {
-            .colorAttachmentFormats = {Frame::sceneColorFormat},
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
             .depthAttachmentFormat = Frame::sceneDepthFormat,
           },
       },
@@ -185,7 +187,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
         .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = VK_COMPARE_OP_GREATER},
         .renderTargetFormats =
           {
-            .colorAttachmentFormats = {Frame::sceneColorFormat},
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
             .depthAttachmentFormat  = Frame::sceneDepthFormat,
           },
       },
@@ -238,12 +240,12 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
         .depthState =
           {
             .depthTestEnable  = true,
-            .depthWriteEnable = false,
+            .depthWriteEnable = true,
             .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
           },
         .renderTargetFormats =
           {
-            .colorAttachmentFormats = {Frame::sceneColorFormat},
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
             .depthAttachmentFormat  = Frame::sceneDepthFormat,
           },
       },
@@ -362,14 +364,19 @@ void VoxelRenderer::OnFramebufferResize(uint32_t newWidth, uint32_t newHeight)
 {
   ZoneScoped;
 
-  const auto extent = VkExtent2D{newWidth, newHeight};
-  frame.sceneColor  = Fvog::CreateTexture2D(extent, Frame::sceneColorFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene color");
-  frame.sceneDepth  = Fvog::CreateTexture2D(extent, Frame::sceneDepthFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene depth");
+  const auto extent      = VkExtent2D{newWidth, newHeight};
+  frame.sceneAlbedo      = Fvog::CreateTexture2D(extent, Frame::sceneAlbedoFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene albedo");
+  frame.sceneNormal      = Fvog::CreateTexture2D(extent, Frame::sceneNormalFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene normal");
+  frame.sceneIlluminance = Fvog::CreateTexture2D(extent, Frame::sceneIlluminanceFormat, Fvog::TextureUsage::GENERAL, "Scene illuminance");
+  frame.sceneIlluminancePingPong = Fvog::CreateTexture2D(extent, Frame::sceneIlluminanceFormat, Fvog::TextureUsage::GENERAL, "Scene illuminance 2");
+  frame.sceneDepth       = Fvog::CreateTexture2D(extent, Frame::sceneDepthFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene depth");
+  frame.sceneColor       = Fvog::CreateTexture2D(extent, Frame::sceneColorFormat, Fvog::TextureUsage::GENERAL, "Scene color");
 }
 
 void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex)
 {
   ZoneScoped;
+  TracyVkZone(head_->tracyVkContext_, commandBuffer, "OnRender");
 
   if (head_->shouldResizeNextFrame)
   {
@@ -434,7 +441,9 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
   const auto clip_from_view  = Math::InfReverseZPerspectiveRH(glm::radians(65.0f), (float)head_->windowFramebufferWidth / head_->windowFramebufferHeight, 0.1f);
   const auto clip_from_world = clip_from_view * view_from_world;
 
-  ctx.ImageBarrierDiscard(frame.sceneColor.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(frame.sceneAlbedo.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(frame.sceneNormal.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(frame.sceneIlluminance.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   ctx.ImageBarrierDiscard(frame.sceneDepth.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
   perFrameUniforms.UpdateData(commandBuffer,
@@ -493,10 +502,19 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 #endif
 
     auto& grid           = world.GetRegistry().ctx().get<TwoLevelGrid>();
-    auto colorAttachment = Fvog::RenderColorAttachment{
-      .texture = frame.sceneColor.value().ImageView(),
+    auto albedoAttachment = Fvog::RenderColorAttachment{
+      .texture = frame.sceneAlbedo.value().ImageView(),
       .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     };
+    auto normalAttachment = Fvog::RenderColorAttachment{
+      .texture = frame.sceneNormal.value().ImageView(),
+      .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+    };
+    auto illuminanceAttachment = Fvog::RenderColorAttachment{
+      .texture = frame.sceneIlluminance.value().ImageView(),
+      .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+    };
+    Fvog::RenderColorAttachment colorAttachments[] = {albedoAttachment, normalAttachment, illuminanceAttachment};
     auto depthAttachment = Fvog::RenderDepthStencilAttachment{
       .texture = frame.sceneDepth.value().ImageView(),
       .loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -504,7 +522,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     };
     ctx.BeginRendering({
       .name             = "Render voxels",
-      .colorAttachments = {&colorAttachment, 1},
+      .colorAttachments = colorAttachments,
       .depthAttachment  = depthAttachment,
     });
     const auto voxels = Temp::Voxels{
@@ -515,6 +533,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     };
     {
       // Voxels
+      TracyVkZone(head_->tracyVkContext_, commandBuffer, "Voxels");
       ctx.BindGraphicsPipeline(testPipeline.GetPipeline());
       ctx.SetPushConstants(Temp::PushConstants{
         .voxels = voxels,
@@ -526,6 +545,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     }
     {
       // Meshes
+      TracyVkZone(head_->tracyVkContext_, commandBuffer, "Meshes");
       ctx.BindGraphicsPipeline(meshPipeline.GetPipeline());
       ctx.SetPushConstants(Temp::MeshArgs{
         .objects = meshUniformz.GetDeviceAddress(),
@@ -533,8 +553,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         .voxels = voxels,
       });
       ctx.DrawIndexed((uint32_t)g_testMesh.indices.size(), (uint32_t)meshUniformz.Size(), 0, 0, 0);
-
-#ifdef JPH_DEBUG_RENDERER
+      
       ctx.BindGraphicsPipeline(debugLinesPipeline.GetPipeline());
       ctx.SetPushConstants(DebugLinesPushConstants{
         .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,
@@ -542,10 +561,23 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         .useGpuVertexBuffer  = 0,
       });
       ctx.Draw(uint32_t(lines.size() * 2), 1, 0, 0);
-#endif // JPH_DEBUG_RENDERER
     }
     ctx.EndRendering();
   }
+
+  bilateral_.DenoiseIlluminance(
+    {
+      .sceneAlbedo              = &frame.sceneAlbedo.value(),
+      .sceneNormal              = &frame.sceneNormal.value(),
+      .sceneDepth               = &frame.sceneDepth.value(),
+      .sceneIlluminance         = &frame.sceneIlluminance.value(),
+      .sceneIlluminancePingPong = &frame.sceneIlluminancePingPong.value(),
+      .sceneColor               = &frame.sceneColor.value(),
+      .clip_from_view           = clip_from_view,
+      .world_from_clip          = glm::inverse(clip_from_world),
+      .cameraPos                = position,
+    },
+    commandBuffer);
 
   ctx.Barrier();
   ctx.ImageBarrier(head_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);

@@ -455,33 +455,40 @@ float TraceSunRay(vec3 rayPosition)
 	return 1;
 }
 
-vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal)
+vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint samples, uint bounces)
 {
 	vec3 indirectIlluminance = {0, 0, 0};
 
 	// This state must be independent of the state used for sampling a direction
     //uint randState = PCG_Hash(shadingUniforms.frameNumber + PCG_Hash(gid.y + PCG_Hash(gid.x)));
 	uint randState = PCG_Hash(gid.y + PCG_Hash(gid.x));
+	uint randState2 = PCG_Hash(gid.y + PCG_Hash(gid.x * 11));
 
     // All pixels should have the same sequence
     //uint noiseOffsetState = PCG_Hash(shadingUniforms.frameNumber);
 	uint noiseOffsetState = 0;
 
 	vec3 currentAlbedo = vec3(1);
-	const uint NUM_SAMPLES = 5;
-	const uint NUM_BOUNCES = 2;
-    for (uint ptSample = 0; ptSample < NUM_SAMPLES; ptSample++)
+    for (uint ptSample = 0; ptSample < samples; ptSample++)
     {
       // These additional sources of randomness are useful when the noise texture is a low resolution
       //const vec2 perSampleNoise = shadingUniforms.random + Hammersley(ptSample, shadingUniforms.numGiBounces);
-		const vec2 perSampleNoise = Hammersley(ptSample, NUM_SAMPLES);
+	    vec2 perSampleNoise;
+        if (samples <= 3) // Use white noise
+        {
+            perSampleNoise = vec2(PCG_RandFloat(randState2, 0, 1), PCG_RandFloat(randState2, 0, 1));
+        }
+        else
+        {
+            perSampleNoise = Hammersley(ptSample, samples);
+        }
 
       //vec3 prevRayDir = -fragToCameraDir;
       vec3 curRayPos = rayPosition;
       //Surface curSurface = surface;
 
       vec3 throughput = {1, 1, 1};
-      for (uint bounce = 0; bounce < NUM_BOUNCES; bounce++)
+      for (uint bounce = 0; bounce < bounces; bounce++)
       {
         const ivec2 noiseOffset = ivec2(PCG_RandU32(noiseOffsetState), PCG_RandU32(noiseOffsetState));
         //const vec2 noiseTextureSample = texelFetch(shadingUniforms.noiseTexture, (gid + noiseOffset) % textureSize(shadingUniforms.noiseTexture, 0), 0).xy;
@@ -539,7 +546,7 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal)
             //(curSurface.albedo / M_PI) * 
             (currentAlbedo / M_PI) * 
             //clamp(dot(hit.flatNormalWorld, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
-            sunShadow * 100000 /
+            sunShadow * 10000 /
             //sunShadow / 
             solid_angle_mapping_PDF(radians(0.5));
         }
@@ -557,7 +564,7 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal)
       }
     }
 
-    return indirectIlluminance / NUM_SAMPLES;
+    return indirectIlluminance / samples;
 }
 
 void vx_Init(Voxels voxels)

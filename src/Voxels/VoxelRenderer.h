@@ -4,10 +4,8 @@
 #include "PipelineManager.h"
 #include "PlayerHead.h"
 #include "TwoLevelGrid.h"
-
-#ifdef JPH_DEBUG_RENDERER
-#include "Physics/DebugRenderer.h"
-#endif
+#include "debug/Shapes.h"
+#include "techniques/denoising/spatial/Bilateral.h"
 
 #include "glm/vec3.hpp"
 #include "glm/mat4x4.hpp"
@@ -67,7 +65,6 @@ namespace Temp
     glm::mat4 worldFromObject;
     VkDeviceAddress vertexBuffer;
   };
-
 } // namespace Temp
 
 class VoxelRenderer
@@ -85,13 +82,21 @@ private:
 
   struct Frame
   {
+    std::optional<Fvog::Texture> sceneAlbedo;
+    constexpr static Fvog::Format sceneAlbedoFormat = Fvog::Format::R8G8B8A8_SRGB;
+    std::optional<Fvog::Texture> sceneNormal;
+    constexpr static Fvog::Format sceneNormalFormat = Fvog::Format::R16G16B16A16_SNORM; // TODO: should be oct
+    std::optional<Fvog::Texture> sceneIlluminance;
+    std::optional<Fvog::Texture> sceneIlluminancePingPong;
+    constexpr static Fvog::Format sceneIlluminanceFormat = Fvog::Format::R16G16B16A16_SFLOAT;
     std::optional<Fvog::Texture> sceneColor;
     constexpr static Fvog::Format sceneColorFormat = Fvog::Format::R8G8B8A8_UNORM;
     std::optional<Fvog::Texture> sceneDepth;
     constexpr static Fvog::Format sceneDepthFormat = Fvog::Format::D32_SFLOAT;
   };
   Frame frame;
-  
+
+  Techniques::Bilateral bilateral_;
   Fvog::NDeviceBuffer<Temp::Uniforms> perFrameUniforms;
   PipelineManager::GraphicsPipelineKey testPipeline;
   PipelineManager::GraphicsPipelineKey meshPipeline;

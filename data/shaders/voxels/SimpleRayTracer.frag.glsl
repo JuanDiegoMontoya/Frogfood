@@ -7,7 +7,9 @@
 #include "Voxels.h.glsl"
 
 layout(location = 0) in vec2 uv;
-layout(location = 0) out vec4 o_color;
+layout(location = 0) out vec4 o_albedo;
+layout(location = 1) out vec4 o_normal;
+layout(location = 2) out vec4 o_illuminance;
 
 FVOG_DECLARE_ARGUMENTS(PushConstants)
 {
@@ -23,26 +25,31 @@ void main()
 	const vec3 rayDir = normalize(UnprojectUV_ZO(0.99, uv, uniforms.invViewProj) - uniforms.cameraPos.xyz);
 	const vec3 rayPos = uniforms.cameraPos.xyz;
 	
-	vec3 color = {0, 0, 0};
+	vec3 albedo = {0, 0, 0};
+	vec3 normal = {0, 0, 0};
+	vec3 illuminance = {0, 0, 0};
 
 	HitSurfaceParameters hit;
 	//if (vx_TraceRaySimple(rayPos, rayDir, 5120, hit))
 	if (vx_TraceRayMultiLevel(rayPos, rayDir, 512, hit))
 	{
-		const vec3 albedo = GetHitAlbedo(hit);
-		color += albedo;
+		albedo = GetHitAlbedo(hit);
+		normal = hit.flatNormalWorld;
 
 		// Shadow
-		color *= TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4);
+		illuminance += TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4);
 
-		color += albedo * TraceIndirectLighting(ivec2(gl_FragCoord), hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld);
+		const uint samples = 1;
+		const uint bounces = 2;
+		illuminance += TraceIndirectLighting(ivec2(gl_FragCoord), hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, samples, bounces);
 
 		const vec4 posClip = uniforms.viewProj * vec4(hit.positionWorld, 1.0);
 		gl_FragDepth = posClip.z / posClip.w;
 	}
 	else
 	{
-		color += rayDir * .5 + .5;
+		albedo = rayDir * .5 + .5;
+		illuminance = vec3(1);
 		gl_FragDepth = 0;
 	}
 
@@ -53,5 +60,8 @@ void main()
 
 	//o_color = o_color / (1 + o_color); // Reinhard
 	//imageStore(pc.outputImage, gid, vec4(pow(o_color, vec3(1/2.2)), 1));
-	o_color = vec4(pow(color, vec3(1 / 2.2)), 1);
+	//o_color = vec4(pow(color, vec3(1 / 2.2)), 1);
+	o_albedo = vec4(albedo, 1);
+	o_normal = vec4(normal, 1);
+	o_illuminance = vec4(illuminance, 1);
 }

@@ -95,6 +95,8 @@ add_executable(frogRender
     src/Voxels/Pathfinding.cpp
     src/Voxels/LRUCache.h
     src/HashUtilities.h
+    src/techniques/denoising/spatial/Bilateral.h
+    src/techniques/denoising/spatial/Bilateral.cpp
 )
 
 target_compile_options(frogRender

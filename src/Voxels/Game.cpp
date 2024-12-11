@@ -98,6 +98,7 @@ void Game::Run()
 #include "Jolt/Physics/Collision/Shape/SphereShape.h"
 #include "Jolt/Physics/Collision/Shape/CapsuleShape.h"
 #include "Jolt/Physics/Collision/Shape/BoxShape.h"
+#include "Jolt/Physics/Collision/Shape/CylinderShape.h"
 #include "Physics/PhysicsUtils.h"
 
 void World::FixedUpdate(float dt)
@@ -325,7 +326,8 @@ void World::FixedUpdate(float dt)
         //sphereSettings.SetEmbedded();
         //auto sphere = sphereSettings.Create().Get();
         //auto sphere   = JPH::Ref(new JPH::BoxShape({0.4f, 1.9f, 0.4f}));
-        auto sphere   = JPH::Ref(new JPH::CapsuleShape(0.4f, 0.4f));
+        //auto sphere   = JPH::Ref(new JPH::CapsuleShape(0.4f, 0.4f));
+        auto sphere   = JPH::Ref(new JPH::CylinderShape(0.6f, 0.4f));
         sphere->SetDensity(.33f);
 
         auto e      = registry_.create();
@@ -455,7 +457,7 @@ void World::InitializeGameState()
       }
 
   //auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(0.5f, 0.4f));
-  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(0.3f, 0.6f, 0.3f)));
+  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(0.3f, 0.8f, 0.3f)));
   //auto playerCapsule = JPH::Ref(new JPH::SphereShape(0.5f));
 
   // Make player entity

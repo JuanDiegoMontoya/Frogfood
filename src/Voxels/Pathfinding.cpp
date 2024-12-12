@@ -125,7 +125,9 @@ namespace Pathfinding
       // Euclidean distance^2 tiebreaker leads to significantly better paths.
       if (glm::epsilonEqual(left.priority, right.priority, 1e-3f))
       {
-        return glm::dot(glm::vec3(left.pos), glm::vec3(params.goal)) > glm::dot(glm::vec3(right.pos), glm::vec3(params.goal));
+        auto a = glm::vec3(left.pos) - glm::vec3(params.goal);
+        auto b = glm::vec3(right.pos) - glm::vec3(params.goal);
+        return glm::dot(a, a) > glm::dot(b, b);
       }
       return left.priority > right.priority;
     };

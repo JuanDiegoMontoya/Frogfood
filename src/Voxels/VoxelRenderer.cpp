@@ -429,7 +429,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   auto viewMat = glm::mat4(1);
   auto position = glm::vec3();
-  for (auto&& [entity, inputLook, transform, player] : world.GetRegistry().view<InputLookState, Transform, Player>().each())
+  for (auto&& [entity, inputLook, transform, player] : world.GetRegistry().view<InputLookState, GlobalTransform, Player>().each())
   {
     // TODO: use better way of seeing which player we own
     if (player.id == 0)
@@ -475,9 +475,9 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     });
 
   auto meshUniformzVec = std::vector<Temp::ObjectUniforms>();
-  for (auto&& [entity, transform] : world.GetRegistry().view<Transform, TempMesh>().each())
+  for (auto&& [entity, transform] : world.GetRegistry().view<GlobalTransform, TempMesh>().each())
   {
-    Transform actualTransform = transform;
+    GlobalTransform actualTransform = transform;
     if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
     {
       actualTransform = renderTransform->transform;
@@ -712,7 +712,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
         }
         if (opened)
         {
-          if (auto* t = registry.try_get<Transform>(e))
+          if (auto* t = registry.try_get<LocalTransform>(e))
           {
             ImGui::SeparatorText("Transform");
             ImGui::DragFloat3("Position", &t->position[0], 0.25f);
@@ -723,10 +723,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
           {
             ImGui::SeparatorText("InterpolatedTransform");
             ImGui::Text("Accumulator: %f", it->accumulator * world.GetRegistry().ctx().get<TickRate>().hz);
-            const auto& tr = it->previousTransform;
-            ImGui::Text("Position: %f, %f, %f", tr.position[0], tr.position[1], tr.position[2]);
-            ImGui::Text("Rotation: %f, %f, %f, %f", tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z);
-            ImGui::Text("Scale: %f", tr.scale);
+            //const auto& tr = it->previousTransform;
+            //ImGui::Text("Position: %f, %f, %f", tr.position[0], tr.position[1], tr.position[2]);
+            //ImGui::Text("Rotation: %f, %f, %f, %f", tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z);
+            //ImGui::Text("Scale: %f", tr.scale);
           }
           if (auto* rt = registry.try_get<RenderTransform>(e))
           {

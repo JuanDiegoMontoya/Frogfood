@@ -183,7 +183,7 @@ namespace Physics
   {
     auto position = glm::vec3(0);
     auto rotation = glm::quat(1, 0, 0, 0);
-    if (auto* t = handle.try_get<Transform>())
+    if (auto* t = handle.try_get<GlobalTransform>())
     {
       position = t->position;
       rotation = t->rotation;
@@ -203,7 +203,7 @@ namespace Physics
   {
     auto position = glm::vec3(0);
     auto rotation = glm::quat(1, 0, 0, 0);
-    if (auto* t = handle.try_get<Transform>())
+    if (auto* t = handle.try_get<GlobalTransform>())
     {
       position = t->position;
       rotation = t->rotation;
@@ -231,7 +231,7 @@ namespace Physics
   {
     auto position = glm::vec3(0);
     auto rotation = glm::quat(1, 0, 0, 0);
-    if (auto* t = handle.try_get<Transform>())
+    if (auto* t = handle.try_get<GlobalTransform>())
     {
       position = t->position;
       rotation = t->rotation;
@@ -378,9 +378,10 @@ namespace Physics
         *s->tempAllocator);
 
       auto entity = static_cast<entt::entity>(character->GetUserData());
-      if (auto* t = world.GetRegistry().try_get<Transform>(entity))
+      if (auto* t = world.GetRegistry().try_get<LocalTransform>(entity))
       {
         t->position = ToGlm(character->GetPosition());
+        UpdateLocalTransform({world.GetRegistry(), entity});
       }
     }
 
@@ -393,17 +394,19 @@ namespace Physics
       character->PostSimulation(1e-4f);
 
       auto entity = static_cast<entt::entity>(s->bodyInterface->GetUserData(character->GetBodyID()));
-      if (auto* t = world.GetRegistry().try_get<Transform>(entity))
+      if (auto* t = world.GetRegistry().try_get<LocalTransform>(entity))
       {
         t->position = ToGlm(character->GetPosition());
+        UpdateLocalTransform({world.GetRegistry(), entity});
       }
     }
 
     // Update transform of each entity with a RigidBody component
-    for (auto&& [entity, rigidBody, transform] : world.GetRegistry().view<RigidBody, Transform>().each())
+    for (auto&& [entity, rigidBody, transform] : world.GetRegistry().view<RigidBody, LocalTransform>().each())
     {
       transform.position = ToGlm(s->bodyInterface->GetPosition(rigidBody.body));
       transform.rotation = ToGlm(s->bodyInterface->GetRotation(rigidBody.body));
+      UpdateLocalTransform({world.GetRegistry(), entity});
     }
 
     // TODO: Invoke contact callbacks
@@ -411,7 +414,7 @@ namespace Physics
 
 #ifdef JPH_DEBUG_RENDERER
     s->debugRenderer->ClearPrimitives();
-    for (auto&& [entity, player, transform] : world.GetRegistry().view<Player, Transform>().each())
+    for (auto&& [entity, player, transform] : world.GetRegistry().view<Player, GlobalTransform>().each())
     {
       if (player.id == 0)
       {

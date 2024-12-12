@@ -175,15 +175,15 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
 
   if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
   {
-    for (auto&& [entity, transform, interpolatedTransform] : world.GetRegistry().view<Transform, InterpolatedTransform>().each())
+    for (auto&& [entity, transform, interpolatedTransform] : world.GetRegistry().view<GlobalTransform, InterpolatedTransform>().each())
     {
       interpolatedTransform.accumulator += dt.game;
       if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
       {
         const auto alpha                    = glm::clamp(interpolatedTransform.accumulator * (float)world.GetRegistry().ctx().get<TickRate>().hz, 0.0f, 1.0f);
-        renderTransform->transform.position = glm::mix(interpolatedTransform.previousTransform.position, transform.position, alpha);
-        renderTransform->transform.rotation = glm::slerp(interpolatedTransform.previousTransform.rotation, transform.rotation, alpha);
-        renderTransform->transform.scale    = glm::mix(interpolatedTransform.previousTransform.scale, transform.scale, alpha);
+        renderTransform->transform.position = glm::mix(interpolatedTransform.previousPosition, transform.position, alpha);
+        renderTransform->transform.rotation = glm::slerp(interpolatedTransform.previousRotation, transform.rotation, alpha);
+        renderTransform->transform.scale    = glm::mix(interpolatedTransform.previousScale, transform.scale, alpha);
       }
     }
   }

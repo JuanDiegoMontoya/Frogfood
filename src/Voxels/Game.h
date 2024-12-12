@@ -3,6 +3,7 @@
 
 #include "entt/entity/registry.hpp"
 #include "entt/entity/entity.hpp"
+#include "entt/entity/handle.hpp"
 #include "glm/vec3.hpp"
 #include "glm/gtc/quaternion.hpp"
 
@@ -10,6 +11,7 @@
 #include <memory>
 #include <unordered_map>
 #include <string>
+#include <vector>
 
 using namespace entt::literals;
 
@@ -50,6 +52,9 @@ public:
   }
 
   void InitializeGameState();
+
+  // Adds LocalTransform, GlobalTransform, InterpolatedTransform, RenderTransform, and Hierarchy components.
+  entt::entity CreateRenderableEntity(glm::vec3 position, glm::quat rotation = glm::quat(1, 0, 0, 0), float scale = 1);
 
 private:
   uint64_t ticks_ = 0;
@@ -151,28 +156,49 @@ struct Player
   uint32_t id = 0;
 };
 
-struct Transform
+struct LocalTransform
 {
   glm::vec3 position;
-  float scale;
   glm::quat rotation;
-
-  glm::vec3 GetForward() const;
-  glm::vec3 GetRight() const;
-  glm::vec3 GetUp() const;
+  float scale;
 };
 
-// Use with Transform for smooth object movement
+struct GlobalTransform
+{
+  glm::vec3 position;
+  glm::quat rotation;
+  float scale;
+};
+
+// Call to propagate local transform updates to global transform and children.
+void UpdateLocalTransform(entt::handle handle);
+
+glm::vec3 GetForward(glm::quat rotation);
+glm::vec3 GetUp(glm::quat rotation);
+glm::vec3 GetRight(glm::quat rotation);
+
+struct Hierarchy
+{
+  void AddChild(entt::entity child);
+  void RemoveChild(entt::entity child);
+
+  entt::entity parent = entt::null;
+  std::vector<entt::entity> children;
+};
+
+// Use with GlobalTransform for smooth object movement
 struct InterpolatedTransform
 {
   // 0 = use previousTransform, 1 = use Transform
   float accumulator;
-  Transform previousTransform;
+  glm::vec3 previousPosition;
+  glm::quat previousRotation;
+  float previousScale;
 };
 
 struct RenderTransform
 {
-  Transform transform;
+  GlobalTransform transform;
 };
 
 struct NoclipCharacterController {};

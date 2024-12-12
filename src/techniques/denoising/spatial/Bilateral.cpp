@@ -72,7 +72,7 @@ namespace Techniques
           .phiNormal   = 0.3f,
           .phiDepth    = 0.2f,
         });
-
+      
       const int PASSES = 4;
       for (int i = 0; i < PASSES; i++)
       {

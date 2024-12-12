@@ -443,9 +443,8 @@ vec3 GetHitAlbedo(HitSurfaceParameters hit)
 		//return vec3(0.5);
 }
 
-float TraceSunRay(vec3 rayPosition)
+float TraceSunRay(vec3 rayPosition, vec3 sunDir)
 {
-	const vec3 sunDir = normalize(vec3(.7, 1, .3));
 	HitSurfaceParameters hit2;
 	if (vx_TraceRayMultiLevel(rayPosition, sunDir, 512, hit2))
 	{
@@ -455,33 +454,24 @@ float TraceSunRay(vec3 rayPosition)
 	return 1;
 }
 
-vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint samples, uint bounces)
+vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint samples, uint bounces, Texture2D noiseTexture)
 {
 	vec3 indirectIlluminance = {0, 0, 0};
 
 	// This state must be independent of the state used for sampling a direction
     //uint randState = PCG_Hash(shadingUniforms.frameNumber + PCG_Hash(gid.y + PCG_Hash(gid.x)));
 	uint randState = PCG_Hash(gid.y + PCG_Hash(gid.x));
-	uint randState2 = PCG_Hash(gid.y + PCG_Hash(gid.x * 11));
 
     // All pixels should have the same sequence
     //uint noiseOffsetState = PCG_Hash(shadingUniforms.frameNumber);
-	uint noiseOffsetState = 0;
+	uint noiseOffsetState = 12340;
 
 	vec3 currentAlbedo = vec3(1);
     for (uint ptSample = 0; ptSample < samples; ptSample++)
     {
       // These additional sources of randomness are useful when the noise texture is a low resolution
       //const vec2 perSampleNoise = shadingUniforms.random + Hammersley(ptSample, shadingUniforms.numGiBounces);
-	    vec2 perSampleNoise;
-        if (samples <= 3) // Use white noise
-        {
-            perSampleNoise = vec2(PCG_RandFloat(randState2, 0, 1), PCG_RandFloat(randState2, 0, 1));
-        }
-        else
-        {
-            perSampleNoise = Hammersley(ptSample, samples);
-        }
+	    vec2 perSampleNoise = Hammersley(ptSample, samples);
 
       //vec3 prevRayDir = -fragToCameraDir;
       vec3 curRayPos = rayPosition;
@@ -491,8 +481,8 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
       for (uint bounce = 0; bounce < bounces; bounce++)
       {
         const ivec2 noiseOffset = ivec2(PCG_RandU32(noiseOffsetState), PCG_RandU32(noiseOffsetState));
-        //const vec2 noiseTextureSample = texelFetch(shadingUniforms.noiseTexture, (gid + noiseOffset) % textureSize(shadingUniforms.noiseTexture, 0), 0).xy;
-        const vec2 noiseTextureSample = {PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1)};
+        const vec2 noiseTextureSample = texelFetch(noiseTexture, (gid + noiseOffset) % textureSize(noiseTexture, 0), 0).xy;
+        //const vec2 noiseTextureSample = {PCG_RandFloat(randState, 0, 1), PCG_RandFloat(randState, 0, 1)};
         const vec2 xi = fract(perSampleNoise + noiseTextureSample);
         const vec3 curRayDir = normalize(map_to_unit_hemisphere_cosine_weighted(xi, normal));
 		//return curRayDir * .5 + .5;
@@ -537,7 +527,8 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
         //     shadowUniforms.rtSunDiameterRadians,
         //     xi,
         //     numSunShadowRays);
-		const float sunShadow = TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4);
+		const vec3 sunDir = normalize(vec3(.7, 1, .3));
+		const float sunShadow = TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4, sunDir);
 
           //indirectIlluminance += sunColor_internal_space * 
           indirectIlluminance +=  
@@ -545,7 +536,7 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
             //BRDF(-curRayDir, -shadingUniforms.sunDir.xyz, curSurface) * 
             //(curSurface.albedo / M_PI) * 
             (currentAlbedo / M_PI) * 
-            //clamp(dot(hit.flatNormalWorld, -shadingUniforms.sunDir.xyz), 0.0, 1.0) * 
+            clamp(dot(hit.flatNormalWorld, sunDir), 0.0, 1.0) * 
             sunShadow * 10000 /
             //sunShadow / 
             solid_angle_mapping_PDF(radians(0.5));

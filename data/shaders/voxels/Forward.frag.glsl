@@ -14,9 +14,9 @@ void main()
   const vec3 normal = normalize(i_normal);
   const uint samples = 2;
   const uint bounces = 1;
-  const vec3 indirect = TraceIndirectLighting(ivec2(gl_FragCoord), i_worldPosition + normal * 1e-4, normal, samples, bounces);
+  const vec3 indirect = TraceIndirectLighting(ivec2(gl_FragCoord), i_worldPosition + normal * 1e-4, normal, samples, bounces, pc.noiseTexture);
 	const vec3 sunDir = normalize(vec3(.7, 1, .3));
-  const float sun = TraceSunRay(i_worldPosition);
+  const float sun = TraceSunRay(i_worldPosition, sunDir);
   const vec3 direct = vec3(2 * sun * max(0, dot(sunDir, normal)));
   //o_color = vec4(direct + i_color * indirect, 1.0);
   o_albedo = vec4(i_color, 1);

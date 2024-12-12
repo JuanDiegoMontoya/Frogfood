@@ -326,8 +326,8 @@ void World::FixedUpdate(float dt)
         //sphereSettings.SetEmbedded();
         //auto sphere = sphereSettings.Create().Get();
         //auto sphere   = JPH::Ref(new JPH::BoxShape({0.4f, 1.9f, 0.4f}));
-        //auto sphere   = JPH::Ref(new JPH::CapsuleShape(0.4f, 0.4f));
-        auto sphere   = JPH::Ref(new JPH::CylinderShape(0.6f, 0.4f));
+        auto sphere   = JPH::Ref(new JPH::CapsuleShape(0.4f, 0.4f));
+        //auto sphere   = JPH::Ref(new JPH::CylinderShape(0.6f, 0.4f));
         sphere->SetDensity(.33f);
 
         auto e      = registry_.create();

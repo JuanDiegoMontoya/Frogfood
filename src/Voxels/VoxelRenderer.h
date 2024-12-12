@@ -45,6 +45,7 @@ namespace Temp
   {
     Voxels voxels;
     FVOG_UINT32 uniformBufferIndex;
+    shared::Texture2D noiseTexture;
   };
 
   FVOG_DECLARE_ARGUMENTS(DebugTextureArguments)
@@ -58,6 +59,7 @@ namespace Temp
     VkDeviceAddress objects;
     VkDeviceAddress frame;
     Voxels voxels;
+    shared::Texture2D noiseTexture;
   };
 
   struct ObjectUniforms
@@ -103,5 +105,6 @@ private:
   PipelineManager::GraphicsPipelineKey debugTexturePipeline;
   PipelineManager::GraphicsPipelineKey debugLinesPipeline;
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
+  std::optional<Fvog::Texture> noiseTexture;
   PlayerHead* head_;
 };

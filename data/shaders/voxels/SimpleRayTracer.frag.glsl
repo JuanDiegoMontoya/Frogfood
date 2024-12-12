@@ -15,6 +15,7 @@ FVOG_DECLARE_ARGUMENTS(PushConstants)
 {
 	Voxels voxels;
 	FVOG_UINT32 uniformBufferIndex;
+	Texture2D noiseTexture;
 }pc;
 
 #define uniforms perFrameUniformsBuffers[pc.uniformBufferIndex]
@@ -37,11 +38,13 @@ void main()
 		normal = hit.flatNormalWorld;
 
 		// Shadow
-		illuminance += TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4);
+		const vec3 sunDir = normalize(vec3(.7, 1, .3));
+		const float NoL = max(0, dot(hit.flatNormalWorld, sunDir));
+		illuminance += NoL * TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4, sunDir);
 
 		const uint samples = 1;
 		const uint bounces = 2;
-		illuminance += TraceIndirectLighting(ivec2(gl_FragCoord), hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, samples, bounces);
+		illuminance += TraceIndirectLighting(ivec2(gl_FragCoord), hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, samples, bounces, pc.noiseTexture);
 
 		const vec4 posClip = uniforms.viewProj * vec4(hit.positionWorld, 1.0);
 		gl_FragDepth = posClip.z / posClip.w;

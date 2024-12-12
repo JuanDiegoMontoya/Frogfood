@@ -19,6 +19,7 @@
 #include "tiny_obj_loader.h"
 #include "tracy/Tracy.hpp"
 #include "GLFW/glfw3.h" // TODO: remove
+#include "stb_image.h"
 
 #include "tracy/TracyVulkan.hpp"
 
@@ -250,6 +251,17 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
           },
       },
   });
+
+  int x            = 0;
+  int y            = 0;
+  const auto noise = stbi_load((GetTextureDirectory() / "bluenoise256.png").string().c_str(), &x, &y, nullptr, 4);
+  assert(noise);
+  noiseTexture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "Noise");
+  noiseTexture->UpdateImageSLOW({
+    .extent = {static_cast<uint32_t>(x), static_cast<uint32_t>(y)},
+    .data   = noise,
+  });
+  stbi_image_free(noise);
 
   using namespace glm;
   auto TraceRay =
@@ -538,7 +550,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       ctx.SetPushConstants(Temp::PushConstants{
         .voxels = voxels,
         .uniformBufferIndex         = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
-        //.outputImage                = mainImage->ImageView().GetImage2D(),
+        .noiseTexture = noiseTexture->ImageView().GetTexture2D(),
       });
       ctx.BindIndexBuffer(g_testMesh.indexBuffer.value(), 0, VK_INDEX_TYPE_UINT32);
       ctx.Draw(3, 1, 0, 0);
@@ -551,6 +563,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         .objects = meshUniformz.GetDeviceAddress(),
         .frame = perFrameUniforms.GetDeviceBuffer().GetDeviceAddress(),
         .voxels = voxels,
+        .noiseTexture = noiseTexture->ImageView().GetTexture2D(),
       });
       ctx.DrawIndexed((uint32_t)g_testMesh.indices.size(), (uint32_t)meshUniformz.Size(), 0, 0, 0);
       

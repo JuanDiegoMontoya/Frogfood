@@ -12,8 +12,8 @@ void main()
 {
   vx_Init(pc.voxels);
   const vec3 normal = normalize(i_normal);
-  const uint samples = 2;
-  const uint bounces = 1;
+  const uint samples = 1;
+  const uint bounces = 2;
   const vec3 indirect = TraceIndirectLighting(ivec2(gl_FragCoord), i_worldPosition + normal * 1e-4, normal, samples, bounces, pc.noiseTexture);
 	const vec3 sunDir = normalize(vec3(.7, 1, .3));
   const float sun = TraceSunRay(i_worldPosition, sunDir);

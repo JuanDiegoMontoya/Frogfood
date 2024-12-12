@@ -443,6 +443,17 @@ vec3 GetHitAlbedo(HitSurfaceParameters hit)
 		//return vec3(0.5);
 }
 
+vec3 GetHitEmission(HitSurfaceParameters hit)
+{
+    //if (ivec3(hit.voxelPosition / 3) % 4 == ivec3(0))
+    if (distance(vec3(hit.voxelPosition), vec3(20, 10, 40)) < 5)
+    {
+        return vec3(5);
+    }
+
+    return vec3(0);
+}
+
 float TraceSunRay(vec3 rayPosition, vec3 sunDir)
 {
 	HitSurfaceParameters hit2;
@@ -502,9 +513,7 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
         HitSurfaceParameters hit;
         if (vx_TraceRayMultiLevel(curRayPos, curRayDir, 10000, hit))
         {
-          //indirectIlluminance += throughput * hit.emission;
-		  if (ivec3(hit.voxelPosition / 4) % 4 == ivec3(0))
-		  	indirectIlluminance += throughput * 5;
+          indirectIlluminance += throughput * GetHitEmission(hit);
 
           //prevRayDir = curRayDir;
           curRayPos = hit.positionWorld + hit.flatNormalWorld * 0.0001;

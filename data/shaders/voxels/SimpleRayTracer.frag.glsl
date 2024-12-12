@@ -45,6 +45,7 @@ void main()
 		const uint samples = 1;
 		const uint bounces = 2;
 		illuminance += TraceIndirectLighting(ivec2(gl_FragCoord), hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, samples, bounces, pc.noiseTexture);
+		illuminance += GetHitEmission(hit) * albedo;
 
 		const vec4 posClip = uniforms.viewProj * vec4(hit.positionWorld, 1.0);
 		gl_FragDepth = posClip.z / posClip.w;

@@ -170,6 +170,12 @@ struct GlobalTransform
   float scale;
 };
 
+struct DeferredDelete {};
+struct Lifetime
+{
+  float remainingSeconds = 0;
+};
+
 // Call to propagate local transform updates to global transform and children.
 void UpdateLocalTransform(entt::handle handle);
 
@@ -179,6 +185,7 @@ glm::vec3 GetRight(glm::quat rotation);
 
 struct Hierarchy
 {
+  void SetParent(entt::registry& registry, entt::entity parent);
   void AddChild(entt::entity child);
   void RemoveChild(entt::entity child);
 
@@ -190,10 +197,10 @@ struct Hierarchy
 struct InterpolatedTransform
 {
   // 0 = use previousTransform, 1 = use Transform
-  float accumulator;
-  glm::vec3 previousPosition;
-  glm::quat previousRotation;
-  float previousScale;
+  float accumulator = 1;
+  glm::vec3 previousPosition{};
+  glm::quat previousRotation{};
+  float previousScale{};
 };
 
 struct RenderTransform

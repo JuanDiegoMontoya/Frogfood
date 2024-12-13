@@ -14,6 +14,19 @@
 #include "tracy/Tracy.hpp"
 
 #include <chrono>
+#include <stack>
+
+// We don't want this to happen when the component/entity is actually deleted, as we care about having a valid parent.
+static void OnDeferredDeleteConstruct(entt::registry& registry, entt::entity entity)
+{
+  assert(registry.valid(entity));
+  auto& h = registry.get<Hierarchy>(entity);
+  if (h.parent != entt::null)
+  {
+    auto& ph = registry.get<Hierarchy>(h.parent);
+    ph.RemoveChild(entity);
+  }
+}
 
 Game::Game(uint32_t tickHz)
 {
@@ -40,6 +53,8 @@ Game::Game(uint32_t tickHz)
   world_->GetRegistry().ctx().emplace<TickRate>().hz = tickHz;
   world_->GetRegistry().ctx().emplace_as<float>("time"_hs) = 0; // TODO: TEMP
   world_->GetRegistry().ctx().emplace<Pathfinding::PathCache>(); // Note: should be invalidated when voxel grid changes
+
+  world_->GetRegistry().on_construct<DeferredDelete>().connect<&OnDeferredDeleteConstruct>();
 }
 
 Game::~Game()
@@ -343,6 +358,7 @@ void World::FixedUpdate(float dt)
         registry_.emplace<PathfindingEnemyBehavior>(e);
         registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
         registry_.emplace<InputState>(e);
+        registry_.emplace<Lifetime>(e).remainingSeconds = 5;
         //Physics::AddCharacterController({registry_, e}, {sphere});
         Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
         //Physics::AddRigidBody({registry_, e},
@@ -368,6 +384,40 @@ void World::FixedUpdate(float dt)
     for (auto&& [entity, input] : registry_.view<InputState>().each())
     {
       input = {};
+    }
+
+    // Tick down lifetimes
+    for (auto&& [entity, lifetime] : registry_.view<Lifetime>().each())
+    {
+      lifetime.remainingSeconds -= dt;
+      if (lifetime.remainingSeconds <= 0)
+      {
+        registry_.emplace<DeferredDelete>(entity);
+      }
+    }
+
+    // Process destroyed entities
+    auto entitiesToDestroy = std::stack<entt::entity>();
+    for (auto entity : registry_.view<DeferredDelete>())
+    {
+      entitiesToDestroy.push(entity);
+    }
+
+    // "Recursively" destroy entities in hierarchies
+    while (!entitiesToDestroy.empty())
+    {
+      auto entity = entitiesToDestroy.top();
+      entitiesToDestroy.pop();
+
+      if (auto* h = registry_.try_get<Hierarchy>(entity))
+      {
+        for (auto child : h->children)
+        {
+          entitiesToDestroy.push(child);
+        }
+      }
+      
+      registry_.destroy(entity);
     }
   }
 
@@ -626,8 +676,19 @@ glm::vec3 GetRight(glm::quat rotation)
   return glm::mat3_cast(rotation)[0];
 }
 
+//void Hierarchy::SetParent(entt::registry& registry, entt::entity parent)
+//{
+//  
+//}
+
 void Hierarchy::AddChild(entt::entity child)
 {
   assert(std::count(children.begin(), children.end(), child) == 0);
   children.emplace_back(child);
+}
+
+void Hierarchy::RemoveChild(entt::entity child)
+{
+  assert(std::count(children.begin(), children.end(), child) == 1);
+  std::erase(children, child);
 }

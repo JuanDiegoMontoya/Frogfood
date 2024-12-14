@@ -183,9 +183,10 @@ glm::vec3 GetForward(glm::quat rotation);
 glm::vec3 GetUp(glm::quat rotation);
 glm::vec3 GetRight(glm::quat rotation);
 
+void SetParent(entt::handle handle, entt::entity parent);
+
 struct Hierarchy
 {
-  void SetParent(entt::registry& registry, entt::entity parent);
   void AddChild(entt::entity child);
   void RemoveChild(entt::entity child);
 

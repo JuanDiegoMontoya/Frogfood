@@ -372,11 +372,7 @@ void World::FixedUpdate(float dt)
         auto e2 = CreateRenderableEntity({1, 1, 0});
         registry_.emplace<Name>(e2).name = "Child";
         registry_.emplace<TempMesh>(e2);
-        auto& h1 = registry_.get<Hierarchy>(e);
-        auto& h2 = registry_.get<Hierarchy>(e2);
-        h1.AddChild(e2);
-        h2.parent = e;
-        UpdateLocalTransform({registry_, e2});
+        SetParent({registry_, e2}, e);
       }
     }
 
@@ -676,10 +672,34 @@ glm::vec3 GetRight(glm::quat rotation)
   return glm::mat3_cast(rotation)[0];
 }
 
-//void Hierarchy::SetParent(entt::registry& registry, entt::entity parent)
-//{
-//  
-//}
+void SetParent(entt::handle handle, entt::entity parent)
+{
+  assert(handle.valid());
+  assert(handle.entity() != parent);
+
+  auto& registry = *handle.registry();
+  auto& h = handle.get<Hierarchy>();
+
+  // Remove self from old parent
+  if (h.parent != entt::null)
+  {
+    auto& ph = registry.get<Hierarchy>(h.parent);
+    ph.RemoveChild(handle.entity());
+  }
+
+  // Add self to new parent
+  h.parent = parent;
+  auto& ph = registry.get<Hierarchy>(parent);
+  ph.AddChild(handle.entity());
+
+  // Detect cycles in debug mode
+  for ([[maybe_unused]] entt::entity cParent = parent; cParent != entt::null; cParent = registry.get<Hierarchy>(cParent).parent)
+  {
+    assert(cParent != handle.entity());
+  }
+
+  UpdateLocalTransform(handle);
+}
 
 void Hierarchy::AddChild(entt::entity child)
 {

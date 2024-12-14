@@ -175,15 +175,18 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
 
   if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
   {
-    for (auto&& [entity, transform, interpolatedTransform] : world.GetRegistry().view<GlobalTransform, InterpolatedTransform>().each())
+    for (auto&& [entity, transform, renderTransform] : world.GetRegistry().view<GlobalTransform, RenderTransform>().each())
     {
-      interpolatedTransform.accumulator += dt.game;
-      if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
+      if (auto* interpolatedTransform = world.GetRegistry().try_get<InterpolatedTransform>(entity))
       {
-        const auto alpha                    = glm::clamp(interpolatedTransform.accumulator * (float)world.GetRegistry().ctx().get<TickRate>().hz, 0.0f, 1.0f);
-        renderTransform->transform.position = glm::mix(interpolatedTransform.previousPosition, transform.position, alpha);
-        renderTransform->transform.rotation = glm::slerp(interpolatedTransform.previousRotation, transform.rotation, alpha);
-        renderTransform->transform.scale    = glm::mix(interpolatedTransform.previousScale, transform.scale, alpha);
+        const auto alpha                   = dt.fraction;
+        renderTransform.transform.position = glm::mix(interpolatedTransform->previousPosition, transform.position, alpha);
+        renderTransform.transform.rotation = glm::slerp(interpolatedTransform->previousRotation, transform.rotation, alpha);
+        renderTransform.transform.scale    = glm::mix(interpolatedTransform->previousScale, transform.scale, alpha);
+      }
+      else
+      {
+        renderTransform.transform = transform;
       }
     }
   }
@@ -202,7 +205,7 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
 
   if (windowFramebufferWidth > 0 && windowFramebufferHeight > 0)
   {
-    Draw();
+    Draw(dt);
   }
 
   if (glfwWindowShouldClose(window))
@@ -439,7 +442,7 @@ PlayerHead::~PlayerHead()
   Fvog::DestroyDevice();
 }
 
-void PlayerHead::Draw()
+void PlayerHead::Draw(DeltaTime dt)
 {
   ZoneScoped;
 
@@ -537,7 +540,7 @@ void PlayerHead::Draw()
       if (guiCallback_)
       {
         TracyVkZone(tracyVkContext_, commandBuffer, "OnGui");
-        guiCallback_((float)dtDraw, *worldThisFrame_, commandBuffer);
+        guiCallback_(dt, *worldThisFrame_, commandBuffer);
       }
     }
   }
@@ -688,7 +691,7 @@ void PlayerHead::RemakeSwapchain([[maybe_unused]] uint32_t newWidth, [[maybe_unu
   // This line triggers the recreation of window-size-dependent resources.
   // Commenting it out results in a faster, but lower quality resizing experience.
   // OnUpdate(0);
-  Draw();
+  Draw({0, 0, 0});
 }
 
 void DestroyList2::Push(std::function<void()> fn)

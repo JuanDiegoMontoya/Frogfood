@@ -75,7 +75,15 @@ namespace Physics
   };
 
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery();
-  const JPH::BodyInterface& GetBodyInterface();
+  JPH::BodyInterface& GetBodyInterface();
+
+  struct ContactPair
+  {
+    entt::entity entity1;
+    entt::entity entity2;
+  };
+
+  entt::dispatcher& GetDispatcher();
 
   void Initialize(World& world);
   void Terminate();

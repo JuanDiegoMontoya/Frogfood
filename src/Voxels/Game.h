@@ -26,6 +26,7 @@ struct DeltaTime
 {
   float game; // Affected by game effects that scale the passage of time.
   float real; // Real time, unaffected by gameplay, inexorably marching on.
+  float fraction; // For variable rate updates, fraction 
 };
 
 struct Debugging
@@ -197,8 +198,6 @@ struct Hierarchy
 // Use with GlobalTransform for smooth object movement
 struct InterpolatedTransform
 {
-  // 0 = use previousTransform, 1 = use Transform
-  float accumulator = 1;
   glm::vec3 previousPosition{};
   glm::quat previousRotation{};
   float previousScale{};
@@ -210,6 +209,8 @@ struct RenderTransform
 };
 
 struct NoclipCharacterController {};
+
+struct Projectile {};
 
 struct TimeScale
 {

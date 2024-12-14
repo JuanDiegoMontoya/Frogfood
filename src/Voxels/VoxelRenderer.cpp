@@ -140,11 +140,12 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
 {
   ZoneScoped;
 
-  g_testMesh = LoadObjFile(GetAssetDirectory() / "models/frog.obj");
+  //g_testMesh = LoadObjFile(GetAssetDirectory() / "models/frog.obj");
+  g_testMesh = LoadObjFile(GetAssetDirectory() / "models/ar15.obj");
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
-  head_->guiCallback_ = [this](float dt, World& world, VkCommandBuffer cmd) { OnGui(dt, world, cmd); };
+  head_->guiCallback_ = [this](DeltaTime dt, World& world, VkCommandBuffer cmd) { OnGui(dt, world, cmd); };
 
   testPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
     .name = "Render voxels",
@@ -630,7 +631,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
   ctx.ImageBarrier(head_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 
-void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)
+void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
   switch (auto& gameState = world.GetRegistry().ctx().get<GameState>())
@@ -653,7 +654,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
       GetPipelineManager().EnqueueModifiedShaders();
 
       //auto& mainCamera = world.GetSingletonComponent<Temp::View>();
-      ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt, dt * 1000);
+      ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt.real, dt.real * 1000);
       //ImGui::Text("Camera pos: (%.2f, %.2f, %.2f)", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
       //ImGui::Text("Camera dir: (%.2f, %.2f, %.2f)", mainCamera.GetForwardDir().x, mainCamera.GetForwardDir().y, mainCamera.GetForwardDir().z);
       auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
@@ -702,6 +703,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
       {
         ImGui::PushID((int)e);
         bool opened = false;
+
         if (auto* s = registry.try_get<Name>(e))
         {
           opened = ImGui::TreeNode("entity", "%u (%s)", e, s->name.c_str());
@@ -722,11 +724,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] double dt, World& world, [[maybe_unus
           if (auto* it = registry.try_get<InterpolatedTransform>(e))
           {
             ImGui::SeparatorText("InterpolatedTransform");
-            ImGui::Text("Accumulator: %f", it->accumulator * world.GetRegistry().ctx().get<TickRate>().hz);
-            //const auto& tr = it->previousTransform;
-            //ImGui::Text("Position: %f, %f, %f", tr.position[0], tr.position[1], tr.position[2]);
-            //ImGui::Text("Rotation: %f, %f, %f, %f", tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z);
-            //ImGui::Text("Scale: %f", tr.scale);
+            ImGui::Text("Accumulator: %f", dt.fraction);
+            ImGui::Text("Position: %f, %f, %f", it->previousPosition[0], it->previousPosition[1], it->previousPosition[2]);
+            ImGui::Text("Rotation: %f, %f, %f, %f", it->previousRotation.w, it->previousRotation.x, it->previousRotation.y, it->previousRotation.z);
+            ImGui::Text("Scale: %f", it->previousScale);
           }
           if (auto* rt = registry.try_get<RenderTransform>(e))
           {

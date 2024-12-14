@@ -31,6 +31,7 @@
 #include "Jolt/Physics/Collision/CollisionDispatch.h"
 
 #include "entt/entity/handle.hpp"
+#include "entt/signal/dispatcher.hpp"
 
 #include "glm/vec3.hpp"
 #include "glm/gtc/quaternion.hpp"
@@ -115,12 +116,6 @@ namespace Physics
       }
     };
 
-    struct ContactPair
-    {
-      entt::entity entity1;
-      entt::entity entity2;
-    };
-
     struct StaticVars
     {
       std::unique_ptr<JPH::TempAllocatorImpl> tempAllocator;
@@ -141,6 +136,7 @@ namespace Physics
       std::vector<JPH::CharacterVirtual*> allCharacters;
       std::vector<JPH::Character*> allCharactersShrimple;
       std::vector<ContactPair> contactPairs;
+      entt::dispatcher dispatcher;
       // The deltaTime that is recommended by Jolt's docs to achieve a stable simulation.
       // The number of subticks is dynamic to keep the substep dt around this target.
       constexpr static float targetRate = 1.0f / 60.0f;
@@ -291,9 +287,14 @@ namespace Physics
     return s->engine->GetNarrowPhaseQuery();
   }
 
-  const JPH::BodyInterface& GetBodyInterface()
+  JPH::BodyInterface& GetBodyInterface()
   {
     return *s->bodyInterface;
+  }
+
+  entt::dispatcher& GetDispatcher()
+  {
+    return s->dispatcher;
   }
 
   void Initialize(World& world)
@@ -410,6 +411,10 @@ namespace Physics
     }
 
     // TODO: Invoke contact callbacks
+    for (const auto& contactPair : s->contactPairs)
+    {
+      s->dispatcher.trigger(contactPair);
+    }
     s->contactPairs.clear();
 
 #ifdef JPH_DEBUG_RENDERER

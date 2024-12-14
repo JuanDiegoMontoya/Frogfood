@@ -32,7 +32,7 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
   {
     if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
     {
-      for (auto&& [entity, player, input, inputLook, transform] : world.GetRegistry().view<Player, InputState, InputLookState, LocalTransform>().each())
+      for (auto&& [entity, player, input, inputLook, transform, gtransform] : world.GetRegistry().view<Player, InputState, InputLookState, LocalTransform, GlobalTransform>().each())
       {
         // TODO: Client should store the ID of the player that they own, then check against that.
         if (player.id == 0)
@@ -52,7 +52,7 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
           inputLook.yaw += static_cast<float>(cursorFrameOffset.x * 0.0025f);
           inputLook.pitch -= static_cast<float>(cursorFrameOffset.y * 0.0025f); // Subtract due to rendering hack that flips the camera
           transform.rotation = glm::angleAxis(inputLook.yaw, glm::vec3{0, 1, 0}) * glm::angleAxis(inputLook.pitch, glm::vec3{1, 0, 0});
-          UpdateLocalTransform({world.GetRegistry(), entity});
+          gtransform.rotation = transform.rotation;
           break;
         }
       }

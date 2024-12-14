@@ -6,12 +6,20 @@
 #endif
 #include "Physics/Physics.h"
 #include "Physics/TwoLevelGridShape.h"
+#include "Physics/PhysicsUtils.h"
 #include "TwoLevelGrid.h"
 #include "Pathfinding.h"
 
 #include "entt/entity/handle.hpp"
 
 #include "tracy/Tracy.hpp"
+
+#include "Jolt/Physics/Collision/Shape/PlaneShape.h"
+#include "Jolt/Physics/Collision/Shape/SphereShape.h"
+#include "Jolt/Physics/Collision/Shape/CapsuleShape.h"
+#include "Jolt/Physics/Collision/Shape/BoxShape.h"
+#include "Jolt/Physics/Collision/Shape/CylinderShape.h"
+#include "entt/signal/dispatcher.hpp"
 
 #include <chrono>
 #include <stack>
@@ -28,10 +36,26 @@ static void OnDeferredDeleteConstruct(entt::registry& registry, entt::entity ent
   }
 }
 
+static void OnContact(entt::registry& registry, const Physics::ContactPair& pair)
+{
+  if (registry.any_of<PathfindingEnemyBehavior>(pair.entity1) && registry.all_of<Projectile>(pair.entity2))
+  {
+    registry.emplace_or_replace<DeferredDelete>(pair.entity1);
+    registry.emplace_or_replace<DeferredDelete>(pair.entity2);
+  }
+  
+  if (registry.any_of<PathfindingEnemyBehavior>(pair.entity2) && registry.all_of<Projectile>(pair.entity1))
+  {
+    registry.emplace_or_replace<DeferredDelete>(pair.entity1);
+    registry.emplace_or_replace<DeferredDelete>(pair.entity2);
+  }
+}
+
 Game::Game(uint32_t tickHz)
 {
   world_ = std::make_unique<World>();
   Physics::Initialize(*world_);
+  Physics::GetDispatcher().sink<Physics::ContactPair>().connect<&OnContact>(world_->GetRegistry());
 #ifdef GAME_HEADLESS
   head_ = std::make_unique<NullHead>();
   world_->GetRegistry().ctx().emplace<GameState>() = GameState::GAME;
@@ -79,9 +103,11 @@ void Game::Run()
     const auto realDeltaTime    = std::chrono::duration_cast<std::chrono::microseconds>(currentTimestamp - previousTimestamp).count() / 1'000'000.0;
     previousTimestamp = currentTimestamp;
 
-    const auto dt = DeltaTime{
+
+    auto dt = DeltaTime{
       .game = static_cast<float>(realDeltaTime * timeScale),
       .real = static_cast<float>(realDeltaTime),
+      .fraction = float(fixedUpdateAccum / tickDuration),
     };
 
     if (head_)
@@ -89,13 +115,17 @@ void Game::Run()
       head_->VariableUpdatePre(dt, *world_);
     }
 
+    constexpr int MAX_TICKS = 5;
+    int accumTicks          = 0;
     fixedUpdateAccum += realDeltaTime * timeScale;
-    while (fixedUpdateAccum > tickDuration)
+    while (fixedUpdateAccum > tickDuration && accumTicks++ < MAX_TICKS)
     {
       fixedUpdateAccum -= tickDuration;
       // TODO: Networking update before FixedUpdate
       world_->FixedUpdate(static_cast<float>(tickDuration));
     }
+
+    dt.fraction = float(fixedUpdateAccum / tickDuration);
 
     if (head_)
     {
@@ -109,13 +139,6 @@ void Game::Run()
   }
 }
 
-#include "Jolt/Physics/Collision/Shape/PlaneShape.h"
-#include "Jolt/Physics/Collision/Shape/SphereShape.h"
-#include "Jolt/Physics/Collision/Shape/CapsuleShape.h"
-#include "Jolt/Physics/Collision/Shape/BoxShape.h"
-#include "Jolt/Physics/Collision/Shape/CylinderShape.h"
-#include "Physics/PhysicsUtils.h"
-
 void World::FixedUpdate(float dt)
 {
   ZoneScoped;
@@ -125,13 +148,21 @@ void World::FixedUpdate(float dt)
 #ifndef GAME_HEADLESS
     registry_.ctx().get<std::vector<Debug::Line>>().clear();
 #endif
+
     // Update previous transforms before updating it (this should be done after updating the game state from networking)
     for (auto&& [entity, transform, interpolatedTransform] : registry_.view<GlobalTransform, InterpolatedTransform>().each())
     {
-      interpolatedTransform.accumulator = 0;
       interpolatedTransform.previousPosition = transform.position;
       interpolatedTransform.previousRotation = transform.rotation;
       interpolatedTransform.previousScale    = transform.scale;
+    }
+
+    for (auto&& [entity, player] : registry_.view<Player>().each())
+    {
+      if (player.id == 0)
+      {
+        UpdateLocalTransform({registry_, entity});
+      }
     }
     
     Physics::FixedUpdate(dt, *this);
@@ -374,6 +405,25 @@ void World::FixedUpdate(float dt)
         registry_.emplace<TempMesh>(e2);
         SetParent({registry_, e2}, e);
       }
+
+      if (input.usePrimary)
+      {
+        const float bulletScale = 0.2f;
+        auto bulletShape = JPH::Ref(new JPH::SphereShape(bulletScale));
+        auto b = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 2.0f, transform.rotation, bulletScale);
+        registry_.emplace<Name>(b).name = "Bullet";
+        registry_.emplace<Lifetime>(b).remainingSeconds = 2;
+        registry_.emplace<Projectile>(b);
+        auto rb = Physics::AddRigidBody({registry_, b},
+          {
+            .shape      = bulletShape,
+            .activate   = true,
+            .motionType = JPH::EMotionType::Dynamic,
+            .layer      = Physics::Layers::MOVING,
+          });
+        Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
+        Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(GetForward(transform.rotation) * 800.0f));
+      }
     }
 
     // End of tick, reset input
@@ -535,6 +585,11 @@ void World::InitializeGameState()
   });
   //cc.character->SetMaxStrength(10000000);
 
+  auto pg = CreateRenderableEntity({0.2f, -0.2f, 0.5f});
+  registry_.emplace<TempMesh>(pg);
+  registry_.emplace<Name>(pg).name = "Gun";
+  SetParent({registry_, pg}, p);
+
   auto e = CreateRenderableEntity({0, 0, 0});
   registry_.emplace<Name>(e).name = "Test";
   registry_.emplace<TempMesh>(e);
@@ -584,13 +639,18 @@ void World::InitializeGameState()
 
 entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotation, float scale)
 {
-  auto e = registry_.create();
-  auto& t = registry_.emplace<LocalTransform>(e);
-  t.position                            = position;
-  t.rotation                            = rotation;
-  t.scale                               = scale;
+  auto e     = registry_.create();
+  auto& t    = registry_.emplace<LocalTransform>(e);
+  t.position = position;
+  t.rotation = rotation;
+  t.scale    = scale;
+
   registry_.emplace<GlobalTransform>(e) = {t.position, t.rotation, t.scale};
-  registry_.emplace<InterpolatedTransform>(e);
+
+  auto& it            = registry_.emplace<InterpolatedTransform>(e);
+  it.previousPosition = t.position;
+  it.previousRotation = t.rotation;
+  it.previousScale    = t.scale;
   registry_.emplace<RenderTransform>(e);
   registry_.emplace<Hierarchy>(e);
   return e;

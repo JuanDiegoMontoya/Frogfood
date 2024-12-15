@@ -38,7 +38,7 @@ namespace
     glm::vec3 color{};
   };
 
-  struct Mesh
+  struct GpuMesh
   {
     std::optional<Fvog::TypedBuffer<Vertex>> vertexBuffer;
     std::optional<Fvog::TypedBuffer<index_t>> indexBuffer;
@@ -46,7 +46,7 @@ namespace
     std::vector<index_t> indices;
   };
 
-  Mesh LoadObjFile(const std::filesystem::path& path)
+  GpuMesh LoadObjFile(const std::filesystem::path& path)
   {
     tinyobj::ObjReader reader;
     if (!reader.ParseFromFile(path.string()))
@@ -64,7 +64,7 @@ namespace
     auto& shapes = reader.GetShapes();
     // auto& materials = reader.GetMaterials();
 
-    auto mesh = Mesh{};
+    auto mesh = GpuMesh{};
 
     // Loop over shapes
     for (const auto& shape : shapes)
@@ -133,15 +133,15 @@ namespace
     FVOG_UINT32 useGpuVertexBuffer;
   };
 
-  Mesh g_testMesh; // TODO: TEMP
+  std::unordered_map<std::string, GpuMesh> g_meshes;
 } // namespace
 
 VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
 {
   ZoneScoped;
 
-  //g_testMesh = LoadObjFile(GetAssetDirectory() / "models/frog.obj");
-  g_testMesh = LoadObjFile(GetAssetDirectory() / "models/ar15.obj");
+  g_meshes.emplace("frog", LoadObjFile(GetAssetDirectory() / "models/frog.obj"));
+  g_meshes.emplace("ar15", LoadObjFile(GetAssetDirectory() / "models/ar15.obj"));
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -162,7 +162,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
     .state =
       {
         .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
-        .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL},
+        .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = FVOG_COMPARE_OP_NEARER_OR_EQUAL},
         .renderTargetFormats =
           {
             .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
@@ -186,7 +186,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
     .state =
       {
         .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
-        .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = VK_COMPARE_OP_GREATER},
+        .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = FVOG_COMPARE_OP_NEARER},
         .renderTargetFormats =
           {
             .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
@@ -360,7 +360,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
 VoxelRenderer::~VoxelRenderer()
 {
   ZoneScoped;
-  g_testMesh = {};
+  g_meshes.clear();
   vkDeviceWaitIdle(Fvog::GetDevice().device_);
 
   Fvog::GetDevice().FreeUnusedResources();
@@ -443,8 +443,8 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         // Because the player has its own variable delta pitch and yaw updates, we only care about smoothing positions here
         position = renderTransform->transform.position;
       }
-      auto rotation = glm::mat4(glm::vec4(1, 0, 0, 0), glm::vec4(0, 1, 0, 0), glm::vec4(0, 0, -1, 0), glm::vec4(0, 0, 0, 1)) * glm::mat4_cast(glm::inverse(rotationQuat));
-      viewMat  = glm::translate(rotation, -position);
+      auto rotation = glm::mat4_cast(glm::inverse(rotationQuat));
+      viewMat = glm::translate(rotation, -position);
       break;
     }
   }
@@ -474,9 +474,10 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .flags                  = 0,
       .alphaHashScale         = 0,
     });
-
+  
+  auto drawCalls       = std::vector<GpuMesh*>();
   auto meshUniformzVec = std::vector<Temp::ObjectUniforms>();
-  for (auto&& [entity, transform] : world.GetRegistry().view<GlobalTransform, TempMesh>().each())
+  for (auto&& [entity, transform, mesh] : world.GetRegistry().view<GlobalTransform, Mesh>().each())
   {
     GlobalTransform actualTransform = transform;
     if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
@@ -484,7 +485,9 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       actualTransform = renderTransform->transform;
     }
     auto worldFromObject = glm::translate(glm::mat4(1), actualTransform.position) * glm::mat4_cast(actualTransform.rotation) * glm::scale(glm::mat4(1), glm::vec3(actualTransform.scale));
-    meshUniformzVec.emplace_back(worldFromObject, g_testMesh.vertexBuffer->GetDeviceAddress());
+    auto& gpuMesh = g_meshes[mesh.name];
+    meshUniformzVec.emplace_back(worldFromObject, gpuMesh.vertexBuffer->GetDeviceAddress());
+    drawCalls.emplace_back(&gpuMesh);
   }
 
   auto meshUniformz = Fvog::TypedBuffer<Temp::ObjectUniforms>({
@@ -531,7 +534,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     auto depthAttachment = Fvog::RenderDepthStencilAttachment{
       .texture = frame.sceneDepth.value().ImageView(),
       .loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
-      .clearValue = {.depth = 0},
+      .clearValue = {.depth = FAR_DEPTH},
     };
     ctx.BeginRendering({
       .name             = "Render voxels",
@@ -553,7 +556,6 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         .uniformBufferIndex         = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
         .noiseTexture = noiseTexture->ImageView().GetTexture2D(),
       });
-      ctx.BindIndexBuffer(g_testMesh.indexBuffer.value(), 0, VK_INDEX_TYPE_UINT32);
       ctx.Draw(3, 1, 0, 0);
     }
     {
@@ -566,15 +568,24 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         .voxels = voxels,
         .noiseTexture = noiseTexture->ImageView().GetTexture2D(),
       });
-      ctx.DrawIndexed((uint32_t)g_testMesh.indices.size(), (uint32_t)meshUniformz.Size(), 0, 0, 0);
-      
-      ctx.BindGraphicsPipeline(debugLinesPipeline.GetPipeline());
-      ctx.SetPushConstants(DebugLinesPushConstants{
-        .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,
-        .globalUniformsIndex = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
-        .useGpuVertexBuffer  = 0,
-      });
-      ctx.Draw(uint32_t(lines.size() * 2), 1, 0, 0);
+
+      for (size_t i = 0; i < drawCalls.size(); i++)
+      {
+        const auto& mesh = drawCalls[i];
+        ctx.BindIndexBuffer(mesh->indexBuffer.value(), 0, VK_INDEX_TYPE_UINT32);
+        ctx.DrawIndexed((uint32_t)mesh->indices.size(), 1, 0, 0, (uint32_t)i);
+      }
+
+      if (!lines.empty())
+      {
+        ctx.BindGraphicsPipeline(debugLinesPipeline.GetPipeline());
+        ctx.SetPushConstants(DebugLinesPushConstants{
+          .vertexBufferIndex   = lineVertexBuffer->GetDeviceBuffer().GetResourceHandle().index,
+          .globalUniformsIndex = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
+          .useGpuVertexBuffer  = 0,
+        });
+        ctx.Draw(uint32_t(lines.size() * 2), 1, 0, 0);
+      }
     }
     ctx.EndRendering();
   }
@@ -765,9 +776,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           {
             ImGui::SeparatorText("RigidBody");
           }
-          if (registry.all_of<TempMesh>(e))
+          if (auto* m = registry.try_get<Mesh>(e))
           {
-            ImGui::SeparatorText("TempMesh");
+            ImGui::SeparatorText("Mesh");
+            ImGui::Text("%s", m->name.c_str());
           }
           ImGui::TreePop();
         }

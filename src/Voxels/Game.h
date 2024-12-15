@@ -222,7 +222,10 @@ struct TickRate
   uint32_t hz;
 };
 
-struct TempMesh {};
+struct Mesh
+{
+  std::string name;
+};
 
 struct SimpleEnemyBehavior {};
 struct PathfindingEnemyBehavior {};

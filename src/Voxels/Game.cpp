@@ -195,7 +195,7 @@ void World::FixedUpdate(float dt)
                 input.jump = true;
               }
 
-              transform.rotation = glm::quatLookAt(glm::normalize(pt->position - transform.position), {0, 1, 0});
+              transform.rotation = glm::quatLookAtRH(glm::normalize(pt->position - transform.position), {0, 1, 0});
 
               input.forward = 1;
             }
@@ -287,7 +287,7 @@ void World::FixedUpdate(float dt)
                 {
                   input.jump = true;
                 }
-                transform.rotation = glm::quatLookAt(glm::normalize(nextNode - transform.position), {0, 1, 0});
+                transform.rotation = glm::quatLookAtRH(glm::normalize(nextNode - transform.position), {0, 1, 0});
                 input.forward      = 1;
               }
             }
@@ -322,7 +322,7 @@ void World::FixedUpdate(float dt)
         const auto right = rot[0];
         const auto gUp   = glm::vec3(0, 1, 0);
         // right and up will never be collinear if roll doesn't change
-        const auto forward = glm::normalize(glm::cross(right, gUp));
+        const auto forward = glm::normalize(glm::cross(gUp, right));
 
         // Physics engine factors in deltaTime already
         float tempSpeed = 2;
@@ -383,13 +383,13 @@ void World::FixedUpdate(float dt)
         sphere->SetDensity(.33f);
 
         auto e      = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 5.0f, {1, 0, 0, 0}, 0.4f);
-        registry_.emplace<TempMesh>(e);
+        registry_.emplace<Mesh>(e).name = "frog";
         registry_.emplace<Name>(e, "Fall ball");
         //registry_.emplace<SimpleEnemyBehavior>(e);
         registry_.emplace<PathfindingEnemyBehavior>(e);
         registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
         registry_.emplace<InputState>(e);
-        registry_.emplace<Lifetime>(e).remainingSeconds = 5;
+        //registry_.emplace<Lifetime>(e).remainingSeconds = 5;
         //Physics::AddCharacterController({registry_, e}, {sphere});
         Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
         //Physics::AddRigidBody({registry_, e},
@@ -400,18 +400,20 @@ void World::FixedUpdate(float dt)
         //    .layer      = Physics::Layers::MOVING,
         //  });
 
-        auto e2 = CreateRenderableEntity({1, 1, 0});
+        auto e2 = CreateRenderableEntity({1.0f, 0.3f, -0.8f}, {1, 0, 0, 0}, 1.5f);
         registry_.emplace<Name>(e2).name = "Child";
-        registry_.emplace<TempMesh>(e2);
+        registry_.emplace<Mesh>(e2).name = "ar15";
         SetParent({registry_, e2}, e);
       }
 
       if (input.usePrimary)
       {
-        const float bulletScale = 0.2f;
+        const float bulletScale = 0.04f;
         auto bulletShape = JPH::Ref(new JPH::SphereShape(bulletScale));
+        bulletShape->SetDensity(11000);
         auto b = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 2.0f, transform.rotation, bulletScale);
         registry_.emplace<Name>(b).name = "Bullet";
+        registry_.emplace<Mesh>(b).name = "frog";
         registry_.emplace<Lifetime>(b).remainingSeconds = 2;
         registry_.emplace<Projectile>(b);
         auto rb = Physics::AddRigidBody({registry_, b},
@@ -422,7 +424,8 @@ void World::FixedUpdate(float dt)
             .layer      = Physics::Layers::MOVING,
           });
         Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
-        Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(GetForward(transform.rotation) * 800.0f));
+        Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(GetForward(transform.rotation) * 300.0f));
+        Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
       }
     }
 
@@ -585,14 +588,14 @@ void World::InitializeGameState()
   });
   //cc.character->SetMaxStrength(10000000);
 
-  auto pg = CreateRenderableEntity({0.2f, -0.2f, 0.5f});
-  registry_.emplace<TempMesh>(pg);
+  auto pg = CreateRenderableEntity({0.2f, -0.2f, -0.5f});
+  registry_.emplace<Mesh>(pg).name = "ar15";
   registry_.emplace<Name>(pg).name = "Gun";
   SetParent({registry_, pg}, p);
 
   auto e = CreateRenderableEntity({0, 0, 0});
   registry_.emplace<Name>(e).name = "Test";
-  registry_.emplace<TempMesh>(e);
+  registry_.emplace<Mesh>(e).name = "frog";
 
   auto planeSettings = JPH::PlaneShapeSettings(JPH::Plane(JPH::Vec3(0, 1, 0), 0));
   planeSettings.SetEmbedded();
@@ -627,7 +630,7 @@ void World::InitializeGameState()
   {
     auto a = CreateRenderableEntity({0, 5 + i * 2, i * .1f});
     registry_.emplace<Name>(a).name = "Ball";
-    registry_.emplace<TempMesh>(a);
+    registry_.emplace<Mesh>(a).name = "frog";
     Physics::AddRigidBody({registry_, a}, {
       .shape = sphere,
       .activate = true,
@@ -719,7 +722,7 @@ void UpdateLocalTransform(entt::handle handle)
 
 glm::vec3 GetForward(glm::quat rotation)
 {
-  return glm::mat3_cast(rotation)[2];
+  return -glm::mat3_cast(rotation)[2];
 }
 
 glm::vec3 GetUp(glm::quat rotation)

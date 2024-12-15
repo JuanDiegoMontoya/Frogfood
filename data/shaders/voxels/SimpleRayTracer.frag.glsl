@@ -3,6 +3,7 @@
 #include "../Math.h.glsl"
 #include "../Utility.h.glsl"
 #include "../Hash.h.glsl"
+#include "../Config.shared.h"
 
 #include "Voxels.h.glsl"
 
@@ -54,7 +55,7 @@ void main()
 	{
 		albedo = rayDir * .5 + .5;
 		illuminance = vec3(1);
-		gl_FragDepth = 0;
+		gl_FragDepth = FAR_DEPTH;
 	}
 
 	//o_color += vec3(gTopLevelBricksTraversed / 8, gBottomLevelBricksTraversed / 64, gVoxelsTraversed / 512);

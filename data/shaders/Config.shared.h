@@ -33,9 +33,11 @@
 #ifdef __cplusplus
 #include <volk.h>
   #if REVERSE_Z
-  inline constexpr auto FVOG_COMPARE_OP_NEARER = VK_COMPARE_OP_GREATER; //
+  inline constexpr auto FVOG_COMPARE_OP_NEARER = VK_COMPARE_OP_GREATER;
+  inline constexpr auto FVOG_COMPARE_OP_NEARER_OR_EQUAL = VK_COMPARE_OP_GREATER_OR_EQUAL;
   #else
   inline constexpr auto FVOG_COMPARE_OP_NEARER = VK_COMPARE_OP_LESS;
+  inline constexpr auto FVOG_COMPARE_OP_NEARER_OR_EQUAL = VK_COMPARE_OP_LESS_OR_EQUAL;
   #endif
 #endif
 

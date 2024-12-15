@@ -550,6 +550,7 @@ namespace Physics
 #endif
       }
     }
+#if 0
     s->engine->DrawBodies(
       JPH::BodyManager::DrawSettings{
         //.mDrawGetSupportFunction        = true,
@@ -575,6 +576,7 @@ namespace Physics
         //.mDrawSoftBodyConstraintColor   =,
       },
       s->debugRenderer.get());
+#endif
 #endif
   }
 } // namespace Physics

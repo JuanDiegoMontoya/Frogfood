@@ -3,6 +3,7 @@
 #include "Common.h.glsl"
 #include "../../Resources.h.glsl"
 #include "../../Math.h.glsl"
+#include "../../Config.shared.h"
 
 FVOG_DECLARE_STORAGE_BUFFERS(BilateralUniformBuffers)
 {
@@ -44,7 +45,7 @@ void AddFilterContribution(inout vec3 accumIlluminance,
   vec3 oColor = texelFetch(pc.sceneIlluminance, id, 0).rgb;
   vec3 oNormal = texelFetch(pc.sceneNormal, id, 0).xyz;
   float oDepth = texelFetch(pc.sceneDepth, id, 0).x;
-  if (oDepth == 0)
+  if (oDepth == FAR_DEPTH)
   {
     return;
   }
@@ -71,7 +72,7 @@ void main()
   vec3 cColor = texelFetch(pc.sceneIlluminance, gid, 0).rgb;
   vec3 cNormal = texelFetch(pc.sceneNormal, gid, 0).xyz;
   float cDepth = texelFetch(pc.sceneDepth, gid, 0).x;
-  if (cDepth == 0)
+  if (cDepth == FAR_DEPTH)
   {
     imageStore(pc.sceneIlluminancePingPong, gid, vec4(cColor, 0.0));
     return;

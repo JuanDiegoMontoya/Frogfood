@@ -49,8 +49,9 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
           input.usePrimary   = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_1) == GLFW_PRESS ? true : false;
           input.useSecondary = glfwGetMouseButton(window_, GLFW_MOUSE_BUTTON_2) == GLFW_PRESS ? true : false;
           input.interact     = glfwGetKey(window_, GLFW_KEY_F) == GLFW_PRESS ? true : false;
-          inputLook.yaw += static_cast<float>(cursorFrameOffset.x * 0.0025f);
-          inputLook.pitch -= static_cast<float>(cursorFrameOffset.y * 0.0025f); // Subtract due to rendering hack that flips the camera
+          // angleAxis rotates clockwise if we are looking 'down' the axis (backwards). Keep in mind whether the coordinate system is LH or RH when doing this.
+          inputLook.yaw -= static_cast<float>(cursorFrameOffset.x * 0.0025f);
+          inputLook.pitch += static_cast<float>(cursorFrameOffset.y * 0.0025f);
           transform.rotation = glm::angleAxis(inputLook.yaw, glm::vec3{0, 1, 0}) * glm::angleAxis(inputLook.pitch, glm::vec3{1, 0, 0});
           gtransform.rotation = transform.rotation;
           break;

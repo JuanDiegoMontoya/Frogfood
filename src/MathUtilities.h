@@ -24,7 +24,7 @@ namespace Math
   inline glm::mat4 InfReverseZPerspectiveLH(float fovY_radians, float aspectWbyH, float zNear)
   {
     auto mat = InfReverseZPerspectiveRH(fovY_radians, aspectWbyH, zNear);
-    std::swap(mat[1], mat[2]);
+    mat[2][3] *= -1;
     return mat;
   }
 

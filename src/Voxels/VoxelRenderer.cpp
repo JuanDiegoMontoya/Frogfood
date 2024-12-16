@@ -719,6 +719,44 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       }
     }
     ImGui::End();
+
+    if (ImGui::Begin("Inventory"))
+    {
+      auto&& [e, i] = *world.GetRegistry().view<LocalPlayer, Inventory>().each().begin();
+      ImGui::BeginTable("Inventory", (int)i.width, ImGuiTableFlags_Borders);
+
+      for (size_t row = 0; row < i.slots.size(); row++)
+      {
+        ImGui::PushID(int(row));
+        for (size_t col = 0; col < i.slots[row].size(); col++)
+        {
+          ImGui::TableNextColumn();
+          ImGui::PushID(int(col));
+          auto& slot = i.slots[row][col];
+          auto name  = slot ? slot->GetName() : "";
+          if (ImGui::Selectable(name, i.activeX == col && i.activeY == row, ImGuiSelectableFlags_AllowOverlap, {50, 50}))
+          {
+            if (i.activeX != col || i.activeY != row)
+            {
+              if (i.ActiveSlot())
+              {
+                i.ActiveSlot()->Dematerialize();
+              }
+              i.activeX = col;
+              i.activeY = row;
+              if (i.ActiveSlot())
+              {
+                i.ActiveSlot()->Materialize(e);
+              }
+            }
+          }
+          ImGui::PopID();
+        }
+        ImGui::PopID();
+      }
+      ImGui::EndTable();
+    }
+    ImGui::End();
     break;
   }
   case GameState::PAUSED:

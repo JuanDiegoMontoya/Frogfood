@@ -8,9 +8,9 @@
 #include "glm/vec3.hpp"
 #include "glm/gtc/quaternion.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
-#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -87,7 +87,75 @@ private:
 glm::vec3 GetFootPosition(entt::handle handle);
 float GetHeight(entt::handle handle);
 
-void PrimaryAction(entt::handle handle);
+class Item
+{
+public:
+  NO_COPY(Item);
+
+  Item(World& world) : world(&world) {}
+  virtual ~Item() = default;
+
+  virtual const char* GetName() const = 0;
+
+  // Create an entity
+  virtual void Materialize(entt::entity parent) = 0;
+  virtual void Dematerialize()                                            = 0;
+
+  // Perform an action with the entity
+  virtual void UsePrimary() {}
+
+  virtual void Update([[maybe_unused]] float dt) {}
+
+  World* world = nullptr;
+
+  // The materialized self. Usage: set in Materialize, nullify in Dematerialize.
+  entt::entity self = entt::null;
+};
+
+class Gun : public Item
+{
+public:
+  NO_COPY(Gun);
+
+  Gun(World& world) : Item(world) {}
+
+  const char* GetName() const override
+  {
+    return "Gun";
+  }
+
+  void Materialize(entt::entity parent) override;
+  void Dematerialize() override;
+
+  void UsePrimary() override;
+  void Update(float dt) override;
+
+  float fireRateRpm = 800;
+  float accuracyMoa = 4;
+  bool pressed      = false;
+  float vrecoil     = 1.0f; // Degrees
+  float vrecoilDev  = 0.25f;
+  float hrecoil     = 0.0f;
+  float hrecoilDev  = 0.25f;
+  float accum       = 1000.0f;
+};
+
+struct Inventory
+{
+  static constexpr size_t height = 4;
+  static constexpr size_t width  = 8;
+
+  // Coordinate of equipped slot
+  size_t activeX = 0;
+  size_t activeY = 0;
+
+  std::array<std::array<std::unique_ptr<Item>, width>, height> slots{};
+
+  auto& ActiveSlot()
+  {
+    return slots[activeY][activeX];
+  }
+};
 
 class Networking
 {
@@ -179,19 +247,6 @@ struct InputLookState
 struct Player
 {
   uint32_t id = 0;
-  entt::entity held = entt::null;
-};
-
-struct Gun
-{
-  float rpm        = 800;
-  float moa        = 4;
-  bool pressed     = false;
-  float vrecoil    = 1.0f; // Degrees
-  float vrecoilDev = 0.25f;
-  float hrecoil    = 0.0f;
-  float hrecoilDev = 0.25f;
-  float accum      = 1000.0f;
 };
 
 struct DeferredDelete {};

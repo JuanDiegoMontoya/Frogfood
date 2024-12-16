@@ -145,6 +145,85 @@ void Game::Run()
   }
 }
 
+void Gun::Materialize(entt::entity parent)
+{
+  self = world->CreateRenderableEntity({0.2f, -0.2f, -0.5f});
+  world->GetRegistry().emplace<Mesh>(self).name = "ar15";
+  world->GetRegistry().emplace<Name>(self).name = "Gun";
+  SetParent({world->GetRegistry(), self}, parent);
+}
+
+void Gun::Dematerialize()
+{
+  world->GetRegistry().emplace<DeferredDelete>(self);
+  self = entt::null;
+}
+
+void Gun::UsePrimary()
+{
+  pressed = true;
+}
+
+void Gun::Update(float dt)
+{
+  auto& registry = world->GetRegistry();
+  accum += dt;
+
+  // Only shoot if materialized
+  if (!registry.valid(self))
+  {
+    return;
+  }
+
+  const auto& transform = registry.get<GlobalTransform>(self);
+  const auto shootDt = 1.0f / (fireRateRpm / 60.0f);
+  if (pressed && accum >= shootDt)
+  {
+    accum   = glm::clamp(accum - dt, 0.0f, dt);
+    pressed = false;
+
+    const float bulletScale = 1;
+    auto bulletShape        = JPH::Ref(new JPH::SphereShape(.04f));
+    bulletShape->SetDensity(11000);
+    const auto dir = Math::RandVecInCone({world->Rng().RandFloat(), world->Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(accuracyMoa / 60.0f));
+    auto up        = glm::vec3(0, 1, 0);
+    if (glm::epsilonEqual(abs(dot(dir, glm::vec3(0, 1, 0))), 1.0f, 0.001f))
+    {
+      up = {0, 0, 1};
+    }
+    auto rot = glm::quatLookAtRH(dir, up);
+    auto b   = world->CreateRenderableEntity(transform.position + glm::vec3(0, 0.1f, 0) + GetForward(transform.rotation) * 1.0f, rot, bulletScale);
+
+    registry.emplace<Name>(b).name                 = "Bullet";
+    registry.emplace<Mesh>(b).name                 = "tracer";
+    registry.emplace<Lifetime>(b).remainingSeconds = 2;
+    registry.emplace<Projectile>(b);
+    auto rb = Physics::AddRigidBody({registry, b},
+      {
+        .shape      = bulletShape,
+        .activate   = true,
+        .motionType = JPH::EMotionType::Dynamic,
+        .layer      = Physics::Layers::MOVING,
+      });
+    Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
+    Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * 300.0f));
+    Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
+
+    // If parent is player, apply recoil
+    if (auto* h = registry.try_get<Hierarchy>(self); h && h->parent != entt::null)
+    {
+      const auto vr = glm::radians(vrecoil + world->Rng().RandFloat(-vrecoilDev, vrecoilDev));
+      const auto hr = glm::radians(hrecoil + world->Rng().RandFloat(-hrecoilDev, hrecoilDev));
+      if (auto* is = registry.try_get<InputLookState>(h->parent))
+      {
+        is->pitch += vr;
+        is->yaw += hr;
+        UpdateLocalTransform({registry, h->parent});
+      }
+    }
+  }
+}
+
 void World::FixedUpdate(float dt)
 {
   ZoneScoped;
@@ -375,7 +454,7 @@ void World::FixedUpdate(float dt)
     }
 
     // Player interaction
-    for (auto&& [entity, player, transform, input] : registry_.view<Player, GlobalTransform, InputState>().each())
+    for (auto&& [entity, player, transform, input, inventory] : registry_.view<Player, GlobalTransform, InputState, Inventory>().each())
     {
       if (input.interact)
       {
@@ -414,56 +493,23 @@ void World::FixedUpdate(float dt)
 
       if (input.usePrimary)
       {
-        PrimaryAction({registry_, player.held});
+        if (inventory.ActiveSlot())
+        {
+          inventory.ActiveSlot()->UsePrimary();
+        }
       }
     }
 
-    for (auto&& [entity, gun, transform] : registry_.view<Gun, GlobalTransform>().each())
+    // Update items in inventories (important to ensure cooldowns, etc. reset even when items are put away).
+    for (auto&& [entity, player, inventory] : registry_.view<Player, Inventory>().each())
     {
-      const auto shootDt = 1.0f / (gun.rpm / 60.0f);
-      gun.accum += dt;
-      if (gun.pressed && gun.accum >= shootDt)
+      for (auto& row : inventory.slots)
       {
-        gun.accum   = glm::clamp(gun.accum - dt, 0.0f, dt);
-        gun.pressed = false;
-
-        const float bulletScale = 1;
-        auto bulletShape        = JPH::Ref(new JPH::SphereShape(.04f));
-        bulletShape->SetDensity(11000);
-        const auto dir = Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(gun.moa / 60.0f));
-        auto up        = glm::vec3(0, 1, 0);
-        if (glm::epsilonEqual(abs(dot(dir, glm::vec3(0, 1, 0))), 1.0f, 0.001f))
+        for (auto& slot : row)
         {
-          up = {0, 0, 1};
-        }
-        auto rot       = glm::quatLookAtRH(dir, up);
-        auto b = CreateRenderableEntity(transform.position + glm::vec3(0, 0.1f, 0) + GetForward(transform.rotation) * 1.0f, rot, bulletScale);
-
-        registry_.emplace<Name>(b).name = "Bullet";
-        registry_.emplace<Mesh>(b).name = "tracer";
-        registry_.emplace<Lifetime>(b).remainingSeconds = 2;
-        registry_.emplace<Projectile>(b);
-        auto rb = Physics::AddRigidBody({registry_, b},
+          if (slot)
           {
-            .shape      = bulletShape,
-            .activate   = true,
-            .motionType = JPH::EMotionType::Dynamic,
-            .layer      = Physics::Layers::MOVING,
-          });
-        Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
-        Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * 300.0f));
-        Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
-
-        // If parent is player, apply recoil
-        if (auto* h = registry_.try_get<Hierarchy>(entity); h && h->parent != entt::null)
-        {
-          const auto vrecoil = glm::radians(gun.vrecoil + Rng().RandFloat(-gun.vrecoilDev, gun.vrecoilDev));
-          const auto hrecoil = glm::radians(gun.hrecoil + Rng().RandFloat(-gun.hrecoilDev, gun.hrecoilDev));
-          if (auto* is = registry_.try_get<InputLookState>(h->parent))
-          {
-            is->pitch += vrecoil;
-            is->yaw += hrecoil;
-            UpdateLocalTransform({registry_, h->parent});
+            slot->Update(dt);
           }
         }
       }
@@ -623,11 +669,12 @@ void World::InitializeGameState()
   // Make player entity
   auto p = registry_.create();
   registry_.emplace<Name>(p).name = "Player";
-  auto& player = registry_.emplace<Player>(p);
+  registry_.emplace<Player>(p);
   registry_.emplace<LocalPlayer>(p);
   registry_.emplace<InputState>(p);
   registry_.emplace<InputLookState>(p);
   registry_.emplace<Hierarchy>(p);
+
   auto& tp = registry_.emplace<LocalTransform>(p);
   tp.position = {2, 78, 2};
   tp.rotation = glm::identity<glm::quat>();
@@ -640,13 +687,9 @@ void World::InitializeGameState()
     .shape = playerCapsule,
   });
   //cc.character->SetMaxStrength(10000000);
-
-  auto pg = CreateRenderableEntity({0.2f, -0.2f, -0.5f});
-  registry_.emplace<Mesh>(pg).name = "ar15";
-  registry_.emplace<Name>(pg).name = "Gun";
-  registry_.emplace<Gun>(pg);
-  SetParent({registry_, pg}, p);
-  player.held = pg;
+  auto& activeSlot = registry_.emplace<Inventory>(p).ActiveSlot();
+  activeSlot.reset(new Gun(*this));
+  activeSlot->Materialize(p);
 
   auto e = CreateRenderableEntity({0, 0, 0});
   registry_.emplace<Name>(e).name = "Test";

@@ -1,5 +1,6 @@
 #pragma once
 #include "ClassImplMacros.h"
+#include "PCG.h"
 
 #include "entt/entity/registry.hpp"
 #include "entt/entity/entity.hpp"
@@ -35,6 +36,20 @@ struct Debugging
   bool forceShowCursor = false;
 };
 
+struct LocalTransform
+{
+  glm::vec3 position;
+  glm::quat rotation;
+  float scale;
+};
+
+struct GlobalTransform
+{
+  glm::vec3 position;
+  glm::quat rotation;
+  float scale;
+};
+
 class World
 {
 public:
@@ -52,10 +67,17 @@ public:
     return registry_;
   }
 
+  PCG::Rng& Rng()
+  {
+    return registry_.ctx().get<PCG::Rng>();
+  }
+
   void InitializeGameState();
 
   // Adds LocalTransform, GlobalTransform, InterpolatedTransform, RenderTransform, and Hierarchy components.
   entt::entity CreateRenderableEntity(glm::vec3 position, glm::quat rotation = glm::quat(1, 0, 0, 0), float scale = 1);
+
+  [[nodiscard]] GlobalTransform* TryGetLocalPlayerTransform();
 
 private:
   uint64_t ticks_ = 0;
@@ -64,6 +86,8 @@ private:
 
 glm::vec3 GetFootPosition(entt::handle handle);
 float GetHeight(entt::handle handle);
+
+void PrimaryAction(entt::handle handle);
 
 class Networking
 {
@@ -155,20 +179,19 @@ struct InputLookState
 struct Player
 {
   uint32_t id = 0;
+  entt::entity held = entt::null;
 };
 
-struct LocalTransform
+struct Gun
 {
-  glm::vec3 position;
-  glm::quat rotation;
-  float scale;
-};
-
-struct GlobalTransform
-{
-  glm::vec3 position;
-  glm::quat rotation;
-  float scale;
+  float rpm        = 800;
+  float moa        = 4;
+  bool pressed     = false;
+  float vrecoil    = 1.0f; // Degrees
+  float vrecoilDev = 0.25f;
+  float hrecoil    = 0.0f;
+  float hrecoilDev = 0.25f;
+  float accum      = 1000.0f;
 };
 
 struct DeferredDelete {};
@@ -196,11 +219,16 @@ struct Hierarchy
 };
 
 // Use with GlobalTransform for smooth object movement
-struct InterpolatedTransform
+struct PreviousGlobalTransform
 {
-  glm::vec3 previousPosition{};
-  glm::quat previousRotation{};
-  float previousScale{};
+  glm::vec3 position{};
+  glm::quat rotation{};
+  float scale{};
+};
+
+struct Health
+{
+  float hp;
 };
 
 struct RenderTransform
@@ -226,6 +254,9 @@ struct Mesh
 {
   std::string name;
 };
+
+// Placed on root entity belonging to the player
+struct LocalPlayer {};
 
 struct SimpleEnemyBehavior {};
 struct PathfindingEnemyBehavior {};

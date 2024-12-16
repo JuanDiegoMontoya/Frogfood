@@ -27,4 +27,21 @@ namespace PCG
     float f = float(state) * std::bit_cast<float>(0x2f800004u);
     return f * (max - min) + min;
   }
+
+  struct Rng
+  {
+    constexpr Rng(std::uint32_t s = 1234) : seed(PCG::Hash(s)) {}
+
+    constexpr std::uint32_t RandU32()
+    {
+      return PCG::RandU32(seed);
+    }
+
+    constexpr float RandFloat(float min = 0, float max = 1)
+    {
+      return PCG::RandFloat(seed, min, max);
+    }
+
+    std::uint32_t seed;
+  };
 }

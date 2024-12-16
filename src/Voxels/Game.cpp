@@ -9,6 +9,7 @@
 #include "Physics/PhysicsUtils.h"
 #include "TwoLevelGrid.h"
 #include "Pathfinding.h"
+#include "MathUtilities.h"
 
 #include "entt/entity/handle.hpp"
 
@@ -40,14 +41,19 @@ static void OnContact(entt::registry& registry, const Physics::ContactPair& pair
 {
   if (registry.any_of<PathfindingEnemyBehavior>(pair.entity1) && registry.all_of<Projectile>(pair.entity2))
   {
-    registry.emplace_or_replace<DeferredDelete>(pair.entity1);
-    registry.emplace_or_replace<DeferredDelete>(pair.entity2);
+    if (auto* h = registry.try_get<Health>(pair.entity1))
+    {
+      h->hp -= 10;
+      registry.emplace_or_replace<DeferredDelete>(pair.entity2);
+    }
   }
-  
   if (registry.any_of<PathfindingEnemyBehavior>(pair.entity2) && registry.all_of<Projectile>(pair.entity1))
   {
-    registry.emplace_or_replace<DeferredDelete>(pair.entity1);
-    registry.emplace_or_replace<DeferredDelete>(pair.entity2);
+    if (auto* h = registry.try_get<Health>(pair.entity2))
+    {
+      h->hp -= 10;
+      registry.emplace_or_replace<DeferredDelete>(pair.entity1);
+    }
   }
 }
 
@@ -149,20 +155,19 @@ void World::FixedUpdate(float dt)
     registry_.ctx().get<std::vector<Debug::Line>>().clear();
 #endif
 
+    assert(registry_.view<LocalPlayer>().size() <= 1);
+
     // Update previous transforms before updating it (this should be done after updating the game state from networking)
-    for (auto&& [entity, transform, interpolatedTransform] : registry_.view<GlobalTransform, InterpolatedTransform>().each())
+    for (auto&& [entity, transform, interpolatedTransform] : registry_.view<GlobalTransform, PreviousGlobalTransform>().each())
     {
-      interpolatedTransform.previousPosition = transform.position;
-      interpolatedTransform.previousRotation = transform.rotation;
-      interpolatedTransform.previousScale    = transform.scale;
+      interpolatedTransform.position = transform.position;
+      interpolatedTransform.rotation = transform.rotation;
+      interpolatedTransform.scale    = transform.scale;
     }
 
-    for (auto&& [entity, player] : registry_.view<Player>().each())
+    for (auto&& [entity] : registry_.view<LocalPlayer>().each())
     {
-      if (player.id == 0)
-      {
         UpdateLocalTransform({registry_, entity});
-      }
     }
     
     Physics::FixedUpdate(dt, *this);
@@ -385,6 +390,7 @@ void World::FixedUpdate(float dt)
         auto e      = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 5.0f, {1, 0, 0, 0}, 0.4f);
         registry_.emplace<Mesh>(e).name = "frog";
         registry_.emplace<Name>(e, "Fall ball");
+        registry_.emplace<Health>(e).hp = 100;
         //registry_.emplace<SimpleEnemyBehavior>(e);
         registry_.emplace<PathfindingEnemyBehavior>(e);
         registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
@@ -408,12 +414,33 @@ void World::FixedUpdate(float dt)
 
       if (input.usePrimary)
       {
-        const float bulletScale = 0.04f;
-        auto bulletShape = JPH::Ref(new JPH::SphereShape(bulletScale));
+        PrimaryAction({registry_, player.held});
+      }
+    }
+
+    for (auto&& [entity, gun, transform] : registry_.view<Gun, GlobalTransform>().each())
+    {
+      const auto shootDt = 1.0f / (gun.rpm / 60.0f);
+      gun.accum += dt;
+      if (gun.pressed && gun.accum >= shootDt)
+      {
+        gun.accum   = glm::clamp(gun.accum - dt, 0.0f, dt);
+        gun.pressed = false;
+
+        const float bulletScale = 1;
+        auto bulletShape        = JPH::Ref(new JPH::SphereShape(.04f));
         bulletShape->SetDensity(11000);
-        auto b = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 2.0f, transform.rotation, bulletScale);
+        const auto dir = Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(gun.moa / 60.0f));
+        auto up        = glm::vec3(0, 1, 0);
+        if (glm::epsilonEqual(abs(dot(dir, glm::vec3(0, 1, 0))), 1.0f, 0.001f))
+        {
+          up = {0, 0, 1};
+        }
+        auto rot       = glm::quatLookAtRH(dir, up);
+        auto b = CreateRenderableEntity(transform.position + glm::vec3(0, 0.1f, 0) + GetForward(transform.rotation) * 1.0f, rot, bulletScale);
+
         registry_.emplace<Name>(b).name = "Bullet";
-        registry_.emplace<Mesh>(b).name = "frog";
+        registry_.emplace<Mesh>(b).name = "tracer";
         registry_.emplace<Lifetime>(b).remainingSeconds = 2;
         registry_.emplace<Projectile>(b);
         auto rb = Physics::AddRigidBody({registry_, b},
@@ -424,8 +451,21 @@ void World::FixedUpdate(float dt)
             .layer      = Physics::Layers::MOVING,
           });
         Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
-        Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(GetForward(transform.rotation) * 300.0f));
+        Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * 300.0f));
         Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
+
+        // If parent is player, apply recoil
+        if (auto* h = registry_.try_get<Hierarchy>(entity); h && h->parent != entt::null)
+        {
+          const auto vrecoil = glm::radians(gun.vrecoil + Rng().RandFloat(-gun.vrecoilDev, gun.vrecoilDev));
+          const auto hrecoil = glm::radians(gun.hrecoil + Rng().RandFloat(-gun.hrecoilDev, gun.hrecoilDev));
+          if (auto* is = registry_.try_get<InputLookState>(h->parent))
+          {
+            is->pitch += vrecoil;
+            is->yaw += hrecoil;
+            UpdateLocalTransform({registry_, h->parent});
+          }
+        }
       }
     }
 
@@ -440,6 +480,15 @@ void World::FixedUpdate(float dt)
     {
       lifetime.remainingSeconds -= dt;
       if (lifetime.remainingSeconds <= 0)
+      {
+        registry_.emplace<DeferredDelete>(entity);
+      }
+    }
+
+    // Process entities with Health
+    for (auto&& [entity, health] : registry_.view<Health>().each())
+    {
+      if (health.hp <= 0)
       {
         registry_.emplace<DeferredDelete>(entity);
       }
@@ -524,6 +573,9 @@ void World::InitializeGameState()
     registry_.destroy(e);
   }
 
+  // Reset RNG
+  registry_.ctx().emplace<PCG::Rng>(1234);
+
   auto& grid = registry_.ctx().emplace<TwoLevelGrid>(glm::vec3{1, 1, 1});
   // Top level bricks
   for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
@@ -571,7 +623,8 @@ void World::InitializeGameState()
   // Make player entity
   auto p = registry_.create();
   registry_.emplace<Name>(p).name = "Player";
-  registry_.emplace<Player>(p);
+  auto& player = registry_.emplace<Player>(p);
+  registry_.emplace<LocalPlayer>(p);
   registry_.emplace<InputState>(p);
   registry_.emplace<InputLookState>(p);
   registry_.emplace<Hierarchy>(p);
@@ -580,7 +633,7 @@ void World::InitializeGameState()
   tp.rotation = glm::identity<glm::quat>();
   tp.scale    = 1;
   registry_.emplace<GlobalTransform>(p) = {tp.position, tp.rotation, tp.scale};
-  registry_.emplace<InterpolatedTransform>(p);
+  registry_.emplace<PreviousGlobalTransform>(p);
   registry_.emplace<RenderTransform>(p);
   //registry_.emplace<NoclipCharacterController>(p);
   auto cc = Physics::AddCharacterController({registry_, p}, {
@@ -591,7 +644,9 @@ void World::InitializeGameState()
   auto pg = CreateRenderableEntity({0.2f, -0.2f, -0.5f});
   registry_.emplace<Mesh>(pg).name = "ar15";
   registry_.emplace<Name>(pg).name = "Gun";
+  registry_.emplace<Gun>(pg);
   SetParent({registry_, pg}, p);
+  player.held = pg;
 
   auto e = CreateRenderableEntity({0, 0, 0});
   registry_.emplace<Name>(e).name = "Test";
@@ -650,13 +705,24 @@ entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotatio
 
   registry_.emplace<GlobalTransform>(e) = {t.position, t.rotation, t.scale};
 
-  auto& it            = registry_.emplace<InterpolatedTransform>(e);
-  it.previousPosition = t.position;
-  it.previousRotation = t.rotation;
-  it.previousScale    = t.scale;
+  auto& it            = registry_.emplace<PreviousGlobalTransform>(e);
+  it.position = t.position;
+  it.rotation = t.rotation;
+  it.scale    = t.scale;
   registry_.emplace<RenderTransform>(e);
   registry_.emplace<Hierarchy>(e);
   return e;
+}
+
+GlobalTransform* World::TryGetLocalPlayerTransform()
+{
+  auto view = registry_.view<GlobalTransform, LocalPlayer>();
+  auto e = view.front();
+  if (e != entt::null)
+  {
+    return &view.get<GlobalTransform>(e);
+  }
+  return nullptr;
 }
 
 glm::vec3 GetFootPosition(entt::handle handle)
@@ -682,6 +748,19 @@ float GetHeight(entt::handle handle)
 
   const auto& t = handle.get<GlobalTransform>();
   return t.scale * 2.0f;
+}
+
+void PrimaryAction(entt::handle handle)
+{
+  if (!handle.valid())
+  {
+    return;
+  }
+
+  if (auto* g = handle.try_get<Gun>())
+  {
+    g->pressed = true;
+  }
 }
 
 static void RefreshGlobalTransform(entt::handle handle)

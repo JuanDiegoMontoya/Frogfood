@@ -419,136 +419,133 @@ namespace Physics
 
 #ifdef JPH_DEBUG_RENDERER
     s->debugRenderer->ClearPrimitives();
-    for (auto&& [entity, player, transform] : world.GetRegistry().view<Player, GlobalTransform>().each())
+    for (auto&& [entity, transform] : world.GetRegistry().view<LocalPlayer, GlobalTransform>().each())
     {
-      if (player.id == 0)
-      {
-        s->debugRenderer->SetCameraPos(ToJolt(transform.position));
+      s->debugRenderer->SetCameraPos(ToJolt(transform.position));
 
 #if 0
-        // Create shape cast
-        using namespace JPH;
-        const Vec3 start            = ToJolt(transform.position + transform.GetForward() * 3.0f - transform.GetRight());
-        const Vec3 direction        = ToJolt(2.0f * transform.GetRight() + glm::vec3(0, -.5f, 0));
-        //const Vec3 base_offset      = start + 0.5f * direction;
-        const Vec3 base_offset = start + 0.5f * direction;
-        auto shape       = JPH::RefConst(new CapsuleShape(0.5f, 0.25f));
-        //Mat44 rotation        = Mat44::sRotation(Vec3::sAxisX(), 0.1f * JPH_PI) * Mat44::sRotation(Vec3::sAxisY(), 0.2f * JPH_PI);
-        Mat44 rotation        = Mat44::sIdentity();
-        RShapeCast shape_cast = RShapeCast::sFromWorldTransform(shape, Vec3::sReplicate(1.0f), RMat44::sTranslation(start) * rotation, direction);
+      // Create shape cast
+      using namespace JPH;
+      const Vec3 start            = ToJolt(transform.position + transform.GetForward() * 3.0f - transform.GetRight());
+      const Vec3 direction        = ToJolt(2.0f * transform.GetRight() + glm::vec3(0, -.5f, 0));
+      //const Vec3 base_offset      = start + 0.5f * direction;
+      const Vec3 base_offset = start + 0.5f * direction;
+      auto shape       = JPH::RefConst(new CapsuleShape(0.5f, 0.25f));
+      //Mat44 rotation        = Mat44::sRotation(Vec3::sAxisX(), 0.1f * JPH_PI) * Mat44::sRotation(Vec3::sAxisY(), 0.2f * JPH_PI);
+      Mat44 rotation        = Mat44::sIdentity();
+      RShapeCast shape_cast = RShapeCast::sFromWorldTransform(shape, Vec3::sReplicate(1.0f), RMat44::sTranslation(start) * rotation, direction);
 
-        // Settings
-        ShapeCastSettings settings;
-        //settings.mUseShrunkenShapeAndConvexRadius = mUseShrunkenShapeAndConvexRadius;
-        //settings.mActiveEdgeMode                  = mActiveEdgeMode;
-        //settings.mBackFaceModeTriangles           = mBackFaceModeTriangles;
-        //settings.mBackFaceModeConvex              = mBackFaceModeConvex;
-        //settings.mReturnDeepestPoint              = mReturnDeepestPoint;
-        //settings.mCollectFacesMode                = mCollectFacesMode;
+      // Settings
+      ShapeCastSettings settings;
+      //settings.mUseShrunkenShapeAndConvexRadius = mUseShrunkenShapeAndConvexRadius;
+      //settings.mActiveEdgeMode                  = mActiveEdgeMode;
+      //settings.mBackFaceModeTriangles           = mBackFaceModeTriangles;
+      //settings.mBackFaceModeConvex              = mBackFaceModeConvex;
+      //settings.mReturnDeepestPoint              = mReturnDeepestPoint;
+      //settings.mCollectFacesMode                = mCollectFacesMode;
 
-        int mMaxHits = 256;
+      int mMaxHits = 256;
 
-        // Cast shape
-        Array<ShapeCastResult> hits;
-        if (mMaxHits == 0)
-        {
-          AnyHitCollisionCollector<CastShapeCollector> collector;
-          s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
-          if (collector.HadHit())
-            hits.push_back(collector.mHit);
-        }
-        else if (mMaxHits == 1)
-        {
-          ClosestHitCollisionCollector<CastShapeCollector> collector;
-          s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
-          if (collector.HadHit())
-            hits.push_back(collector.mHit);
-        }
-        else
-        {
-          AllHitCollisionCollector<CastShapeCollector> collector;
-          s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
-          collector.Sort();
-          hits.insert(hits.end(), collector.mHits.begin(), collector.mHits.end());
-          if ((int)hits.size() > mMaxHits)
-            hits.resize(mMaxHits);
-        }
-
-        const bool had_hit = !hits.empty();
-        if (had_hit)
-        {
-          // Fill in results
-          //ShapeCastResult& first_hit = hits.front();
-          //outPosition                = shape_cast.GetPointOnRay(first_hit.mFraction);
-          //outFraction                = first_hit.mFraction;
-          //outID                      = first_hit.mBodyID2;
-
-          // Draw results
-          RVec3 prev_position = start;
-          bool c              = false;
-          for (const ShapeCastResult& hit : hits)
-          {
-            // Draw line
-            RVec3 position = shape_cast.GetPointOnRay(hit.mFraction);
-            s->debugRenderer->DrawLine(prev_position, position, c ? Color::sGrey : Color::sWhite);
-            c             = !c;
-            prev_position = position;
-
-            BodyLockRead lock(s->engine->GetBodyLockInterface(), hit.mBodyID2);
-            if (lock.Succeeded())
-            {
-              const Body& hit_body = lock.GetBody();
-
-              // Draw shape
-              Color color = hit_body.IsDynamic() ? Color::sYellow : Color::sOrange;
-  #ifdef JPH_DEBUG_RENDERER
-              shape_cast.mShape->Draw(s->debugRenderer.get(),
-                shape_cast.mCenterOfMassStart.PostTranslated(hit.mFraction * shape_cast.mDirection),
-                Vec3::sReplicate(1.0f),
-                color,
-                false,
-                false);
-  #endif // JPH_DEBUG_RENDERER
-
-              // Draw normal
-              JPH::RVec3 contact_position1 = base_offset + hit.mContactPointOn1;
-              JPH::RVec3 contact_position2 = base_offset + hit.mContactPointOn2;
-              JPH::Vec3 normal             = hit.mPenetrationAxis.Normalized();
-              s->debugRenderer->DrawArrow(contact_position2, contact_position2 - normal, Color::sGreen, 0.01f); // Flip to make it point towards the cast body
-
-              // Contact position 1
-              s->debugRenderer->DrawMarker(contact_position1, Color::sGreen, 0.1f);
-
-              // Draw perpendicular axis to indicate contact position 2
-              Vec3 perp1 = normal.GetNormalizedPerpendicular();
-              Vec3 perp2 = normal.Cross(perp1);
-              s->debugRenderer->DrawLine(contact_position2 - 0.1f * perp1, contact_position2 + 0.1f * perp1, color);
-              s->debugRenderer->DrawLine(contact_position2 - 0.1f * perp2, contact_position2 + 0.1f * perp2, color);
-
-              // Draw material
-              //const PhysicsMaterial* material2 = hit_body.GetShape()->GetMaterial(hit.mSubShapeID2);
-              //s->debugRenderer->DrawText3D(position, material2->GetDebugName());
-
-              // Draw faces
-              s->debugRenderer->DrawWirePolygon(RMat44::sTranslation(base_offset), hit.mShape1Face, Color::sYellow, 0.01f);
-              s->debugRenderer->DrawWirePolygon(RMat44::sTranslation(base_offset), hit.mShape2Face, Color::sRed, 0.01f);
-            }
-          }
-
-          // Draw remainder of line
-          s->debugRenderer->DrawLine(shape_cast.GetPointOnRay(hits.back().mFraction), start + direction, Color::sRed);
-        }
-        else
-        {
-          // Draw 'miss'
-          s->debugRenderer->DrawLine(start, start + direction, Color::sRed);
-  #ifdef JPH_DEBUG_RENDERER
-          shape_cast.mShape
-            ->Draw(s->debugRenderer.get(), shape_cast.mCenterOfMassStart.PostTranslated(shape_cast.mDirection), Vec3::sReplicate(1.0f), Color::sRed, false, false);
-  #endif // JPH_DEBUG_RENDERER
-        }
-#endif
+      // Cast shape
+      Array<ShapeCastResult> hits;
+      if (mMaxHits == 0)
+      {
+        AnyHitCollisionCollector<CastShapeCollector> collector;
+        s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
+        if (collector.HadHit())
+          hits.push_back(collector.mHit);
       }
+      else if (mMaxHits == 1)
+      {
+        ClosestHitCollisionCollector<CastShapeCollector> collector;
+        s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
+        if (collector.HadHit())
+          hits.push_back(collector.mHit);
+      }
+      else
+      {
+        AllHitCollisionCollector<CastShapeCollector> collector;
+        s->engine->GetNarrowPhaseQuery().CastShape(shape_cast, settings, base_offset, collector);
+        collector.Sort();
+        hits.insert(hits.end(), collector.mHits.begin(), collector.mHits.end());
+        if ((int)hits.size() > mMaxHits)
+          hits.resize(mMaxHits);
+      }
+
+      const bool had_hit = !hits.empty();
+      if (had_hit)
+      {
+        // Fill in results
+        //ShapeCastResult& first_hit = hits.front();
+        //outPosition                = shape_cast.GetPointOnRay(first_hit.mFraction);
+        //outFraction                = first_hit.mFraction;
+        //outID                      = first_hit.mBodyID2;
+
+        // Draw results
+        RVec3 prev_position = start;
+        bool c              = false;
+        for (const ShapeCastResult& hit : hits)
+        {
+          // Draw line
+          RVec3 position = shape_cast.GetPointOnRay(hit.mFraction);
+          s->debugRenderer->DrawLine(prev_position, position, c ? Color::sGrey : Color::sWhite);
+          c             = !c;
+          prev_position = position;
+
+          BodyLockRead lock(s->engine->GetBodyLockInterface(), hit.mBodyID2);
+          if (lock.Succeeded())
+          {
+            const Body& hit_body = lock.GetBody();
+
+            // Draw shape
+            Color color = hit_body.IsDynamic() ? Color::sYellow : Color::sOrange;
+#ifdef JPH_DEBUG_RENDERER
+            shape_cast.mShape->Draw(s->debugRenderer.get(),
+              shape_cast.mCenterOfMassStart.PostTranslated(hit.mFraction * shape_cast.mDirection),
+              Vec3::sReplicate(1.0f),
+              color,
+              false,
+              false);
+#endif // JPH_DEBUG_RENDERER
+
+            // Draw normal
+            JPH::RVec3 contact_position1 = base_offset + hit.mContactPointOn1;
+            JPH::RVec3 contact_position2 = base_offset + hit.mContactPointOn2;
+            JPH::Vec3 normal             = hit.mPenetrationAxis.Normalized();
+            s->debugRenderer->DrawArrow(contact_position2, contact_position2 - normal, Color::sGreen, 0.01f); // Flip to make it point towards the cast body
+
+            // Contact position 1
+            s->debugRenderer->DrawMarker(contact_position1, Color::sGreen, 0.1f);
+
+            // Draw perpendicular axis to indicate contact position 2
+            Vec3 perp1 = normal.GetNormalizedPerpendicular();
+            Vec3 perp2 = normal.Cross(perp1);
+            s->debugRenderer->DrawLine(contact_position2 - 0.1f * perp1, contact_position2 + 0.1f * perp1, color);
+            s->debugRenderer->DrawLine(contact_position2 - 0.1f * perp2, contact_position2 + 0.1f * perp2, color);
+
+            // Draw material
+            //const PhysicsMaterial* material2 = hit_body.GetShape()->GetMaterial(hit.mSubShapeID2);
+            //s->debugRenderer->DrawText3D(position, material2->GetDebugName());
+
+            // Draw faces
+            s->debugRenderer->DrawWirePolygon(RMat44::sTranslation(base_offset), hit.mShape1Face, Color::sYellow, 0.01f);
+            s->debugRenderer->DrawWirePolygon(RMat44::sTranslation(base_offset), hit.mShape2Face, Color::sRed, 0.01f);
+          }
+        }
+
+        // Draw remainder of line
+        s->debugRenderer->DrawLine(shape_cast.GetPointOnRay(hits.back().mFraction), start + direction, Color::sRed);
+      }
+      else
+      {
+        // Draw 'miss'
+        s->debugRenderer->DrawLine(start, start + direction, Color::sRed);
+#ifdef JPH_DEBUG_RENDERER
+        shape_cast.mShape
+          ->Draw(s->debugRenderer.get(), shape_cast.mCenterOfMassStart.PostTranslated(shape_cast.mDirection), Vec3::sReplicate(1.0f), Color::sRed, false, false);
+#endif // JPH_DEBUG_RENDERER
+      }
+#endif
     }
 #if 0
     s->engine->DrawBodies(

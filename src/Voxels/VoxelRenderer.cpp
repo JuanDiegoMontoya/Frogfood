@@ -9,6 +9,7 @@
 #include "shaders/Config.shared.h"
 
 #include "Physics/Physics.h" // TODO: remove
+#include "Physics/PhysicsUtils.h"
 #ifdef JPH_DEBUG_RENDERER
 #include "Physics/DebugRenderer.h"
 #endif
@@ -20,6 +21,8 @@
 #include "tracy/Tracy.hpp"
 #include "GLFW/glfw3.h" // TODO: remove
 #include "stb_image.h"
+#include "Jolt/Physics/Collision/CastResult.h"
+#include "Jolt/Physics/Collision/RayCast.h"
 
 #include "tracy/TracyVulkan.hpp"
 
@@ -142,6 +145,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
 
   g_meshes.emplace("frog", LoadObjFile(GetAssetDirectory() / "models/frog.obj"));
   g_meshes.emplace("ar15", LoadObjFile(GetAssetDirectory() / "models/ar15.obj"));
+  g_meshes.emplace("tracer", LoadObjFile(GetAssetDirectory() / "models/tracer.obj"));
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -430,23 +434,18 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   auto viewMat = glm::mat4(1);
   auto position = glm::vec3();
-  for (auto&& [entity, inputLook, transform, player] : world.GetRegistry().view<InputLookState, GlobalTransform, Player>().each())
+  for (auto&& [entity, inputLook, transform] : world.GetRegistry().view<InputLookState, GlobalTransform, LocalPlayer>().each())
   {
-    // TODO: use better way of seeing which player we own
-    if (player.id == 0)
+    position = transform.position;
+    // Flip z axis to correspond with Vulkan's NDC space.
+    auto rotationQuat = transform.rotation;
+    if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
     {
-      position = transform.position;
-      // Flip z axis to correspond with Vulkan's NDC space.
-      auto rotationQuat = transform.rotation;
-      if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
-      {
-        // Because the player has its own variable delta pitch and yaw updates, we only care about smoothing positions here
-        position = renderTransform->transform.position;
-      }
-      auto rotation = glm::mat4_cast(glm::inverse(rotationQuat));
-      viewMat = glm::translate(rotation, -position);
-      break;
+      // Because the player has its own variable delta pitch and yaw updates, we only care about smoothing positions here
+      position = renderTransform->transform.position;
     }
+    auto rotation = glm::mat4_cast(glm::inverse(rotationQuat));
+    viewMat = glm::translate(rotation, -position);
   }
 
   const auto view_from_world = viewMat;
@@ -659,15 +658,16 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     ImGui::End();
     break;
   case GameState::GAME:
+  {
     if (ImGui::Begin("Test"))
     {
       GetPipelineManager().PollModifiedShaders();
       GetPipelineManager().EnqueueModifiedShaders();
 
-      //auto& mainCamera = world.GetSingletonComponent<Temp::View>();
+      // auto& mainCamera = world.GetSingletonComponent<Temp::View>();
       ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt.real, dt.real * 1000);
-      //ImGui::Text("Camera pos: (%.2f, %.2f, %.2f)", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
-      //ImGui::Text("Camera dir: (%.2f, %.2f, %.2f)", mainCamera.GetForwardDir().x, mainCamera.GetForwardDir().y, mainCamera.GetForwardDir().z);
+      // ImGui::Text("Camera pos: (%.2f, %.2f, %.2f)", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
+      // ImGui::Text("Camera dir: (%.2f, %.2f, %.2f)", mainCamera.GetForwardDir().x, mainCamera.GetForwardDir().y, mainCamera.GetForwardDir().z);
       auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
       VmaStatistics stats{};
       vmaGetVirtualBlockStatistics(grid.buffer.GetAllocator(), &stats);
@@ -681,7 +681,46 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       }
     }
     ImGui::End();
+
+    struct NearestRayCollector : JPH::CastRayCollector
+    {
+      void AddHit(const ResultType& inResult) override
+      {
+        if (!nearest || inResult.mFraction < nearest->mFraction)
+        {
+          nearest = inResult;
+          UpdateEarlyOutFraction(inResult.mFraction);
+        }
+      }
+
+      std::optional<ResultType> nearest;
+    };
+
+    auto* ptransform = world.TryGetLocalPlayerTransform();
+    // TODO: replace with bitmap font rendered above each creature
+    auto collector = NearestRayCollector();
+    auto dir       = GetForward(ptransform->rotation);
+    auto start     = ptransform->position;
+    Physics::GetNarrowPhaseQuery().CastRay(JPH::RRayCast(Physics::ToJolt(start), Physics::ToJolt(dir * 20.0f)), JPH::RayCastSettings(), collector);
+    if (ImGui::Begin("Target"))
+    {
+      if (collector.nearest)
+      {
+        auto e = static_cast<entt::entity>(Physics::GetBodyInterface().GetUserData(collector.nearest->mBodyID));
+        if (auto* n = world.GetRegistry().try_get<Name>(e))
+        {
+          ImGui::Text("%s", n->name.c_str());
+        }
+
+        if (auto* h = world.GetRegistry().try_get<Health>(e))
+        {
+          ImGui::Text("Health: %.2f", h->hp);
+        }
+      }
+    }
+    ImGui::End();
     break;
+  }
   case GameState::PAUSED:
     if (ImGui::Begin("Paused"))
     {
@@ -732,13 +771,13 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::DragFloat4("Rotation", &t->rotation[0], 0.125f);
             ImGui::DragFloat("Scale", &t->scale, 0.125f);
           }
-          if (auto* it = registry.try_get<InterpolatedTransform>(e))
+          if (auto* it = registry.try_get<PreviousGlobalTransform>(e))
           {
             ImGui::SeparatorText("InterpolatedTransform");
             ImGui::Text("Accumulator: %f", dt.fraction);
-            ImGui::Text("Position: %f, %f, %f", it->previousPosition[0], it->previousPosition[1], it->previousPosition[2]);
-            ImGui::Text("Rotation: %f, %f, %f, %f", it->previousRotation.w, it->previousRotation.x, it->previousRotation.y, it->previousRotation.z);
-            ImGui::Text("Scale: %f", it->previousScale);
+            ImGui::Text("Position: %f, %f, %f", it->position[0], it->position[1], it->position[2]);
+            ImGui::Text("Rotation: %f, %f, %f, %f", it->rotation.w, it->rotation.x, it->rotation.y, it->rotation.z);
+            ImGui::Text("Scale: %f", it->scale);
           }
           if (auto* rt = registry.try_get<RenderTransform>(e))
           {

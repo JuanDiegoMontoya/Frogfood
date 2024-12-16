@@ -153,7 +153,7 @@ void Physics::TwoLevelGridShape::CastRay([[maybe_unused]] const JPH::RayCast& in
   [[maybe_unused]] JPH::CastRayCollector& ioCollector,
   [[maybe_unused]] const JPH::ShapeFilter& inShapeFilter) const
 {
-  assert(false);
+  //assert(false);
 }
 
 bool Physics::TwoLevelGridShape::CastRay([[maybe_unused]] const JPH::RayCast& inRay,

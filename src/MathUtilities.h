@@ -1,9 +1,11 @@
 #pragma once
+#include <glm/mat3x3.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 #include <glm/packing.hpp>
+#include <glm/gtc/constants.hpp>
 
 #include <cstdint>
 #include <utility>
@@ -132,5 +134,27 @@ namespace Math
       divisor = 1'000'000'000;
     }
     return {suffix, divisor};
+  }
+
+  inline glm::vec3 RandVecInCone(glm::vec2 xi, glm::vec3 N, float angle)
+  {
+    float phi = 2.0f * glm::pi<float>() * xi.x;
+
+    float theta    = sqrt(xi.y) * angle;
+    float cosTheta = cos(theta);
+    float sinTheta = sin(theta);
+
+    glm::vec3 H;
+    H.x = cos(phi) * sinTheta;
+    H.y = sin(phi) * sinTheta;
+    H.z = cosTheta;
+
+    glm::vec3 up        = abs(N.z) < 0.999f ? glm::vec3(0, 0, 1) : glm::vec3(1, 0, 0);
+    glm::vec3 tangent   = normalize(cross(up, N));
+    glm::vec3 bitangent = cross(N, tangent);
+    glm::mat3 tbn       = glm::mat3(tangent, bitangent, N);
+
+    glm::vec3 sampleVec = tbn * H;
+    return normalize(sampleVec);
   }
 } // namespace Math

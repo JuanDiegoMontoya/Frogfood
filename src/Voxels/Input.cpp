@@ -9,11 +9,19 @@
 
 InputSystem::InputSystem(GLFWwindow* window) : window_(window)
 {
-  glfwSetInputMode(window, GLFW_CURSOR, cursorIsActive ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+  
+  if (glfwRawMouseMotionSupported() == GLFW_TRUE)
+  {
+    glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+  }
 }
 
 void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
 {
+  const auto lastCursorMode = glfwGetInputMode(window_, GLFW_CURSOR);
+  auto newCursorMode        = lastCursorMode;
+
   cursorFrameOffset = {0.0, 0.0};
   
   if (swapchainOk)
@@ -26,13 +34,11 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
     return;
   }
 
-  glfwSetInputMode(window_, GLFW_CURSOR, cursorIsActive || world.GetRegistry().ctx().get<Debugging>().forceShowCursor ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
-
-  if (!cursorIsActive)
+  if (newCursorMode == GLFW_CURSOR_DISABLED)
   {
     if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
     {
-      for (auto&& [entity, input, inputLook, transform, gtransform] : world.GetRegistry().view<LocalPlayer, InputState, InputLookState, LocalTransform, GlobalTransform>().each())
+      for (auto&& [entity, player, input, inputLook, transform, gtransform] : world.GetRegistry().view<Player, LocalPlayer, InputState, InputLookState, LocalTransform, GlobalTransform>().each())
       {
         input.forward += glfwGetKey(window_, GLFW_KEY_W) == GLFW_PRESS ? 1 : 0;
         input.forward -= glfwGetKey(window_, GLFW_KEY_S) == GLFW_PRESS ? 1 : 0;
@@ -49,10 +55,75 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
         // angleAxis rotates clockwise if we are looking 'down' the axis (backwards). Keep in mind whether the coordinate system is LH or RH when doing this.
         inputLook.yaw -= static_cast<float>(cursorFrameOffset.x * 0.0025f);
         inputLook.pitch += static_cast<float>(cursorFrameOffset.y * 0.0025f);
-        transform.rotation = glm::angleAxis(inputLook.yaw, glm::vec3{0, 1, 0}) * glm::angleAxis(inputLook.pitch, glm::vec3{1, 0, 0});
+        transform.rotation  = glm::angleAxis(inputLook.yaw, glm::vec3{0, 1, 0}) * glm::angleAxis(inputLook.pitch, glm::vec3{1, 0, 0});
         gtransform.rotation = transform.rotation;
+
+        if (auto* i = world.GetRegistry().try_get<Inventory>(entity))
+        {
+          for (size_t j = 0; j < 8; j++)
+          {
+            if (glfwGetKey(window_, GLFW_KEY_1 + (int)j) == GLFW_PRESS && j < i->width)
+            {
+              i->SetActiveSlot(i->activeRow, j, entity);
+              break;
+            }
+          }
+        }
       }
     }
+  }
+
+  if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
+  {
+    auto&& [e, p] = *world.GetRegistry().view<Player, LocalPlayer>().each().begin();
+
+    if (ImGui::GetKeyPressedAmount(ImGuiKey_Tab, 10000, 1))
+    {
+      p.inventoryIsOpen = !p.inventoryIsOpen;
+    }
+
+    if (p.inventoryIsOpen)
+    {
+      newCursorMode = GLFW_CURSOR_NORMAL;
+    }
+    else
+    {
+      newCursorMode = GLFW_CURSOR_DISABLED;
+    }
+  }
+  else // game state is not GAME
+  {
+    newCursorMode = GLFW_CURSOR_NORMAL;
+  }
+
+  auto& debug = world.GetRegistry().ctx().get<Debugging>();
+  if (debug.forceShowCursor)
+  {
+    newCursorMode = GLFW_CURSOR_NORMAL;
+  }
+
+  if (newCursorMode != lastCursorMode)
+  {
+    glfwSetInputMode(window_, GLFW_CURSOR, newCursorMode);
+  }
+
+  // Prevent the cursor from clicking ImGui widgets when it is disabled.
+  if (newCursorMode == GLFW_CURSOR_DISABLED)
+  {
+    ImGui::GetIO().MousePos = {0, 0};
+    glfwSetCursorPos(window_, 0, 0);
+    cursorPos.x = 0;
+    cursorPos.y = 0;
+  }
+
+  if (ImGui::GetKeyPressedAmount(ImGuiKey_F1, 10000, 1))
+  {
+    debug.showDebugGui = !debug.showDebugGui;
+  }
+
+  if (ImGui::GetKeyPressedAmount(ImGuiKey_F2, 10000, 1))
+  {
+    debug.forceShowCursor = !debug.forceShowCursor;
   }
 
   // Close the app if the user presses Escape.
@@ -69,43 +140,11 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
     }
   }
 
-  auto& debug = world.GetRegistry().ctx().get<Debugging>();
-  if (ImGui::GetKeyPressedAmount(ImGuiKey_F1, 10000, 1))
-  {
-    debug.showDebugGui = !debug.showDebugGui;
-  }
-
-  if (ImGui::GetKeyPressedAmount(ImGuiKey_F2, 10000, 1))
-  {
-    debug.forceShowCursor = !debug.forceShowCursor;
-  }
-
   // Sleep for a bit if the window is not focused
   if (!glfwGetWindowAttrib(window_, GLFW_FOCUSED))
   {
     // Use to render less- game will catch up
     std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(50));
-  }
-
-  // Toggle the cursor if the grave accent (tilde) key is pressed.
-  if (glfwGetKey(window_, GLFW_KEY_GRAVE_ACCENT) && graveHeldLastFrame == false)
-  {
-    cursorIsActive          = !cursorIsActive;
-    cursorJustEnteredWindow = true;
-    graveHeldLastFrame      = true;
-  }
-
-  if (!glfwGetKey(window_, GLFW_KEY_GRAVE_ACCENT))
-  {
-    graveHeldLastFrame = false;
-  }
-
-  // Prevent the cursor from clicking ImGui widgets when it is disabled.
-  if (!cursorIsActive)
-  {
-    glfwSetCursorPos(window_, 0, 0);
-    cursorPos.x = 0;
-    cursorPos.y = 0;
   }
 }
 

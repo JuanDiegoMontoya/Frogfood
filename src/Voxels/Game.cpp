@@ -180,34 +180,37 @@ void Gun::Update(float dt)
   if (pressed && accum >= shootDt)
   {
     accum   = glm::clamp(accum - dt, 0.0f, dt);
-    pressed = false;
 
-    const float bulletScale = 1;
-    auto bulletShape        = JPH::Ref(new JPH::SphereShape(.04f));
-    bulletShape->SetDensity(11000);
-    const auto dir = Math::RandVecInCone({world->Rng().RandFloat(), world->Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(accuracyMoa / 60.0f));
-    auto up        = glm::vec3(0, 1, 0);
-    if (glm::epsilonEqual(abs(dot(dir, glm::vec3(0, 1, 0))), 1.0f, 0.001f))
+    for (int i = 0; i < bullets; i++)
     {
-      up = {0, 0, 1};
-    }
-    auto rot = glm::quatLookAtRH(dir, up);
-    auto b   = world->CreateRenderableEntity(transform.position + glm::vec3(0, 0.1f, 0) + GetForward(transform.rotation) * 1.0f, rot, bulletScale);
-
-    registry.emplace<Name>(b).name                 = "Bullet";
-    registry.emplace<Mesh>(b).name                 = "tracer";
-    registry.emplace<Lifetime>(b).remainingSeconds = 2;
-    registry.emplace<Projectile>(b);
-    auto rb = Physics::AddRigidBody({registry, b},
+      const float bulletScale = 0.05f;
+      auto bulletShape        = JPH::Ref(new JPH::SphereShape(.04f));
+      bulletShape->SetDensity(11000);
+      const auto dir =
+        Math::RandVecInCone({world->Rng().RandFloat(), world->Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(accuracyMoa / 60.0f));
+      auto up = glm::vec3(0, 1, 0);
+      if (glm::epsilonEqual(abs(dot(dir, glm::vec3(0, 1, 0))), 1.0f, 0.001f))
       {
-        .shape      = bulletShape,
-        .activate   = true,
-        .motionType = JPH::EMotionType::Dynamic,
-        .layer      = Physics::Layers::MOVING,
-      });
-    Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
-    Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * 300.0f));
-    Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
+        up = {0, 0, 1};
+      }
+      auto rot = glm::quatLookAtRH(dir, up);
+      auto b   = world->CreateRenderableEntity(transform.position + glm::vec3(0, 0.1f, 0) + GetForward(transform.rotation) * 1.0f, rot, bulletScale);
+
+      registry.emplace<Name>(b).name                 = "Bullet";
+      registry.emplace<Mesh>(b).name                 = "frog";
+      registry.emplace<Lifetime>(b).remainingSeconds = 2;
+      registry.emplace<Projectile>(b);
+      auto rb = Physics::AddRigidBody({registry, b},
+        {
+          .shape      = bulletShape,
+          .activate   = true,
+          .motionType = JPH::EMotionType::Dynamic,
+          .layer      = Physics::Layers::PROJECTILE,
+        });
+      Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
+      Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * velocity));
+      Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
+    }
 
     // If parent is player, apply recoil
     if (auto* h = registry.try_get<Hierarchy>(self); h && h->parent != entt::null)
@@ -222,6 +225,17 @@ void Gun::Update(float dt)
       }
     }
   }
+  pressed = false;
+}
+
+void Gun2::Materialize(entt::entity parent)
+{
+  Gun::Materialize(parent);
+  auto&& [m, t] = world->GetRegistry().get<Mesh, LocalTransform>(self);
+
+  m.name = "frog";
+  t.scale = 0.125f;
+  UpdateLocalTransform({world->GetRegistry(), self});
 }
 
 void World::FixedUpdate(float dt)
@@ -687,9 +701,11 @@ void World::InitializeGameState()
     .shape = playerCapsule,
   });
   //cc.character->SetMaxStrength(10000000);
-  auto& activeSlot = registry_.emplace<Inventory>(p).ActiveSlot();
+  auto& inventory = registry_.emplace<Inventory>(p);
+  auto& activeSlot = inventory.ActiveSlot();
   activeSlot.reset(new Gun(*this));
   activeSlot->Materialize(p);
+  inventory.slots[0][1].reset(new Gun2(*this));
 
   auto e = CreateRenderableEntity({0, 0, 0});
   registry_.emplace<Name>(e).name = "Test";
@@ -896,4 +912,21 @@ void Hierarchy::RemoveChild(entt::entity child)
 {
   assert(std::count(children.begin(), children.end(), child) == 1);
   std::erase(children, child);
+}
+
+void Inventory::SetActiveSlot(size_t row, size_t col, entt::entity parent)
+{
+  if (activeCol != col || activeRow != row)
+  {
+    if (ActiveSlot())
+    {
+      ActiveSlot()->Dematerialize();
+    }
+    activeCol = col;
+    activeRow = row;
+    if (ActiveSlot())
+    {
+      ActiveSlot()->Materialize(parent);
+    }
+  }
 }

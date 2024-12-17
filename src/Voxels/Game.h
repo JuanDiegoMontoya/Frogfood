@@ -117,7 +117,7 @@ class Gun : public Item
 public:
   NO_COPY(Gun);
 
-  Gun(World& world) : Item(world) {}
+  Gun(World& w) : Item(w) {}
 
   const char* GetName() const override
   {
@@ -131,13 +131,38 @@ public:
   void Update(float dt) override;
 
   float fireRateRpm = 800;
+  float bullets     = 1;
+  float velocity    = 300;
   float accuracyMoa = 4;
-  bool pressed      = false;
   float vrecoil     = 1.0f; // Degrees
   float vrecoilDev  = 0.25f;
   float hrecoil     = 0.0f;
   float hrecoilDev  = 0.25f;
   float accum       = 1000.0f;
+  bool pressed      = false;
+};
+
+class Gun2 : public Gun
+{
+public:
+  Gun2(World& w) : Gun(w)
+  {
+    fireRateRpm = 80;
+    bullets     = 9;
+    velocity    = 100;
+    accuracyMoa = 300;
+    vrecoil     = 10;
+    vrecoilDev  = 3;
+    hrecoil     = 1;
+    hrecoilDev  = 1;
+  }
+
+  const char* GetName() const override
+  {
+    return "Gun2";
+  }
+
+  void Materialize(entt::entity parent) override;
 };
 
 struct Inventory
@@ -146,15 +171,17 @@ struct Inventory
   static constexpr size_t width  = 8;
 
   // Coordinate of equipped slot
-  size_t activeX = 0;
-  size_t activeY = 0;
+  size_t activeCol = 0;
+  size_t activeRow = 0;
 
   std::array<std::array<std::unique_ptr<Item>, width>, height> slots{};
 
   auto& ActiveSlot()
   {
-    return slots[activeY][activeX];
+    return slots[activeRow][activeCol];
   }
+
+  void SetActiveSlot(size_t row, size_t col, entt::entity parent);
 };
 
 class Networking
@@ -247,6 +274,7 @@ struct InputLookState
 struct Player
 {
   uint32_t id = 0;
+  bool inventoryIsOpen = false;
 };
 
 struct DeferredDelete {};

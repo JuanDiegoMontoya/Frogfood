@@ -60,6 +60,7 @@ namespace Physics
         {
         case Layers::NON_MOVING: return inObject2 == Layers::MOVING; // Non moving only collides with moving
         case Layers::MOVING: return true;                            // Moving collides with everything
+        case Layers::PROJECTILE: return inObject2 != Layers::PROJECTILE; // Projectiles collide with everything except other projectiles
         default: JPH_ASSERT(false); return false;
         }
       }
@@ -73,6 +74,7 @@ namespace Physics
         // Create a mapping table from object to broad phase layer
         mObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
         mObjectToBroadPhase[Layers::MOVING]     = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::PROJECTILE] = BroadPhaseLayers::MOVING;
       }
 
       JPH::uint GetNumBroadPhaseLayers() const override
@@ -111,6 +113,7 @@ namespace Physics
         {
         case Layers::NON_MOVING: return inLayer2 == BroadPhaseLayers::MOVING;
         case Layers::MOVING: return true;
+        case Layers::PROJECTILE: return true;
         default: JPH_ASSERT(false); return false;
         }
       }

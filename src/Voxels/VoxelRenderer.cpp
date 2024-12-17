@@ -720,9 +720,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     }
     ImGui::End();
 
-    if (ImGui::Begin("Inventory"))
+    if (ImGui::Begin("Inventory", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDecoration))
     {
-      auto&& [e, i] = *world.GetRegistry().view<LocalPlayer, Inventory>().each().begin();
+      ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, {0.5f, 0.5f});
+      auto&& [e, p, i] = *world.GetRegistry().view<Player, LocalPlayer, Inventory>().each().begin();
       ImGui::BeginTable("Inventory", (int)i.width, ImGuiTableFlags_Borders);
 
       for (size_t row = 0; row < i.slots.size(); row++)
@@ -734,27 +735,54 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           ImGui::PushID(int(col));
           auto& slot = i.slots[row][col];
           auto name  = slot ? slot->GetName() : "";
-          if (ImGui::Selectable(name, i.activeX == col && i.activeY == row, ImGuiSelectableFlags_AllowOverlap, {50, 50}))
+          if (ImGui::Selectable(name, i.activeCol == col && i.activeRow == row, ImGuiSelectableFlags_AllowOverlap, {50, 50}))
           {
-            if (i.activeX != col || i.activeY != row)
+            i.SetActiveSlot(row, col, e);
+          }
+          if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+          {
+            const auto rowCol = glm::ivec2(row, col);
+            ImGui::SetDragDropPayload("INVENTORY_SLOT", &rowCol, sizeof(rowCol));
+            ImGui::Text("%s", name);
+            ImGui::EndDragDropSource();
+          }
+          if (ImGui::BeginDragDropTarget())
+          {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INVENTORY_SLOT"))
             {
-              if (i.ActiveSlot())
+              assert(payload->DataSize == sizeof(glm::ivec2));
+              const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
+
+              // Handle moving active item onto another slot or vice versa
+              const bool targetIsActive = row == i.activeRow && col == i.activeCol;
+              const bool sourceIsActive = rowCol[0] == (int)i.activeRow && rowCol[1] == (int)i.activeCol;
+              if (targetIsActive)
               {
-                i.ActiveSlot()->Dematerialize();
+                i.SetActiveSlot(rowCol[0], rowCol[1], e);
+                i.activeRow = row;
+                i.activeCol = col;
               }
-              i.activeX = col;
-              i.activeY = row;
-              if (i.ActiveSlot())
+              else if (sourceIsActive)
               {
-                i.ActiveSlot()->Materialize(e);
+                i.SetActiveSlot(row, col, e);
+                i.activeRow = rowCol[0];
+                i.activeCol = rowCol[1];
               }
+              std::swap(i.slots[rowCol[0]][rowCol[1]], i.slots[row][col]);
             }
+            ImGui::EndDragDropTarget();
           }
           ImGui::PopID();
         }
         ImGui::PopID();
+        // Only show first row if inventory is not open
+        if (!p.inventoryIsOpen)
+        {
+          break;
+        }
       }
       ImGui::EndTable();
+      ImGui::PopStyleVar();
     }
     ImGui::End();
     break;
@@ -844,6 +872,15 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           if (auto* is = registry.try_get<InputState>(e))
           {
             ImGui::SeparatorText("InputState");
+            ImGui::Text("strafe: %f", is->strafe);
+            ImGui::Text("forward: %f", is->forward);
+            ImGui::Text("elevate: %f", is->elevate);
+            ImGui::Text("jump         : %d", is->jump);
+            ImGui::Text("sprint       : %d", is->sprint);
+            ImGui::Text("walk         : %d", is->walk);
+            ImGui::Text("usePrimary   : %d", is->usePrimary);
+            ImGui::Text("useSecondary : %d", is->useSecondary);
+            ImGui::Text("interact     : %d", is->interact);
           }
           if (auto* ils = registry.try_get<InputLookState>(e))
           {
@@ -877,7 +914,6 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       ImGui::Text("Time: %f", ctx.get<float>("time"_hs));
 
       ImGui::SliderFloat("Time Scale", &ctx.get<TimeScale>().scale, 0, 4, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-
       auto min = uint32_t(5);
       auto max = uint32_t(120);
       ImGui::SliderScalar("Tick Rate", ImGuiDataType_U32, &world.GetRegistry().ctx().get<TickRate>().hz, &min, &max, "%u");

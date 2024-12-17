@@ -21,7 +21,8 @@ namespace Physics
   {
     constexpr JPH::ObjectLayer NON_MOVING = 0;
     constexpr JPH::ObjectLayer MOVING     = 1;
-    constexpr JPH::ObjectLayer NUM_LAYERS = 2;
+    constexpr JPH::ObjectLayer PROJECTILE = 2;
+    constexpr JPH::ObjectLayer NUM_LAYERS = 3;
   }; // namespace Layers
 
   struct RigidBodySettings

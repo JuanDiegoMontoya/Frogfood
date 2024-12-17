@@ -34,9 +34,7 @@ public:
 
 private:
   GLFWwindow* window_;
-  bool cursorIsActive = true;
   glm::dvec2 cursorPos{};
   glm::dvec2 cursorFrameOffset{};
   bool cursorJustEnteredWindow = true;
-  bool graveHeldLastFrame      = false;
 };

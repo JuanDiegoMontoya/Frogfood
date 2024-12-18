@@ -212,7 +212,7 @@ namespace Physics
     characterSettings.SetEmbedded();
     characterSettings.mShape = settings.shape;
     characterSettings.mEnhancedInternalEdgeRemoval = true;
-    characterSettings.mPredictiveContactDistance   = 1e-3f;
+    //characterSettings.mPredictiveContactDistance   = 1e-3f;
     //characterSettings.mCharacterPadding = 0.00002f;
     //characterSettings.mPredictiveContactDistance = 0.22f;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -0.5f);

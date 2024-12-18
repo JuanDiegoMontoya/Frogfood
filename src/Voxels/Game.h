@@ -99,7 +99,7 @@ public:
 
   // Create an entity
   virtual void Materialize(entt::entity parent) = 0;
-  virtual void Dematerialize()                                            = 0;
+  virtual void Dematerialize()                  = 0;
 
   // Perform an action with the entity
   virtual void UsePrimary() {}
@@ -183,6 +183,11 @@ public:
   //void Update(float dt) override;
 };
 
+struct DroppedItem
+{
+  std::unique_ptr<Item> item;
+};
+
 struct Inventory
 {
   static constexpr size_t height = 4;
@@ -200,6 +205,8 @@ struct Inventory
   }
 
   void SetActiveSlot(size_t row, size_t col, entt::entity parent);
+
+  std::unique_ptr<Item>* GetFirstEmptySlot();
 };
 
 class Networking

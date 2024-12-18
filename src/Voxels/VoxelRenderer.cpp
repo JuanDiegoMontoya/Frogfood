@@ -9,6 +9,7 @@
 #include "shaders/Config.shared.h"
 
 #include "Physics/Physics.h" // TODO: remove
+#include "Jolt/Physics/Collision/Shape/BoxShape.h"
 #include "Physics/PhysicsUtils.h"
 #ifdef JPH_DEBUG_RENDERER
 #include "Physics/DebugRenderer.h"
@@ -633,7 +634,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     if (ImGui::Begin("Inventory", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDecoration))
     {
       ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, {0.5f, 0.5f});
-      auto&& [e, p, i] = *world.GetRegistry().view<Player, LocalPlayer, Inventory>().each().begin();
+      auto&& [e, p, i, gt] = *world.GetRegistry().view<Player, LocalPlayer, Inventory, GlobalTransform>().each().begin();
       ImGui::BeginTable("Inventory", (int)i.width, ImGuiTableFlags_Borders);
 
       for (size_t row = 0; row < i.slots.size(); row++)
@@ -692,6 +693,41 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
         }
       }
       ImGui::EndTable();
+
+      if (p.inventoryIsOpen)
+      {
+        // Moving entity from inventory to world
+        ImGui::Selectable("Ground", false, 0, {ImGui::GetContentRegionAvail().x, 50});
+        if (ImGui::BeginDragDropTarget())
+        {
+          if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INVENTORY_SLOT"))
+          {
+            assert(payload->DataSize == sizeof(glm::ivec2));
+            const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
+
+            auto& item = i.slots[rowCol[0]][rowCol[1]];
+            if (item->self == entt::null)
+            {
+              // Materialize entity
+              item->Materialize(entt::null);
+            }
+            else
+            {
+              SetParent({world.GetRegistry(), item->self}, entt::null);
+            }
+
+            // Add rigid body and DroppedItem
+            auto& rb = Physics::AddRigidBody({world.GetRegistry(), item->self}, {JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(0.3f)))});
+            world.GetRegistry().emplace<DroppedItem>(item->self).item = std::move(item);
+
+            const auto throwdir = GetForward(gt.rotation);
+            const auto pos = gt.position + throwdir * 1.0f;
+            Physics::GetBodyInterface().SetPosition(rb.body, Physics::ToJolt(pos), JPH::EActivation::Activate);
+            Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+          }
+          ImGui::EndDragDropTarget();
+        }
+      }
       ImGui::PopStyleVar();
     }
     ImGui::End();
@@ -804,6 +840,24 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           {
             ImGui::SeparatorText("Mesh");
             ImGui::Text("%s", m->name.c_str());
+          }
+          if (auto* d = registry.try_get<DroppedItem>(e))
+          {
+            ImGui::SeparatorText("DroppedItem");
+            ImGui::Text("%s", d->item ? d->item->GetName() : "NULL");
+          }
+          if (registry.all_of<DeferredDelete>(e))
+          {
+            ImGui::SeparatorText("DeferredDelete");
+          }
+          if (auto* h = registry.try_get<Hierarchy>(e))
+          {
+            ImGui::SeparatorText("Hierarchy");
+            ImGui::Text("Parent: %u", static_cast<uint32_t>(h->parent));
+            for (auto child : h->children)
+            {
+              ImGui::Text("Child: %u", static_cast<uint32_t>(child));
+            }
           }
           ImGui::TreePop();
         }

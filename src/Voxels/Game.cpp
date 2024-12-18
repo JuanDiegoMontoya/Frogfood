@@ -39,6 +39,7 @@ static void OnDeferredDeleteConstruct(entt::registry& registry, entt::entity ent
 
 static void OnContact(entt::registry& registry, const Physics::ContactPair& pair)
 {
+  // Projectiles hurt creatures
   if (registry.any_of<PathfindingEnemyBehavior>(pair.entity1) && registry.all_of<Projectile>(pair.entity2))
   {
     if (auto* h = registry.try_get<Health>(pair.entity1))
@@ -52,6 +53,40 @@ static void OnContact(entt::registry& registry, const Physics::ContactPair& pair
     if (auto* h = registry.try_get<Health>(pair.entity2))
     {
       h->hp -= 10;
+      registry.emplace_or_replace<DeferredDelete>(pair.entity1);
+    }
+  }
+
+  // Players pick up dropped items
+  if (registry.all_of<Player, Inventory>(pair.entity1) && registry.all_of<DroppedItem>(pair.entity2))
+  {
+    auto& i = registry.get<Inventory>(pair.entity1);
+    auto& d = registry.get<DroppedItem>(pair.entity2);
+
+    if (auto* s = i.GetFirstEmptySlot(); s && d.item)
+    {
+      d.item->Dematerialize();
+      *s = std::move(d.item);
+      if (&i.ActiveSlot() == s)
+      {
+        (*s)->Materialize(pair.entity1);
+      }
+      registry.emplace_or_replace<DeferredDelete>(pair.entity2);
+    }
+  }
+  if (registry.all_of<Player, Inventory>(pair.entity2) && registry.all_of<DroppedItem>(pair.entity1))
+  {
+    auto& i = registry.get<Inventory>(pair.entity2);
+    auto& d = registry.get<DroppedItem>(pair.entity1);
+
+    if (auto* s = i.GetFirstEmptySlot(); s && d.item)
+    {
+      d.item->Dematerialize();
+      *s = std::move(d.item);
+      if (&i.ActiveSlot() == s)
+      {
+        (*s)->Materialize(pair.entity2);
+      }
       registry.emplace_or_replace<DeferredDelete>(pair.entity1);
     }
   }
@@ -880,13 +915,29 @@ void SetParent(entt::handle handle, entt::entity parent)
   assert(handle.entity() != parent);
 
   auto& registry = *handle.registry();
-  auto& h = handle.get<Hierarchy>();
+  auto& h        = handle.get<Hierarchy>();
+  auto oldParent = h.parent;
 
   // Remove self from old parent
   if (h.parent != entt::null)
   {
     auto& ph = registry.get<Hierarchy>(h.parent);
     ph.RemoveChild(handle.entity());
+  }
+
+  // Handle case of removing parent
+  if (parent == entt::null)
+  {
+    h.parent = entt::null;
+    if (parent != oldParent)
+    {
+      auto&& [gt, lt] = handle.get<GlobalTransform, LocalTransform>();
+      lt.position     = gt.position;
+      lt.rotation     = gt.rotation;
+      lt.scale        = gt.scale;
+      UpdateLocalTransform(handle);
+    }
+    return;
   }
 
   // Add self to new parent
@@ -930,6 +981,22 @@ void Inventory::SetActiveSlot(size_t row, size_t col, entt::entity parent)
       ActiveSlot()->Materialize(parent);
     }
   }
+}
+
+std::unique_ptr<Item>* Inventory::GetFirstEmptySlot()
+{
+  for (size_t row = 0; row < height; row++)
+  {
+    for (size_t col = 0; col < width; col++)
+    {
+      if (slots[row][col] == nullptr)
+      {
+        return &slots[row][col];
+      }
+    }
+  }
+
+  return nullptr;
 }
 
 void Pickaxe::Materialize(entt::entity parent)

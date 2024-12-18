@@ -706,6 +706,7 @@ void World::InitializeGameState()
   activeSlot.reset(new Gun(*this));
   activeSlot->Materialize(p);
   inventory.slots[0][1].reset(new Gun2(*this));
+  inventory.slots[0][2].reset(new Pickaxe(*this));
 
   auto e = CreateRenderableEntity({0, 0, 0});
   registry_.emplace<Name>(e).name = "Test";
@@ -843,7 +844,7 @@ static void RefreshGlobalTransform(entt::handle handle)
     gt.position = glm::mat3_cast(pt.rotation) * gt.position;
     gt.position += pt.position;
 
-    gt.rotation = lt.rotation * pt.rotation;
+    gt.rotation = pt.rotation * lt.rotation;
   }
 
   for (auto child : h.children)
@@ -928,5 +929,36 @@ void Inventory::SetActiveSlot(size_t row, size_t col, entt::entity parent)
     {
       ActiveSlot()->Materialize(parent);
     }
+  }
+}
+
+void Pickaxe::Materialize(entt::entity parent)
+{
+  self = world->CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0)));
+  world->GetRegistry().emplace<Mesh>(self).name = "ar15";
+  world->GetRegistry().emplace<Name>(self).name = "Pickaxe";
+  SetParent({world->GetRegistry(), self}, parent);
+}
+
+void Pickaxe::Dematerialize()
+{
+  world->GetRegistry().emplace<DeferredDelete>(self);
+  self = entt::null;
+}
+
+void Pickaxe::UsePrimary()
+{
+  auto& reg      = world->GetRegistry();
+  const auto& h  = reg.get<Hierarchy>(self);
+  const auto p   = h.parent;
+  const auto& pt = reg.get<GlobalTransform>(p);
+  const auto pos = pt.position;
+  const auto dir = GetForward(pt.rotation);
+
+  auto& grid = reg.ctx().get<TwoLevelGrid>();
+  auto hit         = TwoLevelGrid::HitSurfaceParameters();
+  if (grid.TraceRaySimple(pos, dir, 5, hit))
+  {
+    grid.SetVoxelAt(glm::ivec3(hit.voxelPosition), 0);
   }
 }

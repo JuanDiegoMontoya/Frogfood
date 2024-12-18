@@ -1,5 +1,6 @@
 #pragma once
 #include "SketchyBuffer.h"
+#include "glm/vec2.hpp"
 #include "glm/vec3.hpp"
 
 #include <cstdint>
@@ -17,6 +18,16 @@ struct TwoLevelGrid
   static constexpr int TL_BRICK_VOXELS_PER_SIDE = TL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH;
 
   using voxel_t = uint32_t;
+
+  struct HitSurfaceParameters
+  {
+    voxel_t voxel;
+    glm::vec3 voxelPosition;
+    glm::vec3 positionWorld;
+    glm::vec3 flatNormalWorld;
+    glm::vec2 texCoords;
+  };
+  bool TraceRaySimple(glm::vec3 rayPosition, glm::vec3 rayDirection, float tMax, HitSurfaceParameters& hit) const;
 
   // The storage of a "chunk"
   struct BottomLevelBrick

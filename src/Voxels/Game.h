@@ -165,6 +165,24 @@ public:
   void Materialize(entt::entity parent) override;
 };
 
+class Pickaxe : public Item
+{
+public:
+
+  Pickaxe(World& w) : Item(w) {}
+
+  const char* GetName() const override
+  {
+    return "Pickaxe";
+  }
+
+  void Materialize(entt::entity parent) override;
+  void Dematerialize() override;
+
+  void UsePrimary() override;
+  //void Update(float dt) override;
+};
+
 struct Inventory
 {
   static constexpr size_t height = 4;

@@ -3,6 +3,9 @@
 #include "tracy/Tracy.hpp"
 
 #include "glm/vector_relational.hpp"
+#include "glm/common.hpp"
+#include "glm/geometric.hpp"
+#include "glm/vec4.hpp"
 
 #include <type_traits>
 
@@ -11,6 +14,73 @@ static_assert(std::is_trivially_constructible_v<TwoLevelGrid::TopLevelBrick>);
 static_assert(std::is_trivially_constructible_v<TwoLevelGrid::TopLevelBrickPtr>);
 static_assert(std::is_trivially_constructible_v<TwoLevelGrid::BottomLevelBrick>);
 static_assert(std::is_trivially_constructible_v<TwoLevelGrid::BottomLevelBrickPtr>);
+
+bool TwoLevelGrid::TraceRaySimple(glm::vec3 rayPosition, glm::vec3 rayDirection, float tMax, HitSurfaceParameters& hit) const
+{
+  using namespace glm;
+  // https://www.shadertoy.com/view/X3BXDd
+  vec3 mapPos = glm::floor(rayPosition); // integer cell coordinate of initial cell
+
+  const vec3 deltaDist = 1.0f / abs(rayDirection); // ray length required to step from one cell border to the next in x, y and z directions
+
+  const vec3 S       = vec3(step(0.0f, rayDirection)); // S is rayDir non-negative? 0 or 1
+  const vec3 stepDir = 2.0f * S - 1.0f;                // Step sign
+
+  // if 1./abs(rayDir[i]) is inf, then rayDir[i] is 0., but then S = step(0., rayDir[i]) is 1
+  // so S cannot be 0. while deltaDist is inf, and stepDir * fract(pos) can never be 1.
+  // Therefore we should not have to worry about getting NaN here :)
+
+  // initial distance to cell sides, then relative difference between traveled sides
+  vec3 sideDist = (S - stepDir * fract(rayPosition)) * deltaDist; // alternative: //sideDist = (S-stepDir * (pos - map)) * deltaDist;
+
+  for (int i = 0; i < tMax; i++)
+  {
+    // Decide which way to go!
+    vec4 conds = step(vec4(sideDist.x, sideDist.x, sideDist.y, sideDist.y), vec4(sideDist.y, sideDist.z, sideDist.z, sideDist.x)); // same as vec4(sideDist.xxyy <= sideDist.yzzx);
+
+    // This mimics the if, elseif and else clauses
+    // * is 'and', 1.-x is negation
+    vec3 cases = vec3(0);
+    cases.x    = conds.x * conds.y;                   // if       x dir
+    cases.y    = (1.0f - cases.x) * conds.z * conds.w; // else if  y dir
+    cases.z    = (1.0f - cases.x) * (1.0f - cases.y);   // else     z dir
+
+    // usually would have been:     sideDist += cases * deltaDist;
+    // but this gives NaN when  cases[i] * deltaDist[i]  becomes  0. * inf
+    // This gives NaN result in a component that should not have been affected,
+    // so we instead give negative results for inf by mapping 'cases' to +/- 1
+    // and then clamp negative values to zero afterwards, giving the correct result! :)
+    sideDist += max((2.0f * cases - 1.0f) * deltaDist, 0.0f);
+
+    mapPos += cases * stepDir;
+
+    // Putting the exit condition down here implicitly skips the first voxel
+    if (all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, vec3(dimensions_))))
+    {
+      const voxel_t voxel = GetVoxelAt(ivec3(mapPos));
+      if (voxel != 0)
+      {
+        const vec3 p      = mapPos + 0.5f - stepDir * 0.5f; // Point on axis plane
+        const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
+
+        // Solve ray plane intersection equation: dot(n, ro + t * rd - p) = 0.
+        // for t :
+        const float t          = (dot(normal, p - rayPosition)) / dot(normal, rayDirection);
+        const vec3 hitWorldPos = rayPosition + rayDirection * t;
+        const vec3 uvw         = hitWorldPos - mapPos; // Don't use fract here
+
+        hit.voxel           = voxel;
+        hit.voxelPosition   = ivec3(mapPos);
+        hit.positionWorld   = hitWorldPos;
+        hit.texCoords       = {};//vx_GetTexCoords(normal, uvw);
+        hit.flatNormalWorld = normal;
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 TwoLevelGrid::TwoLevelGrid(glm::ivec3 topLevelBrickDims)
   : buffer(1'000'000'000, "World"),

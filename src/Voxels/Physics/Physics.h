@@ -77,6 +77,7 @@ namespace Physics
 
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery();
   JPH::BodyInterface& GetBodyInterface();
+  JPH::PhysicsSystem& GetPhysicsSystem();
 
   struct ContactPair
   {

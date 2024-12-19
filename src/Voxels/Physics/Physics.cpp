@@ -295,6 +295,11 @@ namespace Physics
     return *s->bodyInterface;
   }
 
+  JPH::PhysicsSystem& GetPhysicsSystem()
+  {
+    return *s->engine;
+  }
+
   entt::dispatcher& GetDispatcher()
   {
     return s->dispatcher;
@@ -550,7 +555,7 @@ namespace Physics
       }
 #endif
     }
-#if 0
+#if 1
     s->engine->DrawBodies(
       JPH::BodyManager::DrawSettings{
         //.mDrawGetSupportFunction        = true,
@@ -576,7 +581,9 @@ namespace Physics
         //.mDrawSoftBodyConstraintColor   =,
       },
       s->debugRenderer.get());
-#endif
+
+    s->engine->DrawConstraints(s->debugRenderer.get());
+  #endif
 #endif
   }
 } // namespace Physics

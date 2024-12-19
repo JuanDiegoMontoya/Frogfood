@@ -20,6 +20,7 @@
 #include "Jolt/Physics/Collision/Shape/CapsuleShape.h"
 #include "Jolt/Physics/Collision/Shape/BoxShape.h"
 #include "Jolt/Physics/Collision/Shape/CylinderShape.h"
+#include "Jolt/Physics/Constraints/DistanceConstraint.h"
 #include "entt/signal/dispatcher.hpp"
 
 #include <chrono>
@@ -63,15 +64,23 @@ static void OnContact(entt::registry& registry, const Physics::ContactPair& pair
     auto& i = registry.get<Inventory>(pair.entity1);
     auto& d = registry.get<DroppedItem>(pair.entity2);
 
-    if (auto* s = i.GetFirstEmptySlot(); s && d.item)
+    if (d.item)
     {
-      d.item->Dematerialize();
-      *s = std::move(d.item);
-      if (&i.ActiveSlot() == s)
+      printf("a");
+      if (!i.TryStackItem(typeid(*d.item)))
       {
-        (*s)->Materialize(pair.entity1);
+        if (auto* s = i.GetFirstEmptySlot())
+        {
+          d.item->Dematerialize();
+          *s = std::move(d.item);
+          if (&i.ActiveSlot() == s)
+          {
+            (*s)->Materialize(pair.entity1);
+          }
+        }
       }
-      registry.emplace_or_replace<DeferredDelete>(pair.entity2);
+      registry.remove<DroppedItem>(pair.entity2);
+      registry.get_or_emplace<DeferredDelete>(pair.entity2);
     }
   }
   if (registry.all_of<Player, Inventory>(pair.entity2) && registry.all_of<DroppedItem>(pair.entity1))
@@ -79,15 +88,23 @@ static void OnContact(entt::registry& registry, const Physics::ContactPair& pair
     auto& i = registry.get<Inventory>(pair.entity2);
     auto& d = registry.get<DroppedItem>(pair.entity1);
 
-    if (auto* s = i.GetFirstEmptySlot(); s && d.item)
+    if (d.item)
     {
-      d.item->Dematerialize();
-      *s = std::move(d.item);
-      if (&i.ActiveSlot() == s)
+      printf("a");
+      if (!i.TryStackItem(typeid(*d.item)))
       {
-        (*s)->Materialize(pair.entity2);
+        if (auto* s = i.GetFirstEmptySlot())
+        {
+          d.item->Dematerialize();
+          *s = std::move(d.item);
+          if (&i.ActiveSlot() == s)
+          {
+            (*s)->Materialize(pair.entity2);
+          }
+        }
       }
-      registry.emplace_or_replace<DeferredDelete>(pair.entity1);
+      registry.remove<DroppedItem>(pair.entity1);
+      registry.get_or_emplace<DeferredDelete>(pair.entity1);
     }
   }
 }
@@ -545,6 +562,15 @@ void World::FixedUpdate(float dt)
         if (inventory.ActiveSlot())
         {
           inventory.ActiveSlot()->UsePrimary();
+
+          if (auto* b = dynamic_cast<Block*>(inventory.ActiveSlot().get()))
+          {
+            if (b->stackSize <= 0)
+            {
+              b->Dematerialize();
+              inventory.ActiveSlot().reset();
+            }
+          }
         }
       }
     }
@@ -776,17 +802,34 @@ void World::InitializeGameState()
   sphereSettings.SetEmbedded();
   auto sphere = sphereSettings.Create().Get();
 
+  auto prevBody = std::optional<JPH::BodyID>();
   for (int i = 0; i < 10; i++)
   {
     auto a = CreateRenderableEntity({0, 5 + i * 2, i * .1f});
     registry_.emplace<Name>(a).name = "Ball";
     registry_.emplace<Mesh>(a).name = "frog";
-    Physics::AddRigidBody({registry_, a}, {
+    auto rb = Physics::AddRigidBody({registry_, a}, {
       .shape = sphere,
       .activate = true,
       .motionType = JPH::EMotionType::Dynamic,
       .layer = Physics::Layers::MOVING,
     });
+
+    // Constraint test
+    if (prevBody)
+    {
+      auto settings   = JPH::DistanceConstraintSettings();
+      //settings.SetEmbedded();
+      settings.mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
+      settings.mMinDistance = 5;
+      settings.mMaxDistance = 8;
+      
+      auto& bd        = Physics::GetBodyInterface();
+      [[maybe_unused]] auto constraint = bd.CreateConstraint(&settings, *prevBody, rb.body);
+      //bd.ActivateConstraint(constraint);
+      Physics::GetPhysicsSystem().AddConstraint(constraint);
+    }
+    prevBody = rb.body; 
   }
 }
 
@@ -983,6 +1026,23 @@ void Inventory::SetActiveSlot(size_t row, size_t col, entt::entity parent)
   }
 }
 
+bool Inventory::TryStackItem(const std::type_info& type)
+{
+  for (auto& row : slots)
+  {
+    for (auto& slot : row)
+    {
+      if (slot && slot->stackSize < slot->maxStack && typeid(*slot.get()) == type)
+      {
+        slot->stackSize++;
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 std::unique_ptr<Item>* Inventory::GetFirstEmptySlot()
 {
   for (size_t row = 0; row < height; row++)
@@ -1015,6 +1075,12 @@ void Pickaxe::Dematerialize()
 
 void Pickaxe::UsePrimary()
 {
+  if (accum < useDt)
+  {
+    return;
+  }
+
+  accum          = 0;
   auto& reg      = world->GetRegistry();
   const auto& h  = reg.get<Hierarchy>(self);
   const auto p   = h.parent;
@@ -1023,9 +1089,77 @@ void Pickaxe::UsePrimary()
   const auto dir = GetForward(pt.rotation);
 
   auto& grid = reg.ctx().get<TwoLevelGrid>();
-  auto hit         = TwoLevelGrid::HitSurfaceParameters();
-  if (grid.TraceRaySimple(pos, dir, 5, hit))
+  auto hit   = TwoLevelGrid::HitSurfaceParameters();
+  if (grid.TraceRaySimple(pos, dir, 10, hit))
   {
+    auto prevVoxel = grid.GetVoxelAt(glm::ivec3(hit.voxelPosition));
     grid.SetVoxelAt(glm::ivec3(hit.voxelPosition), 0);
+
+    auto* item = new Block(*world, prevVoxel);
+    item->Materialize(entt::null);
+    world->GetRegistry().get<LocalTransform>(item->self).position = hit.voxelPosition + 0.5f;
+    UpdateLocalTransform({world->GetRegistry(), item->self});
+    // Add rigid body and DroppedItem
+    [[maybe_unused]] auto& rb = Physics::AddRigidBody({world->GetRegistry(), item->self}, {JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(0.125f)))});
+    world->GetRegistry().emplace<DroppedItem>(item->self).item.reset(item);
+    Physics::GetBodyInterface().ActivateBodiesInAABox({Physics::ToJolt(hit.voxelPosition + 0.5f), 2.0f}, {}, {});
+
+    const auto throwdir = glm::vec3(world->Rng().RandFloat(-0.25f, 0.25f), 1, world->Rng().RandFloat(-0.25f, 0.25f));
+    Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
   }
+}
+
+void Pickaxe::Update(float dt)
+{
+  accum += dt;
+}
+
+void Block::Materialize(entt::entity parent)
+{
+  self = world->CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
+  world->GetRegistry().emplace<Mesh>(self).name = "cube";
+  world->GetRegistry().emplace<Name>(self).name = "Block";
+  SetParent({world->GetRegistry(), self}, parent);
+}
+
+void Block::Dematerialize()
+{
+  world->GetRegistry().emplace<DeferredDelete>(self);
+  self = entt::null;
+}
+
+void Block::UsePrimary()
+{
+  if (accum < placementDt)
+  {
+    return;
+  }
+
+  accum          = 0;
+  auto& reg      = world->GetRegistry();
+  const auto& h  = reg.get<Hierarchy>(self);
+  const auto p   = h.parent;
+  const auto& pt = reg.get<GlobalTransform>(p);
+  const auto pos = pt.position;
+  const auto dir = GetForward(pt.rotation);
+
+  auto& grid = reg.ctx().get<TwoLevelGrid>();
+  auto hit   = TwoLevelGrid::HitSurfaceParameters();
+  if (stackSize > 0)
+  {
+    if (grid.TraceRaySimple(pos, dir, 10, hit))
+    {
+      const auto newPos = glm::ivec3(hit.voxelPosition + hit.flatNormalWorld);
+      if (grid.GetVoxelAt(newPos) == 0)
+      {
+        stackSize--;
+        grid.SetVoxelAt(newPos, voxel);
+      }
+    }
+  }
+}
+
+void Block::Update(float dt)
+{
+  accum += dt;
 }

@@ -20,6 +20,7 @@ namespace Physics
     [[maybe_unused]] JPH::ColorArg inColor,
     [[maybe_unused]] float inHeight)
   {
-    assert(false);
+    // TODO
+    //assert(false);
   }
 } // namespace Physics

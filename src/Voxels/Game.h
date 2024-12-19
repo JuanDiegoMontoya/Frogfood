@@ -1,6 +1,7 @@
 #pragma once
 #include "ClassImplMacros.h"
 #include "PCG.h"
+#include "TwoLevelGrid.h"
 
 #include "entt/entity/registry.hpp"
 #include "entt/entity/entity.hpp"
@@ -13,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <typeinfo> // TODO: remove
 
 using namespace entt::literals;
 
@@ -110,6 +112,9 @@ public:
 
   // The materialized self. Usage: set in Materialize, nullify in Dematerialize.
   entt::entity self = entt::null;
+
+  size_t stackSize = 1;
+  size_t maxStack  = 1;
 };
 
 class Gun : public Item
@@ -180,7 +185,36 @@ public:
   void Dematerialize() override;
 
   void UsePrimary() override;
-  //void Update(float dt) override;
+  void Update(float dt) override;
+
+  float useDt = 0.25f;
+  float accum  = 100;
+};
+
+class Block : public Item
+{
+public:
+
+  Block(World& w, TwoLevelGrid::voxel_t voxel) : Item(w), voxel(voxel)
+  {
+    stackSize = 1;
+    maxStack = 100;
+  }
+
+  const char* GetName() const override
+  {
+    return "Block";
+  }
+
+  void Materialize(entt::entity parent) override;
+  void Dematerialize() override;
+
+  void UsePrimary() override;
+  void Update(float dt) override;
+
+  TwoLevelGrid::voxel_t voxel;
+  float placementDt = 0.125f;
+  float accum       = 100;
 };
 
 struct DroppedItem
@@ -206,6 +240,7 @@ struct Inventory
 
   void SetActiveSlot(size_t row, size_t col, entt::entity parent);
 
+  bool TryStackItem(const std::type_info& type);
   std::unique_ptr<Item>* GetFirstEmptySlot();
 };
 

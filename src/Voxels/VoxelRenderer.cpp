@@ -147,6 +147,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
   g_meshes.emplace("frog", LoadObjFile(GetAssetDirectory() / "models/frog.obj"));
   g_meshes.emplace("ar15", LoadObjFile(GetAssetDirectory() / "models/ar15.obj"));
   g_meshes.emplace("tracer", LoadObjFile(GetAssetDirectory() / "models/tracer.obj"));
+  g_meshes.emplace("cube", LoadObjFile(GetAssetDirectory() / "models/cube.obj"));
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -645,8 +646,13 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           ImGui::TableNextColumn();
           ImGui::PushID(int(col));
           auto& slot = i.slots[row][col];
-          auto name  = slot ? slot->GetName() : "";
-          if (ImGui::Selectable(name, i.activeCol == col && i.activeRow == row, ImGuiSelectableFlags_AllowOverlap, {50, 50}))
+          std::string nameStr  = slot ? slot->GetName() : "";
+          if (slot && slot->maxStack > 1)
+          {
+            nameStr += "\n" + std::to_string(slot->stackSize) + "/" + std::to_string(slot->maxStack);
+          }
+          auto name = nameStr.c_str();
+          if (ImGui::Selectable(name, i.activeCol == col && i.activeRow == row, 0, {50, 50}))
           {
             i.SetActiveSlot(row, col, e);
           }
@@ -706,24 +712,27 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
 
             auto& item = i.slots[rowCol[0]][rowCol[1]];
-            if (item->self == entt::null)
+            if (item)
             {
-              // Materialize entity
-              item->Materialize(entt::null);
-            }
-            else
-            {
-              SetParent({world.GetRegistry(), item->self}, entt::null);
-            }
+              if (item->self == entt::null)
+              {
+                // Materialize entity
+                item->Materialize(entt::null);
+              }
+              else
+              {
+                SetParent({world.GetRegistry(), item->self}, entt::null);
+              }
 
-            // Add rigid body and DroppedItem
-            auto& rb = Physics::AddRigidBody({world.GetRegistry(), item->self}, {JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(0.3f)))});
-            world.GetRegistry().emplace<DroppedItem>(item->self).item = std::move(item);
+              // Add rigid body and DroppedItem
+              auto& rb = Physics::AddRigidBody({world.GetRegistry(), item->self}, {JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(0.3f)))});
+              world.GetRegistry().emplace<DroppedItem>(item->self).item = std::move(item);
 
-            const auto throwdir = GetForward(gt.rotation);
-            const auto pos = gt.position + throwdir * 1.0f;
-            Physics::GetBodyInterface().SetPosition(rb.body, Physics::ToJolt(pos), JPH::EActivation::Activate);
-            Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+              const auto throwdir = GetForward(gt.rotation);
+              const auto pos = gt.position + throwdir * 1.0f;
+              Physics::GetBodyInterface().SetPosition(rb.body, Physics::ToJolt(pos), JPH::EActivation::Activate);
+              Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+            }
           }
           ImGui::EndDragDropTarget();
         }

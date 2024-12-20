@@ -8,6 +8,7 @@
 #include "entt/entity/entity.hpp"
 #include "entt/entity/handle.hpp"
 #include "glm/vec3.hpp"
+#include "glm/vec2.hpp"
 #include "glm/gtc/quaternion.hpp"
 
 #include <array>
@@ -15,7 +16,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <typeinfo> // TODO: remove
 
 using namespace entt::literals;
 
@@ -247,10 +247,14 @@ struct Inventory
   }
 
   void SetActiveSlot(size_t row, size_t col, entt::entity parent);
-
+  
   void SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent);
 
+  // If necessary, materializes the item. Then, the item is given a RigidBody and is moved into the new entity.
   entt::entity DropItem(World& world, glm::ivec2 slot);
+
+  // Completely deletes the old item, replacing it with the new. New item can be null.
+  void OverwriteSlot(glm::ivec2 rowCol, Item* item, entt::entity parent);
 
   bool TryStackItem(const Item& item);
   std::unique_ptr<Item>* GetFirstEmptySlot();

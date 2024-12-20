@@ -1087,6 +1087,20 @@ entt::entity Inventory::DropItem(World& world, glm::ivec2 slot)
   return entity;
 }
 
+void Inventory::OverwriteSlot(glm::ivec2 rowCol, Item* item, entt::entity parent)
+{
+  const bool dstIsActive = rowCol[0] == activeRow && rowCol[1] == activeCol;
+  if (dstIsActive)
+  {
+    ActiveSlot()->Dematerialize();
+  }
+  slots[rowCol[0]][rowCol[1]].reset(item);
+  if (dstIsActive)
+  {
+    ActiveSlot()->Materialize(parent);
+  }
+}
+
 bool Inventory::TryStackItem(const Item& item)
 {
   for (auto& row : slots)

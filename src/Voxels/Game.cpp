@@ -10,6 +10,7 @@
 #include "TwoLevelGrid.h"
 #include "Pathfinding.h"
 #include "MathUtilities.h"
+#include "HashUtilities.h"
 
 #include "entt/entity/handle.hpp"
 
@@ -67,7 +68,7 @@ static void OnContact(entt::registry& registry, const Physics::ContactPair& pair
     if (d.item)
     {
       printf("a");
-      if (!i.TryStackItem(typeid(*d.item)))
+      if (!i.TryStackItem(*d.item))
       {
         if (auto* s = i.GetFirstEmptySlot())
         {
@@ -91,7 +92,7 @@ static void OnContact(entt::registry& registry, const Physics::ContactPair& pair
     if (d.item)
     {
       printf("a");
-      if (!i.TryStackItem(typeid(*d.item)))
+      if (!i.TryStackItem(*d.item))
       {
         if (auto* s = i.GetFirstEmptySlot())
         {
@@ -283,11 +284,8 @@ void Gun::Update(float dt)
 void Gun2::Materialize(entt::entity parent)
 {
   Gun::Materialize(parent);
-  auto&& [m, t] = world->GetRegistry().get<Mesh, LocalTransform>(self);
-
-  m.name = "frog";
-  t.scale = 0.125f;
-  UpdateLocalTransform({world->GetRegistry(), self});
+  world->GetRegistry().get<Mesh>(self).name = "frog";
+  world->SetLocalScale(self, 0.125f);
 }
 
 void World::FixedUpdate(float dt)
@@ -312,7 +310,7 @@ void World::FixedUpdate(float dt)
 
     for (auto&& [entity] : registry_.view<LocalPlayer>().each())
     {
-        UpdateLocalTransform({registry_, entity});
+      UpdateLocalTransform({registry_, entity});
     }
     
     Physics::FixedUpdate(dt, *this);
@@ -863,6 +861,25 @@ GlobalTransform* World::TryGetLocalPlayerTransform()
   return nullptr;
 }
 
+void World::SetLocalPosition(entt::entity entity, glm::vec3 position)
+{
+  auto& lt = registry_.get<LocalTransform>(entity);
+  lt.position = position;
+  if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
+  {
+    // Using the local position, which is fine because entities with a rigid body should never have a parent.
+    Physics::GetBodyInterface().SetPosition(rb->body, Physics::ToJolt(position), JPH::EActivation::Activate);
+  }
+  UpdateLocalTransform({registry_, entity});
+}
+
+void World::SetLocalScale(entt::entity entity, float scale)
+{
+  auto& lt = registry_.get<LocalTransform>(entity);
+  lt.scale = scale;
+  UpdateLocalTransform({registry_, entity});
+}
+
 glm::vec3 GetFootPosition(entt::handle handle)
 {
   const auto* t = handle.try_get<GlobalTransform>();
@@ -1026,13 +1043,57 @@ void Inventory::SetActiveSlot(size_t row, size_t col, entt::entity parent)
   }
 }
 
-bool Inventory::TryStackItem(const std::type_info& type)
+void Inventory::SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent)
+{
+  // Handle moving active item onto another slot or vice versa
+  const bool targetIsActive = first[0] == activeRow && first[1] == activeCol;
+  const bool sourceIsActive = second[0] == (int)activeRow && second[1] == (int)activeCol;
+  if (targetIsActive)
+  {
+    SetActiveSlot(second[0], second[1], parent);
+    activeRow = first[0];
+    activeCol = first[1];
+  }
+  else if (sourceIsActive)
+  {
+    SetActiveSlot(first[0], first[1], parent);
+    activeRow = second[0];
+    activeCol = second[1];
+  }
+  std::swap(slots[second[0]][second[1]], slots[first[0]][first[1]]);
+}
+
+entt::entity Inventory::DropItem(World& world, glm::ivec2 slot)
+{
+  auto& item = slots[slot[0]][slot[1]];
+  if (!item)
+  {
+    return entt::null;
+  }
+
+  if (item->self == entt::null)
+  {
+    item->Materialize(entt::null);
+  }
+  else
+  {
+    SetParent({world.GetRegistry(), item->self}, entt::null);
+  }
+
+  auto entity = item->self;
+  
+  item->GiveCollider();
+  world.GetRegistry().emplace<DroppedItem>(item->self).item = std::move(item);
+  return entity;
+}
+
+bool Inventory::TryStackItem(const Item& item)
 {
   for (auto& row : slots)
   {
     for (auto& slot : row)
     {
-      if (slot && slot->stackSize < slot->maxStack && typeid(*slot.get()) == type)
+      if (slot && slot->stackSize < slot->maxStack && slot->GetId() == item.GetId())
       {
         slot->stackSize++;
         return true;
@@ -1099,19 +1160,26 @@ void Pickaxe::UsePrimary()
     item->Materialize(entt::null);
     world->GetRegistry().get<LocalTransform>(item->self).position = hit.voxelPosition + 0.5f;
     UpdateLocalTransform({world->GetRegistry(), item->self});
-    // Add rigid body and DroppedItem
-    [[maybe_unused]] auto& rb = Physics::AddRigidBody({world->GetRegistry(), item->self}, {JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(0.125f)))});
+    auto& rb = item->GiveCollider();
     world->GetRegistry().emplace<DroppedItem>(item->self).item.reset(item);
-    Physics::GetBodyInterface().ActivateBodiesInAABox({Physics::ToJolt(hit.voxelPosition + 0.5f), 2.0f}, {}, {});
 
     const auto throwdir = glm::vec3(world->Rng().RandFloat(-0.25f, 0.25f), 1, world->Rng().RandFloat(-0.25f, 0.25f));
     Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+
+    // Awaken bodies that are adjacent to destroyed voxel in case they were resting on it.
+    Physics::GetBodyInterface().ActivateBodiesInAABox({Physics::ToJolt(hit.voxelPosition + 0.5f), 2.0f}, {}, {});
   }
 }
 
 void Pickaxe::Update(float dt)
 {
   accum += dt;
+}
+
+size_t Block::GetId() const
+{
+  auto tup = std::make_tuple(Item::GetId(), voxel);
+  return hash<decltype(tup)>()(tup);
 }
 
 void Block::Materialize(entt::entity parent)
@@ -1162,4 +1230,15 @@ void Block::UsePrimary()
 void Block::Update(float dt)
 {
   accum += dt;
+}
+
+size_t Item::GetId() const
+{
+  return typeid(*this).hash_code();
+}
+
+Physics::RigidBody& Item::GiveCollider()
+{
+  assert(self != entt::null);
+  return Physics::AddRigidBody({world->GetRegistry(), self}, {JPH::Ref(new JPH::BoxShape(Physics::ToJolt(droppedColliderSize)))});
 }

@@ -2,6 +2,7 @@
 #include "ClassImplMacros.h"
 #include "PCG.h"
 #include "TwoLevelGrid.h"
+#include "Physics/Physics.h"
 
 #include "entt/entity/registry.hpp"
 #include "entt/entity/entity.hpp"
@@ -81,6 +82,9 @@ public:
 
   [[nodiscard]] GlobalTransform* TryGetLocalPlayerTransform();
 
+  void SetLocalPosition(entt::entity entity, glm::vec3 position);
+  void SetLocalScale(entt::entity entity, float scale);
+
 private:
   uint64_t ticks_ = 0;
   entt::registry registry_;
@@ -97,11 +101,15 @@ public:
   Item(World& world) : world(&world) {}
   virtual ~Item() = default;
 
+  virtual size_t GetId() const;
   virtual const char* GetName() const = 0;
 
   // Create an entity
   virtual void Materialize(entt::entity parent) = 0;
   virtual void Dematerialize()                  = 0;
+
+  // Spawn the entity if necessary, give it physics, and unparent it from the player
+  virtual Physics::RigidBody& GiveCollider();
 
   // Perform an action with the entity
   virtual void UsePrimary() {}
@@ -115,13 +123,12 @@ public:
 
   size_t stackSize = 1;
   size_t maxStack  = 1;
+  glm::vec3 droppedColliderSize = glm::vec3(0.3f);
 };
 
 class Gun : public Item
 {
 public:
-  NO_COPY(Gun);
-
   Gun(World& w) : Item(w) {}
 
   const char* GetName() const override
@@ -173,7 +180,6 @@ public:
 class Pickaxe : public Item
 {
 public:
-
   Pickaxe(World& w) : Item(w) {}
 
   const char* GetName() const override
@@ -194,12 +200,14 @@ public:
 class Block : public Item
 {
 public:
-
   Block(World& w, TwoLevelGrid::voxel_t voxel) : Item(w), voxel(voxel)
   {
     stackSize = 1;
     maxStack = 100;
+    droppedColliderSize = glm::vec3(0.125f);
   }
+
+  size_t GetId() const override;
 
   const char* GetName() const override
   {
@@ -240,7 +248,11 @@ struct Inventory
 
   void SetActiveSlot(size_t row, size_t col, entt::entity parent);
 
-  bool TryStackItem(const std::type_info& type);
+  void SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent);
+
+  entt::entity DropItem(World& world, glm::ivec2 slot);
+
+  bool TryStackItem(const Item& item);
   std::unique_ptr<Item>* GetFirstEmptySlot();
 };
 

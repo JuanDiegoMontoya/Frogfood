@@ -668,24 +668,8 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INVENTORY_SLOT"))
             {
               assert(payload->DataSize == sizeof(glm::ivec2));
-              const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
-
-              // Handle moving active item onto another slot or vice versa
-              const bool targetIsActive = row == i.activeRow && col == i.activeCol;
-              const bool sourceIsActive = rowCol[0] == (int)i.activeRow && rowCol[1] == (int)i.activeCol;
-              if (targetIsActive)
-              {
-                i.SetActiveSlot(rowCol[0], rowCol[1], e);
-                i.activeRow = row;
-                i.activeCol = col;
-              }
-              else if (sourceIsActive)
-              {
-                i.SetActiveSlot(row, col, e);
-                i.activeRow = rowCol[0];
-                i.activeCol = rowCol[1];
-              }
-              std::swap(i.slots[rowCol[0]][rowCol[1]], i.slots[row][col]);
+              const auto sourceRowCol = *static_cast<const glm::ivec2*>(payload->Data);
+              i.SwapSlots(sourceRowCol, {row, col}, e);
             }
             ImGui::EndDragDropTarget();
           }
@@ -711,28 +695,12 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             assert(payload->DataSize == sizeof(glm::ivec2));
             const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
 
-            auto& item = i.slots[rowCol[0]][rowCol[1]];
-            if (item)
-            {
-              if (item->self == entt::null)
-              {
-                // Materialize entity
-                item->Materialize(entt::null);
-              }
-              else
-              {
-                SetParent({world.GetRegistry(), item->self}, entt::null);
-              }
+            auto& rb = world.GetRegistry().get<Physics::RigidBody>(i.DropItem(world, rowCol));
 
-              // Add rigid body and DroppedItem
-              auto& rb = Physics::AddRigidBody({world.GetRegistry(), item->self}, {JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(0.3f)))});
-              world.GetRegistry().emplace<DroppedItem>(item->self).item = std::move(item);
-
-              const auto throwdir = GetForward(gt.rotation);
-              const auto pos = gt.position + throwdir * 1.0f;
-              Physics::GetBodyInterface().SetPosition(rb.body, Physics::ToJolt(pos), JPH::EActivation::Activate);
-              Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
-            }
+            const auto throwdir = GetForward(gt.rotation);
+            const auto pos = gt.position + throwdir * 1.0f;
+            Physics::GetBodyInterface().SetPosition(rb.body, Physics::ToJolt(pos), JPH::EActivation::Activate);
+            Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
           }
           ImGui::EndDragDropTarget();
         }

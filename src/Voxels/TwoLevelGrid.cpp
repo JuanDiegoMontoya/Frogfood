@@ -166,7 +166,7 @@ void TwoLevelGrid::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
   if (topLevelBrickPtr.voxelsDoBeAllSame)
   {
     // Make a top-level brick
-    topLevelBrickPtr = TopLevelBrickPtr{.voxelsDoBeAllSame = false, .topLevelBrick = AllocateTopLevelBrick()};
+    topLevelBrickPtr = TopLevelBrickPtr{.voxelsDoBeAllSame = false, .topLevelBrick = AllocateTopLevelBrick(topLevelBrickPtr.voxelIfAllSame)};
 #ifndef GAME_HEADLESS
     buffer.MarkDirtyPages(&topLevelBrickPtr);
 #endif
@@ -180,7 +180,7 @@ void TwoLevelGrid::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
   if (bottomLevelBrickPtr.voxelsDoBeAllSame)
   {
     // Make a bottom-level brick
-    bottomLevelBrickPtr = BottomLevelBrickPtr{.voxelsDoBeAllSame = false, .bottomLevelBrick = AllocateBottomLevelBrick()};
+    bottomLevelBrickPtr = BottomLevelBrickPtr{.voxelsDoBeAllSame = false, .bottomLevelBrick = AllocateBottomLevelBrick(bottomLevelBrickPtr.voxelIfAllSame)};
 #ifndef GAME_HEADLESS
     buffer.MarkDirtyPages(&bottomLevelBrickPtr);
 #endif
@@ -318,7 +318,7 @@ int TwoLevelGrid::FlattenVoxelCoord(glm::ivec3 coord)
   return (coord.z * BL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH) + (coord.y * BL_BRICK_SIDE_LENGTH) + coord.x;
 }
 
-uint32_t TwoLevelGrid::AllocateTopLevelBrick()
+uint32_t TwoLevelGrid::AllocateTopLevelBrick(voxel_t initialVoxel)
 {
   ZoneScoped;
   // The alignment of the allocation should be the size of the object being allocated so it can be indexed from the base ptr
@@ -328,18 +328,14 @@ uint32_t TwoLevelGrid::AllocateTopLevelBrick()
   // Initialize
   auto& top = buffer.GetBase<TopLevelBrick>()[index];
   std::construct_at(&top);
-  for (auto& bottomLevelBrickPtr : top.bricks)
-  {
-    bottomLevelBrickPtr.voxelsDoBeAllSame = true;
-    bottomLevelBrickPtr.voxelIfAllSame    = 0;
-  }
+  std::ranges::fill(top.bricks, BottomLevelBrickPtr{.voxelsDoBeAllSame = true, .bottomLevelBrick = initialVoxel});
 #ifndef GAME_HEADLESS
   buffer.MarkDirtyPages(&top);
 #endif
   return index;
 }
 
-uint32_t TwoLevelGrid::AllocateBottomLevelBrick()
+uint32_t TwoLevelGrid::AllocateBottomLevelBrick(voxel_t initialVoxel)
 {
   ZoneScoped;
   auto allocation = buffer.Allocate(sizeof(BottomLevelBrick), sizeof(BottomLevelBrick));
@@ -348,7 +344,7 @@ uint32_t TwoLevelGrid::AllocateBottomLevelBrick()
   // Initialize
   auto& bottom = buffer.GetBase<BottomLevelBrick>()[index];
   std::construct_at(&bottom);
-  std::memset(&bottom, 0, sizeof(bottom));
+  std::ranges::fill(bottom.voxels, initialVoxel);
 #ifndef GAME_HEADLESS
   buffer.MarkDirtyPages(&bottom);
 #endif

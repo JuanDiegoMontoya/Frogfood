@@ -77,9 +77,9 @@ namespace Physics
       const JPH::Plane& inSurface,
       float& outTotalVolume,
       float& outSubmergedVolume,
-      JPH::Vec3& outCenterOfBuoyancy,
+      JPH::Vec3& outCenterOfBuoyancy
 #ifdef JPH_DEBUG_RENDERER
-      JPH::RVec3Arg inBaseOffset
+      , JPH::RVec3Arg inBaseOffset
 #endif
     ) const override;
 

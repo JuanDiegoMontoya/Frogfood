@@ -1,3 +1,4 @@
+#ifdef JPH_DEBUG_RENDERER
 #include "DebugRenderer.h"
 #include "PhysicsUtils.h"
 
@@ -24,3 +25,4 @@ namespace Physics
     //assert(false);
   }
 } // namespace Physics
+#endif

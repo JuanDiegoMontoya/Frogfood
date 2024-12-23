@@ -39,6 +39,7 @@ static void OnDeferredDeleteConstruct(entt::registry& registry, entt::entity ent
 }
 
 // Helper to simplify logic for OnContact. Calls the input function twice with swapped arguments.
+// Callee should return true if conditions were met so it isn't unnecessarily invoked twice.
 template<typename F>
 void TryTwice(const Physics::ContactPair& pair, F&& function)
 {
@@ -79,15 +80,21 @@ static void OnContact(World& world, const Physics::ContactPair& pair)
 
         if (d.item.id != nullItem)
         {
-          if (!i.TryStackItem(d.item))
+          i.TryStackItem(d.item);
+          if (d.item.stackSize > 0)
           {
             if (auto slotCoords = i.GetFirstEmptySlot())
             {
               i.OverwriteSlot(*slotCoords, d.item, entity1);
+              d.item = {.stackSize = 0};
             }
           }
-          world.GetRegistry().remove<DroppedItem>(entity2);
-          world.GetRegistry().get_or_emplace<DeferredDelete>(entity2);
+
+          if (d.item.stackSize == 0)
+          {
+            world.GetRegistry().remove<DroppedItem>(entity2);
+            world.GetRegistry().get_or_emplace<DeferredDelete>(entity2);
+          }
         }
         return true;
       }
@@ -139,46 +146,52 @@ void Game::Run()
 
   while (isRunning_)
   {
-    const auto timeScale      = world_->GetRegistry().ctx().get<TimeScale>().scale;
-    const auto tickHz         = world_->GetRegistry().ctx().get<TickRate>().hz;
-    const double tickDuration = 1.0 / tickHz;
-
-    const auto currentTimestamp = std::chrono::steady_clock::now();
-    const auto realDeltaTime    = std::chrono::duration_cast<std::chrono::microseconds>(currentTimestamp - previousTimestamp).count() / 1'000'000.0;
-    previousTimestamp = currentTimestamp;
-
-
-    auto dt = DeltaTime{
-      .game = static_cast<float>(realDeltaTime * timeScale),
-      .real = static_cast<float>(realDeltaTime),
-      .fraction = float(fixedUpdateAccum / tickDuration),
-    };
-
-    if (head_)
+    try
     {
-      head_->VariableUpdatePre(dt, *world_);
+      const auto timeScale      = world_->GetRegistry().ctx().get<TimeScale>().scale;
+      const auto tickHz         = world_->GetRegistry().ctx().get<TickRate>().hz;
+      const double tickDuration = 1.0 / tickHz;
+
+      const auto currentTimestamp = std::chrono::steady_clock::now();
+      const auto realDeltaTime    = std::chrono::duration_cast<std::chrono::microseconds>(currentTimestamp - previousTimestamp).count() / 1'000'000.0;
+      previousTimestamp           = currentTimestamp;
+
+      auto dt = DeltaTime{
+        .game     = static_cast<float>(realDeltaTime * timeScale),
+        .real     = static_cast<float>(realDeltaTime),
+        .fraction = float(fixedUpdateAccum / tickDuration),
+      };
+
+      if (head_)
+      {
+        head_->VariableUpdatePre(dt, *world_);
+      }
+
+      constexpr int MAX_TICKS = 5;
+      int accumTicks          = 0;
+      fixedUpdateAccum += realDeltaTime * timeScale;
+      while (fixedUpdateAccum > tickDuration && accumTicks++ < MAX_TICKS)
+      {
+        fixedUpdateAccum -= tickDuration;
+        // TODO: Networking update before FixedUpdate
+        world_->FixedUpdate(static_cast<float>(tickDuration));
+      }
+
+      dt.fraction = float(fixedUpdateAccum / tickDuration);
+
+      if (head_)
+      {
+        head_->VariableUpdatePost(dt, *world_);
+      }
+
+      if (world_->GetRegistry().ctx().contains<CloseApplication>())
+      {
+        isRunning_ = false;
+      }
     }
-
-    constexpr int MAX_TICKS = 5;
-    int accumTicks          = 0;
-    fixedUpdateAccum += realDeltaTime * timeScale;
-    while (fixedUpdateAccum > tickDuration && accumTicks++ < MAX_TICKS)
+    catch(std::exception& e)
     {
-      fixedUpdateAccum -= tickDuration;
-      // TODO: Networking update before FixedUpdate
-      world_->FixedUpdate(static_cast<float>(tickDuration));
-    }
-
-    dt.fraction = float(fixedUpdateAccum / tickDuration);
-
-    if (head_)
-    {
-      head_->VariableUpdatePost(dt, *world_);
-    }
-
-    if (world_->GetRegistry().ctx().contains<CloseApplication>())
-    {
-      isRunning_ = false;
+      fprintf(stderr, "Exception caught: %s\n", e.what());
     }
   }
 }
@@ -528,7 +541,7 @@ void World::FixedUpdate(float dt)
       registry_.destroy(entity);
     }
   }
-
+  
   ticks_++;
 }
 
@@ -589,6 +602,20 @@ void World::InitializeGameState()
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
   [[maybe_unused]] const auto pickaxeId = items.Add(new Pickaxe());
   [[maybe_unused]] const auto blockId = items.Add(new Block(1));
+
+  auto& crafting = registry_.ctx().emplace<Crafting>();
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{blockId, 1}},
+    {{gunId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{blockId, 5}, {gunId, 1}},
+    {{gun2Id, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {},
+    {{blockId, 1}},
+  });
 
   // Reset RNG
   registry_.ctx().emplace<PCG::Rng>(1234);
@@ -709,20 +736,20 @@ void World::InitializeGameState()
       .layer = Physics::Layers::MOVING,
     });
 
-    // Constraint test
-    if (prevBody)
-    {
-      auto settings   = JPH::DistanceConstraintSettings();
-      //settings.SetEmbedded();
-      settings.mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
-      settings.mMinDistance = 5;
-      settings.mMaxDistance = 8;
-      
-      auto& bd        = Physics::GetBodyInterface();
-      [[maybe_unused]] auto constraint = bd.CreateConstraint(&settings, *prevBody, rb.body);
-      //bd.ActivateConstraint(constraint);
-      Physics::GetPhysicsSystem().AddConstraint(constraint);
-    }
+    //// Constraint test
+    //if (prevBody)
+    //{
+    //  auto settings   = JPH::DistanceConstraintSettings();
+    //  //settings.SetEmbedded();
+    //  settings.mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
+    //  settings.mMinDistance = 5;
+    //  settings.mMaxDistance = 8;
+    //  
+    //  auto& bd        = Physics::GetBodyInterface();
+    //  [[maybe_unused]] auto constraint = bd.CreateConstraint(&settings, *prevBody, rb.body);
+    //  //bd.ActivateConstraint(constraint);
+    //  Physics::GetPhysicsSystem().AddConstraint(constraint);
+    //}
     prevBody = rb.body; 
   }
 }
@@ -737,13 +764,28 @@ entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotatio
 
   registry_.emplace<GlobalTransform>(e) = {t.position, t.rotation, t.scale};
 
-  auto& it            = registry_.emplace<PreviousGlobalTransform>(e);
+  auto& it    = registry_.emplace<PreviousGlobalTransform>(e);
   it.position = t.position;
   it.rotation = t.rotation;
   it.scale    = t.scale;
   registry_.emplace<RenderTransform>(e);
   registry_.emplace<Hierarchy>(e);
   return e;
+}
+
+entt::entity World::CreateDroppedItem(ItemState item, glm::vec3 position, glm::quat rotation, float scale)
+{
+  const auto& itemDef = registry_.ctx().get<ItemRegistry>().Get(item.id);
+  auto entity         = itemDef.Materialize(*this);
+
+  auto& t    = registry_.get<LocalTransform>(entity);
+  t.position = position;
+  t.rotation = rotation;
+  t.scale    = scale;
+  UpdateLocalTransform({registry_, entity});
+  itemDef.GiveCollider(*this, entity);
+  registry_.emplace<DroppedItem>(entity).item = ItemState{item.id};
+  return entity;
 }
 
 GlobalTransform* World::TryGetLocalPlayerTransform()
@@ -979,25 +1021,30 @@ void Inventory::OverwriteSlot(glm::ivec2 rowCol, ItemState itemState, entt::enti
   }
 }
 
-bool Inventory::TryStackItem(const ItemState& item)
+void Inventory::TryStackItem(ItemState& item)
 {
   const auto& def = world->GetRegistry().ctx().get<ItemRegistry>().Get(item.id);
   for (auto& row : slots)
   {
     for (auto& slot : row)
     {
-      if (slot.id == item.id && slot.stackSize < def.GetMaxStackSize())
+      if (item.stackSize <= 0)
       {
-        slot.stackSize++;
-        return true;
+        return;
+      }
+
+      if (slot.id == item.id)
+      {
+        // Moves stack from item to slot, up to max stack size.
+        const auto avail = glm::min(item.stackSize, def.GetMaxStackSize() - slot.stackSize);
+        slot.stackSize += avail;
+        item.stackSize -= avail;
       }
     }
   }
-
-  return false;
 }
 
-std::optional<glm::ivec2> Inventory::GetFirstEmptySlot()
+std::optional<glm::ivec2> Inventory::GetFirstEmptySlot() const
 {
   for (size_t row = 0; row < height; row++)
   {
@@ -1011,6 +1058,78 @@ std::optional<glm::ivec2> Inventory::GetFirstEmptySlot()
   }
 
   return std::nullopt;
+}
+
+bool Inventory::CanCraftRecipe(Crafting::Recipe recipe) const
+{
+  for (auto& ingredient : recipe.ingredients)
+  {
+    for (const auto& row : slots)
+    {
+      for (const auto& slot : row)
+      {
+        if (slot.id == ingredient.item)
+        {
+          ingredient.amount -= (int)slot.stackSize;
+        }
+      }
+    }
+  }
+
+  for (const auto& ingredient : recipe.ingredients)
+  {
+    if (ingredient.amount > 0)
+    {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+void Inventory::CraftRecipe(Crafting::Recipe recipe, entt::entity parent) 
+{
+  // For every ingredient, look at entire inventory and eat the required items. It's assumed that the required items are available.
+  for (auto& ingredient : recipe.ingredients)
+  {
+    for (size_t rowIdx = 0; rowIdx < slots.size(); rowIdx++)
+    {
+      auto& row = slots[rowIdx];
+      for (size_t colIdx = 0; colIdx < row.size(); colIdx++)
+      {
+        auto& slot = row[colIdx];
+        if (slot.id == ingredient.item)
+        {
+          const auto consumed = glm::min(ingredient.amount, (int)slot.stackSize);
+          ingredient.amount -= consumed;
+          slot.stackSize -= consumed;
+          if (slot.stackSize <= 0)
+          {
+            OverwriteSlot({rowIdx, colIdx}, {});
+          }
+        }
+      }
+    }
+  }
+
+  // For each output, try to stack it with an existing slot. Otherwise, put it in a free spot. If there is no free spot, drop it.
+  for (auto& output : recipe.output)
+  {
+    auto item = ItemState{output.item, (size_t)output.amount};
+    TryStackItem(item);
+    if (item.stackSize > 0)
+    {
+      if (auto slot = GetFirstEmptySlot())
+      {
+        OverwriteSlot(*slot, item, parent);
+      }
+      else
+      {
+        const auto& t = world->GetRegistry().get<GlobalTransform>(parent);
+        world->CreateDroppedItem(item, t.position, t.rotation, t.scale);
+      }
+    }
+  }
 }
 
 entt::entity Gun::Materialize(World& world) const

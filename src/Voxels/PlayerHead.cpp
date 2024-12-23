@@ -177,12 +177,12 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
   {
     for (auto&& [entity, transform, renderTransform] : world.GetRegistry().view<GlobalTransform, RenderTransform>().each())
     {
-      if (auto* interpolatedTransform = world.GetRegistry().try_get<PreviousGlobalTransform>(entity))
+      if (auto* previousGlobalTransform = world.GetRegistry().try_get<PreviousGlobalTransform>(entity))
       {
         const auto alpha                   = dt.fraction;
-        renderTransform.transform.position = glm::mix(interpolatedTransform->position, transform.position, alpha);
-        renderTransform.transform.rotation = glm::slerp(interpolatedTransform->rotation, transform.rotation, alpha);
-        renderTransform.transform.scale    = glm::mix(interpolatedTransform->scale, transform.scale, alpha);
+        renderTransform.transform.position = glm::mix(previousGlobalTransform->position, transform.position, alpha);
+        renderTransform.transform.rotation = glm::slerp(previousGlobalTransform->rotation, transform.rotation, alpha);
+        renderTransform.transform.scale    = glm::mix(previousGlobalTransform->scale, transform.scale, alpha);
       }
       else
       {

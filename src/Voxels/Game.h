@@ -15,10 +15,10 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <variant>
 #include <vector>
 #include <unordered_map>
 
+struct ItemState;
 using namespace entt::literals;
 
 struct Name
@@ -81,6 +81,7 @@ public:
 
   // Adds LocalTransform, GlobalTransform, InterpolatedTransform, RenderTransform, and Hierarchy components.
   entt::entity CreateRenderableEntity(glm::vec3 position, glm::quat rotation = glm::quat(1, 0, 0, 0), float scale = 1);
+  entt::entity CreateDroppedItem(ItemState item, glm::vec3 position, glm::quat rotation = {1, 0, 0, 0}, float scale = 1);
 
   [[nodiscard]] GlobalTransform* TryGetLocalPlayerTransform();
 
@@ -101,8 +102,8 @@ constexpr ItemId nullItem = ~0u;
 struct ItemState
 {
   ItemId id        = nullItem;
-  float useAccum   = 1000;
   size_t stackSize = 1;
+  float useAccum   = 1000;
 };
 
 class ItemDefinition
@@ -268,6 +269,23 @@ struct DroppedItem
   ItemState item;
 };
 
+struct Crafting
+{
+  struct ItemIdAndAmount
+  {
+    ItemId item   = nullItem;
+    int amount = 1;
+  };
+
+  struct Recipe
+  {
+    std::vector<ItemIdAndAmount> ingredients;
+    std::vector<ItemIdAndAmount> output;
+  };
+
+  std::vector<Recipe> recipes;
+};
+
 struct Inventory
 {
   Inventory(World& world) : world(&world) {}
@@ -297,10 +315,13 @@ struct Inventory
   entt::entity DropItem(glm::ivec2 slot);
 
   // Completely deletes the old item, replacing it with the new. New item can be null.
-  void OverwriteSlot(glm::ivec2 rowCol, ItemState itemState, entt::entity parent);
+  void OverwriteSlot(glm::ivec2 rowCol, ItemState itemState, entt::entity parent = entt::null);
 
-  bool TryStackItem(const ItemState& item);
-  std::optional<glm::ivec2> GetFirstEmptySlot();
+  void TryStackItem(ItemState& item);
+  std::optional<glm::ivec2> GetFirstEmptySlot() const;
+
+  bool CanCraftRecipe(Crafting::Recipe recipe) const;
+  void CraftRecipe(Crafting::Recipe recipe, entt::entity parent);
 };
 
 class Networking
@@ -477,17 +498,4 @@ private:
   std::unique_ptr<Head> head_;
   std::unique_ptr<Networking> networking_;
   std::unique_ptr<World> world_;
-};
-
-struct Crafting
-{
-  using Ingredient = std::variant<TwoLevelGrid::voxel_t, std::unique_ptr<ItemDefinition>>;
-
-  struct Recipe
-  {
-    Ingredient output;
-    std::vector<Ingredient> ingredients;
-  };
-
-  std::vector<Recipe> recipes;
 };

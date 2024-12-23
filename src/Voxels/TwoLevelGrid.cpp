@@ -8,6 +8,7 @@
 #include "glm/vec4.hpp"
 
 #include <type_traits>
+#include <algorithm>
 
 // Assert that we can memset these types and produce them from a bag of bytes.
 static_assert(std::is_trivially_constructible_v<TwoLevelGrid::TopLevelBrick>);

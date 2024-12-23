@@ -1,10 +1,11 @@
 #pragma once
-#include "debug/Shapes.h"
+#ifdef JPH_DEBUG_RENDERER
+  #include "debug/Shapes.h"
 
-#include "Jolt/Jolt.h"
-#include "Jolt/Renderer/DebugRendererSimple.h"
+  #include "Jolt/Jolt.h"
+  #include "Jolt/Renderer/DebugRendererSimple.h"
 
-#include <vector>
+  #include <vector>
 
 namespace Fvog
 {
@@ -16,7 +17,6 @@ namespace Physics
   class DebugRenderer : public JPH::DebugRendererSimple
   {
   public:
-
     void DrawLine(JPH::RVec3Arg inFrom, JPH::RVec3Arg inTo, JPH::ColorArg inColor) override;
 
     void DrawText3D(JPH::RVec3Arg inPosition, const std::string_view& inString, JPH::ColorArg inColor, float inHeight) override;
@@ -34,4 +34,5 @@ namespace Physics
   private:
     std::vector<Debug::Line> lines_;
   };
-}
+} // namespace Physics
+#endif

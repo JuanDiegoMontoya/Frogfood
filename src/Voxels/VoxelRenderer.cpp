@@ -632,10 +632,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     }
     ImGui::End();
 
+    auto&& [e, p, i, gt] = *world.GetRegistry().view<Player, LocalPlayer, Inventory, GlobalTransform>().each().begin();
     if (ImGui::Begin("Inventory", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDecoration))
     {
       ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, {0.5f, 0.5f});
-      auto&& [e, p, i, gt] = *world.GetRegistry().view<Player, LocalPlayer, Inventory, GlobalTransform>().each().begin();
       ImGui::BeginTable("Inventory", (int)i.width, ImGuiTableFlags_Borders);
 
       for (size_t row = 0; row < i.slots.size(); row++)
@@ -701,12 +701,15 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             assert(payload->DataSize == sizeof(glm::ivec2));
             const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
 
-            auto& rb = world.GetRegistry().get<Physics::RigidBody>(i.DropItem(rowCol));
+            if (auto dropped = i.DropItem(rowCol); dropped != entt::null)
+            {
+              auto& rb = world.GetRegistry().get<Physics::RigidBody>(dropped);
 
-            const auto throwdir = GetForward(gt.rotation);
-            const auto pos = gt.position + throwdir * 1.0f;
-            Physics::GetBodyInterface().SetPosition(rb.body, Physics::ToJolt(pos), JPH::EActivation::Activate);
-            Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+              const auto throwdir = GetForward(gt.rotation);
+              const auto pos = gt.position + throwdir * 1.0f;
+              Physics::GetBodyInterface().SetPosition(rb.body, Physics::ToJolt(pos), JPH::EActivation::Activate);
+              Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+            }
           }
           ImGui::EndDragDropTarget();
         }
@@ -714,6 +717,49 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       ImGui::PopStyleVar();
     }
     ImGui::End();
+
+    if (p.inventoryIsOpen)
+    {
+      if (ImGui::Begin("Crafting"))
+      {
+        const auto& crafting = world.GetRegistry().ctx().get<Crafting>();
+        const auto& itemRegistry = world.GetRegistry().ctx().get<ItemRegistry>();
+        for (int index = 0; const auto& recipe : crafting.recipes)
+        {
+          if (index != 0)
+          {
+            ImGui::Separator();
+          }
+          ImGui::PushID(index);
+          ImGui::BeginDisabled(!i.CanCraftRecipe(recipe));
+          if (ImGui::Button("Craft"))
+          {
+            i.CraftRecipe(recipe, e);
+          }
+          ImGui::Text("Output");
+          ImGui::Indent();
+          for (const auto& output : recipe.output)
+          {
+            const auto& def = itemRegistry.Get(output.item);
+            ImGui::Text("%s: %d", def.GetName().c_str(), output.amount);
+          }
+          ImGui::Unindent();
+
+          ImGui::Text("Ingredients");
+          ImGui::Indent();
+          for (const auto& ingredient : recipe.ingredients)
+          {
+            const auto& def = itemRegistry.Get(ingredient.item);
+            ImGui::Text("%s: %d", def.GetName().c_str(), ingredient.amount);
+          }
+          ImGui::Unindent();
+          ImGui::EndDisabled();
+          ImGui::PopID();
+          index++;
+        }
+      }
+      ImGui::End();
+    }
     break;
   }
   case GameState::PAUSED:

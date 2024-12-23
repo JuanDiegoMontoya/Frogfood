@@ -192,6 +192,7 @@ void Game::Run()
     catch(std::exception& e)
     {
       fprintf(stderr, "Exception caught: %s\n", e.what());
+      throw;
     }
   }
 }

@@ -418,6 +418,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     assert(debugRenderer);
     auto physicsLines = debugRenderer->GetLines();
     lines.insert(lines.end(), physicsLines.begin(), physicsLines.end());
+#endif
     if (!lines.empty())
     {
       if (!lineVertexBuffer || lineVertexBuffer->Size() < lines.size() * sizeof(Debug::Line))
@@ -426,7 +427,6 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       }
       lineVertexBuffer->UpdateData(commandBuffer, lines);
     }
-#endif
 
     auto& grid           = world.GetRegistry().ctx().get<TwoLevelGrid>();
     auto albedoAttachment = Fvog::RenderColorAttachment{

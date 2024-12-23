@@ -488,7 +488,7 @@ void PlayerHead::Draw(DeltaTime dt)
     }
     else if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
     {
-      throw std::runtime_error("vkAcquireNextImage failed");
+      throw std::runtime_error("vkAcquireNextImage failed with code " + std::to_string(acquireResult));
     }
 
     if (!swapchainOk)

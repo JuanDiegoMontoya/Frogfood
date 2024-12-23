@@ -643,18 +643,24 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
         ImGui::PushID(int(row));
         for (size_t col = 0; col < i.slots[row].size(); col++)
         {
+          const auto currentSlotCoord = glm::ivec2(row, col);
           ImGui::TableNextColumn();
           ImGui::PushID(int(col));
           auto& slot = i.slots[row][col];
-          std::string nameStr  = slot ? slot->GetName() : "";
-          if (slot && slot->maxStack > 1)
+          std::string nameStr  = "";
+          if (slot.id != nullItem)
           {
-            nameStr += "\n" + std::to_string(slot->stackSize) + "/" + std::to_string(slot->maxStack);
+            const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(slot.id);
+            nameStr         = def.GetName();
+            if (def.GetMaxStackSize() > 1)
+            {
+              nameStr += "\n" + std::to_string(slot.stackSize) + "/" + std::to_string(def.GetMaxStackSize());
+            }
           }
           auto name = nameStr.c_str();
-          if (ImGui::Selectable(name, i.activeCol == col && i.activeRow == row, 0, {50, 50}))
+          if (ImGui::Selectable(name, i.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
           {
-            i.SetActiveSlot(row, col, e);
+            i.SetActiveSlot(currentSlotCoord, e);
           }
           if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
           {
@@ -695,7 +701,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             assert(payload->DataSize == sizeof(glm::ivec2));
             const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
 
-            auto& rb = world.GetRegistry().get<Physics::RigidBody>(i.DropItem(world, rowCol));
+            auto& rb = world.GetRegistry().get<Physics::RigidBody>(i.DropItem(rowCol));
 
             const auto throwdir = GetForward(gt.rotation);
             const auto pos = gt.position + throwdir * 1.0f;
@@ -821,7 +827,9 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           if (auto* d = registry.try_get<DroppedItem>(e))
           {
             ImGui::SeparatorText("DroppedItem");
-            ImGui::Text("%s", d->item ? d->item->GetName() : "NULL");
+            const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(d->item.id);
+            ImGui::Text("%u (%s)", d->item.id, d->item.id != nullItem ? def.GetName().c_str() : "NULL");
+            ImGui::Text("%llu / %llu", d->item.stackSize, def.GetMaxStackSize());
           }
           if (registry.all_of<DeferredDelete>(e))
           {
@@ -857,7 +865,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       ImGui::SliderFloat("Time Scale", &ctx.get<TimeScale>().scale, 0, 4, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
       auto min = uint32_t(5);
       auto max = uint32_t(120);
-      ImGui::SliderScalar("Tick Rate", ImGuiDataType_U32, &world.GetRegistry().ctx().get<TickRate>().hz, &min, &max, "%u");
+      ImGui::SliderScalar("Tick Rate", ImGuiDataType_U32, &world.GetRegistry().ctx().get<TickRate>().hz, &min, &max, "%u", ImGuiSliderFlags_AlwaysClamp);
     }
     ImGui::End();
   }

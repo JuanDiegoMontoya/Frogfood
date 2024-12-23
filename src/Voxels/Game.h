@@ -15,7 +15,9 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
+#include <unordered_map>
 
 using namespace entt::literals;
 
@@ -93,54 +95,91 @@ private:
 glm::vec3 GetFootPosition(entt::handle handle);
 float GetHeight(entt::handle handle);
 
-class Item
+using ItemId              = uint32_t;
+constexpr ItemId nullItem = ~0u;
+
+struct ItemState
 {
-public:
-  NO_COPY(Item);
-
-  Item(World& world) : world(&world) {}
-  virtual ~Item() = default;
-
-  virtual size_t GetId() const;
-  virtual const char* GetName() const = 0;
-
-  // Create an entity
-  virtual void Materialize(entt::entity parent) = 0;
-  virtual void Dematerialize()                  = 0;
-
-  // Spawn the entity if necessary, give it physics, and unparent it from the player
-  virtual Physics::RigidBody& GiveCollider();
-
-  // Perform an action with the entity
-  virtual void UsePrimary() {}
-
-  virtual void Update([[maybe_unused]] float dt) {}
-
-  World* world = nullptr;
-
-  // The materialized self. Usage: set in Materialize, nullify in Dematerialize.
-  entt::entity self = entt::null;
-
+  ItemId id        = nullItem;
+  float useAccum   = 1000;
   size_t stackSize = 1;
-  size_t maxStack  = 1;
-  glm::vec3 droppedColliderSize = glm::vec3(0.3f);
 };
 
-class Gun : public Item
+class ItemDefinition
 {
 public:
-  Gun(World& w) : Item(w) {}
+  virtual ~ItemDefinition() = default;
+  
+  virtual std::string GetName() const = 0;
 
-  const char* GetName() const override
+  // Create an entity
+  [[nodiscard]] virtual entt::entity Materialize(World& world) const = 0;
+  virtual void Dematerialize(World& world, entt::entity self) const = 0;
+
+  // Spawn the entity if necessary, give it physics, and unparent it from the player
+  virtual Physics::RigidBody& GiveCollider(World& world, entt::entity self) const;
+
+  // Perform an action with the entity
+  virtual void UsePrimary([[maybe_unused]] float dt, World&, entt::entity, ItemState&) const {}
+
+  [[nodiscard]] virtual float GetUseDt() const
+  {
+    return 0.25f;
+  }
+
+  virtual void Update(float dt, World&, ItemState& state) const
+  {
+    state.useAccum += dt;
+  }
+
+  [[nodiscard]] virtual size_t GetMaxStackSize() const
+  {
+    return 1;
+  }
+
+  [[nodiscard]] virtual glm::vec3 GetDroppedColliderSize() const
+  {
+    return glm::vec3{0.3f};
+  }
+};
+
+class ItemRegistry
+{
+public:
+  ItemRegistry() = default;
+
+  // Even though this type is already noncopyable, this is required because C++ is goofy.
+  // https://github.com/skypjack/entt/issues/1067
+  NO_COPY(ItemRegistry);
+
+  const ItemDefinition& Get(const std::string& name) const;
+  const ItemDefinition& Get(ItemId id) const;
+  ItemId GetId(const std::string& name) const;
+
+  ItemId Add(ItemDefinition* itemDefinition);
+
+private:
+  std::unordered_map<std::string, ItemId> nameToId_;
+  std::vector<std::unique_ptr<ItemDefinition>> idToDefinition_;
+};
+
+class Gun : public ItemDefinition
+{
+public:
+  std::string GetName() const override
   {
     return "Gun";
   }
 
-  void Materialize(entt::entity parent) override;
-  void Dematerialize() override;
+  [[nodiscard]] entt::entity Materialize(World& world) const override;
+  void Dematerialize(World& world, entt::entity self) const override;
 
-  void UsePrimary() override;
-  void Update(float dt) override;
+  void UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const override;
+
+  [[nodiscard]] float GetUseDt() const override
+  {
+    return 1.0f / (fireRateRpm / 60.0f);
+  }
 
   float fireRateRpm = 800;
   float bullets     = 1;
@@ -150,14 +189,12 @@ public:
   float vrecoilDev  = 0.25f;
   float hrecoil     = 0.0f;
   float hrecoilDev  = 0.25f;
-  float accum       = 1000.0f;
-  bool pressed      = false;
 };
 
 class Gun2 : public Gun
 {
 public:
-  Gun2(World& w) : Gun(w)
+  Gun2() : Gun()
   {
     fireRateRpm = 80;
     bullets     = 9;
@@ -169,95 +206,101 @@ public:
     hrecoilDev  = 1;
   }
 
-  const char* GetName() const override
+  std::string GetName() const override
   {
     return "Gun2";
   }
 
-  void Materialize(entt::entity parent) override;
+  [[nodiscard]] entt::entity Materialize(World& world) const override;
 };
 
-class Pickaxe : public Item
+class Pickaxe : public ItemDefinition
 {
 public:
-  Pickaxe(World& w) : Item(w) {}
-
-  const char* GetName() const override
+  std::string GetName() const override
   {
     return "Pickaxe";
   }
 
-  void Materialize(entt::entity parent) override;
-  void Dematerialize() override;
+  [[nodiscard]] entt::entity Materialize(World& world) const override;
+  void Dematerialize(World& world, entt::entity self) const override;
 
-  void UsePrimary() override;
-  void Update(float dt) override;
+  void UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const override;
 
   float useDt = 0.25f;
-  float accum  = 100;
 };
 
-class Block : public Item
+class Block : public ItemDefinition
 {
 public:
-  Block(World& w, TwoLevelGrid::voxel_t voxel) : Item(w), voxel(voxel)
+  Block(TwoLevelGrid::voxel_t voxel) : voxel(voxel) {}
+
+  [[nodiscard]] size_t GetMaxStackSize() const override
   {
-    stackSize = 1;
-    maxStack = 100;
-    droppedColliderSize = glm::vec3(0.125f);
+    return 100;
   }
 
-  size_t GetId() const override;
+  [[nodiscard]] glm::vec3 GetDroppedColliderSize() const override
+  {
+    return glm::vec3(0.125);
+  }
 
-  const char* GetName() const override
+  std::string GetName() const override
   {
     return "Block";
   }
 
-  void Materialize(entt::entity parent) override;
-  void Dematerialize() override;
+  [[nodiscard]] entt::entity Materialize(World& world) const override;
+  void Dematerialize(World& world, entt::entity self) const override;
 
-  void UsePrimary() override;
-  void Update(float dt) override;
+  void UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const override;
+
+  [[nodiscard]] float GetUseDt() const override
+  {
+    return 0.125f;
+  }
 
   TwoLevelGrid::voxel_t voxel;
-  float placementDt = 0.125f;
-  float accum       = 100;
 };
 
 struct DroppedItem
 {
-  std::unique_ptr<Item> item;
+  ItemState item;
 };
 
 struct Inventory
 {
+  Inventory(World& world) : world(&world) {}
+  World* world{};
+
   static constexpr size_t height = 4;
   static constexpr size_t width  = 8;
 
-  // Coordinate of equipped slot
-  size_t activeCol = 0;
-  size_t activeRow = 0;
+  // (row, col) of equipped slot
+  glm::ivec2 activeSlotCoord    = {0, 0};
 
-  std::array<std::array<std::unique_ptr<Item>, width>, height> slots{};
+  // The held item
+  entt::entity activeSlotEntity = entt::null;
+
+  std::array<std::array<ItemState, width>, height> slots{};
 
   auto& ActiveSlot()
   {
-    return slots[activeRow][activeCol];
+    return slots[activeSlotCoord.x][activeSlotCoord.y];
   }
 
-  void SetActiveSlot(size_t row, size_t col, entt::entity parent);
+  void SetActiveSlot(glm::ivec2 rowCol, entt::entity parent);
   
   void SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent);
 
   // If necessary, materializes the item. Then, the item is given a RigidBody and is moved into the new entity.
-  entt::entity DropItem(World& world, glm::ivec2 slot);
+  entt::entity DropItem(glm::ivec2 slot);
 
   // Completely deletes the old item, replacing it with the new. New item can be null.
-  void OverwriteSlot(glm::ivec2 rowCol, Item* item, entt::entity parent);
+  void OverwriteSlot(glm::ivec2 rowCol, ItemState itemState, entt::entity parent);
 
-  bool TryStackItem(const Item& item);
-  std::unique_ptr<Item>* GetFirstEmptySlot();
+  bool TryStackItem(const ItemState& item);
+  std::optional<glm::ivec2> GetFirstEmptySlot();
 };
 
 class Networking
@@ -434,4 +477,17 @@ private:
   std::unique_ptr<Head> head_;
   std::unique_ptr<Networking> networking_;
   std::unique_ptr<World> world_;
+};
+
+struct Crafting
+{
+  using Ingredient = std::variant<TwoLevelGrid::voxel_t, std::unique_ptr<ItemDefinition>>;
+
+  struct Recipe
+  {
+    Ingredient output;
+    std::vector<Ingredient> ingredients;
+  };
+
+  std::vector<Recipe> recipes;
 };

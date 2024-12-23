@@ -10,7 +10,6 @@
 #include "TwoLevelGrid.h"
 #include "Pathfinding.h"
 #include "MathUtilities.h"
-#include "HashUtilities.h"
 
 #include "entt/entity/handle.hpp"
 
@@ -39,82 +38,68 @@ static void OnDeferredDeleteConstruct(entt::registry& registry, entt::entity ent
   }
 }
 
-static void OnContact(entt::registry& registry, const Physics::ContactPair& pair)
+// Helper to simplify logic for OnContact. Calls the input function twice with swapped arguments.
+template<typename F>
+void TryTwice(const Physics::ContactPair& pair, F&& function)
 {
-  // Projectiles hurt creatures
-  if (registry.any_of<PathfindingEnemyBehavior>(pair.entity1) && registry.all_of<Projectile>(pair.entity2))
+  if (function(pair.entity1, pair.entity2))
   {
-    if (auto* h = registry.try_get<Health>(pair.entity1))
-    {
-      h->hp -= 10;
-      registry.emplace_or_replace<DeferredDelete>(pair.entity2);
-    }
-  }
-  if (registry.any_of<PathfindingEnemyBehavior>(pair.entity2) && registry.all_of<Projectile>(pair.entity1))
-  {
-    if (auto* h = registry.try_get<Health>(pair.entity2))
-    {
-      h->hp -= 10;
-      registry.emplace_or_replace<DeferredDelete>(pair.entity1);
-    }
+    return;
   }
 
-  // Players pick up dropped items
-  if (registry.all_of<Player, Inventory>(pair.entity1) && registry.all_of<DroppedItem>(pair.entity2))
-  {
-    auto& i = registry.get<Inventory>(pair.entity1);
-    auto& d = registry.get<DroppedItem>(pair.entity2);
+  function(pair.entity2, pair.entity1);
+}
 
-    if (d.item)
+static void OnContact(World& world, const Physics::ContactPair& pair)
+{
+  TryTwice(pair,
+    [&](entt::entity entity1, entt::entity entity2)
     {
-      printf("a");
-      if (!i.TryStackItem(*d.item))
+      // Projectiles hurt creatures
+      if (world.GetRegistry().any_of<PathfindingEnemyBehavior>(entity1) && world.GetRegistry().all_of<Projectile>(entity2))
       {
-        if (auto* s = i.GetFirstEmptySlot())
+        if (auto* h = world.GetRegistry().try_get<Health>(entity1))
         {
-          d.item->Dematerialize();
-          *s = std::move(d.item);
-          if (&i.ActiveSlot() == s)
-          {
-            (*s)->Materialize(pair.entity1);
-          }
+          h->hp -= 10;
+          world.GetRegistry().emplace_or_replace<DeferredDelete>(entity2);
         }
+        return true;
       }
-      registry.remove<DroppedItem>(pair.entity2);
-      registry.get_or_emplace<DeferredDelete>(pair.entity2);
-    }
-  }
-  if (registry.all_of<Player, Inventory>(pair.entity2) && registry.all_of<DroppedItem>(pair.entity1))
-  {
-    auto& i = registry.get<Inventory>(pair.entity2);
-    auto& d = registry.get<DroppedItem>(pair.entity1);
+      return false;
+    });
 
-    if (d.item)
+  TryTwice(pair,
+    [&](entt::entity entity1, entt::entity entity2)
     {
-      printf("a");
-      if (!i.TryStackItem(*d.item))
+      // Players pick up dropped items
+      if (world.GetRegistry().all_of<Player, Inventory>(entity1) && world.GetRegistry().all_of<DroppedItem>(entity2))
       {
-        if (auto* s = i.GetFirstEmptySlot())
+        auto& i = world.GetRegistry().get<Inventory>(entity1);
+        auto& d = world.GetRegistry().get<DroppedItem>(entity2);
+
+        if (d.item.id != nullItem)
         {
-          d.item->Dematerialize();
-          *s = std::move(d.item);
-          if (&i.ActiveSlot() == s)
+          if (!i.TryStackItem(d.item))
           {
-            (*s)->Materialize(pair.entity2);
+            if (auto slotCoords = i.GetFirstEmptySlot())
+            {
+              i.OverwriteSlot(*slotCoords, d.item, entity1);
+            }
           }
+          world.GetRegistry().remove<DroppedItem>(entity2);
+          world.GetRegistry().get_or_emplace<DeferredDelete>(entity2);
         }
+        return true;
       }
-      registry.remove<DroppedItem>(pair.entity1);
-      registry.get_or_emplace<DeferredDelete>(pair.entity1);
-    }
-  }
+      return false;
+    });
 }
 
 Game::Game(uint32_t tickHz)
 {
   world_ = std::make_unique<World>();
   Physics::Initialize(*world_);
-  Physics::GetDispatcher().sink<Physics::ContactPair>().connect<&OnContact>(world_->GetRegistry());
+  Physics::GetDispatcher().sink<Physics::ContactPair>().connect<&OnContact>(*world_);
 #ifdef GAME_HEADLESS
   head_ = std::make_unique<NullHead>();
   world_->GetRegistry().ctx().emplace<GameState>() = GameState::GAME;
@@ -196,96 +181,6 @@ void Game::Run()
       isRunning_ = false;
     }
   }
-}
-
-void Gun::Materialize(entt::entity parent)
-{
-  self = world->CreateRenderableEntity({0.2f, -0.2f, -0.5f});
-  world->GetRegistry().emplace<Mesh>(self).name = "ar15";
-  world->GetRegistry().emplace<Name>(self).name = "Gun";
-  SetParent({world->GetRegistry(), self}, parent);
-}
-
-void Gun::Dematerialize()
-{
-  world->GetRegistry().emplace<DeferredDelete>(self);
-  self = entt::null;
-}
-
-void Gun::UsePrimary()
-{
-  pressed = true;
-}
-
-void Gun::Update(float dt)
-{
-  auto& registry = world->GetRegistry();
-  accum += dt;
-
-  // Only shoot if materialized
-  if (!registry.valid(self))
-  {
-    return;
-  }
-
-  const auto& transform = registry.get<GlobalTransform>(self);
-  const auto shootDt = 1.0f / (fireRateRpm / 60.0f);
-  if (pressed && accum >= shootDt)
-  {
-    accum   = glm::clamp(accum - dt, 0.0f, dt);
-
-    for (int i = 0; i < bullets; i++)
-    {
-      const float bulletScale = 0.05f;
-      auto bulletShape        = JPH::Ref(new JPH::SphereShape(.04f));
-      bulletShape->SetDensity(11000);
-      const auto dir =
-        Math::RandVecInCone({world->Rng().RandFloat(), world->Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(accuracyMoa / 60.0f));
-      auto up = glm::vec3(0, 1, 0);
-      if (glm::epsilonEqual(abs(dot(dir, glm::vec3(0, 1, 0))), 1.0f, 0.001f))
-      {
-        up = {0, 0, 1};
-      }
-      auto rot = glm::quatLookAtRH(dir, up);
-      auto b   = world->CreateRenderableEntity(transform.position + glm::vec3(0, 0.1f, 0) + GetForward(transform.rotation) * 1.0f, rot, bulletScale);
-
-      registry.emplace<Name>(b).name                 = "Bullet";
-      registry.emplace<Mesh>(b).name                 = "frog";
-      registry.emplace<Lifetime>(b).remainingSeconds = 2;
-      registry.emplace<Projectile>(b);
-      auto rb = Physics::AddRigidBody({registry, b},
-        {
-          .shape      = bulletShape,
-          .activate   = true,
-          .motionType = JPH::EMotionType::Dynamic,
-          .layer      = Physics::Layers::PROJECTILE,
-        });
-      Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
-      Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * velocity));
-      Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
-    }
-
-    // If parent is player, apply recoil
-    if (auto* h = registry.try_get<Hierarchy>(self); h && h->parent != entt::null)
-    {
-      const auto vr = glm::radians(vrecoil + world->Rng().RandFloat(-vrecoilDev, vrecoilDev));
-      const auto hr = glm::radians(hrecoil + world->Rng().RandFloat(-hrecoilDev, hrecoilDev));
-      if (auto* is = registry.try_get<InputLookState>(h->parent))
-      {
-        is->pitch += vr;
-        is->yaw += hr;
-        UpdateLocalTransform({registry, h->parent});
-      }
-    }
-  }
-  pressed = false;
-}
-
-void Gun2::Materialize(entt::entity parent)
-{
-  Gun::Materialize(parent);
-  world->GetRegistry().get<Mesh>(self).name = "frog";
-  world->SetLocalScale(self, 0.125f);
 }
 
 void World::FixedUpdate(float dt)
@@ -557,17 +452,13 @@ void World::FixedUpdate(float dt)
 
       if (input.usePrimary)
       {
-        if (inventory.ActiveSlot())
+        if (inventory.ActiveSlot().id != nullItem)
         {
-          inventory.ActiveSlot()->UsePrimary();
-
-          if (auto* b = dynamic_cast<Block*>(inventory.ActiveSlot().get()))
+          const auto& def = registry_.ctx().get<ItemRegistry>().Get(inventory.ActiveSlot().id);
+          def.UsePrimary(dt, *this, inventory.activeSlotEntity, inventory.ActiveSlot());
+          if (inventory.ActiveSlot().stackSize <= 0)
           {
-            if (b->stackSize <= 0)
-            {
-              b->Dematerialize();
-              inventory.ActiveSlot().reset();
-            }
+            inventory.OverwriteSlot(inventory.activeSlotCoord, {}, entt::null);
           }
         }
       }
@@ -580,9 +471,9 @@ void World::FixedUpdate(float dt)
       {
         for (auto& slot : row)
         {
-          if (slot)
+          if (slot.id != nullItem)
           {
-            slot->Update(dt);
+            registry_.ctx().get<ItemRegistry>().Get(slot.id).Update(dt, *this, slot);
           }
         }
       }
@@ -691,6 +582,13 @@ void World::InitializeGameState()
   {
     registry_.destroy(e);
   }
+  
+  // Reset item registry
+  auto& items = registry_.ctx().emplace<ItemRegistry>();
+  [[maybe_unused]] const auto gunId = items.Add(new Gun());
+  [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
+  [[maybe_unused]] const auto pickaxeId = items.Add(new Pickaxe());
+  [[maybe_unused]] const auto blockId = items.Add(new Block(1));
 
   // Reset RNG
   registry_.ctx().emplace<PCG::Rng>(1234);
@@ -760,12 +658,10 @@ void World::InitializeGameState()
     .shape = playerCapsule,
   });
   //cc.character->SetMaxStrength(10000000);
-  auto& inventory = registry_.emplace<Inventory>(p);
-  auto& activeSlot = inventory.ActiveSlot();
-  activeSlot.reset(new Gun(*this));
-  activeSlot->Materialize(p);
-  inventory.slots[0][1].reset(new Gun2(*this));
-  inventory.slots[0][2].reset(new Pickaxe(*this));
+  auto& inventory = registry_.emplace<Inventory>(p, *this);
+  inventory.OverwriteSlot({0, 0}, {gunId}, p);
+  inventory.OverwriteSlot({0, 1}, {gun2Id}, p);
+  inventory.OverwriteSlot({0, 2}, {pickaxeId}, p);
 
   auto e = CreateRenderableEntity({0, 0, 0});
   registry_.emplace<Name>(e).name = "Test";
@@ -905,19 +801,6 @@ float GetHeight(entt::handle handle)
   return t.scale * 2.0f;
 }
 
-void PrimaryAction(entt::handle handle)
-{
-  if (!handle.valid())
-  {
-    return;
-  }
-
-  if (auto* g = handle.try_get<Gun>())
-  {
-    g->pressed = true;
-  }
-}
-
 static void RefreshGlobalTransform(entt::handle handle)
 {
   auto& lt = handle.get<LocalTransform>(); // parent_local_from_local
@@ -1026,19 +909,19 @@ void Hierarchy::RemoveChild(entt::entity child)
   std::erase(children, child);
 }
 
-void Inventory::SetActiveSlot(size_t row, size_t col, entt::entity parent)
+void Inventory::SetActiveSlot(glm::ivec2 rowCol, entt::entity parent)
 {
-  if (activeCol != col || activeRow != row)
+  if (rowCol != activeSlotCoord)
   {
-    if (ActiveSlot())
+    if (ActiveSlot().id != nullItem)
     {
-      ActiveSlot()->Dematerialize();
+      world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Dematerialize(*world, activeSlotEntity);
     }
-    activeCol = col;
-    activeRow = row;
-    if (ActiveSlot())
+    activeSlotCoord = rowCol;
+    if (ActiveSlot().id != nullItem)
     {
-      ActiveSlot()->Materialize(parent);
+      activeSlotEntity = world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Materialize(*world);
+      SetParent({world->GetRegistry(), activeSlotEntity}, parent);
     }
   }
 }
@@ -1046,70 +929,66 @@ void Inventory::SetActiveSlot(size_t row, size_t col, entt::entity parent)
 void Inventory::SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent)
 {
   // Handle moving active item onto another slot or vice versa
-  const bool targetIsActive = first[0] == activeRow && first[1] == activeCol;
-  const bool sourceIsActive = second[0] == (int)activeRow && second[1] == (int)activeCol;
+  const bool targetIsActive = first == activeSlotCoord;
+  const bool sourceIsActive = second == activeSlotCoord;
   if (targetIsActive)
   {
-    SetActiveSlot(second[0], second[1], parent);
-    activeRow = first[0];
-    activeCol = first[1];
+    SetActiveSlot(second, parent);
   }
   else if (sourceIsActive)
   {
-    SetActiveSlot(first[0], first[1], parent);
-    activeRow = second[0];
-    activeCol = second[1];
+    SetActiveSlot(first, parent);
   }
   std::swap(slots[second[0]][second[1]], slots[first[0]][first[1]]);
 }
 
-entt::entity Inventory::DropItem(World& world, glm::ivec2 slot)
+entt::entity Inventory::DropItem(glm::ivec2 slot)
 {
   auto& item = slots[slot[0]][slot[1]];
-  if (!item)
+  if (item.id == nullItem)
   {
     return entt::null;
   }
 
-  if (item->self == entt::null)
+  const auto& def = world->GetRegistry().ctx().get<ItemRegistry>().Get(item.id);
+
+  if (activeSlotCoord == slot)
   {
-    item->Materialize(entt::null);
-  }
-  else
-  {
-    SetParent({world.GetRegistry(), item->self}, entt::null);
+    def.Dematerialize(*world, activeSlotEntity);
+    activeSlotEntity = entt::null;
   }
 
-  auto entity = item->self;
-  
-  item->GiveCollider();
-  world.GetRegistry().emplace<DroppedItem>(item->self).item = std::move(item);
+  auto entity = def.Materialize(*world);
+  def.GiveCollider(*world, entity);
+  world->GetRegistry().emplace<DroppedItem>(entity).item = std::exchange(item, {});
   return entity;
 }
 
-void Inventory::OverwriteSlot(glm::ivec2 rowCol, Item* item, entt::entity parent)
+void Inventory::OverwriteSlot(glm::ivec2 rowCol, ItemState itemState, entt::entity parent)
 {
-  const bool dstIsActive = rowCol[0] == activeRow && rowCol[1] == activeCol;
-  if (dstIsActive)
+  const bool dstIsActive = rowCol == activeSlotCoord;
+  if (dstIsActive && ActiveSlot().id != nullItem)
   {
-    ActiveSlot()->Dematerialize();
+    world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Dematerialize(*world, activeSlotEntity);
   }
-  slots[rowCol[0]][rowCol[1]].reset(item);
-  if (dstIsActive)
+  slots[rowCol[0]][rowCol[1]] = itemState;
+  if (dstIsActive && itemState.id != nullItem)
   {
-    ActiveSlot()->Materialize(parent);
+    activeSlotEntity = world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Materialize(*world);
+    SetParent({world->GetRegistry(), activeSlotEntity}, parent);
   }
 }
 
-bool Inventory::TryStackItem(const Item& item)
+bool Inventory::TryStackItem(const ItemState& item)
 {
+  const auto& def = world->GetRegistry().ctx().get<ItemRegistry>().Get(item.id);
   for (auto& row : slots)
   {
     for (auto& slot : row)
     {
-      if (slot && slot->stackSize < slot->maxStack && slot->GetId() == item.GetId())
+      if (slot.id == item.id && slot.stackSize < def.GetMaxStackSize())
       {
-        slot->stackSize++;
+        slot.stackSize++;
         return true;
       }
     }
@@ -1118,45 +997,126 @@ bool Inventory::TryStackItem(const Item& item)
   return false;
 }
 
-std::unique_ptr<Item>* Inventory::GetFirstEmptySlot()
+std::optional<glm::ivec2> Inventory::GetFirstEmptySlot()
 {
   for (size_t row = 0; row < height; row++)
   {
     for (size_t col = 0; col < width; col++)
     {
-      if (slots[row][col] == nullptr)
+      if (slots[row][col].id == nullItem)
       {
-        return &slots[row][col];
+        return glm::ivec2{row, col};
       }
     }
   }
 
-  return nullptr;
+  return std::nullopt;
 }
 
-void Pickaxe::Materialize(entt::entity parent)
+entt::entity Gun::Materialize(World& world) const
 {
-  self = world->CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0)));
-  world->GetRegistry().emplace<Mesh>(self).name = "ar15";
-  world->GetRegistry().emplace<Name>(self).name = "Pickaxe";
-  SetParent({world->GetRegistry(), self}, parent);
+  auto self                                    = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f});
+  world.GetRegistry().emplace<Mesh>(self).name = "ar15";
+  world.GetRegistry().emplace<Name>(self).name = "Gun";
+  return self;
 }
 
-void Pickaxe::Dematerialize()
+void Gun::Dematerialize(World& world, entt::entity self) const
 {
-  world->GetRegistry().emplace<DeferredDelete>(self);
-  self = entt::null;
+  world.GetRegistry().emplace<DeferredDelete>(self);
 }
 
-void Pickaxe::UsePrimary()
+void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
 {
-  if (accum < useDt)
+  auto& registry = world.GetRegistry();
+  // Only shoot if materialized
+  if (!registry.valid(self))
   {
     return;
   }
 
-  accum          = 0;
-  auto& reg      = world->GetRegistry();
+  const auto& transform = registry.get<GlobalTransform>(self);
+  const auto shootDt    = GetUseDt();
+  if (state.useAccum >= shootDt)
+  {
+    state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
+
+    for (int i = 0; i < bullets; i++)
+    {
+      const float bulletScale = 0.05f;
+      auto bulletShape        = JPH::Ref(new JPH::SphereShape(.04f));
+      bulletShape->SetDensity(11000);
+      const auto dir = Math::RandVecInCone({world.Rng().RandFloat(), world.Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(accuracyMoa / 60.0f));
+      auto up = glm::vec3(0, 1, 0);
+      if (glm::epsilonEqual(abs(dot(dir, glm::vec3(0, 1, 0))), 1.0f, 0.001f))
+      {
+        up = {0, 0, 1};
+      }
+      auto rot = glm::quatLookAtRH(dir, up);
+      auto b   = world.CreateRenderableEntity(transform.position + glm::vec3(0, 0.1f, 0) + GetForward(transform.rotation) * 1.0f, rot, bulletScale);
+
+      registry.emplace<Name>(b).name                 = "Bullet";
+      registry.emplace<Mesh>(b).name                 = "frog";
+      registry.emplace<Lifetime>(b).remainingSeconds = 2;
+      registry.emplace<Projectile>(b);
+      auto rb = Physics::AddRigidBody({registry, b},
+        {
+          .shape      = bulletShape,
+          .activate   = true,
+          .motionType = JPH::EMotionType::Dynamic,
+          .layer      = Physics::Layers::PROJECTILE,
+        });
+      Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
+      Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * velocity));
+      Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
+    }
+
+    // If parent is player, apply recoil
+    if (auto* h = registry.try_get<Hierarchy>(self); h && h->parent != entt::null)
+    {
+      const auto vr = glm::radians(vrecoil + world.Rng().RandFloat(-vrecoilDev, vrecoilDev));
+      const auto hr = glm::radians(hrecoil + world.Rng().RandFloat(-hrecoilDev, hrecoilDev));
+      if (auto* is = registry.try_get<InputLookState>(h->parent))
+      {
+        is->pitch += vr;
+        is->yaw += hr;
+        UpdateLocalTransform({registry, h->parent});
+      }
+    }
+  }
+}
+
+entt::entity Gun2::Materialize(World& world) const
+{
+  auto self                                = Gun::Materialize(world);
+  world.GetRegistry().get<Mesh>(self).name = "frog";
+  world.SetLocalScale(self, 0.125f);
+  return self;
+}
+
+entt::entity Pickaxe::Materialize(World& world) const
+{
+  auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0)));
+  world.GetRegistry().emplace<Mesh>(self).name = "ar15";
+  world.GetRegistry().emplace<Name>(self).name = "Pickaxe";
+  //SetParent({world->GetRegistry(), self}, world);
+  return self;
+}
+
+void Pickaxe::Dematerialize(World& world, entt::entity self) const
+{
+  world.GetRegistry().emplace<DeferredDelete>(self);
+}
+
+void Pickaxe::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
+{
+  if (state.useAccum < useDt)
+  {
+    return;
+  }
+
+  state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
+  auto& reg      = world.GetRegistry();
   const auto& h  = reg.get<Hierarchy>(self);
   const auto p   = h.parent;
   const auto& pt = reg.get<GlobalTransform>(p);
@@ -1167,58 +1127,50 @@ void Pickaxe::UsePrimary()
   auto hit   = TwoLevelGrid::HitSurfaceParameters();
   if (grid.TraceRaySimple(pos, dir, 10, hit))
   {
-    auto prevVoxel = grid.GetVoxelAt(glm::ivec3(hit.voxelPosition));
+    //auto prevVoxel = grid.GetVoxelAt(glm::ivec3(hit.voxelPosition)); // TODO: use this
     grid.SetVoxelAt(glm::ivec3(hit.voxelPosition), 0);
+    
+    auto itemId         = reg.ctx().get<ItemRegistry>().GetId("Block");
+    const auto& itemDef = reg.ctx().get<ItemRegistry>().Get(itemId);
+    auto itemSelf       = itemDef.Materialize(world);
 
-    auto* item = new Block(*world, prevVoxel);
-    item->Materialize(entt::null);
-    world->GetRegistry().get<LocalTransform>(item->self).position = hit.voxelPosition + 0.5f;
-    UpdateLocalTransform({world->GetRegistry(), item->self});
-    auto& rb = item->GiveCollider();
-    world->GetRegistry().emplace<DroppedItem>(item->self).item.reset(item);
+    reg.get<LocalTransform>(itemSelf).position = hit.voxelPosition + 0.5f;
+    UpdateLocalTransform({reg, itemSelf});
+    auto& rb = itemDef.GiveCollider(world, itemSelf);
+    reg.emplace<DroppedItem>(itemSelf).item = ItemState{itemId};
 
-    const auto throwdir = glm::vec3(world->Rng().RandFloat(-0.25f, 0.25f), 1, world->Rng().RandFloat(-0.25f, 0.25f));
+    const auto throwdir = glm::vec3(world.Rng().RandFloat(-0.25f, 0.25f), 1, world.Rng().RandFloat(-0.25f, 0.25f));
     Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
 
     // Awaken bodies that are adjacent to destroyed voxel in case they were resting on it.
+    // TODO: This doesn't seem to be robust.
     Physics::GetBodyInterface().ActivateBodiesInAABox({Physics::ToJolt(hit.voxelPosition + 0.5f), 2.0f}, {}, {});
   }
 }
 
-void Pickaxe::Update(float dt)
+entt::entity Block::Materialize(World& world) const
 {
-  accum += dt;
+  auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
+  world.GetRegistry().emplace<Mesh>(self).name = "cube";
+  world.GetRegistry().emplace<Name>(self).name = "Block";
+  //SetParent({world->GetRegistry(), self}, world);
+  return self;
 }
 
-size_t Block::GetId() const
+void Block::Dematerialize(World& world, entt::entity self) const
 {
-  auto tup = std::make_tuple(Item::GetId(), voxel);
-  return hash<decltype(tup)>()(tup);
+  world.GetRegistry().emplace<DeferredDelete>(self);
 }
 
-void Block::Materialize(entt::entity parent)
+void Block::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
 {
-  self = world->CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
-  world->GetRegistry().emplace<Mesh>(self).name = "cube";
-  world->GetRegistry().emplace<Name>(self).name = "Block";
-  SetParent({world->GetRegistry(), self}, parent);
-}
-
-void Block::Dematerialize()
-{
-  world->GetRegistry().emplace<DeferredDelete>(self);
-  self = entt::null;
-}
-
-void Block::UsePrimary()
-{
-  if (accum < placementDt)
+  if (state.useAccum < GetUseDt())
   {
     return;
   }
 
-  accum          = 0;
-  auto& reg      = world->GetRegistry();
+  state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
+  auto& reg      = world.GetRegistry();
   const auto& h  = reg.get<Hierarchy>(self);
   const auto p   = h.parent;
   const auto& pt = reg.get<GlobalTransform>(p);
@@ -1227,32 +1179,46 @@ void Block::UsePrimary()
 
   auto& grid = reg.ctx().get<TwoLevelGrid>();
   auto hit   = TwoLevelGrid::HitSurfaceParameters();
-  if (stackSize > 0)
+  if (GetMaxStackSize() > 0)
   {
     if (grid.TraceRaySimple(pos, dir, 10, hit))
     {
       const auto newPos = glm::ivec3(hit.voxelPosition + hit.flatNormalWorld);
       if (grid.GetVoxelAt(newPos) == 0)
       {
-        stackSize--;
+        state.stackSize--;
         grid.SetVoxelAt(newPos, voxel);
       }
     }
   }
 }
 
-void Block::Update(float dt)
-{
-  accum += dt;
-}
-
-size_t Item::GetId() const
-{
-  return typeid(*this).hash_code();
-}
-
-Physics::RigidBody& Item::GiveCollider()
+Physics::RigidBody& ItemDefinition::GiveCollider(World& world, entt::entity self) const
 {
   assert(self != entt::null);
-  return Physics::AddRigidBody({world->GetRegistry(), self}, {JPH::Ref(new JPH::BoxShape(Physics::ToJolt(droppedColliderSize)))});
+  return Physics::AddRigidBody({world.GetRegistry(), self}, {JPH::Ref(new JPH::BoxShape(Physics::ToJolt(GetDroppedColliderSize())))});
+}
+
+const ItemDefinition& ItemRegistry::Get(const std::string& name) const
+{
+  const auto id = GetId(name);
+  return Get(id);
+}
+
+const ItemDefinition& ItemRegistry::Get(ItemId id) const
+{
+  return *idToDefinition_.at(id);
+}
+
+ItemId ItemRegistry::GetId(const std::string& name) const
+{
+  return nameToId_.at(name);
+}
+
+ItemId ItemRegistry::Add(ItemDefinition* itemDefinition)
+{
+  const auto id = (ItemId)idToDefinition_.size();
+  nameToId_.try_emplace(itemDefinition->GetName(), id);
+  idToDefinition_.emplace_back(itemDefinition);
+  return id;
 }

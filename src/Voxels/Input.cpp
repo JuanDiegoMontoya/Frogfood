@@ -62,9 +62,10 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
         {
           for (size_t j = 0; j < 8; j++)
           {
+            const auto currentSlotCoord = glm::ivec2(0, j);
             if (glfwGetKey(window_, GLFW_KEY_1 + (int)j) == GLFW_PRESS && j < i->width)
             {
-              i->SetActiveSlot(i->activeRow, j, entity);
+              i->SetActiveSlot(currentSlotCoord, entity);
               break;
             }
           }

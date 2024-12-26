@@ -53,6 +53,27 @@ void TryTwice(const Physics::ContactPair& pair, F&& function)
 
 static void OnContact(World& world, const Physics::ContactPair& pair)
 {
+  //printf("contact: %s, %s\n", world.GetRegistry().get<Name>(pair.entity1).name.c_str(), world.GetRegistry().get<Name>(pair.entity2).name.c_str());
+  if (world.GetRegistry().all_of<ForwardCollisionsToParent>(pair.entity1))
+  {
+    auto& h = world.GetRegistry().get<Hierarchy>(pair.entity1);
+    if (h.parent != entt::null)
+    {
+      OnContact(world, {h.parent, pair.entity2});
+      return;
+    }
+  }
+
+  if (world.GetRegistry().all_of<ForwardCollisionsToParent>(pair.entity2))
+  {
+    auto& h = world.GetRegistry().get<Hierarchy>(pair.entity2);
+    if (h.parent != entt::null)
+    {
+      OnContact(world, {pair.entity1, h.parent});
+      return;
+    }
+  }
+
   TryTwice(pair,
     [&](entt::entity entity1, entt::entity entity2)
     {
@@ -62,7 +83,17 @@ static void OnContact(World& world, const Physics::ContactPair& pair)
         if (auto* h = world.GetRegistry().try_get<Health>(entity1))
         {
           h->hp -= 10;
+          //const auto& bt = world.GetRegistry().get<GlobalTransform>(entity2);
+          const auto& et = world.GetRegistry().get<GlobalTransform>(entity1);
+          //auto pushDir   = et.position - bt.position;
+          auto pushDir   = et.position - world.GetRegistry().get<Projectile>(entity2).attackerPosition;
+          pushDir.y      = 0;
+          pushDir        = glm::normalize(pushDir);
+          pushDir        *= 15.0f;
+          pushDir.y      = 5;
+          world.SetLinearVelocity(entity1, pushDir);
           world.GetRegistry().emplace_or_replace<DeferredDelete>(entity2);
+          world.GetRegistry().remove<Projectile>(entity2);
         }
         return true;
       }
@@ -290,9 +321,13 @@ void World::FixedUpdate(float dt)
                 auto targetFootPos          = glm::ivec3(pt->position);
                 const auto& playerCharacter = registry_.get<Physics::CharacterController>(pe).character;
                 const auto* playerShape     = playerCharacter->GetShape();
-                auto shapeCast              = JPH::RShapeCast::sFromWorldTransform(playerShape, {1, 1, 1}, playerCharacter->GetWorldTransform(), {0, -5, 0});
+                auto shapeCast              = JPH::RShapeCast::sFromWorldTransform(playerShape, {1, 1, 1}, playerCharacter->GetWorldTransform(), {0, -10, 0});
                 auto shapeCastCollector     = Physics::NearestHitCollector();
-                Physics::GetNarrowPhaseQuery().CastShape(shapeCast, {}, {}, shapeCastCollector);
+                Physics::GetNarrowPhaseQuery().CastShape(shapeCast,
+                  {},
+                  {},
+                  shapeCastCollector,
+                  Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_WORLD));
                 if (shapeCastCollector.nearest)
                 {
                   targetFootPos = Physics::ToGlm(shapeCast.GetPointOnRay(shapeCastCollector.nearest->mFraction - 1e-2f));
@@ -386,25 +421,28 @@ void World::FixedUpdate(float dt)
         tempSpeed *= input.sprint ? 3.0f : 1.0f;
         tempSpeed *= input.walk ? 0.5f : 1.0f;
 
-        auto velocity = glm::vec3(0);
-        velocity += input.forward * forward * tempSpeed;
-        velocity += input.strafe * right * tempSpeed;
+        auto deltaVelocity = glm::vec3(0);
+        deltaVelocity += input.forward * forward * tempSpeed;
+        deltaVelocity += input.strafe * right * tempSpeed;
 
         if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
         {
+          auto prevVelocity = Physics::ToGlm(cc->character->GetLinearVelocity());
           if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
           {
-            velocity += input.jump ? gUp * 8.0f : glm::vec3(0);
+            deltaVelocity += input.jump ? gUp * 8.0f : glm::vec3(0);
+            prevVelocity.y = 0;
           }
           else // if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::InAir)
           {
             const auto prevY = cc->character->GetLinearVelocity().GetY();
-            velocity += glm::vec3{0, prevY - 15 * dt, 0};
+            //const auto prevY = cc->character->GetPosition().GetY() - cc->previousPosition.y;
+            deltaVelocity += glm::vec3{0, prevY - 15 * dt, 0};
             // velocity += glm::vec3{0, -15 * dt, 0};
           }
-
+          
           // cc->character->CheckCollision(cc->character->GetPosition(), cc->character->GetRotation(), Physics::ToJolt(velocity), 1e-4f, )
-          cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
+          cc->character->SetLinearVelocity(Physics::ToJolt(deltaVelocity));
           // printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
           // cc->character->AddLinearVelocity(Physics::ToJolt(velocity ));
           // cc->character->AddImpulse(Physics::ToJolt(velocity));
@@ -412,16 +450,51 @@ void World::FixedUpdate(float dt)
 
         if (auto* cs = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
         {
+          auto velocity                  = Physics::ToGlm(cs->character->GetLinearVelocity());
+          constexpr float groundFriction = 5.0f;
+          float friction                 = groundFriction;
           if (cs->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
           {
-            velocity += input.jump ? gUp * 8.0f : glm::vec3(0);
+            deltaVelocity += input.jump ? gUp * 8.0f : glm::vec3(0);
+            // Make it possible to launch entities up with an impulse
+            if (cs->previousGroundState == JPH::CharacterBase::EGroundState::OnGround)
+            {
+              velocity.y = 0;
+            }
           }
           else
           {
-            const auto prevY = cs->character->GetLinearVelocity().GetY();
-            velocity += glm::vec3{0, prevY - 15 * dt, 0};
+            constexpr float airControl = 0.25f;
+            constexpr float airFriction = 0.5f;
+            friction                    = airFriction;
+            deltaVelocity.x *= airControl;
+            deltaVelocity.z *= airControl;
+            //const auto prevY = cs->character->GetLinearVelocity().GetY();
+            //deltaVelocity += glm::vec3{0, prevY - 15 * dt, 0};
+            deltaVelocity += glm::vec3{0, -15 * dt, 0};
           }
-          cs->character->SetLinearVelocity(Physics::ToJolt(velocity));
+          constexpr float maxSpeed = 5;
+
+          // Apply friction
+          auto newVelocity         = glm::vec3(velocity.x, 0, velocity.z);
+          newVelocity -= friction * newVelocity * dt;
+
+          // Apply dv
+          newVelocity.x += deltaVelocity.x;
+          newVelocity.z += deltaVelocity.z;
+
+          // Clamp xz speed
+          const float speed = glm::length(newVelocity);
+          if (speed > maxSpeed)
+          {
+            newVelocity = glm::normalize(newVelocity) * maxSpeed;
+          }
+
+          // Y is not affected by speed clamp
+          newVelocity.y = velocity.y + deltaVelocity.y;
+          
+          cs->character->SetLinearVelocity(Physics::ToJolt(newVelocity));
+          //cs->character->AddLinearVelocity(Physics::ToJolt(deltaVelocity));
         }
       }
     }
@@ -462,6 +535,29 @@ void World::FixedUpdate(float dt)
         registry_.emplace<Name>(e2).name = "Child";
         registry_.emplace<Mesh>(e2).name = "ar15";
         SetParent({registry_, e2}, e);
+
+        auto hitboxShape = JPH::Ref(new JPH::SphereShape(1.0f));
+
+        auto eHitbox                          = registry_.create();
+        registry_.emplace<Mesh>(eHitbox).name = "frog";
+        registry_.emplace<Name>(eHitbox).name = "Frog hitbox";
+        registry_.emplace<ForwardCollisionsToParent>(eHitbox);
+        registry_.emplace<RenderTransform>(eHitbox);
+        registry_.emplace<PreviousGlobalTransform>(eHitbox);
+        auto& tpHitbox    = registry_.emplace<LocalTransform>(eHitbox);
+        tpHitbox.position = {};
+        tpHitbox.rotation = glm::identity<glm::quat>();
+        tpHitbox.scale                              = 1;
+        registry_.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
+        registry_.emplace<Hierarchy>(eHitbox);
+        Physics::AddRigidBody({registry_, eHitbox},
+          {
+            .shape      = hitboxShape,
+            .isSensor   = true,
+            .motionType = JPH::EMotionType::Kinematic,
+            .layer      = Physics::Layers::CHARACTER_SENSOR,
+          });
+        SetParent({registry_, eHitbox}, e);
       }
 
       if (input.usePrimary)
@@ -661,9 +757,15 @@ void World::InitializeGameState()
         grid.CoalesceDirtyBricks();
       }
 
+  constexpr float playerHalfHeight = 0.8f;
+  constexpr float playerHalfWidth = 0.3f;
   //auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(0.5f, 0.4f));
-  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(0.3f, 0.8f, 0.3f)));
+  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
   //auto playerCapsule = JPH::Ref(new JPH::SphereShape(0.5f));
+
+  auto asdf = registry_.create();
+  registry_.destroy(asdf);
+  assert(!registry_.valid(asdf));
 
   // Make player entity
   auto p = registry_.create();
@@ -691,6 +793,26 @@ void World::InitializeGameState()
   inventory.OverwriteSlot({0, 1}, {gun2Id}, p);
   inventory.OverwriteSlot({0, 2}, {pickaxeId}, p);
 
+  assert(playerHalfHeight - playerHalfWidth >= 0);
+  auto playerHitbox = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
+
+  auto pHitbox = registry_.create();
+  registry_.emplace<Name>(pHitbox).name = "Player hitbox";
+  registry_.emplace<ForwardCollisionsToParent>(pHitbox);
+  auto& tpHitbox = registry_.emplace<LocalTransform>(pHitbox);
+  tpHitbox.position = {};
+  tpHitbox.rotation = glm::identity<glm::quat>();
+  tpHitbox.scale    = 1;
+  registry_.emplace<GlobalTransform>(pHitbox) = {{}, glm::identity<glm::quat>(), 1};
+  registry_.emplace<Hierarchy>(pHitbox).useLocalRotationAsGlobal = true; // Stay upright
+  Physics::AddRigidBody({registry_, pHitbox}, {
+    .shape = playerHitbox,
+    .isSensor = true,
+    .motionType = JPH::EMotionType::Kinematic,
+    .layer = Physics::Layers::CHARACTER_SENSOR,
+  });
+  SetParent({registry_, pHitbox}, p);
+
   auto e = CreateRenderableEntity({0, 0, 0});
   registry_.emplace<Name>(e).name = "Test";
   registry_.emplace<Mesh>(e).name = "frog";
@@ -706,7 +828,7 @@ void World::InitializeGameState()
     .shape = plane.GetPtr(),
     .activate = false,
     .motionType = JPH::EMotionType::Static,
-    .layer = Physics::Layers::NON_MOVING,
+    .layer = Physics::Layers::WORLD,
   });
 
   auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));
@@ -717,7 +839,7 @@ void World::InitializeGameState()
     .shape = twoLevelGridShape,
     .activate = false,
     .motionType = JPH::EMotionType::Static,
-    .layer = Physics::Layers::NON_MOVING,
+    .layer = Physics::Layers::WORLD,
   });
 
   auto sphereSettings = JPH::SphereShapeSettings(1);
@@ -734,7 +856,7 @@ void World::InitializeGameState()
       .shape = sphere,
       .activate = true,
       .motionType = JPH::EMotionType::Dynamic,
-      .layer = Physics::Layers::MOVING,
+      .layer = Physics::Layers::DEBRIS,
     });
 
     //// Constraint test
@@ -819,6 +941,24 @@ void World::SetLocalScale(entt::entity entity, float scale)
   UpdateLocalTransform({registry_, entity});
 }
 
+void World::SetLinearVelocity(entt::entity entity, glm::vec3 velocity)
+{
+  assert(registry_.get<Hierarchy>(entity).parent == entt::null);
+
+  if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
+  {
+    Physics::GetBodyInterface().SetLinearVelocity(rb->body, Physics::ToJolt(velocity));
+  }
+  if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
+  {
+    cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
+  }
+  if (auto* cc = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
+  {
+    cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
+  }
+}
+
 glm::vec3 GetFootPosition(entt::handle handle)
 {
   const auto* t = handle.try_get<GlobalTransform>();
@@ -865,7 +1005,14 @@ static void RefreshGlobalTransform(entt::handle handle)
     gt.position = glm::mat3_cast(pt.rotation) * gt.position;
     gt.position += pt.position;
 
-    gt.rotation = pt.rotation * lt.rotation;
+    if (h.useLocalRotationAsGlobal)
+    {
+      gt.rotation = lt.rotation;
+    }
+    else
+    {
+      gt.rotation = pt.rotation * lt.rotation;
+    }
   }
 
   for (auto child : h.children)
@@ -972,15 +1119,17 @@ void Inventory::SetActiveSlot(glm::ivec2 rowCol, entt::entity parent)
 void Inventory::SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent)
 {
   // Handle moving active item onto another slot or vice versa
-  const bool targetIsActive = first == activeSlotCoord;
-  const bool sourceIsActive = second == activeSlotCoord;
-  if (targetIsActive)
+  const bool firstIsActive = first == activeSlotCoord;
+  const bool secondIsActive = second == activeSlotCoord;
+  if (firstIsActive)
   {
     SetActiveSlot(second, parent);
+    activeSlotCoord = first;
   }
-  else if (sourceIsActive)
+  else if (secondIsActive)
   {
     SetActiveSlot(first, parent);
+    activeSlotCoord = second;
   }
   std::swap(slots[second[0]][second[1]], slots[first[0]][first[1]]);
 }
@@ -1178,7 +1327,7 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
       registry.emplace<Name>(b).name                 = "Bullet";
       registry.emplace<Mesh>(b).name                 = "frog";
       registry.emplace<Lifetime>(b).remainingSeconds = 2;
-      registry.emplace<Projectile>(b);
+      registry.emplace<Projectile>(b).attackerPosition = transform.position;
       auto rb = Physics::AddRigidBody({registry, b},
         {
           .shape      = bulletShape,
@@ -1188,7 +1337,7 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
         });
       Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
       Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * velocity));
-      Physics::GetBodyInterface().SetRestitution(rb.body, 0.05f);
+      Physics::GetBodyInterface().SetRestitution(rb.body, 0.25f);
     }
 
     // If parent is player, apply recoil
@@ -1263,7 +1412,7 @@ void Pickaxe::UsePrimary(float dt, World& world, entt::entity self, ItemState& s
     Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
 
     // Awaken bodies that are adjacent to destroyed voxel in case they were resting on it.
-    // TODO: This doesn't seem to be robust.
+    // TODO: This doesn't seem to be robust. Setting mTimeBeforeSleep to 0 in PhysicsSettings seems to disable sleeping, which fixes this issue.
     Physics::GetBodyInterface().ActivateBodiesInAABox({Physics::ToJolt(hit.voxelPosition + 0.5f), 2.0f}, {}, {});
   }
 }
@@ -1273,7 +1422,6 @@ entt::entity Block::Materialize(World& world) const
   auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
   world.GetRegistry().emplace<Mesh>(self).name = "cube";
   world.GetRegistry().emplace<Name>(self).name = "Block";
-  //SetParent({world->GetRegistry(), self}, world);
   return self;
 }
 
@@ -1316,7 +1464,11 @@ void Block::UsePrimary(float dt, World& world, entt::entity self, ItemState& sta
 Physics::RigidBody& ItemDefinition::GiveCollider(World& world, entt::entity self) const
 {
   assert(self != entt::null);
-  return Physics::AddRigidBody({world.GetRegistry(), self}, {JPH::Ref(new JPH::BoxShape(Physics::ToJolt(GetDroppedColliderSize())))});
+  return Physics::AddRigidBody({world.GetRegistry(), self},
+    {
+      .shape = JPH::Ref(new JPH::BoxShape(Physics::ToJolt(GetDroppedColliderSize()))),
+      .layer = Physics::Layers::DROPPED_ITEM,
+    });
 }
 
 const ItemDefinition& ItemRegistry::Get(const std::string& name) const

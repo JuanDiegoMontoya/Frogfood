@@ -58,9 +58,14 @@ namespace Physics
       {
         switch (inObject1)
         {
-        case Layers::NON_MOVING: return inObject2 == Layers::MOVING; // Non moving only collides with moving
-        case Layers::MOVING: return true;                            // Moving collides with everything
-        case Layers::PROJECTILE: return inObject2 != Layers::PROJECTILE; // Projectiles collide with everything except other projectiles
+          using namespace Layers;
+        case WORLD: return inObject2 != CHARACTER_SENSOR;
+        case CHARACTER: return inObject2 == WORLD;
+        case CHARACTER_SENSOR: return inObject2 == PROJECTILE || inObject2 == CHARACTER || inObject2 == DROPPED_ITEM;
+        case PROJECTILE: return inObject2 == WORLD || inObject2 == CHARACTER_SENSOR;
+        case DROPPED_ITEM: return inObject2 == WORLD || inObject2 == CHARACTER_SENSOR || inObject2 == DROPPED_ITEM;
+        case DEBRIS: return inObject2 == WORLD || inObject2 == DEBRIS;
+        case CAST_WORLD: return inObject2 == WORLD;
         default: JPH_ASSERT(false); return false;
         }
       }
@@ -72,9 +77,12 @@ namespace Physics
       BPLayerInterfaceImpl()
       {
         // Create a mapping table from object to broad phase layer
-        mObjectToBroadPhase[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
-        mObjectToBroadPhase[Layers::MOVING]     = BroadPhaseLayers::MOVING;
-        mObjectToBroadPhase[Layers::PROJECTILE] = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::WORLD]            = BroadPhaseLayers::NON_MOVING;
+        mObjectToBroadPhase[Layers::CHARACTER]        = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::CHARACTER_SENSOR] = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::PROJECTILE]       = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::DROPPED_ITEM]     = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::DEBRIS]           = BroadPhaseLayers::MOVING;
       }
 
       JPH::uint GetNumBroadPhaseLayers() const override
@@ -101,7 +109,7 @@ namespace Physics
 #endif // JPH_EXTERNAL_PROFILE || JPH_PROFILE_ENABLED
 
     private:
-      JPH::BroadPhaseLayer mObjectToBroadPhase[Layers::NUM_LAYERS];
+      JPH::BroadPhaseLayer mObjectToBroadPhase[static_cast<int>(Layers::NUM_LAYERS)];
     };
 
     class ObjectVsBroadPhaseLayerFilterImpl final : public JPH::ObjectVsBroadPhaseLayerFilter
@@ -111,9 +119,13 @@ namespace Physics
       {
         switch (inLayer1)
         {
-        case Layers::NON_MOVING: return inLayer2 == BroadPhaseLayers::MOVING;
-        case Layers::MOVING: return true;
-        case Layers::PROJECTILE: return true;
+        case Layers::WORLD: return inLayer2 == BroadPhaseLayers::MOVING;
+        case Layers::CHARACTER:
+        case Layers::CHARACTER_SENSOR:
+        case Layers::PROJECTILE:
+        case Layers::DROPPED_ITEM: [[fallthrough]];
+        case Layers::DEBRIS: return true;
+        case Layers::CAST_WORLD: return inLayer2 == BroadPhaseLayers::NON_MOVING;
         default: JPH_ASSERT(false); return false;
         }
       }
@@ -188,12 +200,13 @@ namespace Physics
       rotation = t->rotation;
     }
 
-    auto bodyId = s->bodyInterface->CreateAndAddBody(
-      JPH::BodyCreationSettings(settings.shape, ToJolt(position), ToJolt(rotation), settings.motionType, settings.layer),
-      settings.activate ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+    auto bodySettings = JPH::BodyCreationSettings(settings.shape, ToJolt(position), ToJolt(rotation), settings.motionType, settings.layer);
+    bodySettings.mIsSensor = settings.isSensor;
+    bodySettings.mAllowedDOFs = settings.degreesOfFreedom;
+    auto bodyId = s->bodyInterface->CreateAndAddBody(bodySettings, settings.activate ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
 
     s->bodyInterface->SetUserData(bodyId, static_cast<JPH::uint64>(handle.entity()));
-
+    
     handle.emplace_or_replace<Shape>().shape = settings.shape;
     return handle.emplace_or_replace<RigidBody>(bodyId);
   }
@@ -238,7 +251,7 @@ namespace Physics
 
     auto characterSettings = JPH::CharacterSettings();
     characterSettings.SetEmbedded();
-    characterSettings.mLayer = Layers::MOVING;
+    characterSettings.mLayer = Layers::CHARACTER;
     characterSettings.mUp = {0, 1, 0};
     characterSettings.mShape = settings.shape;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -1);
@@ -338,7 +351,7 @@ namespace Physics
     constexpr JPH::uint cNumBodyMutexes        = 0;
     constexpr JPH::uint cMaxBodyPairs          = 5000;
     constexpr JPH::uint cMaxContactConstraints = 5000;
-
+    
     s->engine->Init(cMaxBodies,
       cNumBodyMutexes,
       cMaxBodyPairs,
@@ -352,7 +365,6 @@ namespace Physics
     s->characterContactListener = std::make_unique<CharacterContactListenerImpl>();
     s->characterCollisionInterface = std::make_unique<JPH::CharacterVsCharacterCollisionSimple>();
     s->engine->SetContactListener(s->contactListener.get());
-    
     s->bodyInterface = &s->engine->GetBodyInterface();
   }
 
@@ -367,6 +379,16 @@ namespace Physics
   {
     ZoneScoped;
     // Update characters first
+    for (auto&& [entity, cc] : world.GetRegistry().view<CharacterController>().each())
+    {
+      cc.previousGroundState = cc.character->GetGroundState();
+    }
+
+    for (auto&& [entity, cc] : world.GetRegistry().view<CharacterControllerShrimple>().each())
+    {
+      cc.previousGroundState = cc.character->GetGroundState();
+    }
+
     for (auto* character : s->allCharacters)
     {
       ZoneScopedN("CharacterVirtual->ExtendedUpdate");
@@ -380,8 +402,8 @@ namespace Physics
           //.mWalkStairsCosAngleForwardContact =,
           //.mWalkStairsStepDownExtra = {0, -0.22f, 0},
         },
-        s->engine->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
-        s->engine->GetDefaultLayerFilter(Layers::MOVING),
+        s->engine->GetDefaultBroadPhaseLayerFilter(Layers::CHARACTER),
+        s->engine->GetDefaultLayerFilter(Layers::CHARACTER),
         {},
         {},
         *s->tempAllocator);
@@ -391,6 +413,15 @@ namespace Physics
       {
         t->position = ToGlm(character->GetPosition());
         UpdateLocalTransform({world.GetRegistry(), entity});
+      }
+    }
+
+    // Update positions of sensors
+    for (auto&& [entity, transform, rigidBody] : world.GetRegistry().view<GlobalTransform, RigidBody>().each())
+    {
+      if (s->bodyInterface->GetObjectLayer(rigidBody.body) == Layers::CHARACTER_SENSOR)
+      {
+        s->bodyInterface->SetPositionAndRotation(rigidBody.body, ToJolt(transform.position), ToJolt(transform.rotation).Normalized(), JPH::EActivation::Activate);
       }
     }
 
@@ -413,9 +444,12 @@ namespace Physics
     // Update transform of each entity with a RigidBody component
     for (auto&& [entity, rigidBody, transform] : world.GetRegistry().view<RigidBody, LocalTransform>().each())
     {
-      transform.position = ToGlm(s->bodyInterface->GetPosition(rigidBody.body));
-      transform.rotation = ToGlm(s->bodyInterface->GetRotation(rigidBody.body));
-      UpdateLocalTransform({world.GetRegistry(), entity});
+      if (s->bodyInterface->GetObjectLayer(rigidBody.body) != Layers::CHARACTER_SENSOR)
+      {
+        transform.position = ToGlm(s->bodyInterface->GetPosition(rigidBody.body));
+        transform.rotation = ToGlm(s->bodyInterface->GetRotation(rigidBody.body));
+        UpdateLocalTransform({world.GetRegistry(), entity});
+      }
     }
 
     // TODO: Invoke contact callbacks
@@ -555,7 +589,7 @@ namespace Physics
       }
 #endif
     }
-#if 1
+#if 0
     s->engine->DrawBodies(
       JPH::BodyManager::DrawSettings{
         //.mDrawGetSupportFunction        = true,
@@ -564,7 +598,7 @@ namespace Physics
         .mDrawShape                     = true,
         //.mDrawShapeWireframe            =,
         //.mDrawShapeColor                =,
-        .mDrawBoundingBox               = true,
+        //.mDrawBoundingBox               = true,
         //.mDrawCenterOfMassTransform     = true,
         //.mDrawWorldTransform            = true,
         .mDrawVelocity                  = true,

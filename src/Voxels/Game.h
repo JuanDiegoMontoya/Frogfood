@@ -87,6 +87,7 @@ public:
 
   void SetLocalPosition(entt::entity entity, glm::vec3 position);
   void SetLocalScale(entt::entity entity, float scale);
+  void SetLinearVelocity(entt::entity entity, glm::vec3 velocity);
 
 private:
   uint64_t ticks_ = 0;
@@ -199,7 +200,7 @@ public:
   {
     fireRateRpm = 80;
     bullets     = 9;
-    velocity    = 100;
+    velocity    = 50;
     accuracyMoa = 300;
     vrecoil     = 10;
     vrecoilDev  = 3;
@@ -439,6 +440,8 @@ struct Hierarchy
 
   entt::entity parent = entt::null;
   std::vector<entt::entity> children;
+
+  bool useLocalRotationAsGlobal = false;
 };
 
 // Use with GlobalTransform for smooth object movement
@@ -461,7 +464,10 @@ struct RenderTransform
 
 struct NoclipCharacterController {};
 
-struct Projectile {};
+struct Projectile
+{
+  glm::vec3 attackerPosition;
+};
 
 struct TimeScale
 {
@@ -477,6 +483,9 @@ struct Mesh
 {
   std::string name;
 };
+
+// Use when you want a child entity's collide events to be counted as the parent's.
+struct ForwardCollisionsToParent {};
 
 // Placed on root entity belonging to the player
 struct LocalPlayer {};

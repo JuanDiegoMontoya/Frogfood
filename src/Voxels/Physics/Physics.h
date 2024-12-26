@@ -19,18 +19,26 @@ namespace Physics
 {
   namespace Layers
   {
-    constexpr JPH::ObjectLayer NON_MOVING = 0;
-    constexpr JPH::ObjectLayer MOVING     = 1;
-    constexpr JPH::ObjectLayer PROJECTILE = 2;
-    constexpr JPH::ObjectLayer NUM_LAYERS = 3;
-  }; // namespace Layers
+    constexpr JPH::ObjectLayer WORLD            = 0;
+    constexpr JPH::ObjectLayer CHARACTER        = 1;
+    constexpr JPH::ObjectLayer CHARACTER_SENSOR = 2;
+    constexpr JPH::ObjectLayer PROJECTILE       = 3;
+    constexpr JPH::ObjectLayer DROPPED_ITEM     = 4;
+    constexpr JPH::ObjectLayer DEBRIS           = 5;
+    constexpr JPH::ObjectLayer NUM_LAYERS       = 6;
+
+    // Cast-only layers
+    constexpr JPH::ObjectLayer CAST_WORLD       = 7;
+  }
 
   struct RigidBodySettings
   {
     const JPH::Shape* shape{};
     bool activate = true;
+    bool isSensor = false;
     JPH::EMotionType motionType = JPH::EMotionType::Dynamic;
-    JPH::ObjectLayer layer = Layers::MOVING;
+    JPH::ObjectLayer layer = Layers::DEBRIS;
+    JPH::EAllowedDOFs degreesOfFreedom = JPH::EAllowedDOFs::All;
   };
 
   struct RigidBody
@@ -46,6 +54,7 @@ namespace Physics
   struct CharacterController
   {
     JPH::CharacterVirtual* character;
+    JPH::CharacterBase::EGroundState previousGroundState;
   };
 
   struct CharacterControllerShrimpleSettings
@@ -56,6 +65,7 @@ namespace Physics
   struct CharacterControllerShrimple
   {
     JPH::Character* character;
+    JPH::CharacterBase::EGroundState previousGroundState;
   };
 
   // Automatically added when one of the Add* functions is called.

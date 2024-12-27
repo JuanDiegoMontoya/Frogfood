@@ -8,10 +8,13 @@
 #include "Jolt/Physics/Character/Character.h"
 #include "Jolt/Physics/PhysicsSystem.h"
 #include "Jolt/Physics/Collision/ShapeCast.h"
+#include "Jolt/Physics/Collision/CastResult.h"
+#include "Jolt/Physics/Collision/CollisionCollector.h"
 
 #include "entt/fwd.hpp"
 
 #include <optional>
+#include <vector>
 
 class World;
 
@@ -29,6 +32,8 @@ namespace Physics
 
     // Cast-only layers
     constexpr JPH::ObjectLayer CAST_WORLD       = 7;
+    constexpr JPH::ObjectLayer CAST_PROJECTILE  = 8;
+    constexpr JPH::ObjectLayer CAST_CHARACTER   = 9;
   }
 
   struct RigidBodySettings
@@ -78,13 +83,6 @@ namespace Physics
   CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings);
   CharacterControllerShrimple& AddCharacterControllerShrimple(entt::handle handle, const CharacterControllerShrimpleSettings& settings);
 
-  struct NearestHitCollector : JPH::CastShapeCollector
-  {
-    void AddHit(const ResultType& inResult) override;
-
-    std::optional<ResultType> nearest;
-  };
-
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery();
   JPH::BodyInterface& GetBodyInterface();
   JPH::PhysicsSystem& GetPhysicsSystem();
@@ -100,4 +98,25 @@ namespace Physics
   void Initialize(World& world);
   void Terminate();
   void FixedUpdate(float dt, World& world);
+
+  struct NearestHitCollector : JPH::CastShapeCollector
+  {
+    void AddHit(const ResultType& inResult) override;
+
+    std::optional<ResultType> nearest;
+  };
+
+  struct NearestRayCollector : JPH::CastRayCollector
+  {
+    void AddHit(const ResultType& inResult) override;
+
+    std::optional<ResultType> nearest;
+  };
+
+  struct AllRayCollector : JPH::CastRayCollector
+  {
+    void AddHit(const ResultType& inResult) override;
+
+    std::vector<ResultType> unorderedHits;
+  };
 }

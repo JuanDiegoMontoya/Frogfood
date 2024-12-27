@@ -594,37 +594,30 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     }
     ImGui::End();
 
-    struct NearestRayCollector : JPH::CastRayCollector
-    {
-      void AddHit(const ResultType& inResult) override
-      {
-        if (!nearest || inResult.mFraction < nearest->mFraction)
-        {
-          nearest = inResult;
-          UpdateEarlyOutFraction(inResult.mFraction);
-        }
-      }
-
-      std::optional<ResultType> nearest;
-    };
+    // Get information about the local player
+    auto&& [playerEntity, p, i, gt] = *world.GetRegistry().view<Player, LocalPlayer, Inventory, GlobalTransform>().each().begin();
 
     auto* ptransform = world.TryGetLocalPlayerTransform();
     // TODO: replace with bitmap font rendered above each creature
-    auto collector = NearestRayCollector();
+    auto collector = Physics::NearestRayCollector();
     auto dir       = GetForward(ptransform->rotation);
     auto start     = ptransform->position;
-    Physics::GetNarrowPhaseQuery().CastRay(JPH::RRayCast(Physics::ToJolt(start), Physics::ToJolt(dir * 20.0f)), JPH::RayCastSettings(), collector);
+    Physics::GetNarrowPhaseQuery().CastRay(JPH::RRayCast(Physics::ToJolt(start), Physics::ToJolt(dir * 20.0f)),
+      JPH::RayCastSettings(),
+      collector,
+      Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_CHARACTER),
+      Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_CHARACTER));
     if (ImGui::Begin("Target"))
     {
       if (collector.nearest)
       {
-        auto e = static_cast<entt::entity>(Physics::GetBodyInterface().GetUserData(collector.nearest->mBodyID));
-        if (auto* n = world.GetRegistry().try_get<Name>(e))
+        auto entity = static_cast<entt::entity>(Physics::GetBodyInterface().GetUserData(collector.nearest->mBodyID));
+        if (auto* n = world.GetRegistry().try_get<Name>(entity))
         {
           ImGui::Text("%s", n->name.c_str());
         }
 
-        if (auto* h = world.GetRegistry().try_get<Health>(e))
+        if (auto* h = world.GetRegistry().try_get<Health>(entity))
         {
           ImGui::Text("Health: %.2f", h->hp);
         }
@@ -632,7 +625,6 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     }
     ImGui::End();
 
-    auto&& [e, p, i, gt] = *world.GetRegistry().view<Player, LocalPlayer, Inventory, GlobalTransform>().each().begin();
     if (ImGui::Begin("Inventory", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDecoration))
     {
       ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, {0.5f, 0.5f});
@@ -660,7 +652,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           auto name = nameStr.c_str();
           if (ImGui::Selectable(name, i.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
           {
-            i.SetActiveSlot(currentSlotCoord, e);
+            i.SetActiveSlot(currentSlotCoord, playerEntity);
           }
           if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
           {
@@ -675,7 +667,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             {
               assert(payload->DataSize == sizeof(glm::ivec2));
               const auto sourceRowCol = *static_cast<const glm::ivec2*>(payload->Data);
-              i.SwapSlots(sourceRowCol, {row, col}, e);
+              i.SwapSlots(sourceRowCol, {row, col}, playerEntity);
             }
             ImGui::EndDragDropTarget();
           }
@@ -734,7 +726,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           ImGui::BeginDisabled(!i.CanCraftRecipe(recipe));
           if (ImGui::Button("Craft"))
           {
-            i.CraftRecipe(recipe, e);
+            i.CraftRecipe(recipe, playerEntity);
           }
           ImGui::Text("Output");
           ImGui::Indent();

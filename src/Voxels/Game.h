@@ -88,6 +88,7 @@ public:
   void SetLocalPosition(entt::entity entity, glm::vec3 position);
   void SetLocalScale(entt::entity entity, float scale);
   void SetLinearVelocity(entt::entity entity, glm::vec3 velocity);
+  entt::entity GetChildNamed(entt::entity entity, std::string_view name);
 
 private:
   uint64_t ticks_ = 0;
@@ -467,6 +468,8 @@ struct NoclipCharacterController {};
 struct Projectile
 {
   glm::vec3 attackerPosition;
+  glm::vec3 velocity;
+  float drag;
 };
 
 struct TimeScale

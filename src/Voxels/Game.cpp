@@ -198,7 +198,7 @@ void Game::Run()
         head_->VariableUpdatePre(dt, *world_);
       }
 
-      constexpr int MAX_TICKS = 5;
+      constexpr int MAX_TICKS = 10;
       int accumTicks          = 0;
       fixedUpdateAccum += realDeltaTime * timeScale;
       while (fixedUpdateAccum > tickDuration && accumTicks++ < MAX_TICKS)
@@ -763,10 +763,6 @@ void World::InitializeGameState()
   auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
   //auto playerCapsule = JPH::Ref(new JPH::SphereShape(0.5f));
 
-  auto asdf = registry_.create();
-  registry_.destroy(asdf);
-  assert(!registry_.valid(asdf));
-
   // Make player entity
   auto p = registry_.create();
   registry_.emplace<Name>(p).name = "Player";
@@ -957,6 +953,18 @@ void World::SetLinearVelocity(entt::entity entity, glm::vec3 velocity)
   {
     cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
   }
+}
+
+entt::entity World::GetChildNamed(entt::entity entity, std::string_view name)
+{
+  for (auto child : registry_.get<Hierarchy>(entity).children)
+  {
+    if (auto* n = registry_.try_get<Name>(child); n && n->name == name)
+    {
+      return child;
+    }
+  }
+  return entt::null;
 }
 
 glm::vec3 GetFootPosition(entt::handle handle)
@@ -1326,18 +1334,21 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
 
       registry.emplace<Name>(b).name                 = "Bullet";
       registry.emplace<Mesh>(b).name                 = "frog";
-      registry.emplace<Lifetime>(b).remainingSeconds = 2;
-      registry.emplace<Projectile>(b).attackerPosition = transform.position;
-      auto rb = Physics::AddRigidBody({registry, b},
-        {
-          .shape      = bulletShape,
-          .activate   = true,
-          .motionType = JPH::EMotionType::Dynamic,
-          .layer      = Physics::Layers::PROJECTILE,
-        });
-      Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
-      Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * velocity));
-      Physics::GetBodyInterface().SetRestitution(rb.body, 0.25f);
+      registry.emplace<Lifetime>(b).remainingSeconds = 8;
+      auto& projectile                               = registry.emplace<Projectile>(b);
+      projectile.attackerPosition                    = transform.position;
+      projectile.velocity                            = dir * velocity;
+      projectile.drag                                = 0.25f;
+      //auto rb = Physics::AddRigidBody({registry, b},
+      //  {
+      //    .shape      = bulletShape,
+      //    .activate   = true,
+      //    .motionType = JPH::EMotionType::Dynamic,
+      //    .layer      = Physics::Layers::PROJECTILE,
+      //  });
+      //Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
+      //Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * velocity));
+      //Physics::GetBodyInterface().SetRestitution(rb.body, 0.25f);
     }
 
     // If parent is player, apply recoil

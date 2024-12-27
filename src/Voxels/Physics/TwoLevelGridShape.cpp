@@ -4,10 +4,13 @@
 
 #include "Jolt/Physics/Collision/Shape/SphereShape.h"
 #include "Jolt/Physics/Collision/Shape/BoxShape.h"
+#include "Jolt/Physics/Collision/RayCast.h"
+#include "Jolt/Physics/Collision/CastResult.h"
 #include "Jolt/Geometry/AABox.h"
 #include "Jolt/Geometry/Sphere.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
+#include "glm/geometric.hpp"
 #include "glm/gtx/component_wise.hpp"
 
 #include <cassert>
@@ -153,7 +156,22 @@ void Physics::TwoLevelGridShape::CastRay([[maybe_unused]] const JPH::RayCast& in
   [[maybe_unused]] JPH::CastRayCollector& ioCollector,
   [[maybe_unused]] const JPH::ShapeFilter& inShapeFilter) const
 {
-  //assert(false);
+  auto hit = TwoLevelGrid::HitSurfaceParameters();
+  const auto direction = Physics::ToGlm(inRay.mDirection.Normalized());
+  auto tMax = inRay.mDirection.Length();
+  const auto origin = Physics::ToGlm(inRay.mOrigin);
+  if (twoLevelGrid_->TraceRaySimple(origin, direction, 100, hit))
+  {
+    auto id     = inSubShapeIDCreator.PushID(TwoLevelGrid::FlattenBottomLevelBrickCoord(glm::ivec3(hit.voxelPosition)), 16).GetID();
+    auto result = JPH::CastRayCollector::ResultType();
+    result.mSubShapeID2 = id;
+    result.mBodyID      = inShapeFilter.mBodyID2;
+    result.mFraction    = glm::distance(origin, hit.positionWorld) / glm::distance(origin, origin + direction * tMax);
+    if (result.mFraction <= 1)
+    {
+      ioCollector.AddHit(result);
+    }
+  }
 }
 
 bool Physics::TwoLevelGridShape::CastRay([[maybe_unused]] const JPH::RayCast& inRay,
@@ -251,24 +269,27 @@ JPH::Vec3 Physics::TwoLevelGridShape::GetSurfaceNormal([[maybe_unused]] const JP
   //auto v1 = twoLevelGrid_->GetVoxelAt(glm::ivec3(ToGlm(pos1)));
 
   // Choose position of solid voxel, which is the one we're colliding with. If both voxels are solid (which shouldn't happen), pick an arbitrary position.
-  auto voxel = JPH::Vec3();
+  auto solidVoxel = JPH::Vec3();
+  [[maybe_unused]] auto airVoxel = JPH::Vec3();
   if (v0 != 0)
   {
-    voxel = ToJolt(v0pos);
+    solidVoxel = ToJolt(v0pos);
+    airVoxel   = ToJolt(v1pos);
   }
   else
   {
-    voxel = ToJolt(v1pos);
+    solidVoxel = ToJolt(v1pos);
+    airVoxel   = ToJolt(v0pos);
   }
 
   // Find the greatest component of the difference between the voxel pos and surface pos.
-  const auto dir   = inLocalSurfacePosition - (voxel + JPH::Vec3::sReplicate(0.5f));
+  const auto dir   = inLocalSurfacePosition - (solidVoxel + JPH::Vec3::sReplicate(0.5f));
   const auto idx   = dir.Abs().GetHighestComponentIndex();
   auto normal      = JPH::Vec3::sReplicate(0);
   normal.SetComponent(idx, dir.GetSign()[idx]);
   //printf("%f, %f, %f\n", normal[0], normal[1], normal[2]);
   //printf("%f, %f, %f\n", dir[0], dir[1], dir[2]);
-  return normal;
+  return -normal; // FIXME: For some reason, this needs to be negated for bullets to rest properly.
 }
 
 int Physics::TwoLevelGridShape::GetTrianglesNext([[maybe_unused]] GetTrianglesContext& ioContext,

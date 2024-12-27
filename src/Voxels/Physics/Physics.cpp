@@ -29,6 +29,9 @@
 #include "Jolt/Physics/Collision/CollisionCollectorImpl.h"
 #include "Jolt/Physics/Collision/ContactListener.h"
 #include "Jolt/Physics/Collision/CollisionDispatch.h"
+#include "Jolt/Physics/Collision/RayCast.h"
+#include "Jolt/Physics/Collision/CollisionCollector.h"
+#include "Jolt/Physics/Collision/CollidePointResult.h"
 
 #include "entt/entity/handle.hpp"
 #include "entt/signal/dispatcher.hpp"
@@ -66,6 +69,8 @@ namespace Physics
         case DROPPED_ITEM: return inObject2 == WORLD || inObject2 == CHARACTER_SENSOR || inObject2 == DROPPED_ITEM;
         case DEBRIS: return inObject2 == WORLD || inObject2 == DEBRIS;
         case CAST_WORLD: return inObject2 == WORLD;
+        case CAST_PROJECTILE: return inObject2 == WORLD || inObject2 == CHARACTER_SENSOR;
+        case CAST_CHARACTER: return inObject2 == WORLD || inObject2 == CHARACTER;
         default: JPH_ASSERT(false); return false;
         }
       }
@@ -126,6 +131,8 @@ namespace Physics
         case Layers::DROPPED_ITEM: [[fallthrough]];
         case Layers::DEBRIS: return true;
         case Layers::CAST_WORLD: return inLayer2 == BroadPhaseLayers::NON_MOVING;
+        case Layers::CAST_PROJECTILE:
+        case Layers::CAST_CHARACTER: return true;
         default: JPH_ASSERT(false); return false;
         }
       }
@@ -289,15 +296,6 @@ namespace Physics
     delete c.character;
   }
 
-  void NearestHitCollector::AddHit(const ResultType& inResult)
-  {
-    if (!nearest || nearest->mFraction > inResult.mFraction)
-    {
-      nearest = inResult;
-      this->UpdateEarlyOutFraction(nearest->mFraction);
-    }
-  }
-
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery()
   {
     return s->engine->GetNarrowPhaseQuery();
@@ -423,6 +421,46 @@ namespace Physics
       {
         s->bodyInterface->SetPositionAndRotation(rigidBody.body, ToJolt(transform.position), ToJolt(transform.rotation).Normalized(), JPH::EActivation::Activate);
       }
+    }
+
+    // Simulate projectiles
+    for (auto&& [entity, gt, lt, projectile] : world.GetRegistry().view<GlobalTransform, LocalTransform, Projectile>().each())
+    {
+      // Calculate updated velocity
+      const auto acceleration = -9.81f * glm::vec3(0, 1, 0) + -projectile.velocity * projectile.drag;
+      const auto newVelocity  = projectile.velocity + acceleration * dt;
+
+      // Cast ray against characters and world
+      const auto initialPosition = gt.position;
+      const auto castVelocity = newVelocity * dt;
+      auto collector = JPH::ClosestHitCollisionCollector<JPH::CastRayCollector>();
+      GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ToJolt(initialPosition), ToJolt(castVelocity)),
+        JPH::RayCastSettings(),
+        collector,
+        s->engine->GetDefaultBroadPhaseLayerFilter(Layers::CAST_PROJECTILE),
+        s->engine->GetDefaultLayerFilter(Layers::CAST_PROJECTILE));
+
+      lt.position += castVelocity;
+      projectile.velocity = newVelocity;
+
+      if (collector.HadHit())
+      {
+        // Generate collision events
+        const auto entity2 = static_cast<entt::entity>(s->bodyInterface->GetUserData(collector.mHit.mBodyID));
+        s->dispatcher.trigger(ContactPair(entity, entity2));
+
+        // Calculate new velocity if it hit a surface
+        const auto hitPosition = initialPosition + castVelocity * collector.mHit.mFraction;
+        const auto hitNormal = ToGlm(s->engine->GetBodyLockInterfaceNoLock().TryGetBody(collector.mHit.mBodyID)->GetWorldSpaceSurfaceNormal(collector.mHit.mSubShapeID2, ToJolt(hitPosition)));
+
+        // The bullet's remaining dt is "stolen". This could be solved by looping until there are no more collisions, but the artifact is difficult to notice.
+        lt.position = hitPosition + hitNormal * 1e-3f;
+        constexpr auto restitution = 0.25f;
+        // Reflect projectile with more restitution (bounciness) as the impact angle gets shallower.
+        projectile.velocity = glm::reflect(newVelocity, hitNormal) * (1 - (1 - restitution) * abs(glm::dot(glm::normalize(newVelocity), hitNormal)));
+      }
+
+      UpdateLocalTransform({world.GetRegistry(), entity});
     }
 
     const auto substeps = static_cast<int>(std::ceil(dt / s->targetRate));
@@ -620,4 +658,28 @@ namespace Physics
   #endif
 #endif
   }
+
+  void NearestHitCollector::AddHit(const ResultType& inResult)
+  {
+    if (!nearest || inResult.mFraction < nearest->mFraction)
+    {
+      nearest = inResult;
+      this->UpdateEarlyOutFraction(nearest->mFraction);
+    }
+  }
+
+  void NearestRayCollector::AddHit(const NearestRayCollector::ResultType& inResult)
+  {
+    if (!nearest || inResult.mFraction < nearest->mFraction)
+    {
+      nearest = inResult;
+      this->UpdateEarlyOutFraction(inResult.mFraction);
+    }
+  }
+
+  void AllRayCollector::AddHit(const ResultType& inResult)
+  {
+    unorderedHits.emplace_back(inResult);
+  }
+
 } // namespace Physics

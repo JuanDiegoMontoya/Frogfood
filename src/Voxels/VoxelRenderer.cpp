@@ -646,7 +646,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             nameStr         = def.GetName();
             if (def.GetMaxStackSize() > 1)
             {
-              nameStr += "\n" + std::to_string(slot.stackSize) + "/" + std::to_string(def.GetMaxStackSize());
+              nameStr += "\n" + std::to_string(slot.count) + "/" + std::to_string(def.GetMaxStackSize());
             }
           }
           auto name = nameStr.c_str();
@@ -733,7 +733,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           for (const auto& output : recipe.output)
           {
             const auto& def = itemRegistry.Get(output.item);
-            ImGui::Text("%s: %d", def.GetName().c_str(), output.amount);
+            ImGui::Text("%s: %d", def.GetName().c_str(), output.count);
           }
           ImGui::Unindent();
 
@@ -742,7 +742,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           for (const auto& ingredient : recipe.ingredients)
           {
             const auto& def = itemRegistry.Get(ingredient.item);
-            ImGui::Text("%s: %d", def.GetName().c_str(), ingredient.amount);
+            ImGui::Text("%s: %d", def.GetName().c_str(), ingredient.count);
           }
           ImGui::Unindent();
           ImGui::EndDisabled();
@@ -836,6 +836,19 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
               registry.emplace<NoclipCharacterController>(e);
             }
           }
+          auto* characterController = registry.try_get<Physics::CharacterController>(e);
+          bool hasCharacterController = characterController;
+          if (ImGui::Checkbox("CharacterController", &hasCharacterController))
+          {
+            if (!hasCharacterController)
+            {
+              registry.remove<Physics::CharacterController>(e);
+            }
+            else
+            {
+              world.GivePlayerCharacterController(e);
+            }
+          }
           if (auto* is = registry.try_get<InputState>(e))
           {
             ImGui::SeparatorText("InputState");
@@ -867,7 +880,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::SeparatorText("DroppedItem");
             const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(d->item.id);
             ImGui::Text("%u (%s)", d->item.id, d->item.id != nullItem ? def.GetName().c_str() : "NULL");
-            ImGui::Text("%llu / %llu", d->item.stackSize, def.GetMaxStackSize());
+            ImGui::Text("%llu / %llu", d->item.count, def.GetMaxStackSize());
           }
           if (registry.all_of<DeferredDelete>(e))
           {

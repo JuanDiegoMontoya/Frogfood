@@ -112,16 +112,16 @@ static void OnContact(World& world, const Physics::ContactPair& pair)
         if (d.item.id != nullItem)
         {
           i.TryStackItem(d.item);
-          if (d.item.stackSize > 0)
+          if (d.item.count > 0)
           {
             if (auto slotCoords = i.GetFirstEmptySlot())
             {
               i.OverwriteSlot(*slotCoords, d.item, entity1);
-              d.item = {.stackSize = 0};
+              d.item = {.count = 0};
             }
           }
 
-          if (d.item.stackSize == 0)
+          if (d.item.count == 0)
           {
             world.GetRegistry().remove<DroppedItem>(entity2);
             world.GetRegistry().get_or_emplace<DeferredDelete>(entity2);
@@ -131,6 +131,24 @@ static void OnContact(World& world, const Physics::ContactPair& pair)
       }
       return false;
     });
+}
+
+void OnNoclipCharacterControllerConstruct(entt::registry& registry, entt::entity entity)
+{
+  registry.remove<Physics::CharacterController>(entity);
+  registry.remove<Physics::CharacterControllerShrimple>(entity);
+}
+
+void OnCharacterControllerConstruct(entt::registry& registry, entt::entity entity)
+{
+  registry.remove<NoclipCharacterController>(entity);
+  registry.remove<Physics::CharacterControllerShrimple>(entity);
+}
+
+void OnCharacterControllerShrimpleConstruct(entt::registry& registry, entt::entity entity)
+{
+  registry.remove<NoclipCharacterController>(entity);
+  registry.remove<Physics::CharacterController>(entity);
 }
 
 Game::Game(uint32_t tickHz)
@@ -161,6 +179,9 @@ Game::Game(uint32_t tickHz)
   world_->GetRegistry().ctx().emplace<Pathfinding::PathCache>(); // Note: should be invalidated when voxel grid changes
 
   world_->GetRegistry().on_construct<DeferredDelete>().connect<&OnDeferredDeleteConstruct>();
+  world_->GetRegistry().on_construct<NoclipCharacterController>().connect<&OnNoclipCharacterControllerConstruct>();
+  world_->GetRegistry().on_construct<Physics::CharacterController>().connect<&OnCharacterControllerConstruct>();
+  world_->GetRegistry().on_construct<Physics::CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleConstruct>();
 }
 
 Game::~Game()
@@ -319,18 +340,21 @@ void World::FixedUpdate(float dt)
               {
                 // For ground characters, cast the player down. That way, if the player is in the air, the character will at least try to get under them instead of giving up.
                 auto targetFootPos          = glm::ivec3(pt->position);
-                const auto& playerCharacter = registry_.get<Physics::CharacterController>(pe).character;
-                const auto* playerShape     = playerCharacter->GetShape();
-                auto shapeCast              = JPH::RShapeCast::sFromWorldTransform(playerShape, {1, 1, 1}, playerCharacter->GetWorldTransform(), {0, -10, 0});
-                auto shapeCastCollector     = Physics::NearestHitCollector();
-                Physics::GetNarrowPhaseQuery().CastShape(shapeCast,
-                  {},
-                  {},
-                  shapeCastCollector,
-                  Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_WORLD));
-                if (shapeCastCollector.nearest)
+                if (const auto* pc = registry_.try_get<Physics::CharacterController>(pe))
                 {
-                  targetFootPos = Physics::ToGlm(shapeCast.GetPointOnRay(shapeCastCollector.nearest->mFraction - 1e-2f));
+                  const auto& playerCharacter = pc->character;
+                  const auto* playerShape     = playerCharacter->GetShape();
+                  auto shapeCast              = JPH::RShapeCast::sFromWorldTransform(playerShape, {1, 1, 1}, playerCharacter->GetWorldTransform(), {0, -10, 0});
+                  auto shapeCastCollector     = Physics::NearestHitCollector();
+                  Physics::GetNarrowPhaseQuery().CastShape(shapeCast,
+                    {},
+                    {},
+                    shapeCastCollector,
+                    Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_WORLD));
+                  if (shapeCastCollector.nearest)
+                  {
+                    targetFootPos = Physics::ToGlm(shapeCast.GetPointOnRay(shapeCastCollector.nearest->mFraction - 1e-2f));
+                  }
                 }
 
                 const auto myHeight = (int)std::ceil(GetHeight({registry_, entity}));
@@ -396,9 +420,8 @@ void World::FixedUpdate(float dt)
       // Movement
       if (registry_.all_of<NoclipCharacterController>(entity))
       {
-        const auto rot       = glm::mat3_cast(transform.rotation);
-        const auto right     = rot[0];
-        const auto forward   = rot[2];
+        const auto right     = GetRight(transform.rotation);
+        const auto forward   = GetForward(transform.rotation);
         auto tempCameraSpeed = 4.5f * dt;
         tempCameraSpeed *= input.sprint ? 4.0f : 1.0f;
         tempCameraSpeed *= input.walk ? 0.25f : 1.0f;
@@ -520,6 +543,7 @@ void World::FixedUpdate(float dt)
         registry_.emplace<PathfindingEnemyBehavior>(e);
         registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
         registry_.emplace<InputState>(e);
+        registry_.emplace<Loot>(e).name = "standard";
         //registry_.emplace<Lifetime>(e).remainingSeconds = 5;
         //Physics::AddCharacterController({registry_, e}, {sphere});
         Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
@@ -566,7 +590,7 @@ void World::FixedUpdate(float dt)
         {
           const auto& def = registry_.ctx().get<ItemRegistry>().Get(inventory.ActiveSlot().id);
           def.UsePrimary(dt, *this, inventory.activeSlotEntity, inventory.ActiveSlot());
-          if (inventory.ActiveSlot().stackSize <= 0)
+          if (inventory.ActiveSlot().count <= 0)
           {
             inventory.OverwriteSlot(inventory.activeSlotCoord, {}, entt::null);
           }
@@ -610,6 +634,22 @@ void World::FixedUpdate(float dt)
     {
       if (health.hp <= 0)
       {
+        if (auto* loot = registry_.try_get<Loot>(entity))
+        {
+          const auto& transform = registry_.get<GlobalTransform>(entity);
+          auto* table = registry_.ctx().get<LootRegistry>().Get(loot->name);
+          assert(table);
+          const auto& itemRegistry = registry_.ctx().get<ItemRegistry>();
+          for (auto drop : table->Collect(Rng()))
+          {
+            const auto& def = itemRegistry.Get(drop.item);
+            auto droppedEntity = def.Materialize(*this);
+            def.GiveCollider(*this, droppedEntity);
+            registry_.emplace<DroppedItem>(droppedEntity, DroppedItem{{.id = drop.item, .count = drop.count}});
+            SetLocalPosition(droppedEntity, transform.position);
+            SetLinearVelocity(droppedEntity, Rng().RandFloat(1, 3) * Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, glm::vec3(0, 1, 0), glm::half_pi<float>()));
+          }
+        }
         registry_.emplace<DeferredDelete>(entity);
       }
     }
@@ -714,6 +754,25 @@ void World::InitializeGameState()
     {{blockId, 1}},
   });
 
+  auto& loot = registry_.ctx().emplace<LootRegistry>();
+  auto standardLoot = std::make_unique<LootDrops>();
+  standardLoot->drops.emplace_back(RandomLootDrop{
+    .item = blockId,
+    .count = 6,
+    .chanceForOne = 0.5f,
+  });
+  standardLoot->drops.emplace_back(RandomLootDrop{
+    .item         = gunId,
+    .count        = 2,
+    .chanceForOne = 0.125f,
+  });
+  standardLoot->drops.emplace_back(RandomLootDrop{
+    .item         = gun2Id,
+    .count        = 2,
+    .chanceForOne = 0.125f,
+  });
+  loot.Add("standard", std::move(standardLoot));
+
   // Reset RNG
   registry_.ctx().emplace<PCG::Rng>(1234);
 
@@ -757,12 +816,6 @@ void World::InitializeGameState()
         grid.CoalesceDirtyBricks();
       }
 
-  constexpr float playerHalfHeight = 0.8f;
-  constexpr float playerHalfWidth = 0.3f;
-  //auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
-  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
-  //auto playerCapsule = JPH::Ref(new JPH::SphereShape(0.5f));
-
   // Make player entity
   auto p = registry_.create();
   registry_.emplace<Name>(p).name = "Player";
@@ -779,16 +832,16 @@ void World::InitializeGameState()
   registry_.emplace<GlobalTransform>(p) = {tp.position, tp.rotation, tp.scale};
   registry_.emplace<PreviousGlobalTransform>(p);
   registry_.emplace<RenderTransform>(p);
+  GivePlayerCharacterController(p);
   //registry_.emplace<NoclipCharacterController>(p);
-  auto cc = Physics::AddCharacterController({registry_, p}, {
-    .shape = playerCapsule,
-  });
   //cc.character->SetMaxStrength(10000000);
   auto& inventory = registry_.emplace<Inventory>(p, *this);
   inventory.OverwriteSlot({0, 0}, {gunId}, p);
   inventory.OverwriteSlot({0, 1}, {gun2Id}, p);
   inventory.OverwriteSlot({0, 2}, {pickaxeId}, p);
 
+  constexpr float playerHalfHeight = 0.8f * 1.5f;
+  constexpr float playerHalfWidth  = 0.3f * 3.0f;
   assert(playerHalfHeight - playerHalfWidth >= 0);
   auto playerHitbox = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
 
@@ -965,6 +1018,16 @@ entt::entity World::GetChildNamed(entt::entity entity, std::string_view name)
     }
   }
   return entt::null;
+}
+
+Physics::CharacterController& World::GivePlayerCharacterController(entt::entity playerEntity)
+{
+  constexpr float playerHalfHeight = 0.8f;
+  constexpr float playerHalfWidth  = 0.3f;
+  // auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
+  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
+
+  return Physics::AddCharacterController({registry_, playerEntity}, {.shape = playerCapsule});
 }
 
 glm::vec3 GetFootPosition(entt::handle handle)
@@ -1186,7 +1249,7 @@ void Inventory::TryStackItem(ItemState& item)
   {
     for (auto& slot : row)
     {
-      if (item.stackSize <= 0)
+      if (item.count <= 0)
       {
         return;
       }
@@ -1194,9 +1257,9 @@ void Inventory::TryStackItem(ItemState& item)
       if (slot.id == item.id)
       {
         // Moves stack from item to slot, up to max stack size.
-        const auto avail = glm::min(item.stackSize, def.GetMaxStackSize() - slot.stackSize);
-        slot.stackSize += avail;
-        item.stackSize -= avail;
+        const auto avail = glm::min(item.count, def.GetMaxStackSize() - slot.count);
+        slot.count += avail;
+        item.count -= avail;
       }
     }
   }
@@ -1228,7 +1291,7 @@ bool Inventory::CanCraftRecipe(Crafting::Recipe recipe) const
       {
         if (slot.id == ingredient.item)
         {
-          ingredient.amount -= (int)slot.stackSize;
+          ingredient.count -= (int)slot.count;
         }
       }
     }
@@ -1236,7 +1299,7 @@ bool Inventory::CanCraftRecipe(Crafting::Recipe recipe) const
 
   for (const auto& ingredient : recipe.ingredients)
   {
-    if (ingredient.amount > 0)
+    if (ingredient.count > 0)
     {
       return false;
     }
@@ -1258,10 +1321,10 @@ void Inventory::CraftRecipe(Crafting::Recipe recipe, entt::entity parent)
         auto& slot = row[colIdx];
         if (slot.id == ingredient.item)
         {
-          const auto consumed = glm::min(ingredient.amount, (int)slot.stackSize);
-          ingredient.amount -= consumed;
-          slot.stackSize -= consumed;
-          if (slot.stackSize <= 0)
+          const auto consumed = glm::min(ingredient.count, (int)slot.count);
+          ingredient.count -= consumed;
+          slot.count -= consumed;
+          if (slot.count <= 0)
           {
             OverwriteSlot({rowIdx, colIdx}, {});
           }
@@ -1273,9 +1336,9 @@ void Inventory::CraftRecipe(Crafting::Recipe recipe, entt::entity parent)
   // For each output, try to stack it with an existing slot. Otherwise, put it in a free spot. If there is no free spot, drop it.
   for (auto& output : recipe.output)
   {
-    auto item = ItemState{output.item, (size_t)output.amount};
+    auto item = ItemState{output.item, output.count};
     TryStackItem(item);
-    if (item.stackSize > 0)
+    if (item.count > 0)
     {
       if (auto slot = GetFirstEmptySlot())
       {
@@ -1465,7 +1528,7 @@ void Block::UsePrimary(float dt, World& world, entt::entity self, ItemState& sta
       const auto newPos = glm::ivec3(hit.voxelPosition + hit.flatNormalWorld);
       if (grid.GetVoxelAt(newPos) == 0)
       {
-        state.stackSize--;
+        state.count--;
         grid.SetVoxelAt(newPos, voxel);
       }
     }
@@ -1504,4 +1567,85 @@ ItemId ItemRegistry::Add(ItemDefinition* itemDefinition)
   nameToId_.try_emplace(itemDefinition->GetName(), id);
   idToDefinition_.emplace_back(itemDefinition);
   return id;
+}
+
+std::vector<ItemIdAndCount> RandomLootDrop::Sample(PCG::Rng& rng) const
+{
+  auto items = std::vector<ItemIdAndCount>();
+  for (int i = 0; i < count; i++)
+  {
+    if (rng.RandFloat() < chanceForOne)
+    {
+      items.emplace_back(item, 1);
+    }
+  }
+  return items;
+}
+
+std::vector<ItemIdAndCount> PoolLootDrop::Sample(PCG::Rng& rng) const
+{
+  assert(!pool.empty());
+  if (rng.RandFloat() <= chance)
+  {
+    const auto sampled = (int)rng.RandFloat(0.5f, GetTotalWeight() + 0.5f);
+
+    int sum = 0;
+    for (const auto& element : pool)
+    {
+      sum += element.weight;
+      if (sampled >= sum)
+      {
+        return element.items;
+      }
+    }
+  }
+  
+  return {};
+}
+
+int PoolLootDrop::GetTotalWeight() const
+{
+  int sum = 0;
+  for (const auto& element : pool)
+  {
+    sum += element.weight;
+  }
+  return sum;
+}
+
+std::vector<ItemIdAndCount> LootDrops::Collect(PCG::Rng& rng) const
+{
+  auto items = std::vector<ItemIdAndCount>();
+
+  for (const auto& drop : drops)
+  {
+    auto sampled = std::vector<ItemIdAndCount>();
+
+    if (auto* r = std::get_if<RandomLootDrop>(&drop))
+    {
+      sampled = r->Sample(rng);
+    }
+    if (auto* p = std::get_if<PoolLootDrop>(&drop))
+    {
+      sampled = p->Sample(rng);
+    }
+
+    items.insert(items.end(), sampled.begin(), sampled.end());
+  }
+
+  return items;
+}
+
+void LootRegistry::Add(std::string name, std::unique_ptr<LootDrops>&& lootDrops)
+{
+  nameToLoot_.emplace(std::move(name), std::move(lootDrops));
+}
+
+const LootDrops* LootRegistry::Get(const std::string& name)
+{
+  if (auto it = nameToLoot_.find(name); it != nameToLoot_.end())
+  {
+    return it->second.get();
+  }
+  return nullptr;
 }

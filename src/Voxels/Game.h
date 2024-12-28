@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 #include <unordered_map>
 
@@ -91,7 +92,9 @@ public:
   void SetLocalPosition(entt::entity entity, glm::vec3 position);
   void SetLocalScale(entt::entity entity, float scale);
   void SetLinearVelocity(entt::entity entity, glm::vec3 velocity);
-  entt::entity GetChildNamed(entt::entity entity, std::string_view name);
+  [[nodiscard]] entt::entity GetChildNamed(entt::entity entity, std::string_view name);
+
+  Physics::CharacterController& GivePlayerCharacterController(entt::entity playerEntity);
 
 private:
   uint64_t ticks_ = 0;
@@ -106,9 +109,9 @@ constexpr ItemId nullItem = ~0u;
 
 struct ItemState
 {
-  ItemId id        = nullItem;
-  size_t stackSize = 1;
-  float useAccum   = 1000;
+  ItemId id      = nullItem;
+  int count      = 1;
+  float useAccum = 1000;
 };
 
 class ItemDefinition
@@ -138,7 +141,7 @@ public:
     state.useAccum += dt;
   }
 
-  [[nodiscard]] virtual size_t GetMaxStackSize() const
+  [[nodiscard]] virtual int GetMaxStackSize() const
   {
     return 1;
   }
@@ -241,7 +244,7 @@ class Block : public ItemDefinition
 public:
   Block(TwoLevelGrid::voxel_t voxel) : voxel(voxel) {}
 
-  [[nodiscard]] size_t GetMaxStackSize() const override
+  [[nodiscard]] int GetMaxStackSize() const override
   {
     return 100;
   }
@@ -269,23 +272,81 @@ public:
   TwoLevelGrid::voxel_t voxel;
 };
 
+struct ItemIdAndCount
+{
+  ItemId item = nullItem;
+  int count   = 1;
+};
+
+// Loot type for simple independent random drops.
+struct RandomLootDrop
+{
+  // Use individual probabilities for spawning each of count items.
+  [[nodiscard]] std::vector<ItemIdAndCount> Sample(PCG::Rng& rng) const;
+
+  ItemId item = nullItem;
+  int count = 1;
+  float chanceForOne = 1;
+  // TODO: distribution type (normal, uniform)
+};
+
+// Loot type that selects a single element from a pool of potential drops.
+// Intended for allowing bosses to drop exactly one item or set of items.
+struct PoolLootDrop
+{
+  [[nodiscard]] std::vector<ItemIdAndCount> Sample(PCG::Rng& rng) const;
+
+  [[nodiscard]] int GetTotalWeight() const;
+
+  struct ItemsAndWeight
+  {
+    std::vector<ItemIdAndCount> items; // The items given if selected.
+    int weight = 1;                    // Chance to select this item from the pool.
+  };
+
+  // Probability that the pool will be sampled.
+  float chance = 1;
+  std::vector<ItemsAndWeight> pool;
+};
+
+// What a mob can drop when it dies.
+struct LootDrops
+{
+  [[nodiscard]] std::vector<ItemIdAndCount> Collect(PCG::Rng& rng) const;
+
+  std::vector<std::variant<RandomLootDrop, PoolLootDrop>> drops;
+};
+
+class LootRegistry
+{
+public:
+  LootRegistry() = default;
+  NO_COPY(LootRegistry);
+
+  void Add(std::string name, std::unique_ptr<LootDrops>&& lootDrops);
+  [[nodiscard]] const LootDrops* Get(const std::string& name);
+
+private:
+  std::unordered_map<std::string, std::unique_ptr<LootDrops>> nameToLoot_;
+};
+
 struct DroppedItem
 {
   ItemState item;
 };
 
+// Used to look up what a mob drops when it dies.
+struct Loot
+{
+  std::string name;
+};
+
 struct Crafting
 {
-  struct ItemIdAndAmount
-  {
-    ItemId item   = nullItem;
-    int amount = 1;
-  };
-
   struct Recipe
   {
-    std::vector<ItemIdAndAmount> ingredients;
-    std::vector<ItemIdAndAmount> output;
+    std::vector<ItemIdAndCount> ingredients;
+    std::vector<ItemIdAndCount> output;
   };
 
   std::vector<Recipe> recipes;

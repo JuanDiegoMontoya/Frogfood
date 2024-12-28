@@ -155,8 +155,8 @@ namespace Physics
       JPH::BodyInterface* bodyInterface{};
       std::shared_mutex contactListenerMutex;
 
-      std::vector<JPH::CharacterVirtual*> allCharacters;
-      std::vector<JPH::Character*> allCharactersShrimple;
+      std::vector<JPH::Ref<JPH::CharacterVirtual>> allCharacters;
+      std::vector<JPH::Ref<JPH::Character>> allCharactersShrimple;
       std::vector<ContactPair> contactPairs;
       entt::dispatcher dispatcher;
       // The deltaTime that is recommended by Jolt's docs to achieve a stable simulation.
@@ -225,7 +225,7 @@ namespace Physics
     if (auto* t = handle.try_get<GlobalTransform>())
     {
       position = t->position;
-      rotation = t->rotation;
+      //rotation = t->rotation;
     }
 
     auto characterSettings = JPH::CharacterVirtualSettings();
@@ -237,7 +237,7 @@ namespace Physics
     //characterSettings.mPredictiveContactDistance = 0.22f;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -0.5f);
     // TODO: use mInnerBodyShape to give character a physical presence (to be detected by ray casts, etc.)
-    auto* character = new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
+    auto character = JPH::Ref(new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get()));
     character->SetListener(s->characterContactListener.get());
 
     s->allCharacters.emplace_back(character);
@@ -253,7 +253,7 @@ namespace Physics
     if (auto* t = handle.try_get<GlobalTransform>())
     {
       position = t->position;
-      rotation = t->rotation;
+      //rotation = t->rotation;
     }
 
     auto characterSettings = JPH::CharacterSettings();
@@ -263,7 +263,7 @@ namespace Physics
     characterSettings.mShape = settings.shape;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -1);
     //characterSettings.mEnhancedInternalEdgeRemoval = true;
-    auto* character = new JPH::Character(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
+    auto character = JPH::Ref(new JPH::Character(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get()));
     character->AddToPhysicsSystem();
     s->bodyInterface->SetRestitution(character->GetBodyID(), 0);
 
@@ -283,17 +283,15 @@ namespace Physics
   static void OnCharacterControllerDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& c = registry.get<CharacterController>(entity);
-    std::erase(s->allCharacters, c.character);
     s->characterCollisionInterface->Remove(c.character);
-    delete c.character;
+    std::erase(s->allCharacters, JPH::Ref(c.character));
   }
 
   static void OnCharacterControllerShrimpleDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& c = registry.get<CharacterControllerShrimple>(entity);
-    std::erase(s->allCharactersShrimple, c.character);
     c.character->RemoveFromPhysicsSystem();
-    delete c.character;
+    std::erase(s->allCharactersShrimple, JPH::Ref(c.character));
   }
 
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery()
@@ -387,7 +385,7 @@ namespace Physics
       cc.previousGroundState = cc.character->GetGroundState();
     }
 
-    for (auto* character : s->allCharacters)
+    for (auto& character : s->allCharacters)
     {
       ZoneScopedN("CharacterVirtual->ExtendedUpdate");
       character->ExtendedUpdate(dt,
@@ -466,7 +464,7 @@ namespace Physics
     const auto substeps = static_cast<int>(std::ceil(dt / s->targetRate));
     s->engine->Update(dt, substeps, s->tempAllocator.get(), s->jobSystem.get());
 
-    for (auto* character : s->allCharactersShrimple)
+    for (auto& character : s->allCharactersShrimple)
     {
       ZoneScopedN("Character->PostSimulation");
       character->PostSimulation(1e-4f);

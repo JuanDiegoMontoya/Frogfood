@@ -120,11 +120,9 @@ void Physics::TwoLevelGridShape::CastTwoLevelGrid(const JPH::ShapeCast& inShapeC
 
     auto negVec     = JPH::Vec3{-x - 0.5f, -y - 0.5f, -z - 0.5f};
     auto posVec     = JPH::Vec3{x + 0.5f, y + 0.5f, z + 0.5f};
-    auto shapeCast2                     = inShapeCast.PostTranslated(negVec);
-    //const auto boxCenterOfMassTransform = inCenterOfMassTransform2.PreTranslated(posVec);
-    const auto boxCenterOfMassTransform = JPH::Mat44::sIdentity();
-    //const auto boxCenterOfMassTransform = inCenterOfMassTransform2;
-    //JPH::CollisionDispatch::sCastShapeVsShapeWorldSpace(inShapeCast,
+    auto shapeCast2 = inShapeCast.PostTranslated(negVec);
+
+    const auto boxCenterOfMassTransform = inCenterOfMassTransform2.PreTranslated(posVec);
     JPH::CollisionDispatch::sCastShapeVsShapeLocalSpace(shapeCast2,
       shapeCastSettings2,
       &boxShape,
@@ -150,10 +148,10 @@ void Physics::TwoLevelGridShape::sRegister()
   }
 }
 
-void Physics::TwoLevelGridShape::CastRay([[maybe_unused]] const JPH::RayCast& inRay,
+void Physics::TwoLevelGridShape::CastRay(const JPH::RayCast& inRay,
   [[maybe_unused]] const JPH::RayCastSettings& inRayCastSettings,
-  [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator,
-  [[maybe_unused]] JPH::CastRayCollector& ioCollector,
+  const JPH::SubShapeIDCreator& inSubShapeIDCreator,
+  JPH::CastRayCollector& ioCollector,
   [[maybe_unused]] const JPH::ShapeFilter& inShapeFilter) const
 {
   auto hit = TwoLevelGrid::HitSurfaceParameters();

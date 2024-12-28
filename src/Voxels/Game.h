@@ -37,8 +37,11 @@ struct DeltaTime
 
 struct Debugging
 {
-  bool showDebugGui    = false;
-  bool forceShowCursor = false;
+  bool showDebugGui        = false;
+  bool forceShowCursor     = false;
+  bool drawDebugProbe      = false;
+  bool drawPhysicsShapes   = false;
+  bool drawPhysicsVelocity = false;
 };
 
 struct LocalTransform

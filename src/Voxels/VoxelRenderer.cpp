@@ -896,6 +896,9 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       auto& debug = ctx.get<Debugging>();
       ImGui::Checkbox("Show Debug GUI", &debug.showDebugGui);
       ImGui::Checkbox("Force Show Cursor", &debug.forceShowCursor);
+      ImGui::Checkbox("Draw Debug Probe", &debug.drawDebugProbe);
+      ImGui::Checkbox("Draw Physics Shapes", &debug.drawPhysicsShapes);
+      ImGui::Checkbox("Draw Physics Velocity", &debug.drawPhysicsVelocity);
 
       ImGui::Text("Game state: %s", GameStateToStr(ctx.get<GameState>()));
       ImGui::Text("Time: %f", ctx.get<float>("time"_hs));

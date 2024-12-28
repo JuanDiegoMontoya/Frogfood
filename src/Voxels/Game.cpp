@@ -759,7 +759,7 @@ void World::InitializeGameState()
 
   constexpr float playerHalfHeight = 0.8f;
   constexpr float playerHalfWidth = 0.3f;
-  //auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(0.5f, 0.4f));
+  //auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
   auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
   //auto playerCapsule = JPH::Ref(new JPH::SphereShape(0.5f));
 

@@ -21,6 +21,7 @@
 #include "Jolt/Physics/Collision/Shape/BoxShape.h"
 #include "Jolt/Physics/Collision/Shape/CylinderShape.h"
 #include "Jolt/Physics/Constraints/DistanceConstraint.h"
+#include "Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h"
 #include "entt/signal/dispatcher.hpp"
 
 #include <chrono>
@@ -574,7 +575,7 @@ void World::FixedUpdate(float dt)
         //auto sphere   = JPH::Ref(new JPH::CylinderShape(0.6f, 0.4f));
         sphere->SetDensity(.33f);
 
-        auto e      = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 5.0f, {1, 0, 0, 0}, 0.4f);
+        auto e = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 5.0f, {1, 0, 0, 0}, 0.4f);
         registry_.emplace<Mesh>(e).name = "frog";
         registry_.emplace<Name>(e, "Fall ball");
         registry_.emplace<Health>(e).hp = 100;
@@ -890,6 +891,7 @@ void World::InitializeGameState()
   constexpr float playerHalfWidth  = 0.3f * 3.0f;
   assert(playerHalfHeight - playerHalfWidth >= 0);
   auto playerHitbox = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
+  auto playerHitboxShape  = JPH::Ref(new JPH::RotatedTranslatedShape(JPH::Vec3(0, -0.8f * 0.875f, 0), JPH::Quat::sIdentity(), playerHitbox));
 
   auto pHitbox = registry_.create();
   registry_.emplace<Name>(pHitbox).name = "Player hitbox";
@@ -901,7 +903,7 @@ void World::InitializeGameState()
   registry_.emplace<GlobalTransform>(pHitbox) = {{}, glm::identity<glm::quat>(), 1};
   registry_.emplace<Hierarchy>(pHitbox).useLocalRotationAsGlobal = true; // Stay upright
   Physics::AddRigidBody({registry_, pHitbox}, {
-    .shape = playerHitbox,
+    .shape = playerHitboxShape,
     .isSensor = true,
     .motionType = JPH::EMotionType::Kinematic,
     .layer = Physics::Layers::CHARACTER_SENSOR,
@@ -1130,7 +1132,9 @@ Physics::CharacterController& World::GivePlayerCharacterController(entt::entity 
   // auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
   auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
 
-  return Physics::AddCharacterController({registry_, playerEntity}, {.shape = playerCapsule});
+  auto playerShape = JPH::Ref(new JPH::RotatedTranslatedShape(JPH::Vec3(0, -playerHalfHeight * 0.875f, 0), JPH::Quat::sIdentity(), playerCapsule));
+
+  return Physics::AddCharacterController({registry_, playerEntity}, {.shape = playerShape});
 }
 
 glm::vec3 GetFootPosition(entt::handle handle)

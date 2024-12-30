@@ -346,12 +346,12 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   auto viewMat = glm::mat4(1);
   auto position = glm::vec3();
-  for (auto&& [entity, inputLook, transform] : world.GetRegistry().view<InputLookState, GlobalTransform, LocalPlayer>().each())
+  for (auto&& [entity, inputLook, transform] : world.GetRegistry().view<const InputLookState, const GlobalTransform, LocalPlayer>().each())
   {
     position = transform.position;
     // Flip z axis to correspond with Vulkan's NDC space.
     auto rotationQuat = transform.rotation;
-    if (auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
+    if (const auto* renderTransform = world.GetRegistry().try_get<RenderTransform>(entity))
     {
       // Because the player has its own variable delta pitch and yaw updates, we only care about smoothing positions here
       position = renderTransform->transform.position;
@@ -603,12 +603,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     }
 
     auto&& [playerEntity, p, i, gt] = *range.begin();
-
-    auto* ptransform = world.TryGetLocalPlayerTransform();
+    
     // TODO: replace with bitmap font rendered above each creature
     auto collector = Physics::NearestRayCollector();
-    auto dir       = GetForward(ptransform->rotation);
-    auto start     = ptransform->position;
+    auto dir       = GetForward(gt.rotation);
+    auto start     = gt.position;
     Physics::GetNarrowPhaseQuery().CastRay(JPH::RRayCast(Physics::ToJolt(start), Physics::ToJolt(dir * 20.0f)),
       JPH::RayCastSettings(),
       collector,

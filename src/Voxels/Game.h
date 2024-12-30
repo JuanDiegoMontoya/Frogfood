@@ -582,7 +582,7 @@ struct ContactDamage
   float knockback = 5;
 };
 
-// Placed on root entity belonging to the player
+// Placed on root entity belonging to this client's player.
 struct LocalPlayer {};
 
 struct SimpleEnemyBehavior {};

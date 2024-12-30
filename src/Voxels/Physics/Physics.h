@@ -87,7 +87,13 @@ namespace Physics
   JPH::BodyInterface& GetBodyInterface();
   JPH::PhysicsSystem& GetPhysicsSystem();
 
-  struct ContactPair
+  struct ContactAddedPair
+  {
+    entt::entity entity1;
+    entt::entity entity2;
+  };
+
+  struct ContactPersistedPair
   {
     entt::entity entity1;
     entt::entity entity2;

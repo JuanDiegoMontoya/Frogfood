@@ -437,7 +437,7 @@ vec3 GetHitAlbedo(HitSurfaceParameters hit)
 {
 		return vec3(hsv_to_rgb(vec3(MM_Hash3(ivec3(hit.voxelPosition) % 3), 0.55, 0.8)));
 		//return vec3(mod(abs(hit.positionWorld + .5), 1));
-		//return vec3(hit.positionWorld / 200);
+		//return vec3(hit.positionWorld / 64);
 		//return vec3(hit.flatNormalWorld * .5 + .5);
 		//return vec3(hit.texCoords, 0);
 		//return vec3(0.5);

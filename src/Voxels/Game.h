@@ -112,6 +112,18 @@ public:
 
   Physics::CharacterController& GivePlayerCharacterController(entt::entity playerEntity);
 
+  void GivePlayerColliders(entt::entity playerEntity);
+
+  // Remove character controller and collision, and give ghost component
+  void KillPlayer(entt::entity playerEntity);
+
+  // Restore character controller and collision, and remove ghost component
+  void RespawnPlayer(entt::entity playerEntity);
+
+  // Apply damage and resistances to an entity. Does not apply knockback.
+  // Returns the amount of damage actually applied.
+  float DamageEntity(entt::entity entity, float damage);
+
 private:
   uint64_t ticks_ = 0;
   entt::registry registry_;
@@ -501,6 +513,18 @@ struct Player
 {
   uint32_t id = 0;
   bool inventoryIsOpen = false;
+};
+
+// Tag for systems to exclude.
+// Intended for preventing the player from influencing the world while dead.
+struct GhostPlayer
+{
+  float remainingSeconds{};
+};
+
+struct Invulnerability
+{
+  float remainingSeconds{};
 };
 
 struct DeferredDelete {};

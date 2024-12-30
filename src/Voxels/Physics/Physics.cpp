@@ -157,7 +157,8 @@ namespace Physics
 
       std::vector<JPH::CharacterVirtual*> allCharacters;
       std::vector<JPH::Character*> allCharactersShrimple;
-      std::vector<ContactPair> contactPairs;
+      std::vector<ContactAddedPair> contactAddedPairs;
+      std::vector<ContactPersistedPair> contactPersistedPairs;
       entt::dispatcher dispatcher;
       // The deltaTime that is recommended by Jolt's docs to achieve a stable simulation.
       // The number of subticks is dynamic to keep the substep dt around this target.
@@ -177,7 +178,16 @@ namespace Physics
         [[maybe_unused]] JPH::ContactSettings& ioSettings) override
       {
         auto lock = std::unique_lock(s->contactListenerMutex);
-        s->contactPairs.emplace_back(static_cast<entt::entity>(inBody1.GetUserData()), static_cast<entt::entity>(inBody2.GetUserData()));
+        s->contactAddedPairs.emplace_back(static_cast<entt::entity>(inBody1.GetUserData()), static_cast<entt::entity>(inBody2.GetUserData()));
+      }
+
+      void OnContactPersisted(const JPH::Body& inBody1,
+        const JPH::Body& inBody2,
+        [[maybe_unused]] const JPH::ContactManifold& inManifold,
+        [[maybe_unused]] JPH::ContactSettings& ioSettings) override
+      {
+        auto lock = std::unique_lock(s->contactListenerMutex);
+        s->contactPersistedPairs.emplace_back(static_cast<entt::entity>(inBody1.GetUserData()), static_cast<entt::entity>(inBody2.GetUserData()));
       }
     };
 
@@ -192,7 +202,7 @@ namespace Physics
       {
         auto lock = std::unique_lock(s->contactListenerMutex);
         auto e2 = static_cast<entt::entity>(s->bodyInterface->GetUserData(inBodyID2));
-        s->contactPairs.emplace_back(static_cast<entt::entity>(inCharacter->GetUserData()), e2);
+        s->contactAddedPairs.emplace_back(static_cast<entt::entity>(inCharacter->GetUserData()), e2);
       }
     };
   }
@@ -447,7 +457,7 @@ namespace Physics
       {
         // Generate collision events.
         const auto entity2 = static_cast<entt::entity>(s->bodyInterface->GetUserData(collector.mHit.mBodyID));
-        auto pair          = ContactPair(entity, entity2);
+        auto pair          = ContactAddedPair(entity, entity2);
         auto ppair         = &pair;
         s->dispatcher.trigger(ppair);
 
@@ -503,13 +513,22 @@ namespace Physics
         UpdateLocalTransform({world.GetRegistry(), entity});
       }
     }
-    
-    for (auto& contactPair : s->contactPairs)
+
+    // Dispatch events for newly-added contacts
+    for (auto& contactPair : s->contactAddedPairs)
     {
       auto ppair = &contactPair;
       s->dispatcher.trigger(ppair);
     }
-    s->contactPairs.clear();
+    s->contactAddedPairs.clear();
+
+    // Dispatch events for persisted contacts
+    for (auto& contactPair : s->contactPersistedPairs)
+    {
+      auto ppair = &contactPair;
+      s->dispatcher.trigger(ppair);
+    }
+    s->contactPersistedPairs.clear();
 
 #ifdef JPH_DEBUG_RENDERER
     const auto debug = world.GetRegistry().ctx().get<Debugging>();

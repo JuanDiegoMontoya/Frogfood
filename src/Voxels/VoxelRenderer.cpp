@@ -595,7 +595,14 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     ImGui::End();
 
     // Get information about the local player
-    auto&& [playerEntity, p, i, gt] = *world.GetRegistry().view<Player, LocalPlayer, Inventory, GlobalTransform>().each().begin();
+    auto range = world.GetRegistry().view<Player, LocalPlayer, Inventory, GlobalTransform>().each();
+
+    if (range.begin() == range.end())
+    {
+      return;
+    }
+
+    auto&& [playerEntity, p, i, gt] = *range.begin();
 
     auto* ptransform = world.TryGetLocalPlayerTransform();
     // TODO: replace with bitmap font rendered above each creature
@@ -609,6 +616,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_CHARACTER));
     if (ImGui::Begin("Target"))
     {
+      if (auto* h = world.GetRegistry().try_get<Health>(playerEntity))
+      {
+        ImGui::Text("Player HP: %.2f", h->hp);
+      }
       if (collector.nearest)
       {
         auto entity = static_cast<entt::entity>(Physics::GetBodyInterface().GetUserData(collector.nearest->mBodyID));
@@ -789,11 +800,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
 
         if (auto* s = registry.try_get<Name>(e))
         {
-          opened = ImGui::TreeNode("entity", "%u (%s)", e, s->name.c_str());
+          opened = ImGui::TreeNode("entity", "%u (%s) (v%u)", entt::to_entity(e), s->name.c_str(), entt::to_version(e));
         }
         else
         {
-          opened = ImGui::TreeNode("entity", "%u", e);
+          opened = ImGui::TreeNode("entity", "%u (v%u)", entt::to_entity(e), entt::to_version(e));
         }
         if (opened)
         {
@@ -889,10 +900,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           if (auto* h = registry.try_get<Hierarchy>(e))
           {
             ImGui::SeparatorText("Hierarchy");
-            ImGui::Text("Parent: %u", static_cast<uint32_t>(h->parent));
+            ImGui::Text(h->parent == entt::null ? "Parent: null" : "Parent: %u", entt::to_entity(h->parent));
             for (auto child : h->children)
             {
-              ImGui::Text("Child: %u", static_cast<uint32_t>(child));
+              ImGui::Text("Child: %u", entt::to_entity(child));
             }
           }
           ImGui::TreePop();

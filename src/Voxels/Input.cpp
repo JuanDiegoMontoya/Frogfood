@@ -76,20 +76,25 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
 
   if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
   {
-    auto&& [e, p] = *world.GetRegistry().view<Player, LocalPlayer>().each().begin();
+    auto range = world.GetRegistry().view<Player, LocalPlayer>().each();
 
-    if (ImGui::GetKeyPressedAmount(ImGuiKey_Tab, 10000, 1))
+    if (range.begin() != range.end())
     {
-      p.inventoryIsOpen = !p.inventoryIsOpen;
-    }
+      auto&& [e, p] = *range.begin();
 
-    if (p.inventoryIsOpen)
-    {
-      newCursorMode = GLFW_CURSOR_NORMAL;
-    }
-    else
-    {
-      newCursorMode = GLFW_CURSOR_DISABLED;
+      if (ImGui::GetKeyPressedAmount(ImGuiKey_Tab, 10000, 1))
+      {
+        p.inventoryIsOpen = !p.inventoryIsOpen;
+      }
+
+      if (p.inventoryIsOpen)
+      {
+        newCursorMode = GLFW_CURSOR_NORMAL;
+      }
+      else
+      {
+        newCursorMode = GLFW_CURSOR_DISABLED;
+      }
     }
   }
   else // game state is not GAME

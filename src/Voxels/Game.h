@@ -3,6 +3,7 @@
 #include "PCG.h"
 #include "TwoLevelGrid.h"
 #include "Physics/Physics.h"
+#include "Fvog/detail/Flags.h"
 
 #include "entt/entity/registry.hpp"
 #include "entt/entity/entity.hpp"
@@ -59,6 +60,16 @@ struct GlobalTransform
   float scale;
 };
 
+enum class TeamFlagBits
+{
+  NEUTRAL  = 0,
+  FRIENDLY = 1 << 0,
+  ENEMY    = 1 << 1,
+  // TODO: mask and flags for PvP
+};
+
+FVOG_DECLARE_FLAG_TYPE(TeamFlags, TeamFlagBits, uint32_t);
+
 class World
 {
 public:
@@ -92,7 +103,12 @@ public:
   void SetLocalPosition(entt::entity entity, glm::vec3 position);
   void SetLocalScale(entt::entity entity, float scale);
   void SetLinearVelocity(entt::entity entity, glm::vec3 velocity);
+  void AddLinearVelocity(entt::entity entity, glm::vec3 velocity);
+  [[nodiscard]] glm::vec3 GetLinearVelocity(entt::entity entity);
   [[nodiscard]] entt::entity GetChildNamed(entt::entity entity, std::string_view name);
+
+  // Travels up hierarchy, searching for TeamFlags component.
+  [[nodiscard]] TeamFlags* GetTeamFlags(entt::entity entity);
 
   Physics::CharacterController& GivePlayerCharacterController(entt::entity playerEntity);
 
@@ -190,6 +206,8 @@ public:
     return 1.0f / (fireRateRpm / 60.0f);
   }
 
+  float damage      = 20;
+  float knockback   = 3;
   float fireRateRpm = 800;
   float bullets     = 1;
   float velocity    = 300;
@@ -205,7 +223,9 @@ class Gun2 : public Gun
 public:
   Gun2() : Gun()
   {
+    damage      = 10;
     fireRateRpm = 80;
+    knockback   = 2;
     bullets     = 9;
     velocity    = 50;
     accuracyMoa = 300;
@@ -509,7 +529,7 @@ struct Hierarchy
   bool useLocalRotationAsGlobal = false;
 };
 
-// Use with GlobalTransform for smooth object movement
+// Use with GlobalTransform and RenderTransform for smooth object movement.
 struct PreviousGlobalTransform
 {
   glm::vec3 position{};
@@ -531,9 +551,10 @@ struct NoclipCharacterController {};
 
 struct Projectile
 {
-  glm::vec3 attackerPosition;
-  glm::vec3 velocity;
-  float drag;
+  float initialSpeed{}; // Used to calculate damage.
+  glm::vec3 velocity{};
+  float drag = 0;
+  float restitution = 0.25f;
 };
 
 struct TimeScale
@@ -553,6 +574,13 @@ struct Mesh
 
 // Use when you want a child entity's collide events to be counted as the parent's.
 struct ForwardCollisionsToParent {};
+
+// For entities that deal damage to other entities they collide with.
+struct ContactDamage
+{
+  float damage    = 0;
+  float knockback = 5;
+};
 
 // Placed on root entity belonging to the player
 struct LocalPlayer {};

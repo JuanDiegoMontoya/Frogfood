@@ -155,8 +155,8 @@ namespace Physics
       JPH::BodyInterface* bodyInterface{};
       std::shared_mutex contactListenerMutex;
 
-      std::vector<JPH::Ref<JPH::CharacterVirtual>> allCharacters;
-      std::vector<JPH::Ref<JPH::Character>> allCharactersShrimple;
+      std::vector<JPH::CharacterVirtual*> allCharacters;
+      std::vector<JPH::Character*> allCharactersShrimple;
       std::vector<ContactPair> contactPairs;
       entt::dispatcher dispatcher;
       // The deltaTime that is recommended by Jolt's docs to achieve a stable simulation.
@@ -237,7 +237,7 @@ namespace Physics
     //characterSettings.mPredictiveContactDistance = 0.22f;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -0.5f);
     // TODO: use mInnerBodyShape to give character a physical presence (to be detected by ray casts, etc.)
-    auto character = JPH::Ref(new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get()));
+    auto* character = new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
     character->SetListener(s->characterContactListener.get());
 
     s->allCharacters.emplace_back(character);
@@ -263,7 +263,7 @@ namespace Physics
     characterSettings.mShape = settings.shape;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -1);
     //characterSettings.mEnhancedInternalEdgeRemoval = true;
-    auto character = JPH::Ref(new JPH::Character(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get()));
+    auto* character = new JPH::Character(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
     character->AddToPhysicsSystem();
     s->bodyInterface->SetRestitution(character->GetBodyID(), 0);
 
@@ -284,14 +284,16 @@ namespace Physics
   {
     auto& c = registry.get<CharacterController>(entity);
     s->characterCollisionInterface->Remove(c.character);
-    std::erase(s->allCharacters, JPH::Ref(c.character));
+    std::erase(s->allCharacters, c.character);
+    delete c.character;
   }
 
   static void OnCharacterControllerShrimpleDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& c = registry.get<CharacterControllerShrimple>(entity);
     c.character->RemoveFromPhysicsSystem();
-    std::erase(s->allCharactersShrimple, JPH::Ref(c.character));
+    std::erase(s->allCharactersShrimple, c.character);
+    delete c.character;
   }
 
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery()
@@ -443,9 +445,23 @@ namespace Physics
 
       if (collector.HadHit())
       {
-        // Generate collision events
+        // Generate collision events.
         const auto entity2 = static_cast<entt::entity>(s->bodyInterface->GetUserData(collector.mHit.mBodyID));
-        s->dispatcher.trigger(ContactPair(entity, entity2));
+        auto pair          = ContactPair(entity, entity2);
+        auto ppair         = &pair;
+        s->dispatcher.trigger(ppair);
+
+        // Object may have been destroyed in event.
+        if (world.GetRegistry().any_of<DeferredDelete>(pair.entity1))
+        {
+          continue;
+        }
+
+        // Collided-with entity is dead, don't reflect.
+        if (auto* h = world.GetRegistry().try_get<Health>(pair.entity2); h && h->hp <= 0)
+        {
+          continue;
+        }
 
         // Calculate new velocity if it hit a surface
         const auto hitPosition = initialPosition + castVelocity * collector.mHit.mFraction;
@@ -487,11 +503,11 @@ namespace Physics
         UpdateLocalTransform({world.GetRegistry(), entity});
       }
     }
-
-    // TODO: Invoke contact callbacks
-    for (const auto& contactPair : s->contactPairs)
+    
+    for (auto& contactPair : s->contactPairs)
     {
-      s->dispatcher.trigger(contactPair);
+      auto ppair = &contactPair;
+      s->dispatcher.trigger(ppair);
     }
     s->contactPairs.clear();
 

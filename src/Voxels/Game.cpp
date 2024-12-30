@@ -51,15 +51,19 @@ void TryTwice(const Physics::ContactPair& pair, F&& function)
   function(pair.entity2, pair.entity1);
 }
 
-static void OnContact(World& world, const Physics::ContactPair& pair)
+// *ppair is modified to contain the actual entities that collided
+static void OnContact(World& world, Physics::ContactPair* ppair)
 {
-  //printf("contact: %s, %s\n", world.GetRegistry().get<Name>(pair.entity1).name.c_str(), world.GetRegistry().get<Name>(pair.entity2).name.c_str());
+  assert(ppair);
+  auto& pair = *ppair;
+
   if (world.GetRegistry().all_of<ForwardCollisionsToParent>(pair.entity1))
   {
     auto& h = world.GetRegistry().get<Hierarchy>(pair.entity1);
     if (h.parent != entt::null)
     {
-      OnContact(world, {h.parent, pair.entity2});
+      pair.entity1 = h.parent;
+      OnContact(world, ppair);
       return;
     }
   }
@@ -69,41 +73,58 @@ static void OnContact(World& world, const Physics::ContactPair& pair)
     auto& h = world.GetRegistry().get<Hierarchy>(pair.entity2);
     if (h.parent != entt::null)
     {
-      OnContact(world, {pair.entity1, h.parent});
+      pair.entity2 = h.parent;
+      OnContact(world, ppair);
       return;
     }
   }
 
+  // Projectiles hurt creatures
   TryTwice(pair,
     [&](entt::entity entity1, entt::entity entity2)
     {
-      // Projectiles hurt creatures
-      if (world.GetRegistry().any_of<PathfindingEnemyBehavior>(entity1) && world.GetRegistry().all_of<Projectile>(entity2))
+      if (world.GetRegistry().any_of<Health>(entity1) && world.GetRegistry().all_of<Projectile, ContactDamage>(entity2))
       {
-        if (auto* h = world.GetRegistry().try_get<Health>(entity1))
+        auto* team1 = world.GetRegistry().try_get<TeamFlags>(entity1);
+        auto* team2 = world.GetRegistry().try_get<TeamFlags>(entity2);
+        if (!team1 || !team2 || !(*team1 & *team2))
         {
-          h->hp -= 10;
-          //const auto& bt = world.GetRegistry().get<GlobalTransform>(entity2);
-          const auto& et = world.GetRegistry().get<GlobalTransform>(entity1);
-          //auto pushDir   = et.position - bt.position;
-          auto pushDir   = et.position - world.GetRegistry().get<Projectile>(entity2).attackerPosition;
-          pushDir.y      = 0;
-          pushDir        = glm::normalize(pushDir);
-          pushDir        *= 15.0f;
-          pushDir.y      = 5;
-          world.SetLinearVelocity(entity1, pushDir);
-          world.GetRegistry().emplace_or_replace<DeferredDelete>(entity2);
-          world.GetRegistry().remove<Projectile>(entity2);
+          if (auto* h = world.GetRegistry().try_get<Health>(entity1); h && h->hp > 0)
+          {
+            const auto& projectile = world.GetRegistry().get<Projectile>(entity2);
+            const auto& damage     = world.GetRegistry().get<ContactDamage>(entity2);
+
+            //const auto currentSpeed2  = glm::dot(projectile.velocity, projectile.velocity);
+            //const auto energyFraction = (currentSpeed2) / (projectile.initialSpeed * projectile.initialSpeed);
+            const auto energyFraction = glm::length(projectile.velocity) / projectile.initialSpeed;
+
+            const auto effectiveKnockback = damage.knockback * energyFraction;
+            h->hp -= damage.damage * energyFraction;
+            auto pushDir = projectile.velocity;
+            pushDir.y    = 0;
+            if (glm::length(pushDir) > 1e-3)
+            {
+              pushDir = glm::normalize(pushDir);
+            }
+            pushDir *= effectiveKnockback * 3;
+            pushDir.y = effectiveKnockback;
+            //world.SetLinearVelocity(entity1, pushDir);
+            const auto prevVelocity = world.GetLinearVelocity(entity1);
+            pushDir.y /= exp2(glm::max(0.0f, prevVelocity.y * 1.0f)); // Reduce velocity gain (prevent stuff from flying super high- subject to change).
+            world.SetLinearVelocity(entity1, prevVelocity + pushDir);
+            world.GetRegistry().emplace_or_replace<DeferredDelete>(entity2);
+            world.GetRegistry().remove<Projectile>(entity2);
+          }
+          return true;
         }
-        return true;
       }
       return false;
     });
 
+  // Players pick up dropped items
   TryTwice(pair,
     [&](entt::entity entity1, entt::entity entity2)
     {
-      // Players pick up dropped items
       if (world.GetRegistry().all_of<Player, Inventory>(entity1) && world.GetRegistry().all_of<DroppedItem>(entity2))
       {
         auto& i = world.GetRegistry().get<Inventory>(entity1);
@@ -126,6 +147,25 @@ static void OnContact(World& world, const Physics::ContactPair& pair)
             world.GetRegistry().remove<DroppedItem>(entity2);
             world.GetRegistry().get_or_emplace<DeferredDelete>(entity2);
           }
+        }
+        return true;
+      }
+      return false;
+    });
+
+  // Players take damage from enemy team
+  TryTwice(pair,
+    [&](entt::entity entity1, entt::entity entity2)
+    {
+      if (world.GetRegistry().all_of<Player, Health>(entity1) && world.GetRegistry().all_of<ContactDamage>(entity2))
+      {
+        auto* team1 = world.GetRegistry().try_get<TeamFlags>(entity1);
+        auto* team2 = world.GetRegistry().try_get<TeamFlags>(entity2);
+        if (!team1 || !team2 || !(*team1 & *team2))
+        {
+          auto& hp                  = world.GetRegistry().get<Health>(entity1);
+          const auto& contactDamage = world.GetRegistry().get<ContactDamage>(entity2);
+          hp.hp -= contactDamage.damage;
         }
         return true;
       }
@@ -155,7 +195,7 @@ Game::Game(uint32_t tickHz)
 {
   world_ = std::make_unique<World>();
   Physics::Initialize(*world_);
-  Physics::GetDispatcher().sink<Physics::ContactPair>().connect<&OnContact>(*world_);
+  Physics::GetDispatcher().sink<Physics::ContactPair*>().connect<&OnContact>(*world_);
 #ifdef GAME_HEADLESS
   head_ = std::make_unique<NullHead>();
   world_->GetRegistry().ctx().emplace<GameState>() = GameState::GAME;
@@ -488,7 +528,7 @@ void World::FixedUpdate(float dt)
           else
           {
             constexpr float airControl = 0.25f;
-            constexpr float airFriction = 0.5f;
+            constexpr float airFriction = 0.05f;
             friction                    = airFriction;
             deltaVelocity.x *= airControl;
             deltaVelocity.z *= airControl;
@@ -499,7 +539,7 @@ void World::FixedUpdate(float dt)
           constexpr float maxSpeed = 5;
 
           // Apply friction
-          auto newVelocity         = glm::vec3(velocity.x, 0, velocity.z);
+          auto newVelocity = glm::vec3(velocity.x, 0, velocity.z);
           newVelocity -= friction * newVelocity * dt;
 
           // Apply dv
@@ -513,11 +553,10 @@ void World::FixedUpdate(float dt)
             newVelocity = glm::normalize(newVelocity) * maxSpeed;
           }
 
-          // Y is not affected by speed clamp
+          // Y is not affected by speed clamp or friction
           newVelocity.y = velocity.y + deltaVelocity.y;
           
           cs->character->SetLinearVelocity(Physics::ToJolt(newVelocity));
-          //cs->character->AddLinearVelocity(Physics::ToJolt(deltaVelocity));
         }
       }
     }
@@ -544,6 +583,10 @@ void World::FixedUpdate(float dt)
         registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
         registry_.emplace<InputState>(e);
         registry_.emplace<Loot>(e).name = "standard";
+        registry_.emplace<TeamFlags>(e, TeamFlagBits::ENEMY);
+
+        auto& contactDamage = registry_.emplace<ContactDamage>(e);
+        contactDamage.damage = 10;
         //registry_.emplace<Lifetime>(e).remainingSeconds = 5;
         //Physics::AddCharacterController({registry_, e}, {sphere});
         Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
@@ -552,7 +595,7 @@ void World::FixedUpdate(float dt)
         //    .shape      = sphere,
         //    .activate   = true,
         //    .motionType = JPH::EMotionType::Dynamic,
-        //    .layer      = Physics::Layers::MOVING,
+        //    .layer      = Physics::Layers::CHARACTER,
         //  });
 
         auto e2 = CreateRenderableEntity({1.0f, 0.3f, -0.8f}, {1, 0, 0, 0}, 1.5f);
@@ -647,7 +690,8 @@ void World::FixedUpdate(float dt)
             def.GiveCollider(*this, droppedEntity);
             registry_.emplace<DroppedItem>(droppedEntity, DroppedItem{{.id = drop.item, .count = drop.count}});
             SetLocalPosition(droppedEntity, transform.position);
-            SetLinearVelocity(droppedEntity, Rng().RandFloat(1, 3) * Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, glm::vec3(0, 1, 0), glm::half_pi<float>()));
+            const auto velocity = GetLinearVelocity(entity);
+            SetLinearVelocity(droppedEntity, velocity + Rng().RandFloat(1, 3) * Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, glm::vec3(0, 1, 0), glm::half_pi<float>()));
           }
         }
         registry_.emplace<DeferredDelete>(entity);
@@ -824,6 +868,8 @@ void World::InitializeGameState()
   registry_.emplace<InputState>(p);
   registry_.emplace<InputLookState>(p);
   registry_.emplace<Hierarchy>(p);
+  registry_.emplace<Health>(p).hp = 100;
+  registry_.emplace<TeamFlags>(p, TeamFlagBits::FRIENDLY);
 
   auto& tp = registry_.emplace<LocalTransform>(p);
   tp.position = {2, 78, 2};
@@ -1005,7 +1051,50 @@ void World::SetLinearVelocity(entt::entity entity, glm::vec3 velocity)
   if (auto* cc = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
   {
     cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
+    if (velocity.y > 0)
+    {
+      cc->previousGroundState = JPH::CharacterBase::EGroundState::InAir;
+    }
   }
+}
+
+void World::AddLinearVelocity(entt::entity entity, glm::vec3 velocity)
+{
+  assert(registry_.get<Hierarchy>(entity).parent == entt::null);
+
+  if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
+  {
+    Physics::GetBodyInterface().AddLinearVelocity(rb->body, Physics::ToJolt(velocity));
+  }
+  if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
+  {
+    auto oldVel = cc->character->GetLinearVelocity();
+    cc->character->SetLinearVelocity(Physics::ToJolt(velocity) + oldVel);
+  }
+  if (auto* cc = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
+  {
+    cc->character->AddLinearVelocity(Physics::ToJolt(velocity));
+  }
+}
+
+glm::vec3 World::GetLinearVelocity(entt::entity entity)
+{
+  assert(registry_.get<Hierarchy>(entity).parent == entt::null);
+
+  if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
+  {
+    return Physics::ToGlm(Physics::GetBodyInterface().GetLinearVelocity(rb->body));
+  }
+  if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
+  {
+    return Physics::ToGlm(cc->character->GetLinearVelocity());
+  }
+  if (auto* cc = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
+  {
+    return Physics::ToGlm(cc->character->GetLinearVelocity());
+  }
+
+  return {};
 }
 
 entt::entity World::GetChildNamed(entt::entity entity, std::string_view name)
@@ -1018,6 +1107,20 @@ entt::entity World::GetChildNamed(entt::entity entity, std::string_view name)
     }
   }
   return entt::null;
+}
+
+TeamFlags* World::GetTeamFlags(entt::entity entity)
+{
+  assert(registry_.valid(entity));
+  if (auto* teamFlags = registry_.try_get<TeamFlags>(entity))
+  {
+    return teamFlags;
+  }
+  if (auto* h = registry_.try_get<Hierarchy>(entity); h && h->parent != entt::null)
+  {
+    return GetTeamFlags(h->parent);
+  }
+  return nullptr;
 }
 
 Physics::CharacterController& World::GivePlayerCharacterController(entt::entity playerEntity)
@@ -1398,20 +1501,21 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
       registry.emplace<Name>(b).name                 = "Bullet";
       registry.emplace<Mesh>(b).name                 = "frog";
       registry.emplace<Lifetime>(b).remainingSeconds = 8;
-      auto& projectile                               = registry.emplace<Projectile>(b);
-      projectile.attackerPosition                    = transform.position;
-      projectile.velocity                            = dir * velocity;
-      projectile.drag                                = 0.25f;
-      //auto rb = Physics::AddRigidBody({registry, b},
-      //  {
-      //    .shape      = bulletShape,
-      //    .activate   = true,
-      //    .motionType = JPH::EMotionType::Dynamic,
-      //    .layer      = Physics::Layers::PROJECTILE,
-      //  });
-      //Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
-      //Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(dir * velocity));
-      //Physics::GetBodyInterface().SetRestitution(rb.body, 0.25f);
+
+      auto& projectile       = registry.emplace<Projectile>(b);
+      projectile.initialSpeed = velocity;
+      projectile.velocity    = dir * velocity;
+      projectile.drag        = 0.25f;
+      projectile.restitution = 0.25f;
+
+      auto& contactDamage     = registry.emplace<ContactDamage>(b);
+      contactDamage.damage    = damage;
+      contactDamage.knockback = knockback;
+
+      if (auto* team = world.GetTeamFlags(self))
+      {
+        registry.emplace<TeamFlags>(b, *team);
+      }
     }
 
     // If parent is player, apply recoil

@@ -189,6 +189,9 @@ public:
   // https://github.com/skypjack/entt/issues/1067
   NO_COPY(ItemRegistry);
 
+  ItemRegistry(ItemRegistry&&) noexcept = default;
+  ItemRegistry& operator=(ItemRegistry&&) noexcept = default;
+
   const ItemDefinition& Get(const std::string& name) const;
   const ItemDefinition& Get(ItemId id) const;
   ItemId GetId(const std::string& name) const;
@@ -354,6 +357,9 @@ class LootRegistry
 public:
   LootRegistry() = default;
   NO_COPY(LootRegistry);
+
+  LootRegistry(LootRegistry&&) noexcept = default;
+  LootRegistry& operator=(LootRegistry&&) noexcept = default;
 
   void Add(std::string name, std::unique_ptr<LootDrops>&& lootDrops);
   [[nodiscard]] const LootDrops* Get(const std::string& name);

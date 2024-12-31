@@ -113,6 +113,9 @@ target_compile_options(frogRender
     /WX
     /permissive-
     /wd4324 # structure was padded
+    $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:
+    /JMC
+    >
     >
 )
 

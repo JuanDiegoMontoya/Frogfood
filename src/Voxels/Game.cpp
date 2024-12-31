@@ -841,13 +841,13 @@ void World::InitializeGameState()
   }
   
   // Reset item registry
-  auto& items = registry_.ctx().emplace<ItemRegistry>();
+  auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
   [[maybe_unused]] const auto gunId = items.Add(new Gun());
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
   [[maybe_unused]] const auto pickaxeId = items.Add(new Pickaxe());
   [[maybe_unused]] const auto blockId = items.Add(new Block(1));
-
-  auto& crafting = registry_.ctx().emplace<Crafting>();
+  
+  auto& crafting = registry_.ctx().insert_or_assign<Crafting>({});
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{blockId, 1}},
     {{gunId, 1}},
@@ -861,7 +861,7 @@ void World::InitializeGameState()
     {{blockId, 1}},
   });
 
-  auto& loot = registry_.ctx().emplace<LootRegistry>();
+  auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
   auto standardLoot = std::make_unique<LootDrops>();
   standardLoot->drops.emplace_back(RandomLootDrop{
     .item = blockId,
@@ -881,9 +881,9 @@ void World::InitializeGameState()
   loot.Add("standard", std::move(standardLoot));
 
   // Reset RNG
-  registry_.ctx().emplace<PCG::Rng>(1234);
+  registry_.ctx().insert_or_assign<PCG::Rng>(1234);
 
-  auto& grid = registry_.ctx().emplace<TwoLevelGrid>(glm::vec3{1, 1, 1});
+  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{1, 1, 1}));
   // Top level bricks
   for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
     for (int j = 0; j < grid.topLevelBricksDims_.y; j++)

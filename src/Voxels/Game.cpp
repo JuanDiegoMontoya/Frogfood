@@ -357,6 +357,61 @@ void World::FixedUpdate(float dt)
       input.elevate = glm::clamp(input.elevate, -1.0f, 1.0f);
     }
 
+    // Process linear transform paths
+    for (auto&& [entity, linearPath, transform] : registry_.view<LinearPath, LocalTransform>().each())
+    {
+      assert(!linearPath.frames.empty());
+      if (linearPath.secondsElapsed <= 0)
+      {
+        linearPath.originalLocalTransform = transform;
+      }
+
+      linearPath.secondsElapsed += dt;
+
+      // See if the path is finished, reset original transform
+      {
+        float sum = 0;
+        for (const auto& frame : linearPath.frames)
+        {
+          sum += frame.offsetSeconds;
+        }
+        if (linearPath.secondsElapsed > sum)
+        {
+          transform = linearPath.originalLocalTransform;
+          registry_.remove<LinearPath>(entity);
+          continue;
+        }
+      }
+
+      // Locate frames to interpolate between with simple linear search
+      LinearPath::KeyFrame firstFrame;
+      LinearPath::KeyFrame secondFrame = {};
+      float sum                        = 0;
+      for (const auto& frame : linearPath.frames)
+      {
+        firstFrame = secondFrame;
+        secondFrame = frame;
+        sum += frame.offsetSeconds;
+        if (sum >= linearPath.secondsElapsed)
+        {
+          break;
+        }
+      }
+
+      // Do da interpolate
+      const float alpha                   = (linearPath.secondsElapsed - firstFrame.offsetSeconds) / (sum - firstFrame.offsetSeconds);
+      const glm::vec3 newRelativePosition = glm::mix(firstFrame.position, secondFrame.position, alpha);
+      const glm::quat newRelativeRotation = glm::slerp(firstFrame.rotation, secondFrame.rotation, alpha);
+      const float newRelativeScale        = glm::mix(firstFrame.scale, secondFrame.scale, alpha);
+
+      // Apply new relative transform stuff relatively to the original transform
+      transform.position = linearPath.originalLocalTransform.position + newRelativePosition;
+      transform.rotation = linearPath.originalLocalTransform.rotation * newRelativeRotation;
+      transform.scale    = linearPath.originalLocalTransform.scale * newRelativeScale;
+
+      UpdateLocalTransform({registry_, entity});
+    }
+
     // Generate input for enemies
     {
       ZoneScopedN("Pathfinding");
@@ -846,6 +901,7 @@ void World::InitializeGameState()
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
   [[maybe_unused]] const auto pickaxeId = items.Add(new Pickaxe());
   [[maybe_unused]] const auto blockId = items.Add(new Block(1));
+  [[maybe_unused]] const auto spearId = items.Add(new Spear());
   
   auto& crafting = registry_.ctx().insert_or_assign<Crafting>({});
   crafting.recipes.emplace_back(Crafting::Recipe{
@@ -859,6 +915,10 @@ void World::InitializeGameState()
   crafting.recipes.emplace_back(Crafting::Recipe{
     {},
     {{blockId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {},
+    {{spearId, 1}},
   });
 
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
@@ -1686,7 +1746,7 @@ void Pickaxe::Dematerialize(World& world, entt::entity self) const
 
 void Pickaxe::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
 {
-  if (state.useAccum < useDt)
+  if (state.useAccum < GetUseDt())
   {
     return;
   }
@@ -1881,4 +1941,30 @@ const LootDrops* LootRegistry::Get(const std::string& name)
     return it->second.get();
   }
   return nullptr;
+}
+
+void Spear::UsePrimary([[maybe_unused]] float dt, World& world, entt::entity self, ItemState& state) const
+{
+  if (state.useAccum < GetUseDt())
+  {
+    return;
+  }
+
+  state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
+  auto& path = world.GetRegistry().emplace<LinearPath>(self);
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .offsetSeconds = 0.15f});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = 0.15f});
+}
+
+entt::entity Spear::Materialize(World& world) const
+{
+  auto self                                    = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f});
+  world.GetRegistry().emplace<Mesh>(self).name = "spear";
+  world.GetRegistry().emplace<Name>(self).name = "Spear";
+  return self;
+}
+
+void Spear::Dematerialize(World& world, entt::entity self) const
+{
+  world.GetRegistry().emplace<DeferredDelete>(self);
 }

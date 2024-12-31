@@ -157,7 +157,9 @@ public:
   virtual Physics::RigidBody& GiveCollider(World& world, entt::entity self) const;
 
   // Perform an action with the entity
-  virtual void UsePrimary([[maybe_unused]] float dt, World&, entt::entity, ItemState&) const {}
+  virtual void UsePrimary([[maybe_unused]] float dt, [[maybe_unused]] World& world, [[maybe_unused]] entt::entity self, [[maybe_unused]] ItemState& state) const
+  {
+  }
 
   [[nodiscard]] virtual float GetUseDt() const
   {
@@ -271,7 +273,10 @@ public:
 
   void UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const override;
 
-  float useDt = 0.25f;
+  float GetUseDt() const override
+  {
+    return 0.25f;
+  }
 };
 
 class Block : public ItemDefinition
@@ -305,6 +310,27 @@ public:
   }
 
   TwoLevelGrid::voxel_t voxel;
+};
+
+class Spear : public ItemDefinition
+{
+public:
+
+  std::string GetName() const override
+  {
+    return "Spear";
+  }
+
+  void UsePrimary(float dt, World&, entt::entity, ItemState&) const override;
+
+  [[nodiscard]] entt::entity Materialize(World& world) const override;
+
+  void Dematerialize(World& world, entt::entity self) const override;
+
+  float GetUseDt() const override
+  {
+    return 0.35f;
+  }
 };
 
 struct ItemIdAndCount
@@ -610,6 +636,27 @@ struct ContactDamage
 {
   float damage    = 0;
   float knockback = 5;
+};
+
+// Linearly interpolate between samples.
+struct LinearPath
+{
+  // Defines a transform offset and duration.
+  // Postfix sum of "offsetSeconds" defines timestamp on which the sample appears.
+  // First keyframe is blended with identity transform if its position is not at 0.
+  struct KeyFrame
+  {
+    glm::vec3 position = {};
+    glm::quat rotation = glm::identity<glm::quat>();
+    float scale = 1;
+    float offsetSeconds;
+  };
+  std::vector<KeyFrame> frames;
+
+  float secondsElapsed = 0;
+
+  // Preserve local transform before this component was added.
+  LocalTransform originalLocalTransform;
 };
 
 // Placed on root entity belonging to this client's player.

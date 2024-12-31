@@ -148,6 +148,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
   g_meshes.emplace("ar15", LoadObjFile(GetAssetDirectory() / "models/ar15.obj"));
   g_meshes.emplace("tracer", LoadObjFile(GetAssetDirectory() / "models/tracer.obj"));
   g_meshes.emplace("cube", LoadObjFile(GetAssetDirectory() / "models/cube.obj"));
+  g_meshes.emplace("spear", LoadObjFile(GetAssetDirectory() / "models/spear.obj"));
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -891,6 +892,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(d->item.id);
             ImGui::Text("%u (%s)", d->item.id, d->item.id != nullItem ? def.GetName().c_str() : "NULL");
             ImGui::Text("%llu / %llu", d->item.count, def.GetMaxStackSize());
+          }
+          if (const auto* lp = registry.try_get<LinearPath>(e))
+          {
+            ImGui::SeparatorText("LinearPath");
+            ImGui::Text("%.3fs", lp->secondsElapsed);
           }
           if (registry.all_of<DeferredDelete>(e))
           {

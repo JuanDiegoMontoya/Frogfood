@@ -106,6 +106,9 @@
 // Qualifiers can be put in the block name
 #define FVOG_DECLARE_STORAGE_BUFFERS(blockname) \
   layout(set = 0, binding = FVOG_STORAGE_BUFFER_BINDING, std430) buffer blockname
+  
+#define FVOG_DECLARE_STORAGE_BUFFERS_2(blockname) \
+  layout(set = 0, binding = FVOG_STORAGE_BUFFER_BINDING, scalar) buffer blockname
 
 #define FVOG_DECLARE_ACCELERATION_STRUCTURES \
   layout(set = 0, binding = FVOG_ACCELERATION_STRUCTURE_BINDING) uniform accelerationStructureEXT a_accelerationStructures[]

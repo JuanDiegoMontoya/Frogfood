@@ -7,6 +7,7 @@
 #include "debug/Shapes.h"
 #include "techniques/denoising/spatial/Bilateral.h"
 
+#include "glm/vec2.hpp"
 #include "glm/vec3.hpp"
 #include "glm/mat4x4.hpp"
 #include "glm/vec4.hpp"
@@ -63,6 +64,15 @@ namespace Temp
     shared::Texture2D noiseTexture;
   };
 
+  struct BillboardInstance
+  {
+    glm::vec3 position;
+    glm::vec2 scale;
+    glm::vec4 leftColor;
+    glm::vec4 rightColor;
+    float middle;
+  };
+
   struct ObjectUniforms
   {
     glm::mat4 worldFromObject;
@@ -105,7 +115,9 @@ private:
   PipelineManager::GraphicsPipelineKey meshPipeline;
   PipelineManager::GraphicsPipelineKey debugTexturePipeline;
   PipelineManager::GraphicsPipelineKey debugLinesPipeline;
+  PipelineManager::GraphicsPipelineKey billboardsPipeline;
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
+  std::optional<Fvog::NDeviceBuffer<Temp::BillboardInstance>> billboardInstanceBuffer;
   std::optional<Fvog::Texture> noiseTexture;
   PlayerHead* head_;
 };

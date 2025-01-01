@@ -137,6 +137,14 @@ namespace
     FVOG_UINT32 useGpuVertexBuffer;
   };
 
+  FVOG_DECLARE_ARGUMENTS(BillboardPushConstants)
+  {
+    FVOG_UINT32 billboardsIndex;
+    FVOG_UINT32 globalUniformsIndex;
+    FVOG_VEC3 cameraRight;
+    FVOG_VEC3 cameraUp;
+  };
+
   std::unordered_map<std::string, GpuMesh> g_meshes;
 } // namespace
 
@@ -250,6 +258,39 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
           {
             .depthTestEnable  = true,
             .depthWriteEnable = true,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
+            .depthAttachmentFormat  = Frame::sceneDepthFormat,
+          },
+      },
+  });
+
+  billboardsPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Billboards",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "Billboard.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "Billboard.frag.glsl",
+      },
+    .state =
+      {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST},
+        .rasterizationState =
+          {
+            .cullMode = VK_CULL_MODE_NONE,
+          },
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
             .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
           },
         .renderTargetFormats =
@@ -409,6 +450,18 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   memcpy(meshUniformz.GetMappedMemory(), meshUniformzVec.data(), meshUniformzVec.size() * sizeof(Temp::ObjectUniforms));
 
+  auto billboards = std::vector<Temp::BillboardInstance>();
+  for (auto&& [entity, transform, health] : world.GetRegistry().view<RenderTransform, Health>(entt::exclude<LocalPlayer>).each())
+  {
+    billboards.emplace_back(Temp::BillboardInstance{
+      .position   = transform.transform.position + glm::vec3(0, GetHeight({world.GetRegistry(), entity}) / 2.0f + 0.25f, 0),
+      .scale      = {0.5f, 0.1f},
+      .leftColor  = {0, 1, 0, 1},
+      .rightColor = {1, 0, 0, 1},
+      .middle     = health.hp / health.maxHp,
+    });
+  }
+
   if (world.GetRegistry().ctx().contains<TwoLevelGrid>())
   {
     auto lines = std::vector<Debug::Line>();
@@ -427,6 +480,15 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         lineVertexBuffer.emplace((uint32_t)lines.size(), "Debug Lines");
       }
       lineVertexBuffer->UpdateData(commandBuffer, lines);
+    }
+
+    if (!billboards.empty())
+    {
+      if (!billboardInstanceBuffer || billboardInstanceBuffer->Size() < billboards.size() * sizeof(Temp::BillboardInstance))
+      {
+        billboardInstanceBuffer.emplace((uint32_t)billboards.size(), "Billboards");
+      }
+      billboardInstanceBuffer->UpdateData(commandBuffer, billboards);
     }
 
     auto& grid           = world.GetRegistry().ctx().get<TwoLevelGrid>();
@@ -497,6 +559,18 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
           .useGpuVertexBuffer  = 0,
         });
         ctx.Draw(uint32_t(lines.size() * 2), 1, 0, 0);
+      }
+
+      if (!billboards.empty())
+      {
+        ctx.BindGraphicsPipeline(billboardsPipeline.GetPipeline());
+        ctx.SetPushConstants(BillboardPushConstants{
+          .billboardsIndex     = billboardInstanceBuffer->GetDeviceBuffer().GetResourceHandle().index,
+          .globalUniformsIndex = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
+          .cameraRight         = {view_from_world[0][0], view_from_world[1][0], view_from_world[2][0]},
+          .cameraUp            = {view_from_world[0][1], view_from_world[1][1], view_from_world[2][1]},
+        });
+        ctx.Draw(uint32_t(billboards.size() * 6), 1, 0, 0);
       }
     }
     ctx.EndRendering();

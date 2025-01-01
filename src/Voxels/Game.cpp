@@ -692,7 +692,7 @@ void World::FixedUpdate(float dt)
         auto e = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 5.0f, {1, 0, 0, 0}, 0.4f);
         registry_.emplace<Mesh>(e).name = "frog";
         registry_.emplace<Name>(e, "Fall ball");
-        registry_.emplace<Health>(e).hp = 100;
+        registry_.emplace<Health>(e) = {100, 100};
         //registry_.emplace<SimpleEnemyBehavior>(e);
         registry_.emplace<PathfindingEnemyBehavior>(e);
         registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
@@ -1035,7 +1035,7 @@ void World::InitializeGameState()
   registry_.emplace<InputState>(p);
   registry_.emplace<InputLookState>(p);
   registry_.emplace<Hierarchy>(p);
-  registry_.emplace<Health>(p).hp = 100;
+  registry_.emplace<Health>(p) = {100, 100};
   registry_.emplace<TeamFlags>(p, TeamFlagBits::FRIENDLY);
 
   auto& tp = registry_.emplace<LocalTransform>(p);
@@ -1339,7 +1339,7 @@ void World::RespawnPlayer(entt::entity playerEntity)
   tp.scale    = 1;
   UpdateLocalTransform({registry_, playerEntity});
 
-  registry_.get_or_emplace<Health>(playerEntity).hp = 100;
+  registry_.get_or_emplace<Health>(playerEntity) = {100, 100};
   registry_.get_or_emplace<Invulnerability>(playerEntity).remainingSeconds = 5;
 
   GivePlayerCharacterController(playerEntity);

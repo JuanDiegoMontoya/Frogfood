@@ -606,6 +606,7 @@ struct PreviousGlobalTransform
 struct Health
 {
   float hp;
+  float maxHp = -1;
 };
 
 struct RenderTransform

@@ -124,6 +124,10 @@ public:
   // Returns the amount of damage actually applied.
   float DamageEntity(entt::entity entity, float damage);
 
+  [[nodiscard]] bool CanEntityDamageEntity(entt::entity entitySource, entt::entity entityTarget);
+
+  [[nodiscard]] bool AreEntitiesEnemies(entt::entity entity1, entt::entity entity2);
+
 private:
   uint64_t ticks_ = 0;
   entt::registry registry_;
@@ -557,6 +561,12 @@ struct GhostPlayer
 struct Invulnerability
 {
   float remainingSeconds{};
+};
+
+// Map of entities that cannot be damaged by this one to remaining time.
+struct CannotDamageEntities
+{
+  std::unordered_map<entt::entity, float> entities;
 };
 
 struct DeferredDelete {};

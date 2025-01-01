@@ -225,7 +225,9 @@ namespace Physics
     s->bodyInterface->SetUserData(bodyId, static_cast<JPH::uint64>(handle.entity()));
     
     handle.emplace_or_replace<Shape>().shape = settings.shape;
-    return handle.emplace_or_replace<RigidBody>(bodyId);
+    auto& rb                                 = handle.emplace_or_replace<RigidBody>(bodyId);
+    handle.emplace_or_replace<RigidBodySettings>(settings);
+    return rb;
   }
 
   CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings)
@@ -330,6 +332,7 @@ namespace Physics
   {
     world.GetRegistry().on_destroy<RigidBody>().connect<&OnRigidBodyDestroy>();
     world.GetRegistry().on_destroy<RigidBody>().connect<&entt::registry::remove<Shape>>();
+    world.GetRegistry().on_destroy<RigidBody>().connect<&entt::registry::remove<RigidBodySettings>>();
     world.GetRegistry().on_destroy<CharacterController>().connect<&OnCharacterControllerDestroy>();
     world.GetRegistry().on_destroy<CharacterController>().connect<&entt::registry::remove<Shape>>();
     world.GetRegistry().on_destroy<CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleDestroy>();
@@ -425,9 +428,9 @@ namespace Physics
     }
 
     // Update positions of sensors
-    for (auto&& [entity, transform, rigidBody] : world.GetRegistry().view<GlobalTransform, RigidBody>().each())
+    for (auto&& [entity, transform, rigidBody, rigidBodySettings] : world.GetRegistry().view<GlobalTransform, RigidBody, RigidBodySettings>().each())
     {
-      if (s->bodyInterface->GetObjectLayer(rigidBody.body) == Layers::CHARACTER_SENSOR)
+      if (rigidBodySettings.motionType == JPH::EMotionType::Kinematic)
       {
         s->bodyInterface->SetPositionAndRotation(rigidBody.body, ToJolt(transform.position), ToJolt(transform.rotation).Normalized(), JPH::EActivation::Activate);
       }
@@ -504,9 +507,9 @@ namespace Physics
     }
 
     // Update transform of each entity with a RigidBody component
-    for (auto&& [entity, rigidBody, transform] : world.GetRegistry().view<RigidBody, LocalTransform>().each())
+    for (auto&& [entity, rigidBody, rigidBodySettings, transform] : world.GetRegistry().view<RigidBody, RigidBodySettings, LocalTransform>().each())
     {
-      if (s->bodyInterface->GetObjectLayer(rigidBody.body) != Layers::CHARACTER_SENSOR)
+      if (rigidBodySettings.motionType == JPH::EMotionType::Dynamic)
       {
         transform.position = ToGlm(s->bodyInterface->GetPosition(rigidBody.body));
         transform.rotation = ToGlm(s->bodyInterface->GetRotation(rigidBody.body));

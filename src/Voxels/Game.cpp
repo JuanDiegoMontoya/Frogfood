@@ -86,9 +86,7 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
     {
       if (world.GetRegistry().any_of<Health>(entity1) && world.GetRegistry().all_of<Projectile, ContactDamage>(entity2))
       {
-        auto* team1 = world.GetRegistry().try_get<TeamFlags>(entity1);
-        auto* team2 = world.GetRegistry().try_get<TeamFlags>(entity2);
-        if (!team1 || !team2 || !(*team1 & *team2))
+        if (world.AreEntitiesEnemies(entity1, entity2))
         {
           if (auto* h = world.GetRegistry().try_get<Health>(entity1); h && h->hp > 0)
           {
@@ -103,7 +101,7 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
             world.DamageEntity(entity1, damage.damage * energyFraction);
             auto pushDir = projectile.velocity;
             pushDir.y    = 0;
-            if (glm::length(pushDir) > 1e-3)
+            if (glm::length(pushDir) > 1e-3f)
             {
               pushDir = glm::normalize(pushDir);
             }
@@ -188,9 +186,7 @@ static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppai
     {
       if (world.GetRegistry().all_of<Player, Health>(entity1) && world.GetRegistry().all_of<ContactDamage>(entity2))
       {
-        auto* team1 = world.GetRegistry().try_get<TeamFlags>(entity1);
-        auto* team2 = world.GetRegistry().try_get<TeamFlags>(entity2);
-        if (!team1 || !team2 || !(*team1 & *team2))
+        if (world.AreEntitiesEnemies(entity1, entity2))
         {
           const auto& contactDamage = world.GetRegistry().get<ContactDamage>(entity2);
 
@@ -198,6 +194,37 @@ static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppai
           {
             world.GetRegistry().emplace<Invulnerability>(entity1).remainingSeconds = 0.5f;
           }
+        }
+        return true;
+      }
+      return false;
+    });
+
+  // Other sources of contact damage hurt creatures
+  TryTwice(pair,
+    [&](entt::entity entity1, entt::entity entity2)
+    {
+      if (world.GetRegistry().any_of<Health>(entity1) && world.GetRegistry().all_of<ContactDamage>(entity2) &&
+          !world.GetRegistry().any_of<Projectile>(entity2) && !world.GetRegistry().any_of<Player>(entity1))
+      {
+        if (world.AreEntitiesEnemies(entity1, entity2) && world.CanEntityDamageEntity(entity2, entity1))
+        {
+          auto pos1          = world.GetRegistry().get<GlobalTransform>(entity1).position;
+          auto pos2          = world.GetRegistry().get<GlobalTransform>(entity2).position;
+          const auto& damage = world.GetRegistry().get<ContactDamage>(entity2);
+          world.DamageEntity(entity1, damage.damage);
+          auto pushDir = pos1 - pos2;
+          pushDir.y    = 0;
+          if (glm::length(pushDir) > 1e-3f)
+          {
+            pushDir = glm::normalize(pushDir);
+          }
+          pushDir *= damage.knockback * 3;
+          pushDir.y               = damage.knockback;
+          const auto prevVelocity = world.GetLinearVelocity(entity1);
+          pushDir.y /= exp2(glm::max(0.0f, prevVelocity.y * 1.0f)); // Reduce velocity gain (prevent stuff from flying super high- subject to change).
+          world.SetLinearVelocity(entity1, prevVelocity + pushDir);
+          world.GetRegistry().get_or_emplace<CannotDamageEntities>(entity2).entities[entity1] = 0.2f;
         }
         return true;
       }
@@ -650,7 +677,7 @@ void World::FixedUpdate(float dt)
     }
 
     // Player interaction
-    for (auto&& [entity, player, transform, input, inventory] : registry_.view<Player, GlobalTransform, InputState, Inventory>().each())
+    for (auto&& [entity, player, transform, input, inventory] : registry_.view<Player, GlobalTransform, InputState, Inventory>(entt::exclude<GhostPlayer>).each())
     {
       if (input.interact)
       {
@@ -762,6 +789,23 @@ void World::FixedUpdate(float dt)
       if (invulnerability.remainingSeconds <= 0)
       {
         registry_.remove<Invulnerability>(entity);
+      }
+    }
+
+    for (auto&& [entity, cannotDamage] : registry_.view<CannotDamageEntities>().each())
+    {
+      for (auto it = cannotDamage.entities.begin(); it != cannotDamage.entities.end();)
+      {
+        auto& [e, time] = *it;
+        time -= dt;
+        if (time <= 0)
+        {
+          cannotDamage.entities.erase(it++);
+        }
+        else
+        {
+          ++it;
+        }
       }
     }
 
@@ -1320,6 +1364,30 @@ float World::DamageEntity(entt::entity entity, float damage)
   auto& h = registry_.get<Health>(entity);
   h.hp -= damage;
   return damage;
+}
+
+bool World::CanEntityDamageEntity(entt::entity entitySource, entt::entity entityTarget)
+{
+  if (const auto* cd = registry_.try_get<CannotDamageEntities>(entitySource))
+  {
+    if (cd->entities.contains(entityTarget))
+    {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool World::AreEntitiesEnemies(entt::entity entity1, entt::entity entity2)
+{
+  auto* team1 = GetTeamFlags(entity1);
+  auto* team2 = GetTeamFlags(entity2);
+  if (!team1 || !team2 || !(*team1 & *team2))
+  {
+    return true;
+  }
+  return false;
 }
 
 glm::vec3 GetFootPosition(entt::handle handle)
@@ -1954,6 +2022,20 @@ void Spear::UsePrimary([[maybe_unused]] float dt, World& world, entt::entity sel
   auto& path = world.GetRegistry().emplace<LinearPath>(self);
   path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .offsetSeconds = 0.15f});
   path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = 0.15f});
+
+  auto& reg    = world.GetRegistry();
+  auto child   = reg.create();
+  reg.emplace<Name>(child).name = "Hurtbox";
+  reg.emplace<LocalTransform>(child) = {{0, 0, -1}, glm::identity<glm::quat>(), 1};
+  reg.emplace<GlobalTransform>(child) = {{0, 0, -1}, glm::identity<glm::quat>(), 1};
+  reg.emplace<Lifetime>(child).remainingSeconds = GetUseDt();
+  reg.emplace<Hierarchy>(child);
+  reg.emplace<ContactDamage>(child) = {20, 5};
+  SetParent({reg, child}, self);
+
+  auto sphere = JPH::Ref(new JPH::SphereShape(0.125));
+
+  Physics::AddRigidBody({world.GetRegistry(), child}, {.shape = sphere, .isSensor = true, .motionType = JPH::EMotionType::Kinematic, .layer = Physics::Layers::PROJECTILE});
 }
 
 entt::entity Spear::Materialize(World& world) const

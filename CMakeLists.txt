@@ -97,6 +97,7 @@ add_executable(frogRender
     src/HashUtilities.h
     src/techniques/denoising/spatial/Bilateral.h
     src/techniques/denoising/spatial/Bilateral.cpp
+    src/Voxels/HashGrid.h
 )
 
 target_compile_options(frogRender

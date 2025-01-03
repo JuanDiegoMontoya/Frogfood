@@ -1012,5 +1012,31 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       ImGui::SliderScalar("Tick Rate", ImGuiDataType_U32, &world.GetRegistry().ctx().get<TickRate>().hz, &min, &max, "%u", ImGuiSliderFlags_AlwaysClamp);
     }
     ImGui::End();
+
+    if (ImGui::Begin("TEST PROBULUS"))
+    {
+      static glm::vec3 probePos = {0, 60, 0};
+      static float probeRadius  = 2;
+
+#ifdef JPH_DEBUG_RENDERER
+      JPH::DebugRenderer::sInstance->DrawWireSphere(Physics::ToJolt(probePos), probeRadius, JPH::Color::sGreen);
+#endif
+
+      ImGui::DragFloat3("Probe pos", &probePos[0], 0.25f);
+      ImGui::DragFloat("Probe radius", &probeRadius, 0.125f, 0, 1000);
+      ImGui::Separator();
+      auto entities = world.GetEntitiesInSphere(probePos, probeRadius);
+      ImGui::Text("Covered: %llu", entities.size());
+      for (auto entity : entities)
+      {
+        auto name = std::string();
+        if (const auto* n = world.GetRegistry().try_get<Name>(entity))
+        {
+          name = n->name;
+        }
+        ImGui::Text("%u (%s)", entt::to_entity(entity), name.c_str());
+      }
+    }
+    ImGui::End();
   }
 }

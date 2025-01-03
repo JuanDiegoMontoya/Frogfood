@@ -10,6 +10,7 @@
 #include "TwoLevelGrid.h"
 #include "Pathfinding.h"
 #include "MathUtilities.h"
+#include "HashGrid.h"
 
 #include "entt/entity/handle.hpp"
 
@@ -27,9 +28,12 @@
 #include <chrono>
 #include <stack>
 
+#define GAME_CATCH_EXCEPTIONS 0
+
 // We don't want this to happen when the component/entity is actually deleted, as we care about having a valid parent.
 static void OnDeferredDeleteConstruct(entt::registry& registry, entt::entity entity)
 {
+  ZoneScoped;
   assert(registry.valid(entity));
   auto& h = registry.get<Hierarchy>(entity);
   if (h.parent != entt::null)
@@ -55,6 +59,7 @@ void TryTwice(const P& pair, F&& function)
 // *ppair is modified to contain the actual entities that collided
 static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
 {
+  ZoneScoped;
   assert(ppair);
   auto& pair = *ppair;
 
@@ -155,6 +160,7 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
 
 static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppair)
 {
+  ZoneScoped;
   assert(ppair);
   auto& pair = *ppair;
 
@@ -250,6 +256,11 @@ void OnCharacterControllerShrimpleConstruct(entt::registry& registry, entt::enti
   registry.remove<Physics::CharacterController>(entity);
 }
 
+void OnGlobalTransformRemove(entt::registry& registry, entt::entity entity)
+{
+  registry.ctx().get<HashGrid>().erase(entity);
+}
+
 Game::Game(uint32_t tickHz)
 {
   world_ = std::make_unique<World>();
@@ -277,11 +288,13 @@ Game::Game(uint32_t tickHz)
   world_->GetRegistry().ctx().emplace<TickRate>().hz = tickHz;
   world_->GetRegistry().ctx().emplace_as<float>("time"_hs) = 0; // TODO: TEMP
   world_->GetRegistry().ctx().emplace<Pathfinding::PathCache>(); // Note: should be invalidated when voxel grid changes
+  world_->GetRegistry().ctx().emplace<HashGrid>(16);
 
   world_->GetRegistry().on_construct<DeferredDelete>().connect<&OnDeferredDeleteConstruct>();
   world_->GetRegistry().on_construct<NoclipCharacterController>().connect<&OnNoclipCharacterControllerConstruct>();
   world_->GetRegistry().on_construct<Physics::CharacterController>().connect<&OnCharacterControllerConstruct>();
   world_->GetRegistry().on_construct<Physics::CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleConstruct>();
+  world_->GetRegistry().on_destroy<GlobalTransform>().connect<&OnGlobalTransformRemove>();
 }
 
 Game::~Game()
@@ -298,7 +311,9 @@ void Game::Run()
 
   while (isRunning_)
   {
+#if GAME_CATCH_EXCEPTIONS
     try
+#endif
     {
       const auto timeScale      = world_->GetRegistry().ctx().get<TimeScale>().scale;
       const auto tickHz         = world_->GetRegistry().ctx().get<TickRate>().hz;
@@ -341,11 +356,13 @@ void Game::Run()
         isRunning_ = false;
       }
     }
+#if GAME_CATCH_EXCEPTIONS
     catch(std::exception& e)
     {
       fprintf(stderr, "Exception caught: %s\n", e.what());
       throw;
     }
+#endif
   }
 }
 
@@ -1224,7 +1241,7 @@ void World::AddLinearVelocity(entt::entity entity, glm::vec3 velocity)
   }
 }
 
-glm::vec3 World::GetLinearVelocity(entt::entity entity)
+glm::vec3 World::GetLinearVelocity(entt::entity entity) const
 {
   assert(registry_.get<Hierarchy>(entity).parent == entt::null);
 
@@ -1244,7 +1261,7 @@ glm::vec3 World::GetLinearVelocity(entt::entity entity)
   return {};
 }
 
-entt::entity World::GetChildNamed(entt::entity entity, std::string_view name)
+entt::entity World::GetChildNamed(entt::entity entity, std::string_view name) const
 {
   for (auto child : registry_.get<Hierarchy>(entity).children)
   {
@@ -1256,7 +1273,7 @@ entt::entity World::GetChildNamed(entt::entity entity, std::string_view name)
   return entt::null;
 }
 
-TeamFlags* World::GetTeamFlags(entt::entity entity)
+const TeamFlags* World::GetTeamFlags(entt::entity entity) const
 {
   assert(registry_.valid(entity));
   if (auto* teamFlags = registry_.try_get<TeamFlags>(entity))
@@ -1366,7 +1383,7 @@ float World::DamageEntity(entt::entity entity, float damage)
   return damage;
 }
 
-bool World::CanEntityDamageEntity(entt::entity entitySource, entt::entity entityTarget)
+bool World::CanEntityDamageEntity(entt::entity entitySource, entt::entity entityTarget) const
 {
   if (const auto* cd = registry_.try_get<CannotDamageEntities>(entitySource))
   {
@@ -1379,7 +1396,7 @@ bool World::CanEntityDamageEntity(entt::entity entitySource, entt::entity entity
   return true;
 }
 
-bool World::AreEntitiesEnemies(entt::entity entity1, entt::entity entity2)
+bool World::AreEntitiesEnemies(entt::entity entity1, entt::entity entity2) const
 {
   auto* team1 = GetTeamFlags(entity1);
   auto* team2 = GetTeamFlags(entity2);
@@ -1388,6 +1405,45 @@ bool World::AreEntitiesEnemies(entt::entity entity1, entt::entity entity2)
     return true;
   }
   return false;
+}
+
+std::vector<entt::entity> World::GetEntitiesInSphere(glm::vec3 center, float radius) const
+{
+  ZoneScoped;
+  const float radius2 = radius * radius;
+  const auto& grid = registry_.ctx().get<HashGrid>();
+
+  auto entities = std::vector<entt::entity>();
+
+  auto lower = grid.QuantizeKey(center - radius);
+  auto upper = grid.QuantizeKey(center + radius);
+
+  // Broadphase: iterate over all chunks touched by sphere.
+  for (int z = lower.z; z <= upper.z; z++)
+  {
+    for (int y = lower.y; y <= upper.y; y++)
+    {
+      for (int x = lower.x; x <= upper.x; x++)
+      {
+        const auto [begin, end] = grid.equal_range_chunk({x, y, z});
+        for (auto it = begin; it != end; ++it)
+        {
+          // Narrowphase: distance check.
+          const auto entity = it->second;
+          const auto& position = registry_.get<GlobalTransform>(entity).position;
+
+          const auto vec = position - center;
+          const auto distance2 = glm::dot(vec, vec);
+          if (distance2 <= radius2)
+          {
+            entities.emplace_back(entity);
+          }
+        }
+      }
+    }
+  }
+
+  return entities;
 }
 
 glm::vec3 GetFootPosition(entt::handle handle)
@@ -1446,6 +1502,8 @@ static void RefreshGlobalTransform(entt::handle handle)
     }
   }
 
+  handle.registry()->ctx().get<HashGrid>().set(gt.position, handle.entity());
+
   for (auto child : h.children)
   {
     RefreshGlobalTransform({*handle.registry(), child});
@@ -1454,6 +1512,7 @@ static void RefreshGlobalTransform(entt::handle handle)
 
 void UpdateLocalTransform(entt::handle handle)
 {
+  ZoneScoped;
   assert(handle.valid());
   RefreshGlobalTransform(handle);
 }

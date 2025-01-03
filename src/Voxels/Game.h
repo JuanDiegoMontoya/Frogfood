@@ -104,11 +104,11 @@ public:
   void SetLocalScale(entt::entity entity, float scale);
   void SetLinearVelocity(entt::entity entity, glm::vec3 velocity);
   void AddLinearVelocity(entt::entity entity, glm::vec3 velocity);
-  [[nodiscard]] glm::vec3 GetLinearVelocity(entt::entity entity);
-  [[nodiscard]] entt::entity GetChildNamed(entt::entity entity, std::string_view name);
+  [[nodiscard]] glm::vec3 GetLinearVelocity(entt::entity entity) const;
+  [[nodiscard]] entt::entity GetChildNamed(entt::entity entity, std::string_view name) const;
 
   // Travels up hierarchy, searching for TeamFlags component.
-  [[nodiscard]] TeamFlags* GetTeamFlags(entt::entity entity);
+  [[nodiscard]] const TeamFlags* GetTeamFlags(entt::entity entity) const;
 
   Physics::CharacterController& GivePlayerCharacterController(entt::entity playerEntity);
 
@@ -124,9 +124,11 @@ public:
   // Returns the amount of damage actually applied.
   float DamageEntity(entt::entity entity, float damage);
 
-  [[nodiscard]] bool CanEntityDamageEntity(entt::entity entitySource, entt::entity entityTarget);
+  [[nodiscard]] bool CanEntityDamageEntity(entt::entity entitySource, entt::entity entityTarget) const;
 
-  [[nodiscard]] bool AreEntitiesEnemies(entt::entity entity1, entt::entity entity2);
+  [[nodiscard]] bool AreEntitiesEnemies(entt::entity entity1, entt::entity entity2) const;
+
+  [[nodiscard]] std::vector<entt::entity> GetEntitiesInSphere(glm::vec3 center, float radius) const;
 
 private:
   uint64_t ticks_ = 0;

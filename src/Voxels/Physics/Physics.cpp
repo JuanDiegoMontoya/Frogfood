@@ -42,6 +42,7 @@
 #include <shared_mutex>
 #include <mutex>
 #include <vector>
+#include <unordered_map>
 
 namespace Physics
 {
@@ -155,6 +156,8 @@ namespace Physics
       JPH::BodyInterface* bodyInterface{};
       std::shared_mutex contactListenerMutex;
 
+      std::unordered_map<JPH::Ref<JPH::Constraint>, std::pair<JPH::BodyID, JPH::BodyID>> constraintToBodyPair;
+      std::unordered_multimap<JPH::BodyID, JPH::Constraint*> bodyToConstraints;
       std::vector<JPH::CharacterVirtual*> allCharacters;
       std::vector<JPH::Character*> allCharactersShrimple;
       std::vector<ContactAddedPair> contactAddedPairs;
@@ -285,9 +288,51 @@ namespace Physics
     return handle.emplace_or_replace<CharacterControllerShrimple>(character);
   }
 
+  void RegisterConstraint(JPH::Ref<JPH::Constraint> constraint, JPH::BodyID body1, JPH::BodyID body2)
+  {
+    s->engine->AddConstraint(constraint);
+    s->constraintToBodyPair.emplace(constraint, std::make_pair(body1, body2));
+    s->bodyToConstraints.emplace(body1, constraint.GetPtr());
+    s->bodyToConstraints.emplace(body2, constraint.GetPtr());
+  }
+
+  static void RemoveConstraintsFromBody(JPH::BodyID body)
+  {
+    auto constraintsToRemoveFromOtherBodies = std::vector<std::pair<JPH::BodyID, JPH::Constraint*>>();
+
+    // Erase all the constraints attached to this body.
+    auto [begin, end] = s->bodyToConstraints.equal_range(body);
+    for (auto it = begin; it != end; ++it)
+    {
+      auto [_, constraint] = *it;
+      s->engine->RemoveConstraint(constraint);
+      auto bodyPairIt = s->constraintToBodyPair.find(constraint);
+      auto bodyPair   = bodyPairIt->second;
+      constraintsToRemoveFromOtherBodies.emplace_back(body == bodyPair.first ? bodyPair.second : bodyPair.first, constraint);
+      s->constraintToBodyPair.erase(bodyPairIt);
+    }
+
+    s->bodyToConstraints.erase(body);
+
+    // Unmap the constraints from other bodies.
+    for (auto [body2, constraint] : constraintsToRemoveFromOtherBodies)
+    {
+      auto [begin2, end2] = s->bodyToConstraints.equal_range(body2);
+      for (auto it = begin2; it != end2; ++it)
+      {
+        if (it->second == constraint)
+        {
+          s->bodyToConstraints.erase(it);
+          break;
+        }
+      }
+    }
+  }
+
   static void OnRigidBodyDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& p = registry.get<RigidBody>(entity);
+    RemoveConstraintsFromBody(p.body);
     s->bodyInterface->RemoveBody(p.body);
     s->bodyInterface->DestroyBody(p.body);
   }
@@ -295,6 +340,10 @@ namespace Physics
   static void OnCharacterControllerDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& c = registry.get<CharacterController>(entity);
+    if (!c.character->GetInnerBodyID().IsInvalid())
+    {
+      RemoveConstraintsFromBody(c.character->GetInnerBodyID());
+    }
     s->characterCollisionInterface->Remove(c.character);
     std::erase(s->allCharacters, c.character);
     delete c.character;
@@ -303,6 +352,7 @@ namespace Physics
   static void OnCharacterControllerShrimpleDestroy(entt::registry& registry, entt::entity entity)
   {
     auto& c = registry.get<CharacterControllerShrimple>(entity);
+    RemoveConstraintsFromBody(c.character->GetBodyID());
     c.character->RemoveFromPhysicsSystem();
     std::erase(s->allCharactersShrimple, c.character);
     delete c.character;
@@ -346,7 +396,7 @@ namespace Physics
     JPH::RegisterTypes();
     TwoLevelGridShape::sRegister();
 
-    s->tempAllocator = std::make_unique<JPH::TempAllocatorImpl>(10 * 1024 * 1024);
+    s->tempAllocator = std::make_unique<JPH::TempAllocatorImpl>(50 * 1024 * 1024);
     s->jobSystem     = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, std::thread::hardware_concurrency() - 1);
 
 #ifdef JPH_DEBUG_RENDERER
@@ -358,10 +408,10 @@ namespace Physics
     s->objectVsObjectLayerFilter     = std::make_unique<ObjectLayerPairFilterImpl>();
     s->engine                        = std::make_unique<JPH::PhysicsSystem>();
 
-    constexpr JPH::uint cMaxBodies             = 5000;
+    constexpr JPH::uint cMaxBodies             = 50'000;
     constexpr JPH::uint cNumBodyMutexes        = 0;
-    constexpr JPH::uint cMaxBodyPairs          = 5000;
-    constexpr JPH::uint cMaxContactConstraints = 5000;
+    constexpr JPH::uint cMaxBodyPairs          = 50'000;
+    constexpr JPH::uint cMaxContactConstraints = 50'000;
     
     s->engine->Init(cMaxBodies,
       cNumBodyMutexes,
@@ -395,9 +445,11 @@ namespace Physics
       cc.previousGroundState = cc.character->GetGroundState();
     }
 
-    for (auto&& [entity, cc] : world.GetRegistry().view<CharacterControllerShrimple>().each())
+    for (auto&& [entity, cc, transform] : world.GetRegistry().view<CharacterControllerShrimple, GlobalTransform>().each())
     {
       cc.previousGroundState = cc.character->GetGroundState();
+
+      s->bodyInterface->SetRotation(cc.character->GetBodyID(), ToJolt(transform.rotation), JPH::EActivation::Activate);
     }
 
     for (auto& character : s->allCharacters)

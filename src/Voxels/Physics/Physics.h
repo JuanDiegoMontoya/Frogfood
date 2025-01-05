@@ -10,6 +10,7 @@
 #include "Jolt/Physics/Collision/ShapeCast.h"
 #include "Jolt/Physics/Collision/CastResult.h"
 #include "Jolt/Physics/Collision/CollisionCollector.h"
+#include "Jolt/Physics/Constraints/Constraint.h"
 
 #include "entt/fwd.hpp"
 
@@ -82,6 +83,7 @@ namespace Physics
   RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings& settings);
   CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings);
   CharacterControllerShrimple& AddCharacterControllerShrimple(entt::handle handle, const CharacterControllerShrimpleSettings& settings);
+  void RegisterConstraint(JPH::Ref<JPH::Constraint> constraint, JPH::BodyID body1, JPH::BodyID body2);
 
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery();
   JPH::BodyInterface& GetBodyInterface();

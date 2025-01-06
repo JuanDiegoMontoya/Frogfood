@@ -905,6 +905,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::Text("Rotation: %f, %f, %f, %f", tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z);
             ImGui::Text("Scale: %f", tr.scale);
           }
+          if (auto* v = registry.try_get<LinearVelocity>(e))
+          {
+            ImGui::SeparatorText("LinearVelocity");
+            ImGui::DragFloat3("##LinearVelocity", &v->v[0], 0.125f);
+          }
           if (auto* p = registry.try_get<Player>(e))
           {
             ImGui::SeparatorText("Player");
@@ -921,6 +926,19 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
               registry.emplace<NoclipCharacterController>(e);
             }
           }
+          auto* flyingCharacterController   = registry.try_get<FlyingCharacterController>(e);
+          bool hasFlyingCharacterController     = flyingCharacterController;
+          if (ImGui::Checkbox("FlyingCharacterController", &hasFlyingCharacterController))
+          {
+            if (!hasFlyingCharacterController)
+            {
+              registry.remove<Physics::CharacterController>(e);
+            }
+            else
+            {
+              world.GivePlayerFlyingCharacterController(e);
+            }
+          }
           auto* characterController = registry.try_get<Physics::CharacterController>(e);
           bool hasCharacterController = characterController;
           if (ImGui::Checkbox("CharacterController", &hasCharacterController))
@@ -934,6 +952,19 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
               world.GivePlayerCharacterController(e);
             }
           }
+          //auto* characterControllerShrimple   = registry.try_get<Physics::CharacterControllerShrimple>(e);
+          //bool hasCharacterControllerShrimple = characterControllerShrimple;
+          //if (ImGui::Checkbox("CharacterControllerShrimple", &hasCharacterControllerShrimple))
+          //{
+          //  if (!hasCharacterControllerShrimple)
+          //  {
+          //    registry.remove<Physics::CharacterControllerShrimple>(e);
+          //  }
+          //  else
+          //  {
+          //    world.GivePlayerCharacterControllerShrimple(e);
+          //  }
+          //}
           if (auto* is = registry.try_get<InputState>(e))
           {
             ImGui::SeparatorText("InputState");

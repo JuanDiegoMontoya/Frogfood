@@ -99,15 +99,15 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
           {
             const auto& projectile = world.GetRegistry().get<Projectile>(entity2);
             const auto& damage     = world.GetRegistry().get<ContactDamage>(entity2);
-            auto& velocity         = world.GetRegistry().get<LinearVelocity>(entity2);
+            auto& projVelocity     = world.GetRegistry().get<LinearVelocity>(entity2);
 
             //const auto currentSpeed2  = glm::dot(projectile.velocity, projectile.velocity);
             //const auto energyFraction = (currentSpeed2) / (projectile.initialSpeed * projectile.initialSpeed);
-            const auto energyFraction = glm::length(velocity.v) / projectile.initialSpeed;
+            const auto energyFraction = glm::length(projVelocity.v) / projectile.initialSpeed;
 
             const auto effectiveKnockback = damage.knockback * energyFraction;
             world.DamageEntity(entity1, damage.damage * energyFraction);
-            auto pushDir = velocity.v;
+            auto pushDir = projVelocity.v;
             pushDir.y    = 0;
             if (glm::length(pushDir) > 1e-3f)
             {
@@ -116,13 +116,13 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
             pushDir *= effectiveKnockback * 3;
             pushDir.y = effectiveKnockback;
             //world.SetLinearVelocity(entity1, pushDir);
-            const auto prevVelocity = world.GetLinearVelocity(entity1);
-            pushDir.y /= exp2(glm::max(0.0f, prevVelocity.y * 1.0f)); // Reduce velocity gain (prevent stuff from flying super high- subject to change).
+            auto& velocity = world.GetRegistry().get<LinearVelocity>(entity1);
+            pushDir.y /= exp2(glm::max(0.0f, velocity.v.y * 1.0f)); // Reduce velocity gain (prevent stuff from flying super high- subject to change).
             if (auto* m = world.GetRegistry().try_get<KnockbackMultiplier>(entity1))
             {
               pushDir *= m->factor;
             }
-            world.SetLinearVelocity(entity1, prevVelocity + pushDir);
+            velocity.v += pushDir;
             world.GetRegistry().emplace_or_replace<DeferredDelete>(entity2);
             world.GetRegistry().remove<Projectile>(entity2);
           }
@@ -234,13 +234,13 @@ static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppai
           }
           pushDir *= damage.knockback * 3;
           pushDir.y               = damage.knockback;
-          const auto prevVelocity = world.GetLinearVelocity(entity1);
-          pushDir.y /= exp2(glm::max(0.0f, prevVelocity.y * 1.0f)); // Reduce velocity gain (prevent stuff from flying super high- subject to change).
+          auto& velocity = world.GetRegistry().get<LinearVelocity>(entity1);
+          pushDir.y /= exp2(glm::max(0.0f, velocity.v.y * 1.0f)); // Reduce velocity gain (prevent stuff from flying super high- subject to change).
           if (auto* m = world.GetRegistry().try_get<KnockbackMultiplier>(entity1))
           {
             pushDir *= m->factor;
           }
-          world.SetLinearVelocity(entity1, prevVelocity + pushDir);
+          velocity.v += pushDir;
           world.GetRegistry().get_or_emplace<CannotDamageEntities>(entity2).entities[entity1] = 0.2f;
         }
         return true;
@@ -251,6 +251,14 @@ static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppai
 
 void OnNoclipCharacterControllerConstruct(entt::registry& registry, entt::entity entity)
 {
+  registry.remove<FlyingCharacterController>(entity);
+  registry.remove<Physics::CharacterController>(entity);
+  registry.remove<Physics::CharacterControllerShrimple>(entity);
+}
+
+void OnFlyingCharacterControllerConstruct(entt::registry& registry, entt::entity entity)
+{
+  registry.remove<NoclipCharacterController>(entity);
   registry.remove<Physics::CharacterController>(entity);
   registry.remove<Physics::CharacterControllerShrimple>(entity);
 }
@@ -258,12 +266,14 @@ void OnNoclipCharacterControllerConstruct(entt::registry& registry, entt::entity
 void OnCharacterControllerConstruct(entt::registry& registry, entt::entity entity)
 {
   registry.remove<NoclipCharacterController>(entity);
+  registry.remove<FlyingCharacterController>(entity);
   registry.remove<Physics::CharacterControllerShrimple>(entity);
 }
 
 void OnCharacterControllerShrimpleConstruct(entt::registry& registry, entt::entity entity)
 {
   registry.remove<NoclipCharacterController>(entity);
+  registry.remove<FlyingCharacterController>(entity);
   registry.remove<Physics::CharacterController>(entity);
 }
 
@@ -303,6 +313,7 @@ Game::Game(uint32_t tickHz)
 
   world_->GetRegistry().on_construct<DeferredDelete>().connect<&OnDeferredDeleteConstruct>();
   world_->GetRegistry().on_construct<NoclipCharacterController>().connect<&OnNoclipCharacterControllerConstruct>();
+  world_->GetRegistry().on_construct<FlyingCharacterController>().connect<&OnFlyingCharacterControllerConstruct>();
   world_->GetRegistry().on_construct<Physics::CharacterController>().connect<&OnCharacterControllerConstruct>();
   world_->GetRegistry().on_construct<Physics::CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleConstruct>();
   world_->GetRegistry().on_destroy<GlobalTransform>().connect<&OnGlobalTransformRemove>();
@@ -622,30 +633,29 @@ void World::FixedUpdate(float dt)
         transform.position += input.strafe * right * tempCameraSpeed;
         transform.position.y += input.elevate * tempCameraSpeed;
         UpdateLocalTransform({registry_, entity});
-        SetLocalPosition(entity, transform.position);
       }
 
       if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
       {
+        auto& velocity       = registry_.get<LinearVelocity>(entity).v;
         const auto right     = GetRight(transform.rotation);
         const auto forward   = GetForward(transform.rotation);
         const auto dv = fc->acceleration * dt;
 
-        fc->velocity += input.forward * forward * dv;
-        fc->velocity += input.strafe * right * dv;
-        fc->velocity += input.elevate * glm::vec3(0, 1, 0) * dv;
+        velocity += input.forward * forward * dv;
+        velocity += input.strafe * right * dv;
+        velocity += input.elevate * glm::vec3(0, 1, 0) * dv;
 
-        fc->velocity -= fc->friction * fc->velocity * dt;
+        velocity -= fc->friction * velocity * dt;
 
-        if (glm::length(fc->velocity) > fc->maxSpeed)
+        if (glm::length(velocity) > fc->maxSpeed)
         {
-          fc->velocity = glm::normalize(fc->velocity) * fc->maxSpeed;
+          velocity = glm::normalize(velocity) * fc->maxSpeed;
         }
 
-        transform.position += fc->velocity * dt;
+        transform.position += velocity * dt;
 
         UpdateLocalTransform({registry_, entity});
-        SetLocalPosition(entity, transform.position);
       }
 
       if (registry_.any_of<Physics::CharacterController, Physics::CharacterControllerShrimple>(entity))
@@ -665,9 +675,11 @@ void World::FixedUpdate(float dt)
         deltaVelocity += input.forward * forward * tempSpeed;
         deltaVelocity += input.strafe * right * tempSpeed;
 
+
         if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
         {
-          auto prevVelocity = Physics::ToGlm(cc->character->GetLinearVelocity());
+          auto& velocity    = registry_.get<LinearVelocity>(entity).v;
+          auto prevVelocity = velocity;
           if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
           {
             deltaVelocity += input.jump ? gUp * 8.0f : glm::vec3(0);
@@ -675,14 +687,14 @@ void World::FixedUpdate(float dt)
           }
           else // if (cc->character->GetGroundState() == JPH::CharacterBase::EGroundState::InAir)
           {
-            const auto prevY = cc->character->GetLinearVelocity().GetY();
+            const auto prevY = velocity.y;
             //const auto prevY = cc->character->GetPosition().GetY() - cc->previousPosition.y;
             deltaVelocity += glm::vec3{0, prevY - 15 * dt, 0};
             // velocity += glm::vec3{0, -15 * dt, 0};
           }
           
           // cc->character->CheckCollision(cc->character->GetPosition(), cc->character->GetRotation(), Physics::ToJolt(velocity), 1e-4f, )
-          cc->character->SetLinearVelocity(Physics::ToJolt(deltaVelocity));
+          velocity = deltaVelocity;
           // printf("ground state: %d. height = %f. velocity.y = %f\n", (int)cc->character->GetGroundState(), cc->character->GetPosition().GetY(), velocity.y);
           // cc->character->AddLinearVelocity(Physics::ToJolt(velocity ));
           // cc->character->AddImpulse(Physics::ToJolt(velocity));
@@ -690,7 +702,7 @@ void World::FixedUpdate(float dt)
 
         if (auto* cs = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
         {
-          auto velocity                  = Physics::ToGlm(cs->character->GetLinearVelocity());
+          auto velocity                  = registry_.get<LinearVelocity>(entity).v;
           constexpr float groundFriction = 8.0f;
           float friction                 = groundFriction;
           if (cs->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
@@ -732,8 +744,9 @@ void World::FixedUpdate(float dt)
 
           // Y is not affected by speed clamp or friction
           newVelocity.y = velocity.y + deltaVelocity.y;
+
           
-          cs->character->SetLinearVelocity(Physics::ToJolt(newVelocity));
+          registry_.get<LinearVelocity>(entity).v = newVelocity;
         }
       }
     }
@@ -753,7 +766,7 @@ void World::FixedUpdate(float dt)
 
         auto e = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 5.0f, {1, 0, 0, 0}, 0.4f);
         registry_.emplace<Mesh>(e).name = "frog";
-        registry_.emplace<Name>(e, "Fall ball");
+        registry_.emplace<Name>(e, "Frog");
         registry_.emplace<Health>(e) = {100, 100};
         //registry_.emplace<SimpleEnemyBehavior>(e);
         registry_.emplace<PathfindingEnemyBehavior>(e);
@@ -903,10 +916,17 @@ void World::FixedUpdate(float dt)
             const auto& def = itemRegistry.Get(drop.item);
             auto droppedEntity = def.Materialize(*this);
             def.GiveCollider(*this, droppedEntity);
+            registry_.get<LocalTransform>(droppedEntity).position = transform.position;
+            UpdateLocalTransform({registry_, droppedEntity});
             registry_.emplace<DroppedItem>(droppedEntity, DroppedItem{{.id = drop.item, .count = drop.count}});
-            SetLocalPosition(droppedEntity, transform.position);
-            const auto velocity = GetLinearVelocity(entity);
-            SetLinearVelocity(droppedEntity, velocity + Rng().RandFloat(1, 3) * Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, glm::vec3(0, 1, 0), glm::half_pi<float>()));
+            auto velocity = glm::vec3(0);
+            if (auto* v = registry_.try_get<LinearVelocity>(entity))
+            {
+              velocity = v->v;
+            }
+            const auto newEntityVelocity =
+              velocity + Rng().RandFloat(1, 3) * Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, glm::vec3(0, 1, 0), glm::half_pi<float>());
+            registry_.emplace_or_replace<LinearVelocity>(droppedEntity, newEntityVelocity);
           }
         }
 
@@ -1108,8 +1128,9 @@ void World::InitializeGameState()
   registry_.emplace<PreviousGlobalTransform>(p);
   registry_.emplace<RenderTransform>(p);
   //GivePlayerCharacterController(p);
+  GivePlayerFlyingCharacterController(p);
   //registry_.emplace<NoclipCharacterController>(p);
-  registry_.emplace<FlyingCharacterController>(p) = {.velocity = {}, .maxSpeed = 9, .acceleration = 35.0f, .friction = 5.0f};
+  registry_.emplace_or_replace<LinearVelocity>(p);
   //cc.character->SetMaxStrength(10000000);
   auto& inventory = registry_.emplace<Inventory>(p, *this);
   inventory.OverwriteSlot({0, 0}, {gunId}, p);
@@ -1213,96 +1234,11 @@ GlobalTransform* World::TryGetLocalPlayerTransform()
   return nullptr;
 }
 
-void World::SetLocalPosition(entt::entity entity, glm::vec3 position)
-{
-  auto& lt = registry_.get<LocalTransform>(entity);
-  lt.position = position;
-  if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
-  {
-    // Using the local position, which is fine because entities with a rigid body should never have a parent.
-    Physics::GetBodyInterface().SetPosition(rb->body, Physics::ToJolt(position), JPH::EActivation::Activate);
-  }
-  UpdateLocalTransform({registry_, entity});
-}
-
 void World::SetLocalScale(entt::entity entity, float scale)
 {
   auto& lt = registry_.get<LocalTransform>(entity);
   lt.scale = scale;
   UpdateLocalTransform({registry_, entity});
-}
-
-void World::SetLinearVelocity(entt::entity entity, glm::vec3 velocity)
-{
-  assert(registry_.get<Hierarchy>(entity).parent == entt::null);
-
-  if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
-  {
-    Physics::GetBodyInterface().SetLinearVelocity(rb->body, Physics::ToJolt(velocity));
-  }
-  if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
-  {
-    fc->velocity = velocity;
-  }
-  if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
-  {
-    cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
-  }
-  if (auto* cc = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
-  {
-    cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
-    if (velocity.y > 0)
-    {
-      cc->previousGroundState = JPH::CharacterBase::EGroundState::InAir;
-    }
-  }
-}
-
-void World::AddLinearVelocity(entt::entity entity, glm::vec3 velocity)
-{
-  assert(registry_.get<Hierarchy>(entity).parent == entt::null);
-
-  if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
-  {
-    Physics::GetBodyInterface().AddLinearVelocity(rb->body, Physics::ToJolt(velocity));
-  }
-  if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
-  {
-    fc->velocity += velocity;
-  }
-  if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
-  {
-    auto oldVel = cc->character->GetLinearVelocity();
-    cc->character->SetLinearVelocity(Physics::ToJolt(velocity) + oldVel);
-  }
-  if (auto* cc = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
-  {
-    cc->character->AddLinearVelocity(Physics::ToJolt(velocity));
-  }
-}
-
-glm::vec3 World::GetLinearVelocity(entt::entity entity) const
-{
-  assert(registry_.get<Hierarchy>(entity).parent == entt::null);
-
-  if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
-  {
-    return Physics::ToGlm(Physics::GetBodyInterface().GetLinearVelocity(rb->body));
-  }
-  if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
-  {
-    return fc->velocity;
-  }
-  if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
-  {
-    return Physics::ToGlm(cc->character->GetLinearVelocity());
-  }
-  if (auto* cc = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
-  {
-    return Physics::ToGlm(cc->character->GetLinearVelocity());
-  }
-
-  return {};
 }
 
 entt::entity World::GetChildNamed(entt::entity entity, std::string_view name) const
@@ -1341,6 +1277,11 @@ Physics::CharacterController& World::GivePlayerCharacterController(entt::entity 
   auto playerShape = JPH::Ref(new JPH::RotatedTranslatedShape(JPH::Vec3(0, -playerHalfHeight * 0.875f, 0), JPH::Quat::sIdentity(), playerCapsule));
 
   return Physics::AddCharacterController({registry_, playerEntity}, {.shape = playerShape});
+}
+
+FlyingCharacterController& World::GivePlayerFlyingCharacterController(entt::entity playerEntity)
+{
+  return registry_.emplace<FlyingCharacterController>(playerEntity) = {.maxSpeed = 9, .acceleration = 35.0f, .friction = 5.0f};
 }
 
 void World::GivePlayerColliders(entt::entity playerEntity)
@@ -1613,7 +1554,7 @@ entt::entity World::CreateTunnelingWorm()
   entt::entity head       = entt::null;
   auto prevBody2          = std::optional<JPH::BodyID>();
   entt::entity prevEntity = entt::null;
-  for (int i = 0; i < 10; i++)
+  for (int i = 0; i < 30; i++)
   {
     auto sphere2Settings = JPH::SphereShapeSettings(0.5f);
     sphere2Settings.SetEmbedded();
@@ -1644,8 +1585,7 @@ entt::entity World::CreateTunnelingWorm()
     {
       head = a;
 
-      registry_.emplace<FlyingCharacterController>(a) = {.velocity = {}, .maxSpeed = 9, .acceleration = 35.0f, .friction = 5.0f};
-
+      registry_.emplace<FlyingCharacterController>(a) = {.maxSpeed = 9, .acceleration = 35.0f, .friction = 5.0f};
       registry_.emplace<WormEnemyBehavior>(a).maxTurnSpeedDegPerSec = 65;
       registry_.emplace<InputState>(a);
       registry_.emplace<TeamFlags>(a, TeamFlagBits::ENEMY);
@@ -1658,43 +1598,28 @@ entt::entity World::CreateTunnelingWorm()
     {
       registry_.emplace<ForwardCollisionsToParent>(a);
       auto prevPos = registry_.get<GlobalTransform>(a).position;
-      // if (i == 1)
-      //{
-      //   //SetLocalPosition(a, prevPos);
-      //   //auto settings = JPH::Ref(new JPH::FixedConstraintSettings());
-      //   //settings->mAutoDetectPoint = true;
-      //   //auto constraint            = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, rb.body);
-      //   //Physics::GetPhysicsSystem().AddConstraint(constraint);
-      //    auto settings   = JPH::Ref(new JPH::DistanceConstraintSettings());
-      //    settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
-      //    settings->mMinDistance = 0.95f;
-      //    settings->mMaxDistance = 1;
-      //    settings->mConstraintPriority = 1'000'000'000 - i * 1000;
-      //    auto constraint               = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
-      //    Physics::GetPhysicsSystem().AddConstraint(constraint);
-      // }
-      // else
-      {
-        auto settings = JPH::Ref(new JPH::SwingTwistConstraintSettings);
-        // settings->mPosition1           = settings->mPosition2  = Physics::ToJolt(position) + JPH::Vec3(-0.5f, 0, 0);
-        settings->mPosition1 = settings->mPosition2 = Physics::ToJolt((prevPos + position) / 2.0f);
-        settings->mTwistAxis1 = settings->mTwistAxis2 = JPH::Vec3::sAxisX();
-        settings->mPlaneAxis1 = settings->mPlaneAxis2 = JPH::Vec3::sAxisY();
-        settings->mNormalHalfConeAngle                = JPH::DegreesToRadians(30);
-        settings->mPlaneHalfConeAngle                 = JPH::DegreesToRadians(30);
-        settings->mTwistMinAngle                      = JPH::DegreesToRadians(-20);
-        settings->mTwistMaxAngle                      = JPH::DegreesToRadians(20);
-        //auto settings   = JPH::Ref(new JPH::DistanceConstraintSettings());
-        //settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
-        //settings->mMinDistance = 1;
-        //settings->mMaxDistance = 1;
-        //auto settings   = JPH::Ref(new JPH::FixedConstraintSettings());
-        //settings->mAutoDetectPoint = true;
+      //auto settings = JPH::Ref(new JPH::SwingTwistConstraintSettings);
+      //// settings->mPosition1           = settings->mPosition2  = Physics::ToJolt(position) + JPH::Vec3(-0.5f, 0, 0);
+      //settings->mPosition1 = settings->mPosition2 = Physics::ToJolt((prevPos + position) / 2.0f);
+      //settings->mTwistAxis1 = settings->mTwistAxis2 = JPH::Vec3::sAxisX();
+      //settings->mPlaneAxis1 = settings->mPlaneAxis2 = JPH::Vec3::sAxisY();
+      //settings->mNormalHalfConeAngle                = JPH::DegreesToRadians(30);
+      //settings->mPlaneHalfConeAngle                 = JPH::DegreesToRadians(30);
+      //settings->mTwistMinAngle                      = JPH::DegreesToRadians(-20);
+      //settings->mTwistMaxAngle                      = JPH::DegreesToRadians(20);
 
-        auto constraint = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
-        constraint->SetNumPositionStepsOverride(10);
-        Physics::RegisterConstraint(constraint, *prevBody2, body);
-      }
+      auto settings   = JPH::Ref(new JPH::DistanceConstraintSettings());
+      settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
+      settings->mMinDistance = 1;
+      settings->mMaxDistance = 1;
+
+      //auto settings   = JPH::Ref(new JPH::FixedConstraintSettings());
+      //settings->mAutoDetectPoint = true;
+
+      auto constraint = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
+      //constraint->SetNumPositionStepsOverride(10);
+      Physics::RegisterConstraint(constraint, *prevBody2, body);
+
       auto& h                    = registry_.get<Hierarchy>(a);
       h.useLocalPositionAsGlobal = true;
       h.useLocalRotationAsGlobal = true;
@@ -1787,7 +1712,7 @@ static void RefreshGlobalTransform(entt::handle handle)
     }
   }
 
-  //handle.registry()->ctx().get<HashGrid>().set(gt.position, handle.entity());
+  handle.registry()->ctx().get<HashGrid>().set(gt.position, handle.entity());
 
   for (auto child : h.children)
   {

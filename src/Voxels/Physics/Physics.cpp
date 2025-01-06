@@ -154,6 +154,7 @@ namespace Physics
       std::unique_ptr<struct CharacterContactListenerImpl> characterContactListener;
       std::unique_ptr<JPH::CharacterVsCharacterCollisionSimple> characterCollisionInterface;
       JPH::BodyInterface* bodyInterface{};
+      JPH::BodyInterface* bodyInterfaceNoLock{};
       std::shared_mutex contactListenerMutex;
 
       std::unordered_map<JPH::Ref<JPH::Constraint>, std::pair<JPH::BodyID, JPH::BodyID>> constraintToBodyPair;
@@ -226,7 +227,8 @@ namespace Physics
     auto bodyId = s->bodyInterface->CreateAndAddBody(bodySettings, settings.activate ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
 
     s->bodyInterface->SetUserData(bodyId, static_cast<JPH::uint64>(handle.entity()));
-    
+
+    handle.emplace_or_replace<LinearVelocity>();
     handle.emplace_or_replace<Shape>().shape = settings.shape;
     auto& rb                                 = handle.emplace_or_replace<RigidBody>(bodyId);
     handle.emplace_or_replace<RigidBodySettings>(settings);
@@ -258,6 +260,7 @@ namespace Physics
     s->allCharacters.emplace_back(character);
     s->characterCollisionInterface->Add(character);
     handle.emplace_or_replace<Shape>().shape = settings.shape;
+    handle.emplace_or_replace<LinearVelocity>();
     return handle.emplace_or_replace<CharacterController>(character);
   }
 
@@ -284,6 +287,7 @@ namespace Physics
 
     s->allCharactersShrimple.emplace_back(character);
 
+    handle.emplace_or_replace<LinearVelocity>();
     handle.emplace_or_replace<Shape>().shape = settings.shape;
     return handle.emplace_or_replace<CharacterControllerShrimple>(character);
   }
@@ -427,6 +431,7 @@ namespace Physics
     s->characterCollisionInterface = std::make_unique<JPH::CharacterVsCharacterCollisionSimple>();
     s->engine->SetContactListener(s->contactListener.get());
     s->bodyInterface = &s->engine->GetBodyInterface();
+    s->bodyInterfaceNoLock = &s->engine->GetBodyInterfaceNoLock();
   }
 
   void Terminate()
@@ -439,19 +444,38 @@ namespace Physics
   void FixedUpdate(float dt, World& world)
   {
     ZoneScoped;
-    // Update characters first
-    for (auto&& [entity, cc] : world.GetRegistry().view<CharacterController>().each())
+
+    // Pre-update: synchronize physics and ECS representations
+    for (auto&& [entity, transform, rigidBody, rigidBodySettings, linearVelocity] : world.GetRegistry().view<GlobalTransform, RigidBody, RigidBodySettings, LinearVelocity>().each())
+    {
+      s->bodyInterfaceNoLock->SetPositionAndRotationWhenChanged(rigidBody.body,
+        ToJolt(transform.position),
+        ToJolt(transform.rotation).Normalized(),
+        JPH::EActivation::Activate);
+      s->bodyInterfaceNoLock->SetLinearVelocity(rigidBody.body, ToJolt(linearVelocity.v));
+    }
+    
+    for (auto&& [entity, cc, transform, linearVelocity] : world.GetRegistry().view<CharacterController, GlobalTransform, LinearVelocity>().each())
     {
       cc.previousGroundState = cc.character->GetGroundState();
+
+      cc.character->SetPosition(ToJolt(transform.position));
+      //cc.character->SetRotation(ToJolt(transform.rotation));
+      cc.character->SetLinearVelocity(ToJolt(linearVelocity.v));
     }
 
-    for (auto&& [entity, cc, transform] : world.GetRegistry().view<CharacterControllerShrimple, GlobalTransform>().each())
+    for (auto&& [entity, cc, transform, linearVelocity] : world.GetRegistry().view<CharacterControllerShrimple, GlobalTransform, LinearVelocity>().each())
     {
       cc.previousGroundState = cc.character->GetGroundState();
-
-      s->bodyInterface->SetRotation(cc.character->GetBodyID(), ToJolt(transform.rotation), JPH::EActivation::Activate);
+      
+      s->bodyInterfaceNoLock->SetPosition(cc.character->GetBodyID(),
+        ToJolt(transform.position),
+        //ToJolt(transform.rotation).Normalized(),
+        JPH::EActivation::Activate);
+      s->bodyInterfaceNoLock->SetLinearVelocity(cc.character->GetBodyID(), ToJolt(linearVelocity.v));
     }
 
+    // Update character controllers
     for (auto& character : s->allCharacters)
     {
       ZoneScopedN("CharacterVirtual->ExtendedUpdate");
@@ -477,15 +501,7 @@ namespace Physics
         t->position = ToGlm(character->GetPosition());
         UpdateLocalTransform({world.GetRegistry(), entity});
       }
-    }
-
-    // Update positions of sensors
-    for (auto&& [entity, transform, rigidBody, rigidBodySettings] : world.GetRegistry().view<GlobalTransform, RigidBody, RigidBodySettings>().each())
-    {
-      if (rigidBodySettings.motionType == JPH::EMotionType::Kinematic)
-      {
-        s->bodyInterface->SetPositionAndRotation(rigidBody.body, ToJolt(transform.position), ToJolt(transform.rotation).Normalized(), JPH::EActivation::Activate);
-      }
+      world.GetRegistry().get<LinearVelocity>(entity).v = ToGlm(character->GetLinearVelocity());
     }
 
     // Simulate projectiles
@@ -559,12 +575,13 @@ namespace Physics
     }
 
     // Update transform of each entity with a RigidBody component
-    for (auto&& [entity, rigidBody, rigidBodySettings, transform] : world.GetRegistry().view<RigidBody, RigidBodySettings, LocalTransform>().each())
+    for (auto&& [entity, rigidBody, rigidBodySettings, transform, linearVelocity] : world.GetRegistry().view<RigidBody, RigidBodySettings, LocalTransform, LinearVelocity>().each())
     {
-      if (rigidBodySettings.motionType == JPH::EMotionType::Dynamic)
+      if (rigidBodySettings.motionType == JPH::EMotionType::Dynamic && s->bodyInterfaceNoLock->IsActive(rigidBody.body))
       {
-        transform.position = ToGlm(s->bodyInterface->GetPosition(rigidBody.body));
-        transform.rotation = ToGlm(s->bodyInterface->GetRotation(rigidBody.body));
+        transform.position = ToGlm(s->bodyInterfaceNoLock->GetPosition(rigidBody.body));
+        transform.rotation = ToGlm(s->bodyInterfaceNoLock->GetRotation(rigidBody.body));
+        linearVelocity.v   = ToGlm(s->bodyInterfaceNoLock->GetLinearVelocity(rigidBody.body));
         UpdateLocalTransform({world.GetRegistry(), entity});
       }
     }

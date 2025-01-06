@@ -60,6 +60,14 @@ struct GlobalTransform
   float scale;
 };
 
+// Similar to noclip character controller, but has inertia.
+struct FlyingCharacterController
+{
+  float maxSpeed;
+  float acceleration;
+  float friction;
+};
+
 enum class TeamFlagBits
 {
   NEUTRAL  = 0,
@@ -99,18 +107,15 @@ public:
   entt::entity CreateDroppedItem(ItemState item, glm::vec3 position, glm::quat rotation = {1, 0, 0, 0}, float scale = 1);
 
   [[nodiscard]] GlobalTransform* TryGetLocalPlayerTransform();
-
-  void SetLocalPosition(entt::entity entity, glm::vec3 position);
+  
   void SetLocalScale(entt::entity entity, float scale);
-  void SetLinearVelocity(entt::entity entity, glm::vec3 velocity);
-  void AddLinearVelocity(entt::entity entity, glm::vec3 velocity);
-  [[nodiscard]] glm::vec3 GetLinearVelocity(entt::entity entity) const;
   [[nodiscard]] entt::entity GetChildNamed(entt::entity entity, std::string_view name) const;
 
   // Travels up hierarchy, searching for TeamFlags component.
   [[nodiscard]] const TeamFlags* GetTeamFlags(entt::entity entity) const;
 
   Physics::CharacterController& GivePlayerCharacterController(entt::entity playerEntity);
+  FlyingCharacterController& GivePlayerFlyingCharacterController(entt::entity playerEntity);
 
   void GivePlayerColliders(entt::entity playerEntity);
 
@@ -622,15 +627,6 @@ struct RenderTransform
 
 struct NoclipCharacterController {};
 
-// Similar to noclip character controller, but has inertia.
-struct FlyingCharacterController
-{
-  glm::vec3 velocity;
-  float maxSpeed;
-  float acceleration;
-  float friction;
-};
-
 struct Projectile
 {
   float initialSpeed{}; // Used to calculate damage.
@@ -640,7 +636,7 @@ struct Projectile
 
 struct LinearVelocity
 {
-  glm::vec3 v;
+  glm::vec3 v{};
 
   operator glm::vec3&()
   {

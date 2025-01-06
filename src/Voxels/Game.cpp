@@ -22,6 +22,8 @@
 #include "Jolt/Physics/Collision/Shape/BoxShape.h"
 #include "Jolt/Physics/Collision/Shape/CylinderShape.h"
 #include "Jolt/Physics/Constraints/DistanceConstraint.h"
+#include "Jolt/Physics/Constraints/SwingTwistConstraint.h"
+#include "Jolt/Physics/Constraints/FixedConstraint.h"
 #include "Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h"
 #include "entt/signal/dispatcher.hpp"
 
@@ -97,14 +99,15 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
           {
             const auto& projectile = world.GetRegistry().get<Projectile>(entity2);
             const auto& damage     = world.GetRegistry().get<ContactDamage>(entity2);
+            auto& velocity         = world.GetRegistry().get<LinearVelocity>(entity2);
 
             //const auto currentSpeed2  = glm::dot(projectile.velocity, projectile.velocity);
             //const auto energyFraction = (currentSpeed2) / (projectile.initialSpeed * projectile.initialSpeed);
-            const auto energyFraction = glm::length(projectile.velocity) / projectile.initialSpeed;
+            const auto energyFraction = glm::length(velocity.v) / projectile.initialSpeed;
 
             const auto effectiveKnockback = damage.knockback * energyFraction;
             world.DamageEntity(entity1, damage.damage * energyFraction);
-            auto pushDir = projectile.velocity;
+            auto pushDir = velocity.v;
             pushDir.y    = 0;
             if (glm::length(pushDir) > 1e-3f)
             {
@@ -115,6 +118,10 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
             //world.SetLinearVelocity(entity1, pushDir);
             const auto prevVelocity = world.GetLinearVelocity(entity1);
             pushDir.y /= exp2(glm::max(0.0f, prevVelocity.y * 1.0f)); // Reduce velocity gain (prevent stuff from flying super high- subject to change).
+            if (auto* m = world.GetRegistry().try_get<KnockbackMultiplier>(entity1))
+            {
+              pushDir *= m->factor;
+            }
             world.SetLinearVelocity(entity1, prevVelocity + pushDir);
             world.GetRegistry().emplace_or_replace<DeferredDelete>(entity2);
             world.GetRegistry().remove<Projectile>(entity2);
@@ -229,6 +236,10 @@ static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppai
           pushDir.y               = damage.knockback;
           const auto prevVelocity = world.GetLinearVelocity(entity1);
           pushDir.y /= exp2(glm::max(0.0f, prevVelocity.y * 1.0f)); // Reduce velocity gain (prevent stuff from flying super high- subject to change).
+          if (auto* m = world.GetRegistry().try_get<KnockbackMultiplier>(entity1))
+          {
+            pushDir *= m->factor;
+          }
           world.SetLinearVelocity(entity1, prevVelocity + pushDir);
           world.GetRegistry().get_or_emplace<CannotDamageEntities>(entity2).entities[entity1] = 0.2f;
         }
@@ -481,6 +492,16 @@ void World::FixedUpdate(float dt)
               input.forward = 1;
             }
 
+            if (auto* w = registry_.try_get<WormEnemyBehavior>(entity))
+            {
+              const auto desiredRotation = glm::quatLookAtRH(glm::normalize(pt->position - transform.position), {0, 1, 0});
+              const auto angle           = glm::acos(glm::dot(GetForward(desiredRotation), GetForward(transform.rotation)));
+
+              transform.rotation = glm::slerp(transform.rotation, desiredRotation, glm::min(1.0f, glm::radians(w->maxTurnSpeedDegPerSec * dt) / angle));
+
+              input.forward = 1;
+            }
+
             if (registry_.all_of<PathfindingEnemyBehavior>(entity))
             {
               auto* cp            = registry_.try_get<Pathfinding::CachedPath>(entity);
@@ -594,13 +615,37 @@ void World::FixedUpdate(float dt)
       {
         const auto right     = GetRight(transform.rotation);
         const auto forward   = GetForward(transform.rotation);
-        auto tempCameraSpeed = 4.5f * dt;
+        auto tempCameraSpeed = 14.5f * dt;
         tempCameraSpeed *= input.sprint ? 4.0f : 1.0f;
         tempCameraSpeed *= input.walk ? 0.25f : 1.0f;
         transform.position += input.forward * forward * tempCameraSpeed;
         transform.position += input.strafe * right * tempCameraSpeed;
         transform.position.y += input.elevate * tempCameraSpeed;
         UpdateLocalTransform({registry_, entity});
+        SetLocalPosition(entity, transform.position);
+      }
+
+      if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
+      {
+        const auto right     = GetRight(transform.rotation);
+        const auto forward   = GetForward(transform.rotation);
+        const auto dv = fc->acceleration * dt;
+
+        fc->velocity += input.forward * forward * dv;
+        fc->velocity += input.strafe * right * dv;
+        fc->velocity += input.elevate * glm::vec3(0, 1, 0) * dv;
+
+        fc->velocity -= fc->friction * fc->velocity * dt;
+
+        if (glm::length(fc->velocity) > fc->maxSpeed)
+        {
+          fc->velocity = glm::normalize(fc->velocity) * fc->maxSpeed;
+        }
+
+        transform.position += fc->velocity * dt;
+
+        UpdateLocalTransform({registry_, entity});
+        SetLocalPosition(entity, transform.position);
       }
 
       if (registry_.any_of<Physics::CharacterController, Physics::CharacterControllerShrimple>(entity))
@@ -646,7 +691,7 @@ void World::FixedUpdate(float dt)
         if (auto* cs = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
         {
           auto velocity                  = Physics::ToGlm(cs->character->GetLinearVelocity());
-          constexpr float groundFriction = 5.0f;
+          constexpr float groundFriction = 8.0f;
           float friction                 = groundFriction;
           if (cs->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
           {
@@ -659,7 +704,7 @@ void World::FixedUpdate(float dt)
           }
           else
           {
-            constexpr float airControl = 0.25f;
+            constexpr float airControl = 0.5f;
             constexpr float airFriction = 0.05f;
             friction                    = airFriction;
             deltaVelocity.x *= airControl;
@@ -1062,8 +1107,9 @@ void World::InitializeGameState()
   registry_.emplace<GlobalTransform>(p) = {tp.position, tp.rotation, tp.scale};
   registry_.emplace<PreviousGlobalTransform>(p);
   registry_.emplace<RenderTransform>(p);
-  GivePlayerCharacterController(p);
+  //GivePlayerCharacterController(p);
   //registry_.emplace<NoclipCharacterController>(p);
+  registry_.emplace<FlyingCharacterController>(p) = {.velocity = {}, .maxSpeed = 9, .acceleration = 35.0f, .friction = 5.0f};
   //cc.character->SetMaxStrength(10000000);
   auto& inventory = registry_.emplace<Inventory>(p, *this);
   inventory.OverwriteSlot({0, 0}, {gunId}, p);
@@ -1103,9 +1149,9 @@ void World::InitializeGameState()
 
   auto sphereSettings = JPH::SphereShapeSettings(1);
   sphereSettings.SetEmbedded();
+  sphereSettings.mDensity = 0.1f;
   auto sphere = sphereSettings.Create().Get();
-
-  auto prevBody = std::optional<JPH::BodyID>();
+  
   for (int i = 0; i < 10; i++)
   {
     auto a = CreateRenderableEntity({0, 5 + i * 2, i * .1f});
@@ -1117,23 +1163,9 @@ void World::InitializeGameState()
       .motionType = JPH::EMotionType::Dynamic,
       .layer = Physics::Layers::DEBRIS,
     });
-
-    //// Constraint test
-    //if (prevBody)
-    //{
-    //  auto settings   = JPH::DistanceConstraintSettings();
-    //  //settings.SetEmbedded();
-    //  settings.mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
-    //  settings.mMinDistance = 5;
-    //  settings.mMaxDistance = 8;
-    //  
-    //  auto& bd        = Physics::GetBodyInterface();
-    //  [[maybe_unused]] auto constraint = bd.CreateConstraint(&settings, *prevBody, rb.body);
-    //  //bd.ActivateConstraint(constraint);
-    //  Physics::GetPhysicsSystem().AddConstraint(constraint);
-    //}
-    prevBody = rb.body; 
   }
+
+  CreateTunnelingWorm();
 }
 
 entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotation, float scale)
@@ -1208,6 +1240,10 @@ void World::SetLinearVelocity(entt::entity entity, glm::vec3 velocity)
   {
     Physics::GetBodyInterface().SetLinearVelocity(rb->body, Physics::ToJolt(velocity));
   }
+  if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
+  {
+    fc->velocity = velocity;
+  }
   if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
   {
     cc->character->SetLinearVelocity(Physics::ToJolt(velocity));
@@ -1230,6 +1266,10 @@ void World::AddLinearVelocity(entt::entity entity, glm::vec3 velocity)
   {
     Physics::GetBodyInterface().AddLinearVelocity(rb->body, Physics::ToJolt(velocity));
   }
+  if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
+  {
+    fc->velocity += velocity;
+  }
   if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
   {
     auto oldVel = cc->character->GetLinearVelocity();
@@ -1248,6 +1288,10 @@ glm::vec3 World::GetLinearVelocity(entt::entity entity) const
   if (auto* rb = registry_.try_get<Physics::RigidBody>(entity))
   {
     return Physics::ToGlm(Physics::GetBodyInterface().GetLinearVelocity(rb->body));
+  }
+  if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
+  {
+    return fc->velocity;
   }
   if (auto* cc = registry_.try_get<Physics::CharacterController>(entity))
   {
@@ -1330,7 +1374,7 @@ void World::GivePlayerColliders(entt::entity playerEntity)
 
 void World::KillPlayer(entt::entity playerEntity)
 {
-  registry_.remove<NoclipCharacterController, Physics::CharacterController, Physics::CharacterControllerShrimple>(playerEntity);
+  registry_.remove<NoclipCharacterController, FlyingCharacterController, Physics::CharacterController, Physics::CharacterControllerShrimple>(playerEntity);
   registry_.emplace<GhostPlayer>(playerEntity).remainingSeconds = 3;
 
   if (auto e = GetChildNamed(playerEntity, "Player hitbox"); e != entt::null)
@@ -1446,6 +1490,242 @@ std::vector<entt::entity> World::GetEntitiesInSphere(glm::vec3 center, float rad
   return entities;
 }
 
+entt::entity World::CreateSnake()
+{
+  entt::entity head = entt::null;
+  auto prevBody2          = std::optional<JPH::BodyID>();
+  entt::entity prevEntity = entt::null;
+  for (int i = 0; i < 15; i++)
+  {
+    auto sphere2Settings = JPH::SphereShapeSettings(0.5f);
+    sphere2Settings.SetEmbedded();
+    sphere2Settings.mDensity = 35.0f - i * 2;
+    auto sphere2             = sphere2Settings.Create().Get();
+
+    // const auto position             = glm::vec3{cos(glm::two_pi<float>() * i / 15.0f) * 4.0f, 50 + i / 5.0f, sin(glm::two_pi<float>() * i / 15.0f) * 4.0f};
+    const auto position             = glm::vec3{20, 75, i / 0.8f};
+    auto a                          = CreateRenderableEntity(position, glm::identity<glm::quat>(), i == 0 ? 0.5f : 1.0f);
+    registry_.emplace<Name>(a).name = i == 0 ? "Worm head" : "Worm body";
+    registry_.emplace<Mesh>(a).name = "frog";
+    auto body                       = JPH::BodyID();
+    if (i != 0)
+    {
+      auto rb = Physics::AddRigidBody({registry_, a},
+        {
+          .shape    = sphere2,
+          .activate = true,
+          .isSensor = false,
+          .motionType = JPH::EMotionType::Dynamic,
+          .layer      = Physics::Layers::CHARACTER,
+        });
+      body = rb.body;
+
+      Physics::GetBodyInterface().SetGravityFactor(rb.body, 1);
+      Physics::GetBodyInterface().SetMotionQuality(rb.body, JPH::EMotionQuality::LinearCast);
+    }
+
+    if (i == 0)
+    {
+      head     = a;
+      auto& cc = Physics::AddCharacterControllerShrimple({registry_, a}, {.shape = sphere2});
+      body     = cc.character->GetBodyID();
+      // registry_.emplace<NoclipCharacterController>(a);
+      registry_.emplace<PathfindingEnemyBehavior>(a);
+      registry_.emplace<Pathfinding::CachedPath>(a).timeBetweenUpdates = 1;
+      // registry_.emplace<SimpleEnemyBehavior>(a);
+      registry_.emplace<InputState>(a);
+      registry_.emplace<TeamFlags>(a, TeamFlagBits::ENEMY);
+      registry_.emplace<Health>(a)    = {100, 100};
+      registry_.emplace<Loot>(a).name = "standard";
+    }
+    
+    if (prevBody2)
+    {
+      registry_.emplace<ForwardCollisionsToParent>(a);
+      auto prevPos = registry_.get<GlobalTransform>(a).position;
+      // if (i == 1)
+      //{
+      //   //SetLocalPosition(a, prevPos);
+      //   //auto settings = JPH::Ref(new JPH::FixedConstraintSettings());
+      //   //settings->mAutoDetectPoint = true;
+      //   //auto constraint            = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, rb.body);
+      //   //Physics::GetPhysicsSystem().AddConstraint(constraint);
+      //    auto settings   = JPH::Ref(new JPH::DistanceConstraintSettings());
+      //    settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
+      //    settings->mMinDistance = 0.95f;
+      //    settings->mMaxDistance = 1;
+      //    settings->mConstraintPriority = 1'000'000'000 - i * 1000;
+      //    auto constraint               = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
+      //    Physics::GetPhysicsSystem().AddConstraint(constraint);
+      // }
+      // else
+      {
+        auto settings = JPH::Ref(new JPH::SwingTwistConstraintSettings);
+        // settings->mPosition1           = settings->mPosition2  = Physics::ToJolt(position) + JPH::Vec3(-0.5f, 0, 0);
+        settings->mPosition1 = settings->mPosition2 = Physics::ToJolt((prevPos + position) / 2.0f);
+        settings->mTwistAxis1 = settings->mTwistAxis2 = JPH::Vec3::sAxisX();
+        settings->mPlaneAxis1 = settings->mPlaneAxis2 = JPH::Vec3::sAxisY();
+        settings->mNormalHalfConeAngle                = JPH::DegreesToRadians(60);
+        settings->mPlaneHalfConeAngle                 = JPH::DegreesToRadians(60);
+        settings->mTwistMinAngle                      = JPH::DegreesToRadians(-20);
+        settings->mTwistMaxAngle                      = JPH::DegreesToRadians(20);
+        // auto settings   = JPH::Ref(new JPH::DistanceConstraintSettings());
+        // settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
+        // settings->mMinDistance = 0.95f;
+        // settings->mMaxDistance = 1;
+        auto constraint               = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
+        // constraint->SetNumPositionStepsOverride(100);
+        Physics::RegisterConstraint(constraint, *prevBody2, body);
+      }
+      auto& h                    = registry_.get<Hierarchy>(a);
+      h.useLocalPositionAsGlobal = true;
+      h.useLocalRotationAsGlobal = true;
+      SetParent({registry_, a}, prevEntity);
+
+      auto hitboxShape                      = JPH::Ref(new JPH::SphereShape(0.5f));
+      auto eHitbox                          = registry_.create();
+      registry_.emplace<Name>(eHitbox).name = "Worm hitbox";
+      registry_.emplace<ForwardCollisionsToParent>(eHitbox);
+      registry_.emplace<PreviousGlobalTransform>(eHitbox);
+      auto& tpHitbox                              = registry_.emplace<LocalTransform>(eHitbox);
+      tpHitbox.position                           = {};
+      tpHitbox.rotation                           = glm::identity<glm::quat>();
+      tpHitbox.scale                              = 1;
+      registry_.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
+      registry_.emplace<Hierarchy>(eHitbox);
+      Physics::AddRigidBody({registry_, eHitbox},
+        {
+          .shape      = hitboxShape,
+          .isSensor   = true,
+          .motionType = JPH::EMotionType::Kinematic,
+          .layer      = Physics::Layers::CHARACTER_SENSOR,
+        });
+      SetParent({registry_, eHitbox}, a);
+    }
+    prevBody2  = body;
+    prevEntity = a;
+  }
+  return head;
+}
+
+entt::entity World::CreateTunnelingWorm()
+{
+  entt::entity head       = entt::null;
+  auto prevBody2          = std::optional<JPH::BodyID>();
+  entt::entity prevEntity = entt::null;
+  for (int i = 0; i < 10; i++)
+  {
+    auto sphere2Settings = JPH::SphereShapeSettings(0.5f);
+    sphere2Settings.SetEmbedded();
+    sphere2Settings.mDensity = 100000.0f / (10 * i + 1.0f);
+    auto sphere2             = sphere2Settings.Create().Get();
+
+    // const auto position             = glm::vec3{cos(glm::two_pi<float>() * i / 15.0f) * 4.0f, 50 + i / 5.0f, sin(glm::two_pi<float>() * i / 15.0f) * 4.0f};
+    const auto position             = glm::vec3{20, 75, i / 1.0f};
+    auto a                          = CreateRenderableEntity(position, glm::identity<glm::quat>(), i == 0 ? 0.5f : 1.0f);
+    registry_.emplace<Name>(a).name = i == 0 ? "Worm head" : "Worm body";
+    registry_.emplace<Mesh>(a).name = "frog";
+    auto body                       = JPH::BodyID();
+
+    auto rb = Physics::AddRigidBody({registry_, a},
+      {
+        .shape      = sphere2,
+        .activate   = true,
+        .isSensor   = false,
+        .motionType = i == 0 ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic,
+        .layer      = Physics::Layers::CHARACTER_SENSOR,
+      });
+
+    body = rb.body;
+    
+    Physics::GetBodyInterface().SetGravityFactor(rb.body, 0.0f);
+
+    if (i == 0)
+    {
+      head = a;
+
+      registry_.emplace<FlyingCharacterController>(a) = {.velocity = {}, .maxSpeed = 9, .acceleration = 35.0f, .friction = 5.0f};
+
+      registry_.emplace<WormEnemyBehavior>(a).maxTurnSpeedDegPerSec = 65;
+      registry_.emplace<InputState>(a);
+      registry_.emplace<TeamFlags>(a, TeamFlagBits::ENEMY);
+      registry_.emplace<Health>(a)    = {500, 500};
+      registry_.emplace<Loot>(a).name = "standard";
+      registry_.emplace<KnockbackMultiplier>(a).factor = 2.0f;
+    }
+
+    if (prevBody2)
+    {
+      registry_.emplace<ForwardCollisionsToParent>(a);
+      auto prevPos = registry_.get<GlobalTransform>(a).position;
+      // if (i == 1)
+      //{
+      //   //SetLocalPosition(a, prevPos);
+      //   //auto settings = JPH::Ref(new JPH::FixedConstraintSettings());
+      //   //settings->mAutoDetectPoint = true;
+      //   //auto constraint            = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, rb.body);
+      //   //Physics::GetPhysicsSystem().AddConstraint(constraint);
+      //    auto settings   = JPH::Ref(new JPH::DistanceConstraintSettings());
+      //    settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
+      //    settings->mMinDistance = 0.95f;
+      //    settings->mMaxDistance = 1;
+      //    settings->mConstraintPriority = 1'000'000'000 - i * 1000;
+      //    auto constraint               = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
+      //    Physics::GetPhysicsSystem().AddConstraint(constraint);
+      // }
+      // else
+      {
+        auto settings = JPH::Ref(new JPH::SwingTwistConstraintSettings);
+        // settings->mPosition1           = settings->mPosition2  = Physics::ToJolt(position) + JPH::Vec3(-0.5f, 0, 0);
+        settings->mPosition1 = settings->mPosition2 = Physics::ToJolt((prevPos + position) / 2.0f);
+        settings->mTwistAxis1 = settings->mTwistAxis2 = JPH::Vec3::sAxisX();
+        settings->mPlaneAxis1 = settings->mPlaneAxis2 = JPH::Vec3::sAxisY();
+        settings->mNormalHalfConeAngle                = JPH::DegreesToRadians(30);
+        settings->mPlaneHalfConeAngle                 = JPH::DegreesToRadians(30);
+        settings->mTwistMinAngle                      = JPH::DegreesToRadians(-20);
+        settings->mTwistMaxAngle                      = JPH::DegreesToRadians(20);
+        //auto settings   = JPH::Ref(new JPH::DistanceConstraintSettings());
+        //settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
+        //settings->mMinDistance = 1;
+        //settings->mMaxDistance = 1;
+        //auto settings   = JPH::Ref(new JPH::FixedConstraintSettings());
+        //settings->mAutoDetectPoint = true;
+
+        auto constraint = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
+        constraint->SetNumPositionStepsOverride(10);
+        Physics::RegisterConstraint(constraint, *prevBody2, body);
+      }
+      auto& h                    = registry_.get<Hierarchy>(a);
+      h.useLocalPositionAsGlobal = true;
+      h.useLocalRotationAsGlobal = true;
+      SetParent({registry_, a}, prevEntity);
+
+      auto hitboxShape                      = JPH::Ref(new JPH::SphereShape(0.5f));
+      auto eHitbox                          = registry_.create();
+      registry_.emplace<Name>(eHitbox).name = "Worm hitbox";
+      registry_.emplace<ForwardCollisionsToParent>(eHitbox);
+      registry_.emplace<PreviousGlobalTransform>(eHitbox);
+      auto& tpHitbox                              = registry_.emplace<LocalTransform>(eHitbox);
+      tpHitbox.position                           = {};
+      tpHitbox.rotation                           = glm::identity<glm::quat>();
+      tpHitbox.scale                              = 1;
+      registry_.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
+      registry_.emplace<Hierarchy>(eHitbox);
+      Physics::AddRigidBody({registry_, eHitbox},
+        {
+          .shape      = hitboxShape,
+          .isSensor   = true,
+          .motionType = JPH::EMotionType::Kinematic,
+          .layer      = Physics::Layers::CHARACTER_SENSOR,
+        });
+      SetParent({registry_, eHitbox}, a);
+    }
+    prevBody2  = body;
+    prevEntity = a;
+  }
+  return head;
+}
+
 glm::vec3 GetFootPosition(entt::handle handle)
 {
   const auto* t = handle.try_get<GlobalTransform>();
@@ -1500,9 +1780,14 @@ static void RefreshGlobalTransform(entt::handle handle)
     {
       gt.rotation = pt.rotation * lt.rotation;
     }
+
+    if (h.useLocalPositionAsGlobal)
+    {
+      gt.position = lt.position;
+    }
   }
 
-  handle.registry()->ctx().get<HashGrid>().set(gt.position, handle.entity());
+  //handle.registry()->ctx().get<HashGrid>().set(gt.position, handle.entity());
 
   for (auto child : h.children)
   {
@@ -1820,9 +2105,10 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
 
       auto& projectile       = registry.emplace<Projectile>(b);
       projectile.initialSpeed = velocity;
-      projectile.velocity    = dir * velocity;
       projectile.drag        = 0.25f;
       projectile.restitution = 0.25f;
+
+      registry.emplace<LinearVelocity>(b, dir * velocity);
 
       auto& contactDamage     = registry.emplace<ContactDamage>(b);
       contactDamage.damage    = damage;

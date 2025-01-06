@@ -489,11 +489,11 @@ namespace Physics
     }
 
     // Simulate projectiles
-    for (auto&& [entity, gt, lt, projectile] : world.GetRegistry().view<GlobalTransform, LocalTransform, Projectile>().each())
+    for (auto&& [entity, gt, lt, projectile, linearVelocity] : world.GetRegistry().view<GlobalTransform, LocalTransform, Projectile, LinearVelocity>().each())
     {
       // Calculate updated velocity
-      const auto acceleration = -9.81f * glm::vec3(0, 1, 0) + -projectile.velocity * projectile.drag;
-      const auto newVelocity  = projectile.velocity + acceleration * dt;
+      const auto acceleration = -9.81f * glm::vec3(0, 1, 0) + -linearVelocity.v * projectile.drag;
+      const auto newVelocity  = linearVelocity.v + acceleration * dt;
 
       // Cast ray against characters and world
       const auto initialPosition = gt.position;
@@ -506,7 +506,7 @@ namespace Physics
         s->engine->GetDefaultLayerFilter(Layers::CAST_PROJECTILE));
 
       lt.position += castVelocity;
-      projectile.velocity = newVelocity;
+      linearVelocity.v = newVelocity;
 
       if (collector.HadHit())
       {
@@ -536,7 +536,7 @@ namespace Physics
         lt.position = hitPosition + hitNormal * 1e-3f;
         constexpr auto restitution = 0.25f;
         // Reflect projectile with more restitution (bounciness) as the impact angle gets shallower.
-        projectile.velocity = glm::reflect(newVelocity, hitNormal) * (1 - (1 - restitution) * abs(glm::dot(glm::normalize(newVelocity), hitNormal)));
+        linearVelocity.v = glm::reflect(newVelocity, hitNormal) * (1 - (1 - restitution) * abs(glm::dot(glm::normalize(newVelocity), hitNormal)));
       }
 
       UpdateLocalTransform({world.GetRegistry(), entity});

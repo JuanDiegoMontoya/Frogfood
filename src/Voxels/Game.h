@@ -130,6 +130,9 @@ public:
 
   [[nodiscard]] std::vector<entt::entity> GetEntitiesInSphere(glm::vec3 center, float radius) const;
 
+  entt::entity CreateSnake();
+  entt::entity CreateTunnelingWorm();
+
 private:
   uint64_t ticks_ = 0;
   entt::registry registry_;
@@ -594,6 +597,7 @@ struct Hierarchy
   entt::entity parent = entt::null;
   std::vector<entt::entity> children;
 
+  bool useLocalPositionAsGlobal = false;
   bool useLocalRotationAsGlobal = false;
 };
 
@@ -618,12 +622,34 @@ struct RenderTransform
 
 struct NoclipCharacterController {};
 
+// Similar to noclip character controller, but has inertia.
+struct FlyingCharacterController
+{
+  glm::vec3 velocity;
+  float maxSpeed;
+  float acceleration;
+  float friction;
+};
+
 struct Projectile
 {
   float initialSpeed{}; // Used to calculate damage.
-  glm::vec3 velocity{};
   float drag = 0;
   float restitution = 0.25f;
+};
+
+struct LinearVelocity
+{
+  glm::vec3 v;
+
+  operator glm::vec3&()
+  {
+    return v;
+  }
+  operator const glm::vec3&() const
+  {
+    return v;
+  }
 };
 
 struct TimeScale
@@ -677,6 +703,15 @@ struct LocalPlayer {};
 
 struct SimpleEnemyBehavior {};
 struct PathfindingEnemyBehavior {};
+struct WormEnemyBehavior
+{
+  float maxTurnSpeedDegPerSec = 180;
+};
+
+struct KnockbackMultiplier
+{
+  float factor = 1;
+};
 
 // Game class used for client and server
 class Game

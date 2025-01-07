@@ -65,7 +65,6 @@ struct FlyingCharacterController
 {
   float maxSpeed;
   float acceleration;
-  float friction;
 };
 
 enum class TeamFlagBits
@@ -115,6 +114,7 @@ public:
   [[nodiscard]] const TeamFlags* GetTeamFlags(entt::entity entity) const;
 
   Physics::CharacterController& GivePlayerCharacterController(entt::entity playerEntity);
+  Physics::CharacterControllerShrimple& GivePlayerCharacterControllerShrimple(entt::entity playerEntity);
   FlyingCharacterController& GivePlayerFlyingCharacterController(entt::entity playerEntity);
 
   void GivePlayerColliders(entt::entity playerEntity);
@@ -616,7 +616,7 @@ struct PreviousGlobalTransform
 
 struct Health
 {
-  float hp;
+  float hp = -1;
   float maxHp = -1;
 };
 
@@ -646,6 +646,12 @@ struct LinearVelocity
   {
     return v;
   }
+};
+
+// Velocity attenuation.
+struct Friction
+{
+  glm::vec3 axes; // Amount to apply to each axis
 };
 
 struct TimeScale

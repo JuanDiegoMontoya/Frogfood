@@ -63,14 +63,16 @@ namespace Physics
         switch (inObject1)
         {
           using namespace Layers;
-        case WORLD: return inObject2 != CHARACTER_SENSOR;
+        case WORLD: return inObject2 != HITBOX && inObject2 != HURTBOX && inObject2 != HITBOX_AND_HURTBOX;
         case CHARACTER: return inObject2 == WORLD;
-        case CHARACTER_SENSOR: return inObject2 == PROJECTILE || inObject2 == CHARACTER || inObject2 == DROPPED_ITEM;
-        case PROJECTILE: return inObject2 == WORLD || inObject2 == CHARACTER_SENSOR;
-        case DROPPED_ITEM: return inObject2 == WORLD || inObject2 == CHARACTER_SENSOR || inObject2 == DROPPED_ITEM;
+        case PROJECTILE: return inObject2 == WORLD || inObject2 == HITBOX || inObject2 == HITBOX_AND_HURTBOX;
+        case DROPPED_ITEM: return inObject2 == WORLD || inObject2 == DROPPED_ITEM || inObject2 == HITBOX || inObject2 == HITBOX_AND_HURTBOX;
         case DEBRIS: return inObject2 == WORLD || inObject2 == DEBRIS;
+        case HITBOX: return inObject2 == HURTBOX || inObject2 == HITBOX_AND_HURTBOX || inObject2 == PROJECTILE || inObject2 == DROPPED_ITEM;
+        case HURTBOX: return inObject2 == HITBOX || inObject2 == HITBOX_AND_HURTBOX;
+        case HITBOX_AND_HURTBOX: return inObject2 == HITBOX || inObject2 == HURTBOX || inObject2 == HITBOX_AND_HURTBOX || inObject2 == PROJECTILE || inObject2 == DROPPED_ITEM;
         case CAST_WORLD: return inObject2 == WORLD;
-        case CAST_PROJECTILE: return inObject2 == WORLD || inObject2 == CHARACTER_SENSOR;
+        case CAST_PROJECTILE: return inObject2 == WORLD || inObject2 == HITBOX || inObject2 == HITBOX_AND_HURTBOX;
         case CAST_CHARACTER: return inObject2 == WORLD || inObject2 == CHARACTER;
         default: JPH_ASSERT(false); return false;
         }
@@ -85,10 +87,12 @@ namespace Physics
         // Create a mapping table from object to broad phase layer
         mObjectToBroadPhase[Layers::WORLD]            = BroadPhaseLayers::NON_MOVING;
         mObjectToBroadPhase[Layers::CHARACTER]        = BroadPhaseLayers::MOVING;
-        mObjectToBroadPhase[Layers::CHARACTER_SENSOR] = BroadPhaseLayers::MOVING;
         mObjectToBroadPhase[Layers::PROJECTILE]       = BroadPhaseLayers::MOVING;
         mObjectToBroadPhase[Layers::DROPPED_ITEM]     = BroadPhaseLayers::MOVING;
         mObjectToBroadPhase[Layers::DEBRIS]           = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::HITBOX]             = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::HURTBOX]            = BroadPhaseLayers::MOVING;
+        mObjectToBroadPhase[Layers::HITBOX_AND_HURTBOX] = BroadPhaseLayers::MOVING;
       }
 
       JPH::uint GetNumBroadPhaseLayers() const override
@@ -127,10 +131,12 @@ namespace Physics
         {
         case Layers::WORLD: return inLayer2 == BroadPhaseLayers::MOVING;
         case Layers::CHARACTER:
-        case Layers::CHARACTER_SENSOR:
         case Layers::PROJECTILE:
-        case Layers::DROPPED_ITEM: [[fallthrough]];
+        case Layers::DROPPED_ITEM:
         case Layers::DEBRIS: return true;
+        case Layers::HITBOX:
+        case Layers::HURTBOX:
+        case Layers::HITBOX_AND_HURTBOX: return inLayer2 == BroadPhaseLayers::MOVING;
         case Layers::CAST_WORLD: return inLayer2 == BroadPhaseLayers::NON_MOVING;
         case Layers::CAST_PROJECTILE:
         case Layers::CAST_CHARACTER: return true;
@@ -280,7 +286,7 @@ namespace Physics
     characterSettings.mUp = {0, 1, 0};
     characterSettings.mShape = settings.shape;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -1);
-    //characterSettings.mEnhancedInternalEdgeRemoval = true;
+    characterSettings.mEnhancedInternalEdgeRemoval = true;
     auto* character = new JPH::Character(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
     character->AddToPhysicsSystem();
     s->bodyInterface->SetRestitution(character->GetBodyID(), 0);
@@ -445,6 +451,11 @@ namespace Physics
   {
     ZoneScoped;
 
+    for (auto&& [entity, linearVelocity, friction] : world.GetRegistry().view<LinearVelocity, Friction>().each())
+    {
+      linearVelocity.v -= friction.axes * linearVelocity.v * dt;
+    }
+
     // Pre-update: synchronize physics and ECS representations
     for (auto&& [entity, transform, rigidBody, rigidBodySettings, linearVelocity] : world.GetRegistry().view<GlobalTransform, RigidBody, RigidBodySettings, LinearVelocity>().each())
     {
@@ -504,6 +515,42 @@ namespace Physics
       world.GetRegistry().get<LinearVelocity>(entity).v = ToGlm(character->GetLinearVelocity());
     }
 
+    // Update world
+    {
+      ZoneScopedN("PhysicsSystem::Update");
+      const auto substeps = static_cast<int>(std::ceil(dt / s->targetRate));
+      ZoneTextF("%s%d", "Substeps: ", substeps);
+      s->engine->Update(dt, substeps, s->tempAllocator.get(), s->jobSystem.get());
+    }
+    
+    for (auto& character : s->allCharactersShrimple)
+    {
+      ZoneScopedN("Character->PostSimulation");
+      character->PostSimulation(1e-4f);
+
+      auto entity = static_cast<entt::entity>(s->bodyInterface->GetUserData(character->GetBodyID()));
+      if (auto* t = world.GetRegistry().try_get<LocalTransform>(entity))
+      {
+        t->position = ToGlm(character->GetPosition());
+        UpdateLocalTransform({world.GetRegistry(), entity});
+      }
+
+      auto& velocity = world.GetRegistry().get<LinearVelocity>(entity).v;
+      velocity = ToGlm(s->bodyInterfaceNoLock->GetLinearVelocity(character->GetBodyID()));
+    }
+
+    // Update transform of each entity with a RigidBody component
+    for (auto&& [entity, rigidBody, rigidBodySettings, transform, linearVelocity] : world.GetRegistry().view<RigidBody, RigidBodySettings, LocalTransform, LinearVelocity>().each())
+    {
+      if (rigidBodySettings.motionType == JPH::EMotionType::Dynamic && s->bodyInterfaceNoLock->IsActive(rigidBody.body))
+      {
+        transform.position = ToGlm(s->bodyInterfaceNoLock->GetPosition(rigidBody.body));
+        transform.rotation = ToGlm(s->bodyInterfaceNoLock->GetRotation(rigidBody.body));
+        linearVelocity.v   = ToGlm(s->bodyInterfaceNoLock->GetLinearVelocity(rigidBody.body));
+        UpdateLocalTransform({world.GetRegistry(), entity});
+      }
+    }
+
     // Simulate projectiles
     for (auto&& [entity, gt, lt, projectile, linearVelocity] : world.GetRegistry().view<GlobalTransform, LocalTransform, Projectile, LinearVelocity>().each())
     {
@@ -513,8 +560,8 @@ namespace Physics
 
       // Cast ray against characters and world
       const auto initialPosition = gt.position;
-      const auto castVelocity = newVelocity * dt;
-      auto collector = JPH::ClosestHitCollisionCollector<JPH::CastRayCollector>();
+      const auto castVelocity    = newVelocity * dt;
+      auto collector             = JPH::ClosestHitCollisionCollector<JPH::CastRayCollector>();
       GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ToJolt(initialPosition), ToJolt(castVelocity)),
         JPH::RayCastSettings(),
         collector,
@@ -546,44 +593,17 @@ namespace Physics
 
         // Calculate new velocity if it hit a surface
         const auto hitPosition = initialPosition + castVelocity * collector.mHit.mFraction;
-        const auto hitNormal = ToGlm(s->engine->GetBodyLockInterfaceNoLock().TryGetBody(collector.mHit.mBodyID)->GetWorldSpaceSurfaceNormal(collector.mHit.mSubShapeID2, ToJolt(hitPosition)));
+        const auto hitNormal   = ToGlm(
+          s->engine->GetBodyLockInterfaceNoLock().TryGetBody(collector.mHit.mBodyID)->GetWorldSpaceSurfaceNormal(collector.mHit.mSubShapeID2, ToJolt(hitPosition)));
 
         // The bullet's remaining dt is "stolen". This could be solved by looping until there are no more collisions, but the artifact is difficult to notice.
-        lt.position = hitPosition + hitNormal * 1e-3f;
+        lt.position                = hitPosition + hitNormal * 1e-3f;
         constexpr auto restitution = 0.25f;
         // Reflect projectile with more restitution (bounciness) as the impact angle gets shallower.
         linearVelocity.v = glm::reflect(newVelocity, hitNormal) * (1 - (1 - restitution) * abs(glm::dot(glm::normalize(newVelocity), hitNormal)));
       }
 
       UpdateLocalTransform({world.GetRegistry(), entity});
-    }
-
-    const auto substeps = static_cast<int>(std::ceil(dt / s->targetRate));
-    s->engine->Update(dt, substeps, s->tempAllocator.get(), s->jobSystem.get());
-
-    for (auto& character : s->allCharactersShrimple)
-    {
-      ZoneScopedN("Character->PostSimulation");
-      character->PostSimulation(1e-4f);
-
-      auto entity = static_cast<entt::entity>(s->bodyInterface->GetUserData(character->GetBodyID()));
-      if (auto* t = world.GetRegistry().try_get<LocalTransform>(entity))
-      {
-        t->position = ToGlm(character->GetPosition());
-        UpdateLocalTransform({world.GetRegistry(), entity});
-      }
-    }
-
-    // Update transform of each entity with a RigidBody component
-    for (auto&& [entity, rigidBody, rigidBodySettings, transform, linearVelocity] : world.GetRegistry().view<RigidBody, RigidBodySettings, LocalTransform, LinearVelocity>().each())
-    {
-      if (rigidBodySettings.motionType == JPH::EMotionType::Dynamic && s->bodyInterfaceNoLock->IsActive(rigidBody.body))
-      {
-        transform.position = ToGlm(s->bodyInterfaceNoLock->GetPosition(rigidBody.body));
-        transform.rotation = ToGlm(s->bodyInterfaceNoLock->GetRotation(rigidBody.body));
-        linearVelocity.v   = ToGlm(s->bodyInterfaceNoLock->GetLinearVelocity(rigidBody.body));
-        UpdateLocalTransform({world.GetRegistry(), entity});
-      }
     }
 
     // Dispatch events for newly-added contacts

@@ -25,16 +25,19 @@ namespace Physics
   {
     constexpr JPH::ObjectLayer WORLD            = 0;
     constexpr JPH::ObjectLayer CHARACTER        = 1;
-    constexpr JPH::ObjectLayer CHARACTER_SENSOR = 2;
     constexpr JPH::ObjectLayer PROJECTILE       = 3;
     constexpr JPH::ObjectLayer DROPPED_ITEM     = 4;
     constexpr JPH::ObjectLayer DEBRIS           = 5;
-    constexpr JPH::ObjectLayer NUM_LAYERS       = 6;
+    constexpr JPH::ObjectLayer HITBOX           = 6;
+    // For damage-dealing colliders
+    constexpr JPH::ObjectLayer HURTBOX          = 7;
+    constexpr JPH::ObjectLayer HITBOX_AND_HURTBOX = 8;
+    constexpr JPH::ObjectLayer NUM_LAYERS       = 9;
 
     // Cast-only layers
-    constexpr JPH::ObjectLayer CAST_WORLD       = 7;
-    constexpr JPH::ObjectLayer CAST_PROJECTILE  = 8;
-    constexpr JPH::ObjectLayer CAST_CHARACTER   = 9;
+    constexpr JPH::ObjectLayer CAST_WORLD       = 10;
+    constexpr JPH::ObjectLayer CAST_PROJECTILE  = 11;
+    constexpr JPH::ObjectLayer CAST_CHARACTER   = 12;
   }
 
   struct RigidBodySettings

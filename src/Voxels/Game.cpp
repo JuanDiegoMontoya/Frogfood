@@ -123,6 +123,10 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
               pushDir *= m->factor;
             }
             velocity.v += pushDir;
+            if (auto* cc = world.GetRegistry().try_get<Physics::CharacterControllerShrimple>(entity1))
+            {
+              cc->previousGroundState = JPH::CharacterBase::EGroundState::InAir;
+            }
             world.GetRegistry().emplace_or_replace<DeferredDelete>(entity2);
             world.GetRegistry().remove<Projectile>(entity2);
           }
@@ -222,7 +226,7 @@ static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppai
       {
         if (world.AreEntitiesEnemies(entity1, entity2) && world.CanEntityDamageEntity(entity2, entity1))
         {
-          auto pos1          = world.GetRegistry().get<GlobalTransform>(entity1).position;
+          auto& pos1          = world.GetRegistry().get<GlobalTransform>(entity1).position;
           auto pos2          = world.GetRegistry().get<GlobalTransform>(entity2).position;
           const auto& damage = world.GetRegistry().get<ContactDamage>(entity2);
           world.DamageEntity(entity1, damage.damage);
@@ -241,6 +245,10 @@ static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppai
             pushDir *= m->factor;
           }
           velocity.v += pushDir;
+          if (auto* cc = world.GetRegistry().try_get<Physics::CharacterControllerShrimple>(entity1))
+          {
+            cc->previousGroundState = JPH::CharacterBase::EGroundState::InAir;
+          }
           world.GetRegistry().get_or_emplace<CannotDamageEntities>(entity2).entities[entity1] = 0.2f;
         }
         return true;
@@ -268,6 +276,7 @@ void OnCharacterControllerConstruct(entt::registry& registry, entt::entity entit
   registry.remove<NoclipCharacterController>(entity);
   registry.remove<FlyingCharacterController>(entity);
   registry.remove<Physics::CharacterControllerShrimple>(entity);
+  registry.remove<Friction>(entity); // TODO: temporary until CC has inertia
 }
 
 void OnCharacterControllerShrimpleConstruct(entt::registry& registry, entt::entity entity)
@@ -597,7 +606,7 @@ void World::FixedUpdate(float dt)
                 if (cp && cp->progress < path.size())
                 {
                   nextNode = path[cp->progress];
-                  if (cp->progress < path.size() - 1 && glm::distance(nextNode, glm::vec3(myFootPos)) <= 1.0f)
+                  if (cp->progress < path.size() - 1 && glm::distance(nextNode, glm::vec3(myFootPos)) <= 1.25f)
                   {
                     cp->progress++;
                   }
@@ -645,8 +654,6 @@ void World::FixedUpdate(float dt)
         velocity += input.forward * forward * dv;
         velocity += input.strafe * right * dv;
         velocity += input.elevate * glm::vec3(0, 1, 0) * dv;
-
-        velocity -= fc->friction * velocity * dt;
 
         if (glm::length(velocity) > fc->maxSpeed)
         {
@@ -703,8 +710,9 @@ void World::FixedUpdate(float dt)
         if (auto* cs = registry_.try_get<Physics::CharacterControllerShrimple>(entity))
         {
           auto velocity                  = registry_.get<LinearVelocity>(entity).v;
-          constexpr float groundFriction = 8.0f;
-          float friction                 = groundFriction;
+          auto& friction                 = registry_.get_or_emplace<Friction>(entity).axes;
+          constexpr auto groundFriction = glm::vec3(6.0f);
+          friction                 = groundFriction;
           if (cs->character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
           {
             deltaVelocity += input.jump ? gUp * 8.0f : glm::vec3(0);
@@ -717,7 +725,7 @@ void World::FixedUpdate(float dt)
           else
           {
             constexpr float airControl = 0.5f;
-            constexpr float airFriction = 0.05f;
+            constexpr auto airFriction = glm::vec3(0.05f);
             friction                    = airFriction;
             deltaVelocity.x *= airControl;
             deltaVelocity.z *= airControl;
@@ -725,11 +733,12 @@ void World::FixedUpdate(float dt)
             //deltaVelocity += glm::vec3{0, prevY - 15 * dt, 0};
             deltaVelocity += glm::vec3{0, -15 * dt, 0};
           }
+          friction.y               = 0;
           constexpr float maxSpeed = 5;
 
           // Apply friction
           auto newVelocity = glm::vec3(velocity.x, 0, velocity.z);
-          newVelocity -= friction * newVelocity * dt;
+          //newVelocity -= friction * newVelocity * dt;
 
           // Apply dv
           newVelocity.x += deltaVelocity.x;
@@ -744,7 +753,6 @@ void World::FixedUpdate(float dt)
 
           // Y is not affected by speed clamp or friction
           newVelocity.y = velocity.y + deltaVelocity.y;
-
           
           registry_.get<LinearVelocity>(entity).v = newVelocity;
         }
@@ -760,9 +768,10 @@ void World::FixedUpdate(float dt)
         //sphereSettings.SetEmbedded();
         //auto sphere = sphereSettings.Create().Get();
         //auto sphere   = JPH::Ref(new JPH::BoxShape({0.4f, 1.9f, 0.4f}));
-        auto sphere   = JPH::Ref(new JPH::CapsuleShape(0.4f, 0.4f));
+        auto sphere = JPH::Ref(new JPH::SphereShape(0.4f));
+        //auto sphere   = JPH::Ref(new JPH::CapsuleShape(0.4f, 0.4f));
         //auto sphere   = JPH::Ref(new JPH::CylinderShape(0.6f, 0.4f));
-        sphere->SetDensity(.33f);
+        sphere->SetDensity(0.5f);
 
         auto e = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 5.0f, {1, 0, 0, 0}, 0.4f);
         registry_.emplace<Mesh>(e).name = "frog";
@@ -780,23 +789,15 @@ void World::FixedUpdate(float dt)
         //registry_.emplace<Lifetime>(e).remainingSeconds = 5;
         //Physics::AddCharacterController({registry_, e}, {sphere});
         Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
-        //Physics::AddRigidBody({registry_, e},
-        //  {
-        //    .shape      = sphere,
-        //    .activate   = true,
-        //    .motionType = JPH::EMotionType::Dynamic,
-        //    .layer      = Physics::Layers::CHARACTER,
-        //  });
 
         auto e2 = CreateRenderableEntity({1.0f, 0.3f, -0.8f}, {1, 0, 0, 0}, 1.5f);
         registry_.emplace<Name>(e2).name = "Child";
         registry_.emplace<Mesh>(e2).name = "ar15";
         SetParent({registry_, e2}, e);
 
-        auto hitboxShape = JPH::Ref(new JPH::SphereShape(1.0f));
+        auto hitboxShape = JPH::Ref(new JPH::SphereShape(0.75f));
 
         auto eHitbox                          = registry_.create();
-        registry_.emplace<Mesh>(eHitbox).name = "frog";
         registry_.emplace<Name>(eHitbox).name = "Frog hitbox";
         registry_.emplace<ForwardCollisionsToParent>(eHitbox);
         registry_.emplace<RenderTransform>(eHitbox);
@@ -812,7 +813,7 @@ void World::FixedUpdate(float dt)
             .shape      = hitboxShape,
             .isSensor   = true,
             .motionType = JPH::EMotionType::Kinematic,
-            .layer      = Physics::Layers::CHARACTER_SENSOR,
+            .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
           });
         SetParent({registry_, eHitbox}, e);
       }
@@ -842,6 +843,21 @@ void World::FixedUpdate(float dt)
           {
             registry_.ctx().get<ItemRegistry>().Get(slot.id).Update(dt, *this, slot);
           }
+        }
+      }
+    }
+
+    for (auto&& [entity, player, transform] : registry_.view<Player, GlobalTransform>(entt::exclude<GhostPlayer>).each())
+    {
+      for (auto nearEntity : this->GetEntitiesInSphere(transform.position, 4))
+      {
+        if (registry_.all_of<DroppedItem>(nearEntity))
+        {
+          auto itemPos = registry_.get<GlobalTransform>(nearEntity).position;
+          auto dist         = glm::distance(transform.position, itemPos);
+          auto itemToPlayer = glm::normalize(transform.position - itemPos);
+
+          registry_.get<LinearVelocity>(nearEntity).v += 300 * dt * itemToPlayer / (dist * dist);
         }
       }
     }
@@ -1127,8 +1143,8 @@ void World::InitializeGameState()
   registry_.emplace<GlobalTransform>(p) = {tp.position, tp.rotation, tp.scale};
   registry_.emplace<PreviousGlobalTransform>(p);
   registry_.emplace<RenderTransform>(p);
-  //GivePlayerCharacterController(p);
-  GivePlayerFlyingCharacterController(p);
+  GivePlayerCharacterController(p);
+  //GivePlayerFlyingCharacterController(p);
   //registry_.emplace<NoclipCharacterController>(p);
   registry_.emplace_or_replace<LinearVelocity>(p);
   //cc.character->SetMaxStrength(10000000);
@@ -1279,15 +1295,28 @@ Physics::CharacterController& World::GivePlayerCharacterController(entt::entity 
   return Physics::AddCharacterController({registry_, playerEntity}, {.shape = playerShape});
 }
 
+Physics::CharacterControllerShrimple& World::GivePlayerCharacterControllerShrimple(entt::entity playerEntity)
+{
+  constexpr float playerHalfHeight = 0.8f;
+  constexpr float playerHalfWidth  = 0.3f;
+  // auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
+  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
+
+  auto playerShape = JPH::Ref(new JPH::RotatedTranslatedShape(JPH::Vec3(0, -playerHalfHeight * 0.875f, 0), JPH::Quat::sIdentity(), playerCapsule));
+
+  return Physics::AddCharacterControllerShrimple({registry_, playerEntity}, {.shape = playerShape});
+}
+
 FlyingCharacterController& World::GivePlayerFlyingCharacterController(entt::entity playerEntity)
 {
-  return registry_.emplace<FlyingCharacterController>(playerEntity) = {.maxSpeed = 9, .acceleration = 35.0f, .friction = 5.0f};
+  registry_.emplace<Friction>(playerEntity, glm::vec3(5.0f));
+  return registry_.emplace<FlyingCharacterController>(playerEntity) = {.maxSpeed = 9, .acceleration = 35.0f};
 }
 
 void World::GivePlayerColliders(entt::entity playerEntity)
 {
-  constexpr float playerHalfHeight = 0.8f * 1.5f;
-  constexpr float playerHalfWidth  = 0.3f * 3.0f;
+  constexpr float playerHalfHeight = 0.8f * 1.0f;
+  constexpr float playerHalfWidth  = 0.3f * 1.0f;
   assert(playerHalfHeight - playerHalfWidth >= 0);
   auto playerHitbox      = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
   auto playerHitboxShape = JPH::Ref(new JPH::RotatedTranslatedShape(JPH::Vec3(0, -0.8f * 0.875f, 0), JPH::Quat::sIdentity(), playerHitbox));
@@ -1308,7 +1337,7 @@ void World::GivePlayerColliders(entt::entity playerEntity)
       .shape      = playerHitboxShape,
       .isSensor   = true,
       .motionType = JPH::EMotionType::Kinematic,
-      .layer      = Physics::Layers::CHARACTER_SENSOR,
+      .layer      = Physics::Layers::HITBOX,
     });
   SetParent({registry_, pHitbox}, playerEntity);
 }
@@ -1457,7 +1486,7 @@ entt::entity World::CreateSnake()
           .activate = true,
           .isSensor = false,
           .motionType = JPH::EMotionType::Dynamic,
-          .layer      = Physics::Layers::CHARACTER,
+          .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
         });
       body = rb.body;
 
@@ -1539,7 +1568,7 @@ entt::entity World::CreateSnake()
           .shape      = hitboxShape,
           .isSensor   = true,
           .motionType = JPH::EMotionType::Kinematic,
-          .layer      = Physics::Layers::CHARACTER_SENSOR,
+          .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
         });
       SetParent({registry_, eHitbox}, a);
     }
@@ -1554,7 +1583,7 @@ entt::entity World::CreateTunnelingWorm()
   entt::entity head       = entt::null;
   auto prevBody2          = std::optional<JPH::BodyID>();
   entt::entity prevEntity = entt::null;
-  for (int i = 0; i < 30; i++)
+  for (int i = 0; i < 10; i++)
   {
     auto sphere2Settings = JPH::SphereShapeSettings(0.5f);
     sphere2Settings.SetEmbedded();
@@ -1572,22 +1601,25 @@ entt::entity World::CreateTunnelingWorm()
       {
         .shape      = sphere2,
         .activate   = true,
-        .isSensor   = false,
+        .isSensor   = true,
         .motionType = i == 0 ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic,
-        .layer      = Physics::Layers::CHARACTER_SENSOR,
+        .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
       });
 
     body = rb.body;
     
     Physics::GetBodyInterface().SetGravityFactor(rb.body, 0.0f);
 
+    registry_.emplace<Friction>(a, glm::vec3(i == 0 ? 5.0f : 0.2f));
+
     if (i == 0)
     {
       head = a;
 
-      registry_.emplace<FlyingCharacterController>(a) = {.maxSpeed = 9, .acceleration = 35.0f, .friction = 5.0f};
+      registry_.emplace<FlyingCharacterController>(a) = {.maxSpeed = 9, .acceleration = 35.0f};
       registry_.emplace<WormEnemyBehavior>(a).maxTurnSpeedDegPerSec = 65;
       registry_.emplace<InputState>(a);
+      registry_.emplace<ContactDamage>(a) = {.damage = 20, .knockback = 5};
       registry_.emplace<TeamFlags>(a, TeamFlagBits::ENEMY);
       registry_.emplace<Health>(a)    = {500, 500};
       registry_.emplace<Loot>(a).name = "standard";
@@ -1641,7 +1673,7 @@ entt::entity World::CreateTunnelingWorm()
           .shape      = hitboxShape,
           .isSensor   = true,
           .motionType = JPH::EMotionType::Kinematic,
-          .layer      = Physics::Layers::CHARACTER_SENSOR,
+          .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
         });
       SetParent({registry_, eHitbox}, a);
     }

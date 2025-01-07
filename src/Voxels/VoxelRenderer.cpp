@@ -905,10 +905,32 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::Text("Rotation: %f, %f, %f, %f", tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z);
             ImGui::Text("Scale: %f", tr.scale);
           }
+          if (auto* h = registry.try_get<Health>(e))
+          {
+            ImGui::SeparatorText("Health");
+            ImGui::SliderFloat("HP", &h->hp, 0, h->maxHp, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
+            ImGui::DragFloat("Max HP", &h->maxHp, 0.25f, 0, 100000, "%.2f");
+          }
+          if (auto* cd = registry.try_get<ContactDamage>(e))
+          {
+            ImGui::SeparatorText("ContactDamage");
+            ImGui::DragFloat("Damage", &cd->damage, 0.125f, 0, 100, "%.0f");
+            ImGui::DragFloat("Knockback", &cd->knockback, 0.125f, 0, 100, "%.1f");
+          }
+          if (auto* tf = registry.try_get<TeamFlags>(e))
+          {
+            ImGui::SeparatorText("TeamFlags");
+            ImGui::Text("Flags: %u", tf->flags);
+          }
           if (auto* v = registry.try_get<LinearVelocity>(e))
           {
             ImGui::SeparatorText("LinearVelocity");
             ImGui::DragFloat3("##LinearVelocity", &v->v[0], 0.125f);
+          }
+          if (auto* f = registry.try_get<Friction>(e))
+          {
+            ImGui::SeparatorText("Friction");
+            ImGui::DragFloat3("##Friction", &f->axes[0], 0.0125f, 0, 20);
           }
           if (auto* p = registry.try_get<Player>(e))
           {
@@ -952,19 +974,19 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
               world.GivePlayerCharacterController(e);
             }
           }
-          //auto* characterControllerShrimple   = registry.try_get<Physics::CharacterControllerShrimple>(e);
-          //bool hasCharacterControllerShrimple = characterControllerShrimple;
-          //if (ImGui::Checkbox("CharacterControllerShrimple", &hasCharacterControllerShrimple))
-          //{
-          //  if (!hasCharacterControllerShrimple)
-          //  {
-          //    registry.remove<Physics::CharacterControllerShrimple>(e);
-          //  }
-          //  else
-          //  {
-          //    world.GivePlayerCharacterControllerShrimple(e);
-          //  }
-          //}
+          auto* characterControllerShrimple   = registry.try_get<Physics::CharacterControllerShrimple>(e);
+          bool hasCharacterControllerShrimple = characterControllerShrimple;
+          if (ImGui::Checkbox("CharacterControllerShrimple", &hasCharacterControllerShrimple))
+          {
+            if (!hasCharacterControllerShrimple)
+            {
+              registry.remove<Physics::CharacterControllerShrimple>(e);
+            }
+            else
+            {
+              world.GivePlayerCharacterControllerShrimple(e);
+            }
+          }
           if (auto* is = registry.try_get<InputState>(e))
           {
             ImGui::SeparatorText("InputState");

@@ -157,4 +157,24 @@ namespace Math
     glm::vec3 sampleVec = tbn * H;
     return normalize(sampleVec);
   }
+
+  inline float Distance2(glm::vec3 a, glm::vec3 b)
+  {
+    return glm::dot(a - b, a - b);
+  }
+
+  // Vector projection of a onto b
+  inline glm::vec3 Project(glm::vec3 a, glm::vec3 b)
+  {
+    return b * glm::dot(a, b) / glm::dot(b, b);
+  }
+
+  inline float PointLineSegmentDistance(glm::vec3 p, glm::vec3 a, glm::vec3 b)
+  {
+    assert(glm::any(glm::greaterThan(glm::abs(b - a), glm::vec3(1e-4f))));
+    glm::vec3 pa = p - a, ba = b - a;
+    // Vector projection but fraction is clamped.
+    float h = glm::clamp(dot(pa, ba) / glm::dot(ba, ba), 0.0f, 1.0f);
+    return glm::distance(pa, ba * h);
+  }
 } // namespace Math

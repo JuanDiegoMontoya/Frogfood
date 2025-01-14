@@ -1,5 +1,6 @@
 #include "PhysicsUtils.h"
 #include "glm/vec3.hpp"
+#include "glm/mat4x4.hpp"
 #include "glm/gtc/quaternion.hpp"
 
 namespace Physics
@@ -17,6 +18,11 @@ namespace Physics
   JPH::Quat ToJolt(glm::quat q)
   {
     return {q.x, q.y, q.z, q.w};
+  }
+
+  JPH::Mat44 ToJolt(const glm::mat4& m)
+  {
+    return {ToJolt(m[0]), ToJolt(m[1]), ToJolt(m[2]), ToJolt(m[3])};
   }
 
   glm::vec3 ToGlm(JPH::Vec3 v)

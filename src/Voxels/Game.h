@@ -134,9 +134,14 @@ public:
   [[nodiscard]] bool AreEntitiesEnemies(entt::entity entity1, entt::entity entity2) const;
 
   [[nodiscard]] std::vector<entt::entity> GetEntitiesInSphere(glm::vec3 center, float radius) const;
+  [[nodiscard]] std::vector<entt::entity> GetEntitiesInCapsule(glm::vec3 start, glm::vec3 end, float radius);
 
+  [[nodiscard]] entt::entity GetNearestPlayer(glm::vec3 position);
+
+  entt::entity SpawnMeleeFrog(glm::vec3 position);
+  entt::entity SpawnFlyingFrog(glm::vec3 position);
   entt::entity CreateSnake();
-  entt::entity CreateTunnelingWorm();
+  entt::entity CreateTunnelingWorm(glm::vec3 position);
 
 private:
   uint64_t ticks_ = 0;
@@ -704,7 +709,23 @@ struct LinearPath
 struct LocalPlayer {};
 
 struct SimpleEnemyBehavior {};
-struct PathfindingEnemyBehavior {};
+struct SimplePathfindingEnemyBehavior {};
+
+struct PredatoryBirdBehavior
+{
+  enum class State
+  {
+    IDLE,
+    CIRCLING,
+    SWOOPING,
+  };
+  State state = State::IDLE;
+  float accum = 0;
+  entt::entity target = entt::null;
+  glm::vec3 idlePosition{};
+  float lineOfSightDuration = 0;
+};
+
 struct WormEnemyBehavior
 {
   float maxTurnSpeedDegPerSec = 180;
@@ -713,6 +734,12 @@ struct WormEnemyBehavior
 struct KnockbackMultiplier
 {
   float factor = 1;
+};
+
+// So recently-dropped items do not get magnetized to players.
+struct CannotBePickedUp
+{
+  float remainingSeconds = 0.5f;
 };
 
 // Game class used for client and server

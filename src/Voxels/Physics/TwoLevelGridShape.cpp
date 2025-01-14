@@ -158,7 +158,7 @@ void Physics::TwoLevelGridShape::CastRay(const JPH::RayCast& inRay,
   const auto direction = Physics::ToGlm(inRay.mDirection.Normalized());
   auto tMax = inRay.mDirection.Length();
   const auto origin = Physics::ToGlm(inRay.mOrigin);
-  if (twoLevelGrid_->TraceRaySimple(origin, direction, 100, hit))
+  if (twoLevelGrid_->TraceRaySimple(origin, direction, 100, hit)) // TODO: fix tMax
   {
     auto id     = inSubShapeIDCreator.PushID(TwoLevelGrid::FlattenBottomLevelBrickCoord(glm::ivec3(hit.voxelPosition)), 16).GetID();
     auto result = JPH::CastRayCollector::ResultType();
@@ -176,7 +176,21 @@ bool Physics::TwoLevelGridShape::CastRay([[maybe_unused]] const JPH::RayCast& in
   [[maybe_unused]] const JPH::SubShapeIDCreator& inSubShapeIDCreator,
   [[maybe_unused]] JPH::RayCastResult& ioHit) const
 {
-  assert(false);
+  const auto origin    = Physics::ToGlm(inRay.mOrigin);
+  const auto direction = glm::normalize(Physics::ToGlm(inRay.mDirection));
+  const auto tMax      = inRay.mDirection.Length();
+  auto hit = TwoLevelGrid::HitSurfaceParameters();
+  if (twoLevelGrid_->TraceRaySimple(origin, direction, 100, hit)) // TODO: fix tMax
+  {
+    auto id            = inSubShapeIDCreator.PushID(TwoLevelGrid::FlattenBottomLevelBrickCoord(glm::ivec3(hit.voxelPosition)), 16).GetID();
+    ioHit.mSubShapeID2 = id;
+    ioHit.mBodyID      = {}; // TODO?
+    ioHit.mFraction    = glm::distance(origin, hit.positionWorld) / glm::distance(origin, origin + direction * tMax);
+    if (ioHit.mFraction <= 1)
+    {
+      return true;
+    }
+  }
   return false;
 }
 

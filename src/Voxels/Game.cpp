@@ -25,6 +25,9 @@
 #include "Jolt/Physics/Constraints/SwingTwistConstraint.h"
 #include "Jolt/Physics/Constraints/FixedConstraint.h"
 #include "Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h"
+#include "Jolt/Physics/Collision/CollisionCollectorImpl.h"
+#include "Jolt/Physics/Collision/CollisionCollector.h"
+#include "Jolt/Physics/Collision/RayCast.h"
 #include "entt/signal/dispatcher.hpp"
 
 #include <chrono>
@@ -140,7 +143,8 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
   TryTwice(pair,
     [&](entt::entity entity1, entt::entity entity2)
     {
-      if (world.GetRegistry().all_of<Player, Inventory>(entity1) && world.GetRegistry().all_of<DroppedItem>(entity2))
+      if (world.GetRegistry().all_of<Player, Inventory>(entity1) && world.GetRegistry().all_of<DroppedItem>(entity2) &&
+          !world.GetRegistry().any_of<CannotBePickedUp>(entity2))
       {
         auto& i = world.GetRegistry().get<Inventory>(entity1);
         auto& d = world.GetRegistry().get<DroppedItem>(entity2);
@@ -487,6 +491,96 @@ void World::FixedUpdate(float dt)
       UpdateLocalTransform({registry_, entity});
     }
 
+    // Avians
+    for (auto&& [entity, input, transform, behavior] : registry_.view<InputState, LocalTransform, PredatoryBirdBehavior>().each())
+    {
+      behavior.accum += dt;
+
+      const auto nearestPlayer = GetNearestPlayer(transform.position);
+
+      if (nearestPlayer != entt::null)
+      {
+        const auto& pt = registry_.get<GlobalTransform>(nearestPlayer);
+        if (glm::distance(pt.position, transform.position) < 20)
+        {
+          behavior.target = nearestPlayer;
+
+          if (behavior.state == PredatoryBirdBehavior::State::IDLE)
+          {
+            behavior.state = PredatoryBirdBehavior::State::CIRCLING;
+            behavior.accum = 0;
+          }
+        }
+        else if (behavior.state != PredatoryBirdBehavior::State::IDLE)
+        {
+          behavior.state = PredatoryBirdBehavior::State::IDLE;
+          behavior.idlePosition = transform.position;
+        }
+      }
+      else if (behavior.state != PredatoryBirdBehavior::State::IDLE)
+      {
+        behavior.state = PredatoryBirdBehavior::State::IDLE;
+        behavior.idlePosition = transform.position;
+      }
+
+      // Birds always be moving forward.
+      input.forward = 1;
+
+      switch (behavior.state)
+      {
+      case PredatoryBirdBehavior::State::IDLE:
+      {
+        const auto target = behavior.idlePosition + glm::vec3(sin(behavior.accum * 1.2f) * 8, 2 + sin(behavior.accum * 4) * 2, cos(behavior.accum * 1.2f) * 8);
+        transform.rotation = glm::quatLookAtRH(glm::normalize(target - transform.position), {0, 1, 0});
+        break;
+      }
+      case PredatoryBirdBehavior::State::CIRCLING:
+      {
+        const auto& pt = registry_.get<GlobalTransform>(behavior.target);
+        const auto target = pt.position + glm::vec3(sin(behavior.accum * 1.2f) * 8, 4 + sin(behavior.accum * 4) * 2, cos(behavior.accum * 1.2f) * 8);
+
+        transform.rotation = glm::quatLookAtRH(glm::normalize(target - transform.position), {0, 1, 0});
+        
+        auto rayCast = JPH::RRayCast(Physics::ToJolt(transform.position), Physics::ToJolt(target - transform.position));
+        auto result  = JPH::RayCastResult();
+        const bool hit = Physics::GetNarrowPhaseQuery().CastRay(rayCast,
+          result,
+          Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_WORLD),
+          Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_WORLD));
+        if (!hit)
+        {
+          behavior.lineOfSightDuration += dt;
+          if (behavior.accum >= 5.0f && behavior.lineOfSightDuration >= 1)
+          {
+            behavior.accum = 0;
+            behavior.state = PredatoryBirdBehavior::State::SWOOPING;
+          }
+        }
+        else
+        {
+          behavior.lineOfSightDuration = 0;
+        }
+        break;
+      }
+      case PredatoryBirdBehavior::State::SWOOPING:
+      {
+        const auto& pt    = registry_.get<GlobalTransform>(behavior.target);
+        transform.rotation = glm::quatLookAtRH(glm::normalize(pt.position - transform.position), {0, 1, 0});
+
+        if (glm::distance(pt.position, transform.position) < 2 || behavior.accum > 5.0f)
+        {
+          behavior.accum = 0;
+          behavior.state = PredatoryBirdBehavior::State::CIRCLING;
+        }
+
+        break;
+      }
+      default:;
+      }
+
+      UpdateLocalTransform({registry_, entity});
+    }
+
     // Generate input for enemies
     {
       ZoneScopedN("Pathfinding");
@@ -522,7 +616,7 @@ void World::FixedUpdate(float dt)
               input.forward = 1;
             }
 
-            if (registry_.all_of<PathfindingEnemyBehavior>(entity))
+            if (registry_.all_of<SimplePathfindingEnemyBehavior>(entity))
             {
               auto* cp            = registry_.try_get<Pathfinding::CachedPath>(entity);
               bool shouldFindPath = true;
@@ -542,7 +636,7 @@ void World::FixedUpdate(float dt)
 
               Pathfinding::Path path;
 
-              const auto myFootPos = glm::ivec3(GetFootPosition({registry_, entity}));
+              const auto myFootPos = glm::ivec3(glm::floor(GetFootPosition({registry_, entity})));
 
               // Get cached path.
               if (cp && !shouldFindPath)
@@ -578,6 +672,7 @@ void World::FixedUpdate(float dt)
                     .goal   = glm::ivec3(targetFootPos),
                     .height = myHeight,
                     .w      = 1.5f,
+                    .canFly = registry_.any_of<FlyingCharacterController>(entity),
                   });
 
                 if (cp)
@@ -764,58 +859,10 @@ void World::FixedUpdate(float dt)
     {
       if (input.interact)
       {
-        //auto sphereSettings = JPH::SphereShapeSettings(0.4f);
-        //sphereSettings.SetEmbedded();
-        //auto sphere = sphereSettings.Create().Get();
-        //auto sphere   = JPH::Ref(new JPH::BoxShape({0.4f, 1.9f, 0.4f}));
-        auto sphere = JPH::Ref(new JPH::SphereShape(0.4f));
-        //auto sphere   = JPH::Ref(new JPH::CapsuleShape(0.4f, 0.4f));
-        //auto sphere   = JPH::Ref(new JPH::CylinderShape(0.6f, 0.4f));
-        sphere->SetDensity(0.5f);
-
-        auto e = CreateRenderableEntity(transform.position + GetForward(transform.rotation) * 5.0f, {1, 0, 0, 0}, 0.4f);
-        registry_.emplace<Mesh>(e).name = "frog";
-        registry_.emplace<Name>(e, "Frog");
-        registry_.emplace<Health>(e) = {100, 100};
-        //registry_.emplace<SimpleEnemyBehavior>(e);
-        registry_.emplace<PathfindingEnemyBehavior>(e);
-        registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
-        registry_.emplace<InputState>(e);
-        registry_.emplace<Loot>(e).name = "standard";
-        registry_.emplace<TeamFlags>(e, TeamFlagBits::ENEMY);
-
-        auto& contactDamage = registry_.emplace<ContactDamage>(e);
-        contactDamage.damage = 10;
-        //registry_.emplace<Lifetime>(e).remainingSeconds = 5;
-        //Physics::AddCharacterController({registry_, e}, {sphere});
-        Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
-
-        auto e2 = CreateRenderableEntity({1.0f, 0.3f, -0.8f}, {1, 0, 0, 0}, 1.5f);
-        registry_.emplace<Name>(e2).name = "Child";
-        registry_.emplace<Mesh>(e2).name = "ar15";
-        SetParent({registry_, e2}, e);
-
-        auto hitboxShape = JPH::Ref(new JPH::SphereShape(0.75f));
-
-        auto eHitbox                          = registry_.create();
-        registry_.emplace<Name>(eHitbox).name = "Frog hitbox";
-        registry_.emplace<ForwardCollisionsToParent>(eHitbox);
-        registry_.emplace<RenderTransform>(eHitbox);
-        registry_.emplace<PreviousGlobalTransform>(eHitbox);
-        auto& tpHitbox    = registry_.emplace<LocalTransform>(eHitbox);
-        tpHitbox.position = {};
-        tpHitbox.rotation = glm::identity<glm::quat>();
-        tpHitbox.scale                              = 1;
-        registry_.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
-        registry_.emplace<Hierarchy>(eHitbox);
-        Physics::AddRigidBody({registry_, eHitbox},
-          {
-            .shape      = hitboxShape,
-            .isSensor   = true,
-            .motionType = JPH::EMotionType::Kinematic,
-            .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
-          });
-        SetParent({registry_, eHitbox}, e);
+        const auto spawnPos = transform.position + GetForward(transform.rotation) * 5.0f;
+        //CreateTunnelingWorm(spawnPos);
+        //SpawnMeleeFrog(spawnPos);
+        SpawnFlyingFrog(spawnPos);
       }
 
       if (input.usePrimary)
@@ -847,17 +894,35 @@ void World::FixedUpdate(float dt)
       }
     }
 
+    for (auto&& [entity, cannotPickUp] : registry_.view<CannotBePickedUp>().each())
+    {
+      cannotPickUp.remainingSeconds -= dt;
+      if (cannotPickUp.remainingSeconds <= 0)
+      {
+        registry_.remove<CannotBePickedUp>(entity);
+      }
+    }
+
+    // Dropped items get sucked towards the player as if by magnetic attraction.
     for (auto&& [entity, player, transform] : registry_.view<Player, GlobalTransform>(entt::exclude<GhostPlayer>).each())
     {
-      for (auto nearEntity : this->GetEntitiesInSphere(transform.position, 4))
+      //for (auto nearEntity : this->GetEntitiesInSphere(transform.position, 2))
+      for (auto nearEntity : this->GetEntitiesInCapsule(transform.position - glm::vec3(0, 1.5f, 0), transform.position + glm::vec3(0, 1.5f, 0), 2))
       {
-        if (registry_.all_of<DroppedItem>(nearEntity))
+        if (registry_.all_of<DroppedItem>(nearEntity) && !registry_.any_of<CannotBePickedUp>(nearEntity))
         {
           auto itemPos = registry_.get<GlobalTransform>(nearEntity).position;
           auto dist         = glm::distance(transform.position, itemPos);
           auto itemToPlayer = glm::normalize(transform.position - itemPos);
 
-          registry_.get<LinearVelocity>(nearEntity).v += 300 * dt * itemToPlayer / (dist * dist);
+          auto& velocity = registry_.get<LinearVelocity>(nearEntity).v;
+          velocity += 300 * dt * itemToPlayer / (dist * dist);
+          const auto speed = glm::length(velocity);
+          constexpr float maxSpeed = 10;
+          if (speed > maxSpeed)
+          {
+            velocity = velocity / speed * maxSpeed;
+          }
         }
       }
     }
@@ -1201,8 +1266,6 @@ void World::InitializeGameState()
       .layer = Physics::Layers::DEBRIS,
     });
   }
-
-  CreateTunnelingWorm();
 }
 
 entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotation, float scale)
@@ -1429,8 +1492,8 @@ std::vector<entt::entity> World::GetEntitiesInSphere(glm::vec3 center, float rad
 
   auto entities = std::vector<entt::entity>();
 
-  auto lower = grid.QuantizeKey(center - radius);
-  auto upper = grid.QuantizeKey(center + radius);
+  const auto lower = grid.QuantizeKey(center - radius);
+  const auto upper = grid.QuantizeKey(center + radius);
 
   // Broadphase: iterate over all chunks touched by sphere.
   for (int z = lower.z; z <= upper.z; z++)
@@ -1458,6 +1521,162 @@ std::vector<entt::entity> World::GetEntitiesInSphere(glm::vec3 center, float rad
   }
 
   return entities;
+}
+
+std::vector<entt::entity> World::GetEntitiesInCapsule(glm::vec3 start, glm::vec3 end, float radius)
+{
+  ZoneScoped;
+  const auto& grid = registry_.ctx().get<HashGrid>();
+
+  auto entities = std::vector<entt::entity>();
+
+  const auto lower = grid.QuantizeKey(glm::min(start - radius, end - radius));
+  const auto upper = grid.QuantizeKey(glm::max(start + radius, end + radius));
+
+  for (int z = lower.z; z <= upper.z; z++)
+  {
+    for (int y = lower.y; y <= upper.y; y++)
+    {
+      for (int x = lower.x; x <= upper.x; x++)
+      {
+        const auto [beginIt, endIt] = grid.equal_range_chunk({x, y, z});
+        for (auto it = beginIt; it != endIt; ++it)
+        {
+          // Narrowphase: distance check.
+          const auto entity    = it->second;
+          const auto& position = registry_.get<GlobalTransform>(entity).position;
+          
+          if (Math::PointLineSegmentDistance(position, start, end) <= radius)
+          {
+            entities.emplace_back(entity);
+          }
+        }
+      }
+    }
+  }
+
+  return entities;
+}
+
+entt::entity World::GetNearestPlayer(glm::vec3 position)
+{
+  entt::entity nearestPlayer = entt::null;
+  float nearestDistance2     = HUGE_VALF;
+
+  for (auto [entity, transform, player] : registry_.view<GlobalTransform, Player>(entt::exclude<GhostPlayer>).each())
+  {
+    if (const auto dist2 = Math::Distance2(position, transform.position); dist2 < nearestDistance2)
+    {
+      nearestPlayer    = entity;
+      nearestDistance2 = dist2;
+    }
+  }
+
+  return nearestPlayer;
+}
+
+entt::entity World::SpawnMeleeFrog(glm::vec3 position)
+{
+  auto sphere = JPH::Ref(new JPH::SphereShape(0.4f));
+  sphere->SetDensity(0.5f);
+
+  auto e = CreateRenderableEntity(position, {1, 0, 0, 0}, 0.4f);
+  registry_.emplace<Mesh>(e).name = "frog";
+  registry_.emplace<Name>(e, "Frog");
+  registry_.emplace<Health>(e) = {100, 100};
+  // registry_.emplace<SimpleEnemyBehavior>(e);
+  registry_.emplace<SimplePathfindingEnemyBehavior>(e);
+  registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
+  registry_.emplace<InputState>(e);
+  registry_.emplace<Loot>(e).name = "standard";
+  registry_.emplace<TeamFlags>(e, TeamFlagBits::ENEMY);
+
+  auto& contactDamage  = registry_.emplace<ContactDamage>(e);
+  contactDamage.damage = 10;
+  // Physics::AddCharacterController({registry_, e}, {sphere});
+  Physics::AddCharacterControllerShrimple({registry_, e}, {.shape = sphere});
+  //registry_.emplace<FlyingCharacterController>(e) = {.maxSpeed = 6, .acceleration = 25};
+  registry_.emplace_or_replace<LinearVelocity>(e);
+  auto rb = Physics::AddRigidBody({registry_, e}, {.shape = sphere, .layer = Physics::Layers::CHARACTER});
+  Physics::GetBodyInterface().SetGravityFactor(rb.body, 0);
+
+  auto e2 = CreateRenderableEntity({1.0f, 0.3f, -0.8f}, {1, 0, 0, 0}, 1.5f);
+  registry_.emplace<Name>(e2).name = "Child";
+  registry_.emplace<Mesh>(e2).name = "ar15";
+  SetParent({registry_, e2}, e);
+
+  auto hitboxShape = JPH::Ref(new JPH::SphereShape(0.75f));
+
+  // Make hitbox/hurtbox collider.
+  auto eHitbox = registry_.create();
+  registry_.emplace<Name>(eHitbox).name = "Frog hitbox";
+  registry_.emplace<ForwardCollisionsToParent>(eHitbox);
+  registry_.emplace<RenderTransform>(eHitbox);
+  registry_.emplace<PreviousGlobalTransform>(eHitbox);
+  auto& tpHitbox    = registry_.emplace<LocalTransform>(eHitbox);
+  tpHitbox.position = {};
+  tpHitbox.rotation = glm::identity<glm::quat>();
+  tpHitbox.scale    = 1;
+  registry_.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
+  registry_.emplace<Hierarchy>(eHitbox);
+  Physics::AddRigidBody({registry_, eHitbox},
+    {
+      .shape      = hitboxShape,
+      .isSensor   = true,
+      .motionType = JPH::EMotionType::Kinematic,
+      .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
+    });
+  SetParent({registry_, eHitbox}, e);
+
+  return e;
+}
+
+entt::entity World::SpawnFlyingFrog(glm::vec3 position)
+{
+  auto sphere = JPH::Ref(new JPH::SphereShape(0.4f));
+
+  auto e = CreateRenderableEntity(position, {1, 0, 0, 0}, 0.4f);
+  registry_.emplace<Mesh>(e).name = "frog";
+  registry_.emplace<Name>(e, "Frog");
+  registry_.emplace<Health>(e) = {70, 70};
+  registry_.emplace<PredatoryBirdBehavior>(e);
+  //registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
+  registry_.emplace<InputState>(e);
+  registry_.emplace<Loot>(e).name = "standard";
+  registry_.emplace<TeamFlags>(e, TeamFlagBits::ENEMY);
+
+  auto& contactDamage  = registry_.emplace<ContactDamage>(e);
+  contactDamage.damage = 15;
+
+  registry_.emplace<FlyingCharacterController>(e) = {.maxSpeed = 4, .acceleration = 15};
+  registry_.emplace_or_replace<LinearVelocity>(e);
+  auto rb = Physics::AddRigidBody({registry_, e}, {.shape = sphere, .layer = Physics::Layers::CHARACTER});
+  Physics::GetBodyInterface().SetGravityFactor(rb.body, 0);
+
+  auto hitboxShape = JPH::Ref(new JPH::SphereShape(0.95f));
+
+  // Make hitbox/hurtbox collider.
+  auto eHitbox = registry_.create();
+  registry_.emplace<Name>(eHitbox).name = "Frog hitbox";
+  registry_.emplace<ForwardCollisionsToParent>(eHitbox);
+  registry_.emplace<RenderTransform>(eHitbox);
+  registry_.emplace<PreviousGlobalTransform>(eHitbox);
+  auto& tpHitbox    = registry_.emplace<LocalTransform>(eHitbox);
+  tpHitbox.position = {};
+  tpHitbox.rotation = glm::identity<glm::quat>();
+  tpHitbox.scale    = 1;
+  registry_.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
+  registry_.emplace<Hierarchy>(eHitbox);
+  Physics::AddRigidBody({registry_, eHitbox},
+    {
+      .shape      = hitboxShape,
+      .isSensor   = true,
+      .motionType = JPH::EMotionType::Kinematic,
+      .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
+    });
+  SetParent({registry_, eHitbox}, e);
+
+  return e;
 }
 
 entt::entity World::CreateSnake()
@@ -1500,7 +1719,7 @@ entt::entity World::CreateSnake()
       auto& cc = Physics::AddCharacterControllerShrimple({registry_, a}, {.shape = sphere2});
       body     = cc.character->GetBodyID();
       // registry_.emplace<NoclipCharacterController>(a);
-      registry_.emplace<PathfindingEnemyBehavior>(a);
+      registry_.emplace<SimplePathfindingEnemyBehavior>(a);
       registry_.emplace<Pathfinding::CachedPath>(a).timeBetweenUpdates = 1;
       // registry_.emplace<SimpleEnemyBehavior>(a);
       registry_.emplace<InputState>(a);
@@ -1578,7 +1797,7 @@ entt::entity World::CreateSnake()
   return head;
 }
 
-entt::entity World::CreateTunnelingWorm()
+entt::entity World::CreateTunnelingWorm(glm::vec3 position)
 {
   entt::entity head       = entt::null;
   auto prevBody2          = std::optional<JPH::BodyID>();
@@ -1589,10 +1808,8 @@ entt::entity World::CreateTunnelingWorm()
     sphere2Settings.SetEmbedded();
     sphere2Settings.mDensity = 100000.0f / (10 * i + 1.0f);
     auto sphere2             = sphere2Settings.Create().Get();
-
-    // const auto position             = glm::vec3{cos(glm::two_pi<float>() * i / 15.0f) * 4.0f, 50 + i / 5.0f, sin(glm::two_pi<float>() * i / 15.0f) * 4.0f};
-    const auto position             = glm::vec3{20, 75, i / 1.0f};
-    auto a                          = CreateRenderableEntity(position, glm::identity<glm::quat>(), i == 0 ? 0.5f : 1.0f);
+    
+    auto a                          = CreateRenderableEntity(position + glm::vec3{20, 75, i / 1.0f}, glm::identity<glm::quat>(), i == 0 ? 0.5f : 1.0f);
     registry_.emplace<Name>(a).name = i == 0 ? "Worm head" : "Worm body";
     registry_.emplace<Mesh>(a).name = "frog";
     auto body                       = JPH::BodyID();
@@ -1885,6 +2102,7 @@ entt::entity Inventory::DropItem(glm::ivec2 slot)
   auto entity = def.Materialize(*world);
   def.GiveCollider(*world, entity);
   world->GetRegistry().emplace<DroppedItem>(entity).item = std::exchange(item, {});
+  world->GetRegistry().emplace<CannotBePickedUp>(entity).remainingSeconds = 1.0f;
   return entity;
 }
 
@@ -2201,6 +2419,7 @@ void Block::UsePrimary(float dt, World& world, entt::entity self, ItemState& sta
 Physics::RigidBody& ItemDefinition::GiveCollider(World& world, entt::entity self) const
 {
   assert(self != entt::null);
+  world.GetRegistry().emplace<Friction>(self).axes = {.2, .1, .2};
   return Physics::AddRigidBody({world.GetRegistry(), self},
     {
       .shape = JPH::Ref(new JPH::BoxShape(Physics::ToJolt(GetDroppedColliderSize()))),

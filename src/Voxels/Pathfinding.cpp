@@ -71,6 +71,29 @@ namespace Pathfinding
       return neighbors;
     }
 
+    auto GetNeighborsForFlying(const TwoLevelGrid& grid, glm::ivec3 pos, int height)
+    {
+      auto neighbors = std::vector<glm::ivec3>();
+
+      // See if this node is a suitable place to stand for a character of a given height. If not, there are no neighbors.
+      for (int i = 0; i < height; i++)
+      {
+        if (grid.GetVoxelAt(pos + glm::ivec3{0, i, 0}) != 0)
+        {
+          return neighbors;
+        }
+      }
+
+      neighbors.emplace_back(pos + glm::ivec3(1, 0, 0));
+      neighbors.emplace_back(pos + glm::ivec3(-1, 0, 0));
+      neighbors.emplace_back(pos + glm::ivec3(0, 1, 0));
+      neighbors.emplace_back(pos + glm::ivec3(0, -1, 0));
+      neighbors.emplace_back(pos + glm::ivec3(0, 0, 1));
+      neighbors.emplace_back(pos + glm::ivec3(0, 0, -1));
+
+      return neighbors;
+    }
+
     auto ReconstructPath(const std::unordered_map<glm::ivec3, glm::ivec3>& cameFrom, glm::ivec3 start, glm::ivec3 goal)
     {
       assert(cameFrom.contains(goal));
@@ -101,6 +124,11 @@ namespace Pathfinding
         return 1.125f;
       }
 
+      return 1;
+    }
+
+    float DetermineCostForFlying([[maybe_unused]] const TwoLevelGrid& grid, [[maybe_unused]] glm::ivec3 posFrom, [[maybe_unused]] glm::ivec3 posTo)
+    {
       return 1;
     }
 
@@ -158,9 +186,9 @@ namespace Pathfinding
 #endif
 
       const auto currentCost = costSoFar.at(current);
-      for (auto next : GetNeighbors(grid, current, params.height))
+      for (auto next : params.canFly ? GetNeighborsForFlying(grid, current, params.height) : GetNeighbors(grid, current, params.height))
       {
-        const auto newCost = currentCost + DetermineCost(grid, current, next);
+        const auto newCost = currentCost + (params.canFly ? DetermineCostForFlying(grid, current, next) : DetermineCost(grid, current, next));
         if (auto it = costSoFar.find(next); it == costSoFar.end() || newCost < it->second)
         {
           frontier.emplace(next, newCost + params.w * HeuristicCost(grid, next, params.goal));

@@ -26,6 +26,7 @@ namespace Pathfinding
     glm::ivec3 goal;
     int height;
     float w;
+    bool canFly = false;
 
     bool operator==(const FindPathParams&) const noexcept = default;
   };

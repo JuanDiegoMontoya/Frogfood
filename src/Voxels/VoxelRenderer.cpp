@@ -780,12 +780,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
 
             if (auto dropped = i.DropItem(rowCol); dropped != entt::null)
             {
-              auto& rb = world.GetRegistry().get<Physics::RigidBody>(dropped);
-
               const auto throwdir = GetForward(gt.rotation);
               const auto pos = gt.position + throwdir * 1.0f;
-              Physics::GetBodyInterface().SetPosition(rb.body, Physics::ToJolt(pos), JPH::EActivation::Activate);
-              Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+              world.GetRegistry().get<LocalTransform>(dropped).position = pos;
+              world.GetRegistry().get<LinearVelocity>(dropped).v        = throwdir * 3.0f;
+              UpdateLocalTransform({world.GetRegistry(), dropped});
             }
           }
           ImGui::EndDragDropTarget();
@@ -1069,16 +1068,28 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     if (ImGui::Begin("TEST PROBULUS"))
     {
       static glm::vec3 probePos = {0, 60, 0};
+      static glm::vec3 probePos2 = {0, 61, 0};
       static float probeRadius  = 2;
 
 #ifdef JPH_DEBUG_RENDERER
-      JPH::DebugRenderer::sInstance->DrawWireSphere(Physics::ToJolt(probePos), probeRadius, JPH::Color::sGreen);
+      //JPH::DebugRenderer::sInstance->DrawWireSphere(Physics::ToJolt(probePos), probeRadius, JPH::Color::sGreen);
+      const auto jup    = Physics::ToJolt(glm::normalize(probePos2 - probePos));
+      const auto jfor = jup.GetNormalizedPerpendicular();
+      const auto jright = jfor.Cross(jup);
+      
+      auto mat = JPH::Mat44::sIdentity();
+      mat.SetAxisX(jright);
+      mat.SetAxisY(jup);
+      mat.SetAxisZ(jfor);
+      mat.SetTranslation(Physics::ToJolt((probePos + probePos2) / 2.0f));
+      JPH::DebugRenderer::sInstance->DrawCapsule(mat, glm::distance(probePos, probePos2) / 2.0f, probeRadius, JPH::Color::sGreen);
 #endif
 
-      ImGui::DragFloat3("Probe pos", &probePos[0], 0.25f);
+      ImGui::DragFloat3("Probe pos1", &probePos[0], 0.25f);
+      ImGui::DragFloat3("Probe pos2", &probePos2[0], 0.25f, 0, 0, "%.3f", ImGuiSliderFlags_NoRoundToFormat);
       ImGui::DragFloat("Probe radius", &probeRadius, 0.125f, 0, 1000);
       ImGui::Separator();
-      auto entities = world.GetEntitiesInSphere(probePos, probeRadius);
+      auto entities = world.GetEntitiesInCapsule(probePos, probePos2, probeRadius);
       ImGui::Text("Covered: %llu", entities.size());
       for (auto entity : entities)
       {

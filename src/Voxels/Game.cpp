@@ -1107,21 +1107,22 @@ void World::InitializeGameState()
   [[maybe_unused]] const auto gunId = items.Add(new Gun());
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
   [[maybe_unused]] const auto pickaxeId = items.Add(new Pickaxe());
-  [[maybe_unused]] const auto blockId = items.Add(new Block(1));
+  [[maybe_unused]] const auto stoneBlockId = items.Add(new Block(1));
+  [[maybe_unused]] const auto frogLightBlockId = items.Add(new Block(2));
   [[maybe_unused]] const auto spearId = items.Add(new Spear());
   
   auto& crafting = registry_.ctx().insert_or_assign<Crafting>({});
   crafting.recipes.emplace_back(Crafting::Recipe{
-    {{blockId, 1}},
+    {{stoneBlockId, 1}},
     {{gunId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
-    {{blockId, 5}, {gunId, 1}},
+    {{stoneBlockId, 5}, {gunId, 1}},
     {{gun2Id, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {},
-    {{blockId, 1}},
+    {{stoneBlockId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {},
@@ -1131,7 +1132,7 @@ void World::InitializeGameState()
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
   auto standardLoot = std::make_unique<LootDrops>();
   standardLoot->drops.emplace_back(RandomLootDrop{
-    .item = blockId,
+    .item = stoneBlockId,
     .count = 6,
     .chanceForOne = 0.5f,
   });
@@ -1178,7 +1179,14 @@ void World::InitializeGameState()
                     if (de2(glm::vec3(p) / 10.f + 2.0f) < 0.011f)
                     // if (de3(p) < 0.011f)
                     {
-                      grid.SetVoxelAt(p, 1);
+                      if (glm::distance(glm::vec3(p), glm::vec3(20, 10, 40)) < 5)
+                      {
+                        grid.SetVoxelAt(p, 2);
+                      }
+                      else
+                      {
+                        grid.SetVoxelAt(p, 1);
+                      }
                     }
                     else
                     {
@@ -2351,10 +2359,10 @@ void Pickaxe::UsePrimary(float dt, World& world, entt::entity self, ItemState& s
   auto hit   = TwoLevelGrid::HitSurfaceParameters();
   if (grid.TraceRaySimple(pos, dir, 10, hit))
   {
-    //auto prevVoxel = grid.GetVoxelAt(glm::ivec3(hit.voxelPosition)); // TODO: use this
+    const auto prevVoxel = grid.GetVoxelAt(glm::ivec3(hit.voxelPosition));
     grid.SetVoxelAt(glm::ivec3(hit.voxelPosition), 0);
     
-    auto itemId         = reg.ctx().get<ItemRegistry>().GetId("Block");
+    auto itemId         = reg.ctx().get<ItemRegistry>().GetId("Block " + std::to_string(prevVoxel));
     const auto& itemDef = reg.ctx().get<ItemRegistry>().Get(itemId);
     auto itemSelf       = itemDef.Materialize(world);
 

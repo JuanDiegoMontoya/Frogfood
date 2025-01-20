@@ -42,6 +42,23 @@ namespace
     glm::vec3 color{};
   };
 
+  enum class MaterialFlagBit
+  {
+    HAS_BASE_COLOR_TEXTURE        = 1 << 0,
+    HAS_EMISSION_TEXTURE          = 1 << 1,
+    RANDOMIZE_TEXCOORDS_ROTATION  = 1 << 2,
+  };
+  FVOG_DECLARE_FLAG_TYPE(VoxelMaterialFlags, MaterialFlagBit, uint32_t);
+
+  struct GpuVoxelMaterial
+  {
+    VoxelMaterialFlags materialFlags;
+    shared::Texture2D baseColorTexture;
+    glm::vec3 baseColorFactor;
+    shared::Texture2D emissionTexture;
+    glm::vec3 emissionFactor;
+  };
+
   struct GpuMesh
   {
     std::optional<Fvog::TypedBuffer<Vertex>> vertexBuffer;
@@ -128,6 +145,22 @@ namespace
     memcpy(mesh.vertexBuffer->GetMappedMemory(), mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex));
 
     return mesh;
+  }
+
+  Fvog::Texture LoadImageFile(const std::filesystem::path& path)
+  {
+    int x            = 0;
+    int y            = 0;
+    const auto pixels = stbi_load((GetTextureDirectory() / path).string().c_str(), &x, &y, nullptr, 4);
+    assert(pixels);
+    auto texture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, path.string().c_str());
+    texture.UpdateImageSLOW({
+      .extent = {static_cast<uint32_t>(x), static_cast<uint32_t>(y)},
+      .data   = pixels,
+    });
+    stbi_image_free(pixels);
+
+    return texture;
   }
 
   FVOG_DECLARE_ARGUMENTS(DebugLinesPushConstants)
@@ -301,16 +334,24 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
       },
   });
 
-  int x            = 0;
-  int y            = 0;
-  const auto noise = stbi_load((GetTextureDirectory() / "bluenoise256.png").string().c_str(), &x, &y, nullptr, 4);
-  assert(noise);
-  noiseTexture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, "Noise");
-  noiseTexture->UpdateImageSLOW({
-    .extent = {static_cast<uint32_t>(x), static_cast<uint32_t>(y)},
-    .data   = noise,
+  noiseTexture = LoadImageFile("bluenoise256.png");
+
+  stringToTexture.try_emplace("stone_albedo", LoadImageFile("voxels/stone_albedo.png"));
+
+  auto voxelMaterials = std::vector<GpuVoxelMaterial>(1);
+  voxelMaterials.emplace_back(GpuVoxelMaterial{
+    .materialFlags    = MaterialFlagBit::HAS_BASE_COLOR_TEXTURE | MaterialFlagBit::RANDOMIZE_TEXCOORDS_ROTATION,
+    .baseColorTexture = stringToTexture.at("stone_albedo").ImageView().GetTexture2D(),
+    .baseColorFactor  = {1, 1, 1},
+    .emissionFactor   = {0, 0, 0},
   });
-  stbi_image_free(noise);
+  voxelMaterials.emplace_back(GpuVoxelMaterial{
+    .materialFlags    = {},
+    .baseColorFactor  = {.5f, .5f, .5f},
+    .emissionFactor   = {1, 5, 1},
+  });
+  voxelMaterialBuffer = Fvog::Buffer({.size = voxelMaterials.size() * sizeof(GpuVoxelMaterial), .flag = Fvog::BufferFlagThingy::NONE}, "Voxel Material Buffer");
+  Fvog::GetDevice().ImmediateSubmit([&](VkCommandBuffer cmd) { voxelMaterialBuffer->UpdateDataExpensive(cmd, std::span(voxelMaterials)); });
 
   OnFramebufferResize(head_->windowFramebufferWidth, head_->windowFramebufferHeight);
 }
@@ -491,6 +532,17 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       billboardInstanceBuffer->UpdateData(commandBuffer, billboards);
     }
 
+    auto voxelSampler = Fvog::Sampler(
+      {
+        .magFilter     = VK_FILTER_NEAREST,
+        .minFilter     = VK_FILTER_NEAREST,
+        .mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV  = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .maxAnisotropy = 16,
+      },
+      "Voxel Sampler");
+
     auto& grid           = world.GetRegistry().ctx().get<TwoLevelGrid>();
     auto albedoAttachment = Fvog::RenderColorAttachment{
       .texture = frame.sceneAlbedo.value().ImageView(),
@@ -520,6 +572,8 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .topLevelBrickPtrsBaseIndex = grid.topLevelBrickPtrsBaseIndex,
       .dimensions                 = grid.dimensions_,
       .bufferIdx                  = grid.buffer.GetGpuBuffer().GetResourceHandle().index,
+      .materialBufferIdx          = voxelMaterialBuffer->GetResourceHandle().index,
+      .voxelSampler               = voxelSampler,
     };
     {
       // Voxels

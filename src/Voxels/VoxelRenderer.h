@@ -42,7 +42,10 @@ namespace Temp
     FVOG_UINT32 topLevelBrickPtrsBaseIndex;
     FVOG_IVEC3 dimensions;
     FVOG_UINT32 bufferIdx;
+    FVOG_UINT32 materialBufferIdx;
+    shared::Sampler voxelSampler;
   };
+
   FVOG_DECLARE_ARGUMENTS(PushConstants)
   {
     Voxels voxels;
@@ -78,7 +81,7 @@ namespace Temp
     glm::mat4 worldFromObject;
     VkDeviceAddress vertexBuffer;
   };
-} // namespace Temp
+} // namespace "Temp"
 
 class VoxelRenderer
 {
@@ -118,6 +121,8 @@ private:
   PipelineManager::GraphicsPipelineKey billboardsPipeline;
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
   std::optional<Fvog::NDeviceBuffer<Temp::BillboardInstance>> billboardInstanceBuffer;
+  std::optional<Fvog::Buffer> voxelMaterialBuffer;
   std::optional<Fvog::Texture> noiseTexture;
+  std::unordered_map<std::string, Fvog::Texture> stringToTexture;
   PlayerHead* head_;
 };

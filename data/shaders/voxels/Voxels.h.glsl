@@ -54,12 +54,32 @@ FVOG_DECLARE_STORAGE_BUFFERS(BottomLevelBricks)
 	BottomLevelBrick bottomLevelBricks[];
 }bottomLevelBricksBuffers[];
 
+#define HAS_BASE_COLOR_TEXTURE (1 << 0)
+#define HAS_EMISSION_TEXTURE   (1 << 1)
+#define RANDOMIZE_TEXCOORDS_ROTATION (1 << 2)
+
+struct GpuVoxelMaterial
+{
+	FVOG_UINT32 materialFlags;
+	Texture2D baseColorTexture;
+	FVOG_VEC3 baseColorFactor;
+	Texture2D emissionTexture;
+	FVOG_VEC3 emissionFactor;
+};
+
+FVOG_DECLARE_STORAGE_BUFFERS_2(VoxelMaterials)
+{
+	GpuVoxelMaterial materials[];
+}voxelMaterialsBuffers[];
+
 struct Voxels
 {
 	FVOG_IVEC3 topLevelBricksDims;
 	FVOG_UINT32 topLevelBrickPtrsBaseIndex;
 	FVOG_IVEC3 dimensions;
 	FVOG_UINT32 bufferIdx;
+	FVOG_UINT32 materialBufferIdx;
+	Sampler voxelSampler;
 };
 
 Voxels g_voxels;
@@ -310,6 +330,7 @@ bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out 
 
 	vec3 cases = sideDist;
 
+	bool hasHit = false;
     for (int i = 0; i < 150; i++)
     {
 		// For the top level, traversal outside the map area is ok, just skip
@@ -341,14 +362,16 @@ bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out 
 					hit.positionWorld = hitWorldPos * TL_BRICK_VOXELS_PER_SIDE;
 					hit.texCoords = fract(vx_GetTexCoords(normal, uvw) * TL_BRICK_VOXELS_PER_SIDE); // Might behave poorly
 					hit.flatNormalWorld = normal;
-					return true;
+					hasHit = true;
+					break;
 				}
 
 				if (vx_TraceRayBottomLevelBricks(uvw * TL_BRICK_SIDE_LENGTH, rayDirection, topLevelBrickPtr, init, cases, hit))
 				{
 					hit.voxelPosition += mapPos * TL_BRICK_VOXELS_PER_SIDE;
 					hit.positionWorld += mapPos * TL_BRICK_VOXELS_PER_SIDE;
-					return true;
+					hasHit = true;
+					break;
 				}
 			}
 		}
@@ -364,7 +387,23 @@ bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out 
         mapPos += cases * stepDir;
 	}
 
-	return false;
+	if (hasHit)
+	{
+		GpuVoxelMaterial material = voxelMaterialsBuffers[g_voxels.materialBufferIdx].materials[hit.voxel];
+		if (true && bool(material.materialFlags & RANDOMIZE_TEXCOORDS_ROTATION))
+		{
+			// Random quarter turn
+			const float cos90[4] = {1, 0, -1, 0};
+			const uint quarters = uint(10000 * MM_Hash3(hit.voxelPosition + hit.flatNormalWorld * 0.5));
+			const float cosTheta = cos90[quarters % 4];
+			const float sinTheta = cos90[(quarters + 1) % 4];
+			const mat2 rot = {{cosTheta, sinTheta}, {-sinTheta, cosTheta}};
+			hit.texCoords -= .5;
+			hit.texCoords = rot * hit.texCoords;
+			hit.texCoords += 0.5;
+		}
+	}
+	return hasHit;
 }
 
 bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitSurfaceParameters hit)
@@ -435,23 +474,37 @@ bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitS
 
 vec3 GetHitAlbedo(HitSurfaceParameters hit)
 {
-		return vec3(hsv_to_rgb(vec3(MM_Hash3(ivec3(hit.voxelPosition) % 3), 0.55, 0.8)));
-		//return vec3(mod(abs(hit.positionWorld + .5), 1));
-		//return vec3(hit.positionWorld / 64);
-		//return vec3(hit.flatNormalWorld * .5 + .5);
-		//return vec3(hit.texCoords, 0);
-		//return vec3(0.5);
+	GpuVoxelMaterial material = voxelMaterialsBuffers[g_voxels.materialBufferIdx].materials[hit.voxel];
+	vec3 albedo = material.baseColorFactor;
+	if (bool(material.materialFlags & HAS_BASE_COLOR_TEXTURE))
+	{
+		albedo *= textureLod(material.baseColorTexture, g_voxels.voxelSampler, hit.texCoords, 0).rgb;
+	}
+	return albedo;
+	//return vec3(hsv_to_rgb(vec3(MM_Hash3(ivec3(hit.voxelPosition) % 3), 0.55, 0.8)));
+	//return vec3(mod(abs(hit.positionWorld + .5), 1));
+	//return vec3(hit.positionWorld / 64);
+	//return vec3(hit.flatNormalWorld * .5 + .5);
+	//return vec3(hit.texCoords, 0);
+	//return vec3(0.5);
 }
 
 vec3 GetHitEmission(HitSurfaceParameters hit)
 {
+	GpuVoxelMaterial material = voxelMaterialsBuffers[g_voxels.materialBufferIdx].materials[hit.voxel];
+	vec3 emission = material.emissionFactor;
+	if (bool(material.materialFlags & HAS_EMISSION_TEXTURE))
+	{
+		emission *= textureLod(material.emissionTexture, g_voxels.voxelSampler, hit.texCoords, 0).rgb;
+	}
+	return emission;
     //if (ivec3(hit.voxelPosition / 3) % 4 == ivec3(0))
-    if (distance(vec3(hit.voxelPosition), vec3(20, 10, 40)) < 5)
-    {
-        return vec3(5);
-    }
+    // if (distance(vec3(hit.voxelPosition), vec3(20, 10, 40)) < 5)
+    // {
+    //     return vec3(5);
+    // }
 
-    return vec3(0);
+    // return vec3(0);
 }
 
 float TraceSunRay(vec3 rayPosition, vec3 sunDir)

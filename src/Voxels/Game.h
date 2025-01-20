@@ -77,6 +77,9 @@ enum class TeamFlagBits
 
 FVOG_DECLARE_FLAG_TYPE(TeamFlags, TeamFlagBits, uint32_t);
 
+using ItemId              = uint32_t;
+constexpr ItemId nullItem = ~0u;
+
 class World
 {
 public:
@@ -150,9 +153,6 @@ private:
 
 glm::vec3 GetFootPosition(entt::handle handle);
 float GetHeight(entt::handle handle);
-
-using ItemId              = uint32_t;
-constexpr ItemId nullItem = ~0u;
 
 struct ItemState
 {
@@ -315,7 +315,7 @@ public:
 
   std::string GetName() const override
   {
-    return "Block";
+    return "Block " + std::to_string(voxel);
   }
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;

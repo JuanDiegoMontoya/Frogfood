@@ -80,6 +80,15 @@ FVOG_DECLARE_FLAG_TYPE(TeamFlags, TeamFlagBits, uint32_t);
 using ItemId              = uint32_t;
 constexpr ItemId nullItem = ~0u;
 
+enum class BlockDamageFlagBits
+{
+  NONE    = 0,
+  PICKAXE = 1 << 0,
+  AXE     = 1 << 1,
+};
+
+FVOG_DECLARE_FLAG_TYPE(BlockDamageFlags, BlockDamageFlagBits, uint32_t);
+
 class World
 {
 public:
@@ -145,6 +154,8 @@ public:
   entt::entity SpawnFlyingFrog(glm::vec3 position);
   entt::entity CreateSnake();
   entt::entity CreateTunnelingWorm(glm::vec3 position);
+
+  float DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, BlockDamageFlags damageType);
 
 private:
   uint64_t ticks_ = 0;
@@ -703,6 +714,11 @@ struct LinearPath
 
   // Preserve local transform before this component was added.
   LocalTransform originalLocalTransform;
+};
+
+struct BlockHealth
+{
+  float health = 100;
 };
 
 // Placed on root entity belonging to this client's player.

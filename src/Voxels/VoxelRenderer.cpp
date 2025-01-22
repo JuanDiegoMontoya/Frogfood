@@ -1078,6 +1078,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::SeparatorText("LinearPath");
             ImGui::Text("%.3fs", lp->secondsElapsed);
           }
+          if (auto* bh = registry.try_get<BlockHealth>(e))
+          {
+            ImGui::SeparatorText("BlockHealth");
+            ImGui::SliderFloat("##BlockHealth", &bh->health, 0, 100, "%.0f");
+          }
           if (registry.all_of<DeferredDelete>(e))
           {
             ImGui::SeparatorText("DeferredDelete");

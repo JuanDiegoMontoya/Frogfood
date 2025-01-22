@@ -1292,6 +1292,8 @@ entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotatio
   it.scale    = t.scale;
   registry_.emplace<RenderTransform>(e);
   registry_.emplace<Hierarchy>(e);
+
+  registry_.ctx().get<HashGrid>().set(position, e);
   return e;
 }
 
@@ -1908,6 +1910,68 @@ entt::entity World::CreateTunnelingWorm(glm::vec3 position)
   return head;
 }
 
+float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, BlockDamageFlags damageType)
+{
+  auto& grid = registry_.ctx().get<TwoLevelGrid>();
+
+  entt::entity foundEntity = entt::null;
+  BlockHealth* hp = nullptr;
+
+  const auto worldPos = glm::vec3(voxelPos) + 0.5f;
+  for (auto entity : GetEntitiesInSphere(worldPos, 0.125f))
+  {
+    hp = registry_.try_get<BlockHealth>(entity);
+    if (hp)
+    {
+      foundEntity = entity;
+    }
+  }
+
+  if (foundEntity == entt::null)
+  {
+    // TODO: make new entity
+    foundEntity = this->CreateRenderableEntity(worldPos);
+    hp = &registry_.emplace<BlockHealth>(foundEntity);
+  }
+
+  registry_.emplace_or_replace<Lifetime>(foundEntity).remainingSeconds = 5;
+  auto voxel = grid.GetVoxelAt(voxelPos);
+
+  // TODO: look up block properties from table.
+  if (voxel == 1 && ((damageType & BlockDamageFlagBits::PICKAXE).flags == 0 || damageTier < 1))
+  {
+    return hp->health;
+  }
+
+  hp->health -= damage;
+  if (hp->health <= 0)
+  {
+    const auto prevVoxel = grid.GetVoxelAt(voxelPos);
+    grid.SetVoxelAt(voxelPos, 0);
+
+    auto itemId         = registry_.ctx().get<ItemRegistry>().GetId("Block " + std::to_string(prevVoxel));
+    const auto& itemDef = registry_.ctx().get<ItemRegistry>().Get(itemId);
+    auto itemSelf       = itemDef.Materialize(*this);
+
+    registry_.get<LocalTransform>(itemSelf).position = worldPos;
+    UpdateLocalTransform({registry_, itemSelf});
+    auto& rb                                = itemDef.GiveCollider(*this, itemSelf);
+    registry_.emplace<DroppedItem>(itemSelf).item = ItemState{itemId};
+
+    const auto throwdir = glm::vec3(Rng().RandFloat(-0.25f, 0.25f), 1, Rng().RandFloat(-0.25f, 0.25f));
+    Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+
+    // Awaken bodies that are adjacent to destroyed voxel in case they were resting on it.
+    // TODO: This doesn't seem to be robust. Setting mTimeBeforeSleep to 0 in PhysicsSettings seems to disable sleeping, which fixes this issue.
+    Physics::GetBodyInterface().ActivateBodiesInAABox({Physics::ToJolt(worldPos), 2.0f}, {}, {});
+
+    registry_.destroy(foundEntity);
+    return 0;
+  }
+
+  return hp->health;
+}
+
 glm::vec3 GetFootPosition(entt::handle handle)
 {
   const auto* t = handle.try_get<GlobalTransform>();
@@ -2359,24 +2423,24 @@ void Pickaxe::UsePrimary(float dt, World& world, entt::entity self, ItemState& s
   auto hit   = TwoLevelGrid::HitSurfaceParameters();
   if (grid.TraceRaySimple(pos, dir, 10, hit))
   {
-    const auto prevVoxel = grid.GetVoxelAt(glm::ivec3(hit.voxelPosition));
-    grid.SetVoxelAt(glm::ivec3(hit.voxelPosition), 0);
-    
-    auto itemId         = reg.ctx().get<ItemRegistry>().GetId("Block " + std::to_string(prevVoxel));
-    const auto& itemDef = reg.ctx().get<ItemRegistry>().Get(itemId);
-    auto itemSelf       = itemDef.Materialize(world);
+    world.DamageBlock(glm::ivec3(hit.voxelPosition), 25, 1, BlockDamageFlagBits::PICKAXE);
 
-    reg.get<LocalTransform>(itemSelf).position = hit.voxelPosition + 0.5f;
-    UpdateLocalTransform({reg, itemSelf});
-    auto& rb = itemDef.GiveCollider(world, itemSelf);
-    reg.emplace<DroppedItem>(itemSelf).item = ItemState{itemId};
+    constexpr float debrisSize = 0.0525f;
+    auto cube = JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(debrisSize)));
 
-    const auto throwdir = glm::vec3(world.Rng().RandFloat(-0.25f, 0.25f), 1, world.Rng().RandFloat(-0.25f, 0.25f));
-    Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
-
-    // Awaken bodies that are adjacent to destroyed voxel in case they were resting on it.
-    // TODO: This doesn't seem to be robust. Setting mTimeBeforeSleep to 0 in PhysicsSettings seems to disable sleeping, which fixes this issue.
-    Physics::GetBodyInterface().ActivateBodiesInAABox({Physics::ToJolt(hit.voxelPosition + 0.5f), 2.0f}, {}, {});
+    // Make debris "particles"
+    for (int i = 0; i < 6; i++)
+    {
+      auto offset = glm::vec3(world.Rng().RandFloat(-0.125f, 0.125f), world.Rng().RandFloat(-0.125f, 0.125f), world.Rng().RandFloat(-0.125f, 0.125f));
+      offset *= glm::equal(hit.flatNormalWorld, glm::vec3(0)); // Zero out the component of the normal.
+      auto e = world.CreateRenderableEntity(hit.positionWorld + offset + hit.flatNormalWorld * debrisSize / 2.0f, glm::identity<glm::quat>(), debrisSize);
+      reg.emplace<Mesh>(e).name = "cube";
+      reg.emplace<Name>(e).name = "Debris";
+      reg.emplace<Lifetime>(e).remainingSeconds = 2;
+      Physics::AddRigidBody({reg, e}, {.shape = cube, .layer = Physics::Layers::DEBRIS});
+      const auto velocity = Math::RandVecInCone({world.Rng().RandFloat(), world.Rng().RandFloat()}, hit.flatNormalWorld, glm::quarter_pi<float>()) * 4.0f;
+      reg.emplace_or_replace<LinearVelocity>(e).v = velocity;
+    }
   }
 }
 

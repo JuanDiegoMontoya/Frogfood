@@ -1106,7 +1106,8 @@ void World::InitializeGameState()
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
   [[maybe_unused]] const auto gunId = items.Add(new Gun());
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
-  [[maybe_unused]] const auto pickaxeId = items.Add(new Pickaxe());
+  [[maybe_unused]] const auto stonePickaxeId   = items.Add(new ToolDefinition("Stone Pickaxe", 20, 1, BlockDamageFlagBits::PICKAXE));
+  [[maybe_unused]] const auto opPickaxeId   = items.Add(new ToolDefinition("OP Pickaxe", 1000, 1, BlockDamageFlagBits::PICKAXE | BlockDamageFlagBits::AXE, 0.05f));
   [[maybe_unused]] const auto stoneBlockId = items.Add(new Block(1));
   [[maybe_unused]] const auto frogLightBlockId = items.Add(new Block(2));
   [[maybe_unused]] const auto spearId = items.Add(new Spear());
@@ -1125,8 +1126,12 @@ void World::InitializeGameState()
     {{stoneBlockId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
-    {},
+    {{stoneBlockId, 5}},
     {{spearId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {},
+    {{opPickaxeId, 1}},
   });
 
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
@@ -1224,7 +1229,7 @@ void World::InitializeGameState()
   auto& inventory = registry_.emplace<Inventory>(p, *this);
   inventory.OverwriteSlot({0, 0}, {gunId}, p);
   inventory.OverwriteSlot({0, 1}, {gun2Id}, p);
-  inventory.OverwriteSlot({0, 2}, {pickaxeId}, p);
+  inventory.OverwriteSlot({0, 2}, {stonePickaxeId}, p);
 
   GivePlayerColliders(p);
 
@@ -1276,7 +1281,7 @@ void World::InitializeGameState()
   }
 }
 
-entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotation, float scale)
+entt::entity World::CreateRenderableEntityNoHashGrid(glm::vec3 position, glm::quat rotation, float scale)
 {
   auto e     = registry_.create();
   auto& t    = registry_.emplace<LocalTransform>(e);
@@ -1293,6 +1298,14 @@ entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotatio
   registry_.emplace<RenderTransform>(e);
   registry_.emplace<Hierarchy>(e);
 
+  registry_.emplace<NoHashGrid>(e);
+  return e;
+}
+
+entt::entity World::CreateRenderableEntity(glm::vec3 position, glm::quat rotation, float scale)
+{
+  auto e = CreateRenderableEntityNoHashGrid(position, rotation, scale);
+  registry_.remove<NoHashGrid>(e);
   registry_.ctx().get<HashGrid>().set(position, e);
   return e;
 }
@@ -2033,7 +2046,10 @@ static void RefreshGlobalTransform(entt::handle handle)
     }
   }
 
-  handle.registry()->ctx().get<HashGrid>().set(gt.position, handle.entity());
+  if (!handle.any_of<NoHashGrid>())
+  {
+    handle.registry()->ctx().get<HashGrid>().set(gt.position, handle.entity());
+  }
 
   for (auto child : h.children)
   {
@@ -2390,7 +2406,7 @@ entt::entity Gun2::Materialize(World& world) const
   return self;
 }
 
-entt::entity Pickaxe::Materialize(World& world) const
+entt::entity ToolDefinition::Materialize(World& world) const
 {
   auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0)));
   world.GetRegistry().emplace<Mesh>(self).name = "ar15";
@@ -2399,12 +2415,12 @@ entt::entity Pickaxe::Materialize(World& world) const
   return self;
 }
 
-void Pickaxe::Dematerialize(World& world, entt::entity self) const
+void ToolDefinition::Dematerialize(World& world, entt::entity self) const
 {
   world.GetRegistry().emplace<DeferredDelete>(self);
 }
 
-void Pickaxe::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
+void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
 {
   if (state.useAccum < GetUseDt())
   {
@@ -2423,7 +2439,7 @@ void Pickaxe::UsePrimary(float dt, World& world, entt::entity self, ItemState& s
   auto hit   = TwoLevelGrid::HitSurfaceParameters();
   if (grid.TraceRaySimple(pos, dir, 10, hit))
   {
-    world.DamageBlock(glm::ivec3(hit.voxelPosition), 25, 1, BlockDamageFlagBits::PICKAXE);
+    world.DamageBlock(glm::ivec3(hit.voxelPosition), blockDamage_, blockDamageTier_, blockDamageFlags_);
 
     constexpr float debrisSize = 0.0525f;
     auto cube = JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(debrisSize)));
@@ -2433,7 +2449,7 @@ void Pickaxe::UsePrimary(float dt, World& world, entt::entity self, ItemState& s
     {
       auto offset = glm::vec3(world.Rng().RandFloat(-0.125f, 0.125f), world.Rng().RandFloat(-0.125f, 0.125f), world.Rng().RandFloat(-0.125f, 0.125f));
       offset *= glm::equal(hit.flatNormalWorld, glm::vec3(0)); // Zero out the component of the normal.
-      auto e = world.CreateRenderableEntity(hit.positionWorld + offset + hit.flatNormalWorld * debrisSize / 2.0f, glm::identity<glm::quat>(), debrisSize);
+      auto e = world.CreateRenderableEntityNoHashGrid(hit.positionWorld + offset + hit.flatNormalWorld * debrisSize / 2.0f, glm::identity<glm::quat>(), debrisSize);
       reg.emplace<Mesh>(e).name = "cube";
       reg.emplace<Name>(e).name = "Debris";
       reg.emplace<Lifetime>(e).remainingSeconds = 2;

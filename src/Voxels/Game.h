@@ -114,6 +114,7 @@ public:
   void InitializeGameState();
 
   // Adds LocalTransform, GlobalTransform, InterpolatedTransform, RenderTransform, and Hierarchy components.
+  entt::entity CreateRenderableEntityNoHashGrid(glm::vec3 position, glm::quat rotation = glm::quat(1, 0, 0, 0), float scale = 1);
   entt::entity CreateRenderableEntity(glm::vec3 position, glm::quat rotation = glm::quat(1, 0, 0, 0), float scale = 1);
   entt::entity CreateDroppedItem(ItemState item, glm::vec3 position, glm::quat rotation = {1, 0, 0, 0}, float scale = 1);
 
@@ -290,12 +291,17 @@ public:
   [[nodiscard]] entt::entity Materialize(World& world) const override;
 };
 
-class Pickaxe : public ItemDefinition
+class ToolDefinition : public ItemDefinition
 {
 public:
+  ToolDefinition(std::string_view name, float blockDamage, int blockDamageTier, BlockDamageFlags blockDamageFlags, float useDt = 0.25f)
+    : name_(name), blockDamage_(blockDamage), blockDamageTier_(blockDamageTier), blockDamageFlags_(blockDamageFlags), useDt_(useDt)
+  {
+  }
+
   std::string GetName() const override
   {
-    return "Pickaxe";
+    return name_;
   }
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
@@ -305,8 +311,15 @@ public:
 
   float GetUseDt() const override
   {
-    return 0.25f;
+    return useDt_;
   }
+
+protected:
+  std::string name_;
+  float blockDamage_;
+  int blockDamageTier_;
+  BlockDamageFlags blockDamageFlags_;
+  float useDt_;
 };
 
 class Block : public ItemDefinition
@@ -757,6 +770,8 @@ struct CannotBePickedUp
 {
   float remainingSeconds = 0.5f;
 };
+
+struct NoHashGrid {};
 
 // Game class used for client and server
 class Game

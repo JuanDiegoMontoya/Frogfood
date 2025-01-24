@@ -1,10 +1,11 @@
 #pragma once
-#include "Device.h"
+#include "Descriptor.h"
 #include "TriviallyCopyableByteSpan.h"
 #include "detail/Flags.h"
+#include "detail/VmaFwd.h"
 #include "shaders/Resources.h.glsl"
 
-#include <vulkan/vulkan_core.h>
+#include "vulkan/vulkan_core.h"
 
 #include <string>
 #include <string_view>
@@ -15,6 +16,18 @@
 
 namespace Fvog
 {
+  class Buffer;
+  class Device;
+
+  namespace detail
+  {
+    void updateDataPrivate(std::optional<Buffer>* hostBuffers,
+      Buffer& deviceBuffer,
+      VkCommandBuffer commandBuffer,
+      TriviallyCopyableByteSpan data,
+      VkDeviceSize destOffsetBytes);
+  } // namespace detail
+
   // TODO: make this have less footgunny semantics
   enum class BufferFlagThingy
   {
@@ -80,7 +93,7 @@ namespace Fvog
 
     void FillData(VkCommandBuffer commandBuffer, const BufferFillInfo& clear = {});
 
-    Device::DescriptorInfo::ResourceHandle GetResourceHandle()
+    DescriptorInfo::ResourceHandle GetResourceHandle()
     {
       return descriptorInfo_.value().GpuResource();
     }
@@ -106,11 +119,13 @@ namespace Fvog
     VmaAllocation allocation_{};
     void* mappedMemory_{};
     VkDeviceAddress deviceAddress_{};
-    std::optional<Device::DescriptorInfo> descriptorInfo_;
+    std::optional<DescriptorInfo> descriptorInfo_;
     std::string name_;
 
     template<typename T>
     friend class NDeviceBuffer;
+
+    friend void detail::updateDataPrivate(std::optional<Buffer>*, Buffer&, VkCommandBuffer, TriviallyCopyableByteSpan, VkDeviceSize);
 
     static void UpdateDataGeneric(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes, Buffer& stagingBuffer, Buffer& deviceBuffer);
   };
@@ -194,20 +209,16 @@ namespace Fvog
       return deviceBuffer_;
     }
 
+    static constexpr int maxOverlap = 3;
   private:
     // Only call within a command buffer, once per frame
     void updateData(VkCommandBuffer commandBuffer, TriviallyCopyableByteSpan data, VkDeviceSize destOffsetBytes = 0)
     {
-      if (data.size() == 0)
-      {
-        return;
-      }
-      auto& stagingBuffer = *hostStagingBuffers_[Fvog::GetDevice().frameNumber % Device::frameOverlap];
-      stagingBuffer.UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, deviceBuffer_);
+      detail::updateDataPrivate(hostStagingBuffers_, deviceBuffer_, commandBuffer, data, destOffsetBytes);
     }
 
     // Use optional as a hacky way to allow for deferred initialization.
-    std::optional<TypedBuffer<T>> hostStagingBuffers_[Device::frameOverlap];
+    std::optional<Buffer> hostStagingBuffers_[maxOverlap];
     TypedBuffer<T> deviceBuffer_;
   };
 
@@ -256,7 +267,7 @@ namespace Fvog
       return static_cast<std::byte*>(buffer_.GetMappedMemory());
     }
 
-    [[nodiscard]] Fvog::Device::DescriptorInfo::ResourceHandle GetResourceHandle()
+    [[nodiscard]] DescriptorInfo::ResourceHandle GetResourceHandle()
     {
       return buffer_.GetResourceHandle();
     }
@@ -305,7 +316,7 @@ namespace Fvog
       return currentSize_;
     }
 
-    [[nodiscard]] Fvog::Device::DescriptorInfo::ResourceHandle GetResourceHandle()
+    [[nodiscard]] DescriptorInfo::ResourceHandle GetResourceHandle()
     {
       return buffer_.GetResourceHandle();
     }

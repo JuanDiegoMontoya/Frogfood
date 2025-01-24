@@ -11,3 +11,7 @@
 #define NO_COPY_NO_MOVE(T) \
   NO_COPY(T);              \
   NO_MOVE(T)
+
+#define DEFAULT_MOVE(T)                 \
+  T(T&&) noexcept            = default; \
+  T& operator=(T&&) noexcept = default

@@ -2,6 +2,7 @@
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Shader2.h"
 
+#include <cassert>
 #include <unordered_map>
 #include <memory>
 #include <filesystem>

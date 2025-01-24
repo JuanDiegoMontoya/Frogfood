@@ -1,7 +1,6 @@
 #pragma once
-
 #include "BasicTypes2.h"
-#include "Device.h"
+#include "Descriptor.h"
 #include "shaders/Resources.h.glsl"
 
 #include <vulkan/vulkan_core.h>
@@ -11,6 +10,7 @@
 #include <string_view>
 #include <optional>
 #include <memory>
+#include <cassert>
 
 typedef struct VmaAllocation_T* VmaAllocation;
 
@@ -101,7 +101,7 @@ namespace Fvog
       return sampler_;
     }
 
-    [[nodiscard]] Device::DescriptorInfo::ResourceHandle GetResourceHandle() const noexcept
+    [[nodiscard]] DescriptorInfo::ResourceHandle GetResourceHandle() const noexcept
     {
       return descriptorInfo_->GpuResource();
     }
@@ -114,12 +114,12 @@ namespace Fvog
   private:
     friend class detail::SamplerCache;
 
-    explicit Sampler(VkSampler sampler, Device::DescriptorInfo& descriptorInfo)
+    explicit Sampler(VkSampler sampler, DescriptorInfo& descriptorInfo)
       : sampler_(sampler),
         descriptorInfo_(&descriptorInfo) {}
     
     VkSampler sampler_{};
-    Device::DescriptorInfo* descriptorInfo_;
+    DescriptorInfo* descriptorInfo_;
   };
 
   class TextureView
@@ -153,12 +153,12 @@ namespace Fvog
       return imageView_;
     }
 
-    [[nodiscard]] Device::DescriptorInfo::ResourceHandle GetSampledResourceHandle() noexcept
+    [[nodiscard]] DescriptorInfo::ResourceHandle GetSampledResourceHandle() noexcept
     {
       return sampledDescriptorInfo_.value().GpuResource();
     }
 
-    [[nodiscard]] Device::DescriptorInfo::ResourceHandle GetStorageResourceHandle() noexcept
+    [[nodiscard]] DescriptorInfo::ResourceHandle GetStorageResourceHandle() noexcept
     {
       return storageDescriptorInfo_.value().GpuResource();
     }
@@ -197,8 +197,8 @@ namespace Fvog
   private:
     TextureViewCreateInfo createInfo_{};
     VkImageView imageView_{};
-    std::optional<Device::DescriptorInfo> sampledDescriptorInfo_;
-    std::optional<Device::DescriptorInfo> storageDescriptorInfo_;
+    std::optional<DescriptorInfo> sampledDescriptorInfo_;
+    std::optional<DescriptorInfo> storageDescriptorInfo_;
 
     // Duplicate of parent data to avoid potential dangling pointers
     TextureCreateInfo parentCreateInfo_{};

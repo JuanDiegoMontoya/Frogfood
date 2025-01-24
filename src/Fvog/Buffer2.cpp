@@ -1,4 +1,5 @@
 #include "Buffer2.h"
+#include "Device.h"
 
 #include "detail/Common.h"
 
@@ -13,8 +14,11 @@
 #include <cstddef>
 #include <utility>
 
+
 namespace Fvog
 {
+  static_assert(NDeviceBuffer<>::maxOverlap >= Device::frameOverlap);
+
   Buffer::Buffer(const BufferCreateInfo& createInfo, std::string name)
     : createInfo_(createInfo),
       name_(std::move(name))
@@ -323,3 +327,17 @@ namespace Fvog
     currentSize_ -= allocation.size;
   }
 } // namespace Fvog
+
+void Fvog::detail::updateDataPrivate(std::optional<Buffer>* hostBuffers,
+  Buffer& deviceBuffer,
+  VkCommandBuffer commandBuffer,
+  TriviallyCopyableByteSpan data,
+  VkDeviceSize destOffsetBytes)
+{
+  if (data.size() == 0)
+  {
+    return;
+  }
+  auto& stagingBuffer = *hostBuffers[Fvog::GetDevice().frameNumber % Device::frameOverlap];
+  stagingBuffer.UpdateDataGeneric(commandBuffer, data, destOffsetBytes, stagingBuffer, deviceBuffer);
+}

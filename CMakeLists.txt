@@ -98,6 +98,27 @@ add_executable(frogRender
     src/techniques/denoising/spatial/Bilateral.h
     src/techniques/denoising/spatial/Bilateral.cpp
     src/Voxels/HashGrid.h
+    src/Fvog/Descriptor.h
+    src/Fvog/Descriptor.cpp
+    src/Fvog/detail/VmaFwd.h
+)
+
+# Precompiled headers for standard library
+target_precompile_headers(frogRender PUBLIC 
+    <algorithm>
+    <array>
+    <bit>
+    <chrono>
+    <filesystem>
+    <functional>
+    <memory>
+    <optional>
+    <string>
+    <span>
+    <unordered_map>
+    <unordered_set>
+    <variant>
+    <vector>
 )
 
 target_compile_options(frogRender
@@ -108,6 +129,7 @@ target_compile_options(frogRender
     -pedantic-errors
     -Wno-missing-field-initializers
     -Wno-unused-result
+    -ftime-trace
     >
     $<$<CXX_COMPILER_ID:MSVC>:
     /W4

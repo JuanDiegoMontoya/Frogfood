@@ -4,6 +4,7 @@
 #include "MathUtilities.h"
 #include "PipelineManager.h"
 #include "imgui.h"
+#include "Fvog/Device.h"
 #include "Fvog/Rendering2.h"
 #include "Fvog/detail/Common.h"
 #include "shaders/Config.shared.h"

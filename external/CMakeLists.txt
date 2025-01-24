@@ -51,7 +51,7 @@ option(KTX_FEATURE_STATIC_LIBRARY "" ON)
 FetchContent_Declare(
     ktx
     GIT_REPOSITORY https://github.com/KhronosGroup/KTX-Software.git
-    GIT_TAG        v4.1.0
+    GIT_TAG        v4.3.2
     SYSTEM
 )
 
@@ -203,3 +203,16 @@ set(IMPLOT_SOURCE ${implot_SOURCE_DIR} PARENT_SCOPE)
 FetchContent_MakeAvailable(glfw)
 
 target_compile_definitions(glm INTERFACE GLM_FORCE_SILENT_WARNINGS)
+
+# Precompiled headers for third-party libraries
+target_precompile_headers(frogRender PUBLIC
+    "${entt_SOURCE_DIR}/src/entt/entity/registry.hpp"
+    "${entt_SOURCE_DIR}/src/entt/entity/entity.hpp"
+    "${joltphysics_SOURCE_DIR}/Jolt/Jolt.h"
+    "${joltphysics_SOURCE_DIR}/Jolt/Physics/Body/Body.h"
+    "${glm_SOURCE_DIR}/glm/vec4.hpp"
+    "${glm_SOURCE_DIR}/glm/vec3.hpp"
+    "${glm_SOURCE_DIR}/glm/vec2.hpp"
+    "${glm_SOURCE_DIR}/glm/mat4x4.hpp"
+    "${glm_SOURCE_DIR}/glm/gtc/quaternion.hpp"
+)

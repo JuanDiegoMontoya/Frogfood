@@ -35,6 +35,6 @@ namespace Fvog::detail
   private:
     Device* device_;
     std::unordered_map<SamplerCreateInfo, Sampler> samplerCache_;
-    std::unordered_map<SamplerCreateInfo, Device::DescriptorInfo> descriptorCache_;
+    std::unordered_map<SamplerCreateInfo, DescriptorInfo> descriptorCache_;
   };
 } // namespace Fwog::detail

@@ -1,4 +1,5 @@
 #include "AccelerationStructure.h"
+#include "Device.h"
 #include "detail/Common.h"
 
 #include <volk.h>

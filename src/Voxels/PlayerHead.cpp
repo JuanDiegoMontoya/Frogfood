@@ -9,6 +9,7 @@
 #include <glslang/Public/ShaderLang.h>
 #include <volk.h>
 
+#include "Fvog/Device.h"
 #include "Fvog/Buffer2.h"
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Rendering2.h"

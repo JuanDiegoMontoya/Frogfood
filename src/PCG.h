@@ -1,6 +1,11 @@
 #pragma once
+#define PCG_USE_UB_OPT
 #include <cstdint>
+
+// <bit> is expensive to include, so an alternative is to use a union, although it invokes UB.
+#ifndef PCG_USE_UB_OPT
 #include <bit>
+#endif
 
 namespace PCG
 {
@@ -24,7 +29,16 @@ namespace PCG
   constexpr float RandFloat(std::uint32_t& state, float min = 0, float max = 1)
   {
     state = RandU32(state);
+#ifdef PCG_USE_UB_OPT
+    union
+    {
+      std::uint32_t uu = 0x2f800004u;
+      float uf;
+    }a;
+    float f = float(state) * a.uf;
+#else
     float f = float(state) * std::bit_cast<float>(0x2f800004u);
+#endif
     return f * (max - min) + min;
   }
 

@@ -149,7 +149,7 @@ namespace Fvog
       return createInfo_;
     }
 
-    Device::DescriptorInfo::ResourceHandle GetResourceHandle()
+    DescriptorInfo::ResourceHandle GetResourceHandle()
     {
       return descriptorInfo_.value().GpuResource();
     }
@@ -160,7 +160,7 @@ namespace Fvog
     std::optional<Buffer> buffer_;
     // Address of the acceleration structure
     VkDeviceSize address_;
-    std::optional<Device::DescriptorInfo> descriptorInfo_;
+    std::optional<DescriptorInfo> descriptorInfo_;
 
     TlasCreateInfo createInfo_;
   };

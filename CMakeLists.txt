@@ -126,8 +126,20 @@ target_compile_options(frogRender
     $<$<OR:$<CXX_COMPILER_ID:AppleClang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:
     -Wall
     -Wextra
+    -Wpedantic
     -pedantic-errors
     -Wno-missing-field-initializers
+    -Wno-unsafe-buffer-usage
+    -Wno-pre-c++17-compat
+    -Wno-c++98-compat
+    -Wno-c++98-compat-pedantic
+    -Wno-c++98-c++11-compat-binary-literal
+    -Wno-c++98-compat-extra-semi
+    -Wno-cast-function-type-strict # vkb generates a lot of these warnings
+    -Wno-documentation # glfw generates these
+    -Wno-documentation-unknown-command # glfw
+    -Wno-double-promotion # stbi
+    -Wno-old-style-cast
     -Wno-unused-result
     -ftime-trace
     >

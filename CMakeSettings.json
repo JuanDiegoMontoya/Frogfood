@@ -63,6 +63,23 @@
           "type": "BOOL"
         }
       ]
+    },
+    {
+      "name": "x64-Debug-Clang",
+      "generator": "Ninja",
+      "configurationType": "Debug",
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "clang_cl_x64_x64" ],
+      "variables": [
+        {
+          "name": "FROGRENDER_FSR2_ENABLE",
+          "value": "True",
+          "type": "BOOL"
+        }
+      ]
     }
   ]
 }

@@ -89,11 +89,15 @@ public:
   explicit VoxelRenderer(PlayerHead* head, World& world);
   ~VoxelRenderer();
 
+  void CreateRenderingMaterials(std::span<const std::unique_ptr<BlockDefinition>> blockDefinitions);
+
 private:
 
   void OnFramebufferResize(uint32_t newWidth, uint32_t newHeight);
   void OnRender(double dt, World& world, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex);
   void OnGui(DeltaTime dt, World& world, VkCommandBuffer commandBuffer);
+
+  Fvog::Texture& GetOrEmplaceCachedTexture(const std::string& name);
 
   struct Frame
   {
@@ -101,6 +105,7 @@ private:
     constexpr static Fvog::Format sceneAlbedoFormat = Fvog::Format::R8G8B8A8_SRGB;
     std::optional<Fvog::Texture> sceneNormal;
     constexpr static Fvog::Format sceneNormalFormat = Fvog::Format::R16G16B16A16_SNORM; // TODO: should be oct
+    std::optional<Fvog::Texture> sceneRadiance;
     std::optional<Fvog::Texture> sceneIlluminance;
     std::optional<Fvog::Texture> sceneIlluminancePingPong;
     constexpr static Fvog::Format sceneIlluminanceFormat = Fvog::Format::R16G16B16A16_SFLOAT;

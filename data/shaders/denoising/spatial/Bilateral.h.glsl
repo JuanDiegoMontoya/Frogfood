@@ -1,4 +1,4 @@
-//#define KERNEL_5x5
+#define KERNEL_5x5
 #include "Kernels.h.glsl"
 #include "Common.h.glsl"
 #include "../../Resources.h.glsl"

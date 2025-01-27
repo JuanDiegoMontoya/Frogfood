@@ -20,6 +20,7 @@ namespace Techniques
     {
       shared::Texture2D albedo;
       shared::Texture2D illuminance;
+      shared::Texture2D radiance;
       shared::Image2D sceneColor;
     };
   }
@@ -99,6 +100,7 @@ namespace Techniques
       ctx.SetPushConstants(ModulateArgs{
         .albedo      = args.sceneAlbedo->ImageView().GetTexture2D(),
         .illuminance = args.sceneIlluminance->ImageView().GetTexture2D(),
+        .radiance    = args.sceneRadiance->ImageView().GetTexture2D(),
         .sceneColor  = args.sceneColor->ImageView().GetImage2D(),
       });
       ctx.DispatchInvocations(args.sceneColor->GetCreateInfo().extent);

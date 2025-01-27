@@ -148,7 +148,7 @@ namespace
     return mesh;
   }
 
-  Fvog::Texture LoadImageFile(const std::filesystem::path& path)
+  [[nodiscard]] Fvog::Texture LoadImageFile(const std::filesystem::path& path)
   {
     int x            = 0;
     int y            = 0;
@@ -214,7 +214,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
         .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = FVOG_COMPARE_OP_NEARER_OR_EQUAL},
         .renderTargetFormats =
           {
-            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat, Frame::sceneIlluminanceFormat}},
             .depthAttachmentFormat = Frame::sceneDepthFormat,
           },
       },
@@ -238,7 +238,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
         .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = FVOG_COMPARE_OP_NEARER},
         .renderTargetFormats =
           {
-            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat, Frame::sceneIlluminanceFormat}},
             .depthAttachmentFormat  = Frame::sceneDepthFormat,
           },
       },
@@ -296,7 +296,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
           },
         .renderTargetFormats =
           {
-            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat, Frame::sceneIlluminanceFormat}},
             .depthAttachmentFormat  = Frame::sceneDepthFormat,
           },
       },
@@ -337,23 +337,6 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
 
   noiseTexture = LoadImageFile("bluenoise256.png");
 
-  stringToTexture.try_emplace("stone_albedo", LoadImageFile("voxels/stone_albedo.png"));
-
-  auto voxelMaterials = std::vector<GpuVoxelMaterial>(1);
-  voxelMaterials.emplace_back(GpuVoxelMaterial{
-    .materialFlags    = MaterialFlagBit::HAS_BASE_COLOR_TEXTURE | MaterialFlagBit::RANDOMIZE_TEXCOORDS_ROTATION,
-    .baseColorTexture = stringToTexture.at("stone_albedo").ImageView().GetTexture2D(),
-    .baseColorFactor  = {1, 1, 1},
-    .emissionFactor   = {0, 0, 0},
-  });
-  voxelMaterials.emplace_back(GpuVoxelMaterial{
-    .materialFlags    = {},
-    .baseColorFactor  = {.5f, .5f, .5f},
-    .emissionFactor   = {1, 5, 1},
-  });
-  voxelMaterialBuffer = Fvog::Buffer({.size = voxelMaterials.size() * sizeof(GpuVoxelMaterial), .flag = Fvog::BufferFlagThingy::NONE}, "Voxel Material Buffer");
-  Fvog::GetDevice().ImmediateSubmit([&](VkCommandBuffer cmd) { voxelMaterialBuffer->UpdateDataExpensive(cmd, std::span(voxelMaterials)); });
-
   OnFramebufferResize(head_->windowFramebufferWidth, head_->windowFramebufferHeight);
 }
 
@@ -373,6 +356,40 @@ VoxelRenderer::~VoxelRenderer()
 //#endif
 }
 
+void VoxelRenderer::CreateRenderingMaterials(std::span<const std::unique_ptr<BlockDefinition>> blockDefinitions)
+{
+  auto voxelMaterials = std::vector<GpuVoxelMaterial>();
+
+  // Translate block definitions to GPU materials, then upload.
+  for (const auto& def : blockDefinitions)
+  {
+    const auto& desc = def->GetMaterialDesc();
+
+    auto gpuMat = GpuVoxelMaterial{};
+    gpuMat.baseColorFactor = desc.baseColorFactor;
+    gpuMat.emissionFactor  = desc.emissionFactor;
+    if (desc.randomizeTexcoordRotation)
+    {
+      gpuMat.materialFlags |= MaterialFlagBit::RANDOMIZE_TEXCOORDS_ROTATION;
+    }
+    if (desc.baseColorTexture)
+    {
+      gpuMat.materialFlags |= MaterialFlagBit::HAS_BASE_COLOR_TEXTURE;
+      gpuMat.baseColorTexture = GetOrEmplaceCachedTexture(*desc.baseColorTexture).ImageView().GetTexture2D();
+    }
+    if (desc.emissionTexture)
+    {
+      gpuMat.materialFlags |= MaterialFlagBit::HAS_EMISSION_TEXTURE;
+      gpuMat.emissionTexture = GetOrEmplaceCachedTexture(*desc.emissionTexture).ImageView().GetTexture2D();
+    }
+
+    voxelMaterials.emplace_back(gpuMat);
+  }
+
+  voxelMaterialBuffer = Fvog::Buffer({.size = voxelMaterials.size() * sizeof(GpuVoxelMaterial), .flag = Fvog::BufferFlagThingy::NONE}, "Voxel Material Buffer");
+  Fvog::GetDevice().ImmediateSubmit([&](VkCommandBuffer cmd) { voxelMaterialBuffer->UpdateDataExpensive(cmd, std::span(voxelMaterials)); });
+}
+
 void VoxelRenderer::OnFramebufferResize(uint32_t newWidth, uint32_t newHeight)
 {
   ZoneScoped;
@@ -380,6 +397,7 @@ void VoxelRenderer::OnFramebufferResize(uint32_t newWidth, uint32_t newHeight)
   const auto extent      = VkExtent2D{newWidth, newHeight};
   frame.sceneAlbedo      = Fvog::CreateTexture2D(extent, Frame::sceneAlbedoFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene albedo");
   frame.sceneNormal      = Fvog::CreateTexture2D(extent, Frame::sceneNormalFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene normal");
+  frame.sceneRadiance    = Fvog::CreateTexture2D(extent, Frame::sceneIlluminanceFormat, Fvog::TextureUsage::GENERAL, "Scene radiance");
   frame.sceneIlluminance = Fvog::CreateTexture2D(extent, Frame::sceneIlluminanceFormat, Fvog::TextureUsage::GENERAL, "Scene illuminance");
   frame.sceneIlluminancePingPong = Fvog::CreateTexture2D(extent, Frame::sceneIlluminanceFormat, Fvog::TextureUsage::GENERAL, "Scene illuminance 2");
   frame.sceneDepth       = Fvog::CreateTexture2D(extent, Frame::sceneDepthFormat, Fvog::TextureUsage::ATTACHMENT_READ_ONLY, "Scene depth");
@@ -452,6 +470,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
   ctx.ImageBarrierDiscard(frame.sceneAlbedo.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   ctx.ImageBarrierDiscard(frame.sceneNormal.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   ctx.ImageBarrierDiscard(frame.sceneIlluminance.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  ctx.ImageBarrierDiscard(frame.sceneRadiance.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
   ctx.ImageBarrierDiscard(frame.sceneDepth.value(), VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
   perFrameUniforms.UpdateData(commandBuffer,
@@ -557,7 +576,11 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .texture = frame.sceneIlluminance.value().ImageView(),
       .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
     };
-    Fvog::RenderColorAttachment colorAttachments[] = {albedoAttachment, normalAttachment, illuminanceAttachment};
+    auto radianceAttachment = Fvog::RenderColorAttachment{
+      .texture = frame.sceneRadiance.value().ImageView(),
+      .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+    };
+    Fvog::RenderColorAttachment colorAttachments[] = {albedoAttachment, normalAttachment, illuminanceAttachment, radianceAttachment};
     auto depthAttachment = Fvog::RenderDepthStencilAttachment{
       .texture = frame.sceneDepth.value().ImageView(),
       .loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -636,6 +659,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .sceneAlbedo              = &frame.sceneAlbedo.value(),
       .sceneNormal              = &frame.sceneNormal.value(),
       .sceneDepth               = &frame.sceneDepth.value(),
+      .sceneRadiance            = &frame.sceneRadiance.value(),
       .sceneIlluminance         = &frame.sceneIlluminance.value(),
       .sceneIlluminancePingPong = &frame.sceneIlluminancePingPong.value(),
       .sceneColor               = &frame.sceneColor.value(),
@@ -789,8 +813,9 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
               nameStr += "\n" + std::to_string(slot.count) + "/" + std::to_string(def.GetMaxStackSize());
             }
           }
-          auto name = nameStr.c_str();
-          if (ImGui::Selectable(name, i.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
+          const auto name = nameStr.c_str();
+          const auto cursorPos = ImGui::GetCursorPos();
+          if (ImGui::Selectable(("##" + nameStr).c_str(), i.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
           {
             i.SetActiveSlot(currentSlotCoord, playerEntity);
           }
@@ -811,6 +836,8 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             }
             ImGui::EndDragDropTarget();
           }
+          ImGui::SetCursorPos(cursorPos);
+          ImGui::TextWrapped("%s", name);
           ImGui::PopID();
         }
         ImGui::PopID();
@@ -872,7 +899,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           for (const auto& output : recipe.output)
           {
             const auto& def = itemRegistry.Get(output.item);
-            ImGui::Text("%s: %d", def.GetName().c_str(), output.count);
+            ImGui::TextWrapped("%s: %d", def.GetName().c_str(), output.count);
           }
           ImGui::Unindent();
 
@@ -881,7 +908,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           for (const auto& ingredient : recipe.ingredients)
           {
             const auto& def = itemRegistry.Get(ingredient.item);
-            ImGui::Text("%s: %d", def.GetName().c_str(), ingredient.count);
+            ImGui::TextWrapped("%s: %d", def.GetName().c_str(), ingredient.count);
           }
           ImGui::Unindent();
           ImGui::EndDisabled();
@@ -1072,7 +1099,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::SeparatorText("DroppedItem");
             const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(d->item.id);
             ImGui::Text("%u (%s)", d->item.id, d->item.id != nullItem ? def.GetName().c_str() : "NULL");
-            ImGui::Text("%llu / %llu", d->item.count, def.GetMaxStackSize());
+            ImGui::Text("%d / %d", d->item.count, def.GetMaxStackSize());
           }
           if (const auto* lp = registry.try_get<LinearPath>(e))
           {
@@ -1163,4 +1190,17 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     }
     ImGui::End();
   }
+}
+
+Fvog::Texture& VoxelRenderer::GetOrEmplaceCachedTexture(const std::string& name)
+{
+  if (auto it = stringToTexture.find(name); it != stringToTexture.end())
+  {
+    return it->second;
+  }
+
+  // Make a very sketchy and unscalable assumption about the path.
+  auto texture = LoadImageFile(std::filesystem::path("voxels") / (name + ".png"));
+
+  return stringToTexture.emplace(name, std::move(texture)).first->second;
 }

@@ -20,7 +20,8 @@ namespace Techniques
       Fvog::Texture* sceneAlbedo;
       Fvog::Texture* sceneNormal;
       Fvog::Texture* sceneDepth;
-      
+
+      Fvog::Texture* sceneRadiance; // Direct lighting
       Fvog::Texture* sceneIlluminance; // Will be overwritten with 2+ passes
       Fvog::Texture* sceneIlluminancePingPong; // Always overwritten
       Fvog::Texture* sceneColor; // Output

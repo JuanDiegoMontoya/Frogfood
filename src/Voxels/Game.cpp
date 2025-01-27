@@ -323,6 +323,7 @@ Game::Game(uint32_t tickHz)
   world_->GetRegistry().ctx().emplace_as<float>("time"_hs) = 0; // TODO: TEMP
   world_->GetRegistry().ctx().emplace<Pathfinding::PathCache>(); // Note: should be invalidated when voxel grid changes
   world_->GetRegistry().ctx().emplace<HashGrid>(16);
+  world_->GetRegistry().ctx().emplace<Head*>() = head_.get(); // Hack
 
   world_->GetRegistry().on_construct<DeferredDelete>().connect<&OnDeferredDeleteConstruct>();
   world_->GetRegistry().on_construct<NoclipCharacterController>().connect<&OnNoclipCharacterControllerConstruct>();
@@ -1108,10 +1109,42 @@ void World::InitializeGameState()
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
   [[maybe_unused]] const auto stonePickaxeId   = items.Add(new ToolDefinition("Stone Pickaxe", 20, 1, BlockDamageFlagBits::PICKAXE));
   [[maybe_unused]] const auto opPickaxeId   = items.Add(new ToolDefinition("OP Pickaxe", 1000, 1, BlockDamageFlagBits::PICKAXE | BlockDamageFlagBits::AXE, 0.05f));
-  [[maybe_unused]] const auto stoneBlockId = items.Add(new Block(1));
-  [[maybe_unused]] const auto frogLightBlockId = items.Add(new Block(2));
   [[maybe_unused]] const auto spearId = items.Add(new Spear());
+
+  auto& blocks = registry_.ctx().insert_or_assign<BlockRegistry>(*this);
+  [[maybe_unused]] const auto stoneBlockId = blocks.Get(blocks.Add(new BlockDefinition({
+    .name = "Stone",
+    .voxelMaterialDesc =
+      {
+        .randomizeTexcoordRotation = true,
+        .baseColorTexture          = "stone_albedo",
+      },
+  }))).GetItemId();
+
+  [[maybe_unused]] const auto frogLightId = blocks.Get(blocks.Add(new BlockDefinition({
+    .name              = "Frog light",
+    .voxelMaterialDesc = {
+      .baseColorFactor = {0, 0, 0},
+      .emissionFactor = {1, 5, 1}},
+  }))).GetItemId();
   
+  [[maybe_unused]] const auto bombId = blocks.Get(blocks.Add(new ExplodeyBlockDefinition(3, {
+    .name              = "Bomb",
+    .voxelMaterialDesc = {
+      .baseColorFactor = {0.8f, 0.2f, 0.2f},
+      .emissionFactor = {0.1f, 0.1f, 0.1f}},
+  }))).GetItemId();
+
+  [[maybe_unused]] const auto stupidBombId = blocks.Get(blocks.Add(new ExplodeyBlockDefinition(8, {
+    .name              = "Stupid Bomb",
+    .voxelMaterialDesc = {
+      .baseColorFactor = {0.8f, 0.2f, 0.2f},
+      .emissionFactor = {0.5f, 0.1f, 0.1f}},
+  }))).GetItemId();
+
+  auto* head = registry_.ctx().get<Head*>();
+  head->CreateRenderingMaterials(blocks.GetAllDefinitions());
+
   auto& crafting = registry_.ctx().insert_or_assign<Crafting>({});
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stoneBlockId, 1}},
@@ -1132,6 +1165,14 @@ void World::InitializeGameState()
   crafting.recipes.emplace_back(Crafting::Recipe{
     {},
     {{opPickaxeId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {},
+    {{bombId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {},
+    {{stupidBombId, 1}},
   });
 
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
@@ -1926,6 +1967,11 @@ entt::entity World::CreateTunnelingWorm(glm::vec3 position)
 float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, BlockDamageFlags damageType)
 {
   auto& grid = registry_.ctx().get<TwoLevelGrid>();
+  auto voxel = grid.GetVoxelAt(voxelPos);
+  if (voxel == 0)
+  {
+    return 100;
+  }
 
   entt::entity foundEntity = entt::null;
   BlockHealth* hp = nullptr;
@@ -1948,7 +1994,6 @@ float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, Bloc
   }
 
   registry_.emplace_or_replace<Lifetime>(foundEntity).remainingSeconds = 5;
-  auto voxel = grid.GetVoxelAt(voxelPos);
 
   // TODO: look up block properties from table.
   if (voxel == 1 && ((damageType & BlockDamageFlagBits::PICKAXE).flags == 0 || damageTier < 1))
@@ -1960,15 +2005,16 @@ float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, Bloc
   if (hp->health <= 0)
   {
     const auto prevVoxel = grid.GetVoxelAt(voxelPos);
-    grid.SetVoxelAt(voxelPos, 0);
+    const auto& blockDef = registry_.ctx().get<BlockRegistry>().Get(prevVoxel);
+    blockDef.OnDestroyBlock(*this, voxelPos);
 
-    auto itemId         = registry_.ctx().get<ItemRegistry>().GetId("Block " + std::to_string(prevVoxel));
+    const auto itemId   = blockDef.GetItemId();
     const auto& itemDef = registry_.ctx().get<ItemRegistry>().Get(itemId);
     auto itemSelf       = itemDef.Materialize(*this);
 
     registry_.get<LocalTransform>(itemSelf).position = worldPos;
     UpdateLocalTransform({registry_, itemSelf});
-    auto& rb                                = itemDef.GiveCollider(*this, itemSelf);
+    auto& rb = itemDef.GiveCollider(*this, itemSelf);
     registry_.emplace<DroppedItem>(itemSelf).item = ItemState{itemId};
 
     const auto throwdir = glm::vec3(Rng().RandFloat(-0.25f, 0.25f), 1, Rng().RandFloat(-0.25f, 0.25f));
@@ -2497,8 +2543,10 @@ void Block::UsePrimary(float dt, World& world, entt::entity self, ItemState& sta
       const auto newPos = glm::ivec3(hit.voxelPosition + hit.flatNormalWorld);
       if (grid.GetVoxelAt(newPos) == 0)
       {
-        state.count--;
-        grid.SetVoxelAt(newPos, voxel);
+        if (world.GetRegistry().ctx().get<BlockRegistry>().Get(voxel).OnTryPlaceBlock(world, newPos))
+        {
+          state.count--;
+        }
       }
     }
   }
@@ -2658,4 +2706,61 @@ entt::entity Spear::Materialize(World& world) const
 void Spear::Dematerialize(World& world, entt::entity self) const
 {
   world.GetRegistry().emplace<DeferredDelete>(self);
+}
+
+BlockDefinition::BlockDefinition(const CreateInfo& info)
+  : createInfo_(info)
+{}
+
+bool BlockDefinition::OnTryPlaceBlock(World& world, glm::ivec3 voxelPosition) const
+{
+  auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
+  grid.SetVoxelAt(voxelPosition, GetBlockId());
+  return true;
+}
+
+void BlockDefinition::OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const
+{
+  auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
+  grid.SetVoxelAt(voxelPosition, 0);
+}
+
+const BlockDefinition& BlockRegistry::Get(BlockId id) const
+{
+  return *idToDefinition_.at(id);
+}
+
+BlockId BlockRegistry::Add(BlockDefinition* blockDefinition)
+{
+  assert(!nameToId_.contains(blockDefinition->GetName()));
+  assert(world_->GetRegistry().ctx().contains<ItemRegistry>());
+
+  const auto myBlockId = (BlockId)idToDefinition_.size();
+  blockDefinition->blockId_ = myBlockId;
+
+  nameToId_.emplace(blockDefinition->GetName(), myBlockId);
+  idToDefinition_.emplace_back(blockDefinition);
+
+  auto& itemRegistry = world_->GetRegistry().ctx().get<ItemRegistry>();
+  blockDefinition->itemId_ = itemRegistry.Add(new Block(myBlockId, blockDefinition->GetName()));
+
+  return myBlockId;
+}
+
+void ExplodeyBlockDefinition::OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const
+{
+  BlockDefinition::OnDestroyBlock(world, voxelPosition);
+  
+  const auto cr = (int)ceil(radius_);
+  // Additionally damage all blocks in a radius.
+  for (int z = -cr; z <= cr; z++)
+  for (int y = -cr; y <= cr; y++)
+  for (int x = -cr; x <= cr; x++)
+  {
+    const auto newPos = voxelPosition + glm::ivec3(x, y, z);
+    if (Math::Distance2(voxelPosition, newPos) <= radius_ * radius_ && newPos != voxelPosition)
+    {
+      world.DamageBlock(newPos, 100, 1, BlockDamageFlagBits::PICKAXE | BlockDamageFlagBits::AXE);
+    }
+  }
 }

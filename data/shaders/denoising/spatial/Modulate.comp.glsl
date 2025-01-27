@@ -5,6 +5,7 @@ FVOG_DECLARE_ARGUMENTS(ModulateArgs)
 {
   Texture2D albedo;
   Texture2D illuminance;
+  Texture2D radiance;
   Image2D sceneColor;
 }pc;
 
@@ -21,6 +22,7 @@ void main()
 
   vec3 albedo = texelFetch(pc.albedo, gid, 0).rgb;
   vec3 ambient = texelFetch(pc.illuminance, gid, 0).rgb;
+  vec3 direct = texelFetch(pc.radiance, gid, 0).rgb;
 
-  imageStore(pc.sceneColor, gid, vec4(pow(ambient * albedo, vec3(1 / 2.2)), 1.0));
+  imageStore(pc.sceneColor, gid, vec4(pow(direct + ambient * albedo, vec3(1 / 2.2)), 1.0));
 }

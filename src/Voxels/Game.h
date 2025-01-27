@@ -80,6 +80,16 @@ FVOG_DECLARE_FLAG_TYPE(TeamFlags, TeamFlagBits, uint32_t);
 using ItemId              = uint32_t;
 constexpr ItemId nullItem = ~0u;
 
+struct ItemState
+{
+  ItemId id      = nullItem;
+  int count      = 1;
+  float useAccum = 1000;
+};
+
+using BlockId               = TwoLevelGrid::voxel_t;
+constexpr BlockId nullBlock = ~0u;
+
 enum class BlockDamageFlagBits
 {
   NONE    = 0,
@@ -88,6 +98,86 @@ enum class BlockDamageFlagBits
 };
 
 FVOG_DECLARE_FLAG_TYPE(BlockDamageFlags, BlockDamageFlagBits, uint32_t);
+
+struct VoxelMaterialDesc
+{
+  bool randomizeTexcoordRotation = false;
+  std::optional<std::string> baseColorTexture;
+  glm::vec3 baseColorFactor = {1, 1, 1};
+  std::optional<std::string> emissionTexture;
+  glm::vec3 emissionFactor = {0, 0, 0};
+};
+
+class BlockDefinition
+{
+public:
+  struct CreateInfo
+  {
+    std::string name;
+    // Giving every block a unique set of materials isn't ideal, but it will suffice in the short run.
+    VoxelMaterialDesc voxelMaterialDesc;
+  };
+
+  explicit BlockDefinition(const CreateInfo& info);
+  virtual ~BlockDefinition() = default;
+  
+  NO_COPY_NO_MOVE(BlockDefinition);
+
+  // Weakly attempt to place the block at the given position.
+  // Returns whether the attempt succeeded (could fail due to
+  // insufficient space, e.g. for multiblock structures or if
+  // there's an entity in the way.
+  virtual bool OnTryPlaceBlock(World& world, glm::ivec3 voxelPosition) const;
+
+  virtual void OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const;
+
+  // What the block drops when it is destroyed. Options: nothing, an item,
+  // or pick a loot drop from a string. By default, a block will drop the item associated
+  // with itself.
+  virtual std::variant<std::monostate, ItemState, std::string> GetLootDropType() const
+  {
+    return ItemState{.id = itemId_};
+  }
+
+  [[nodiscard]] std::string GetName() const
+  {
+    return createInfo_.name;
+  }
+
+  [[nodiscard]] VoxelMaterialDesc GetMaterialDesc() const
+  {
+    return createInfo_.voxelMaterialDesc;
+  }
+
+  [[nodiscard]] ItemId GetItemId() const
+  {
+    return itemId_;
+  }
+
+  [[nodiscard]] BlockId GetBlockId() const
+  {
+    return blockId_;
+  }
+
+protected:
+  CreateInfo createInfo_;
+
+  // Item and block IDs are set when added to registry
+  friend class BlockRegistry;
+  ItemId itemId_{};
+  BlockId blockId_{};
+};
+
+class ExplodeyBlockDefinition : public BlockDefinition
+{
+public:
+  explicit ExplodeyBlockDefinition(float radius, const CreateInfo& info)
+    : BlockDefinition(info), radius_(radius) {}
+  void OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const override;
+
+private:
+  float radius_;
+};
 
 class World
 {
@@ -158,20 +248,47 @@ public:
 
   float DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, BlockDamageFlags damageType);
 
+  const BlockDefinition& GetBlockDefinitionFromItem(ItemId item);
+  ItemId GetItemIdFromBlock(BlockId block);
+
 private:
   uint64_t ticks_ = 0;
   entt::registry registry_;
 };
 
+class BlockRegistry
+{
+public:
+  BlockRegistry(World& world) : world_(&world)
+  {
+    // Hardcode air as the first block.
+    Add(new BlockDefinition({.name = "air"}));
+  }
+
+  ~BlockRegistry() = default;
+
+  NO_COPY(BlockRegistry);
+  DEFAULT_MOVE(BlockRegistry);
+
+  [[nodiscard]] const BlockDefinition& Get(const std::string& name) const;
+  [[nodiscard]] const BlockDefinition& Get(BlockId id) const;
+  [[nodiscard]] BlockId GetId(const std::string& name) const;
+
+  BlockId Add(BlockDefinition* blockDefinition);
+
+  std::span<const std::unique_ptr<BlockDefinition>> GetAllDefinitions() const
+  {
+    return std::span(idToDefinition_);
+  }
+
+private:
+  World* world_;
+  std::unordered_map<std::string, BlockId> nameToId_;
+  std::vector<std::unique_ptr<BlockDefinition>> idToDefinition_;
+};
+
 glm::vec3 GetFootPosition(entt::handle handle);
 float GetHeight(entt::handle handle);
-
-struct ItemState
-{
-  ItemId id      = nullItem;
-  int count      = 1;
-  float useAccum = 1000;
-};
 
 class ItemDefinition
 {
@@ -325,7 +442,7 @@ protected:
 class Block : public ItemDefinition
 {
 public:
-  Block(TwoLevelGrid::voxel_t voxel) : voxel(voxel) {}
+  Block(BlockId voxel, std::string_view name) : voxel(voxel), name_(name) {}
 
   [[nodiscard]] int GetMaxStackSize() const override
   {
@@ -339,7 +456,7 @@ public:
 
   std::string GetName() const override
   {
-    return "Block " + std::to_string(voxel);
+    return name_;
   }
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
@@ -353,6 +470,9 @@ public:
   }
 
   TwoLevelGrid::voxel_t voxel;
+
+private:
+  std::string name_;
 };
 
 class Spear : public ItemDefinition
@@ -521,6 +641,8 @@ public:
 
   // After FixedUpdate
   virtual void VariableUpdatePost(DeltaTime dt, World& world) = 0;
+
+  virtual void CreateRenderingMaterials(std::span<const std::unique_ptr<BlockDefinition>>) {}
 };
 
 class NullHead final : public Head

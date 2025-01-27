@@ -215,6 +215,11 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
   }
 }
 
+void PlayerHead::CreateRenderingMaterials(std::span<const std::unique_ptr<BlockDefinition>> blockDefinitions)
+{
+  voxelRenderer_->CreateRenderingMaterials(blockDefinitions);
+}
+
 PlayerHead::PlayerHead(const CreateInfo& createInfo) : presentMode(createInfo.presentMode)
 {
   ZoneScoped;

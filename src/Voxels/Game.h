@@ -90,14 +90,17 @@ struct ItemState
 using BlockId               = TwoLevelGrid::voxel_t;
 constexpr BlockId nullBlock = ~0u;
 
-enum class BlockDamageFlagBits
+enum class BlockDamageFlagBit
 {
   NONE    = 0,
   PICKAXE = 1 << 0,
   AXE     = 1 << 1,
+  ALL_TOOLS = PICKAXE | AXE,
+  NO_LOOT = 1 << 2,
+  NO_LOOT_95_PERCENT = 1 << 3,
 };
 
-FVOG_DECLARE_FLAG_TYPE(BlockDamageFlags, BlockDamageFlagBits, uint32_t);
+FVOG_DECLARE_FLAG_TYPE(BlockDamageFlags, BlockDamageFlagBit, uint32_t);
 
 struct VoxelMaterialDesc
 {
@@ -114,6 +117,9 @@ public:
   struct CreateInfo
   {
     std::string name;
+    float initialHealth = 100;
+    int damageTier{};
+    BlockDamageFlags damageFlags = BlockDamageFlagBit::ALL_TOOLS;
     // Giving every block a unique set of materials isn't ideal, but it will suffice in the short run.
     VoxelMaterialDesc voxelMaterialDesc;
   };
@@ -149,6 +155,21 @@ public:
     return createInfo_.voxelMaterialDesc;
   }
 
+  [[nodiscard]] float GetInitialHealth() const
+  {
+    return createInfo_.initialHealth;
+  }
+
+  [[nodiscard]] int GetDamageTier() const
+  {
+    return createInfo_.damageTier;
+  }
+
+  [[nodiscard]] BlockDamageFlags GetDamageFlags() const
+  {
+    return createInfo_.damageFlags;
+  }
+
   [[nodiscard]] ItemId GetItemId() const
   {
     return itemId_;
@@ -171,12 +192,25 @@ protected:
 class ExplodeyBlockDefinition : public BlockDefinition
 {
 public:
-  explicit ExplodeyBlockDefinition(float radius, const CreateInfo& info)
-    : BlockDefinition(info), radius_(radius) {}
+  struct ExplodeyCreateInfo
+  {
+    float radius{};
+    float damage{};
+    int damageTier{};
+    float pushForce{};
+    BlockDamageFlags damageFlags{};
+  };
+
+  explicit ExplodeyBlockDefinition(const CreateInfo& info, const ExplodeyCreateInfo& explodey)
+    : BlockDefinition(info), explodeyInfo_(explodey) {}
   void OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const override;
+  std::variant<std::monostate, ItemState, std::string> GetLootDropType() const override
+  {
+    return std::monostate{};
+  }
 
 private:
-  float radius_;
+  ExplodeyCreateInfo explodeyInfo_;
 };
 
 class World

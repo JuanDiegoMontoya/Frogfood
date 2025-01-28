@@ -1107,13 +1107,15 @@ void World::InitializeGameState()
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
   [[maybe_unused]] const auto gunId = items.Add(new Gun());
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
-  [[maybe_unused]] const auto stonePickaxeId   = items.Add(new ToolDefinition("Stone Pickaxe", 20, 1, BlockDamageFlagBits::PICKAXE));
-  [[maybe_unused]] const auto opPickaxeId   = items.Add(new ToolDefinition("OP Pickaxe", 1000, 1, BlockDamageFlagBits::PICKAXE | BlockDamageFlagBits::AXE, 0.05f));
+  [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition("Stone Pickaxe", 20, 2, BlockDamageFlagBit::PICKAXE));
+  [[maybe_unused]] const auto opPickaxeId = items.Add(new ToolDefinition("OP Pickaxe", 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.05f));
   [[maybe_unused]] const auto spearId = items.Add(new Spear());
 
   auto& blocks = registry_.ctx().insert_or_assign<BlockRegistry>(*this);
   [[maybe_unused]] const auto stoneBlockId = blocks.Get(blocks.Add(new BlockDefinition({
     .name = "Stone",
+    .damageTier = 2,
+    .damageFlags = BlockDamageFlagBit::PICKAXE,
     .voxelMaterialDesc =
       {
         .randomizeTexcoordRotation = true,
@@ -1123,24 +1125,42 @@ void World::InitializeGameState()
 
   [[maybe_unused]] const auto frogLightId = blocks.Get(blocks.Add(new BlockDefinition({
     .name              = "Frog light",
+    .initialHealth = 50,
     .voxelMaterialDesc = {
       .baseColorFactor = {0, 0, 0},
       .emissionFactor = {1, 5, 1}},
   }))).GetItemId();
   
-  [[maybe_unused]] const auto bombId = blocks.Get(blocks.Add(new ExplodeyBlockDefinition(3, {
+  [[maybe_unused]] const auto bombId = blocks.Get(blocks.Add(new ExplodeyBlockDefinition({
     .name              = "Bomb",
+    .initialHealth = 40,
     .voxelMaterialDesc = {
       .baseColorFactor = {0.8f, 0.2f, 0.2f},
-      .emissionFactor = {0.1f, 0.1f, 0.1f}},
+      .emissionFactor = {0.1f, 0.01f, 0.01f}},
+  },
+  {
+    .radius = 3,
+    .damage = 100,
+    .damageTier = 0,
+    .pushForce = 8,
+    .damageFlags = BlockDamageFlagBit::PICKAXE | BlockDamageFlagBit::AXE,
   }))).GetItemId();
 
-  [[maybe_unused]] const auto stupidBombId = blocks.Get(blocks.Add(new ExplodeyBlockDefinition(8, {
+  [[maybe_unused]] const auto stupidBombId = blocks.Get(blocks.Add(new ExplodeyBlockDefinition({
     .name              = "Stupid Bomb",
+    .initialHealth = 40,
     .voxelMaterialDesc = {
       .baseColorFactor = {0.8f, 0.2f, 0.2f},
       .emissionFactor = {0.5f, 0.1f, 0.1f}},
-  }))).GetItemId();
+  },
+  {
+    .radius = 8,
+    .damage = 100,
+    .damageTier = 2,
+    .pushForce = 10,
+    .damageFlags = BlockDamageFlagBit::PICKAXE | BlockDamageFlagBit::AXE | BlockDamageFlagBit::NO_LOOT,
+  }
+  ))).GetItemId();
 
   auto* head = registry_.ctx().get<Head*>();
   head->CreateRenderingMaterials(blocks.GetAllDefinitions());
@@ -1967,8 +1987,8 @@ entt::entity World::CreateTunnelingWorm(glm::vec3 position)
 float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, BlockDamageFlags damageType)
 {
   auto& grid = registry_.ctx().get<TwoLevelGrid>();
-  auto voxel = grid.GetVoxelAt(voxelPos);
-  if (voxel == 0)
+  auto prevVoxel = grid.GetVoxelAt(voxelPos);
+  if (prevVoxel == 0)
   {
     return 100;
   }
@@ -1986,17 +2006,18 @@ float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, Bloc
     }
   }
 
+  const auto& blockDef = registry_.ctx().get<BlockRegistry>().Get(prevVoxel);
+
   if (foundEntity == entt::null)
   {
-    // TODO: make new entity
     foundEntity = this->CreateRenderableEntity(worldPos);
-    hp = &registry_.emplace<BlockHealth>(foundEntity);
+    hp = &registry_.emplace<BlockHealth>(foundEntity, blockDef.GetInitialHealth());
   }
 
   registry_.emplace_or_replace<Lifetime>(foundEntity).remainingSeconds = 5;
 
-  // TODO: look up block properties from table.
-  if (voxel == 1 && ((damageType & BlockDamageFlagBits::PICKAXE).flags == 0 || damageTier < 1))
+  
+  if ((damageType & blockDef.GetDamageFlags()).flags == 0 || damageTier < blockDef.GetDamageTier())
   {
     return hp->health;
   }
@@ -2004,21 +2025,30 @@ float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, Bloc
   hp->health -= damage;
   if (hp->health <= 0)
   {
-    const auto prevVoxel = grid.GetVoxelAt(voxelPos);
-    const auto& blockDef = registry_.ctx().get<BlockRegistry>().Get(prevVoxel);
     blockDef.OnDestroyBlock(*this, voxelPos);
 
-    const auto itemId   = blockDef.GetItemId();
-    const auto& itemDef = registry_.ctx().get<ItemRegistry>().Get(itemId);
-    auto itemSelf       = itemDef.Materialize(*this);
+    const auto hasNoLoot95 = damageType & BlockDamageFlagBit::NO_LOOT_95_PERCENT;
+    if ((!hasNoLoot95 || Rng().RandFloat() >= 0.95) && !(damageType & BlockDamageFlagBit::NO_LOOT))
+    {
+      const auto dropType = blockDef.GetLootDropType();
+      if (auto* ip = std::get_if<ItemState>(&dropType))
+      {
+        const auto& itemDef = registry_.ctx().get<ItemRegistry>().Get(ip->id);
+        auto itemSelf       = itemDef.Materialize(*this);
 
-    registry_.get<LocalTransform>(itemSelf).position = worldPos;
-    UpdateLocalTransform({registry_, itemSelf});
-    auto& rb = itemDef.GiveCollider(*this, itemSelf);
-    registry_.emplace<DroppedItem>(itemSelf).item = ItemState{itemId};
+        registry_.get<LocalTransform>(itemSelf).position = worldPos;
+        UpdateLocalTransform({registry_, itemSelf});
+        itemDef.GiveCollider(*this, itemSelf);
+        registry_.emplace<DroppedItem>(itemSelf).item = *ip;
 
-    const auto throwdir = glm::vec3(Rng().RandFloat(-0.25f, 0.25f), 1, Rng().RandFloat(-0.25f, 0.25f));
-    Physics::GetBodyInterface().SetLinearVelocity(rb.body, Physics::ToJolt(throwdir * 2.0f));
+        const auto throwdir                                  = glm::vec3(Rng().RandFloat(-0.25f, 0.25f), 1, Rng().RandFloat(-0.25f, 0.25f));
+        registry_.get_or_emplace<LinearVelocity>(itemSelf).v = throwdir * 2.0f;
+      }
+      else if (auto* lp = std::get_if<std::string>(&dropType))
+      {
+        assert(false && "not implemented");
+      }
+    }
 
     // Awaken bodies that are adjacent to destroyed voxel in case they were resting on it.
     // TODO: This doesn't seem to be robust. Setting mTimeBeforeSleep to 0 in PhysicsSettings seems to disable sleeping, which fixes this issue.
@@ -2500,7 +2530,7 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
       reg.emplace<Name>(e).name = "Debris";
       reg.emplace<Lifetime>(e).remainingSeconds = 2;
       Physics::AddRigidBody({reg, e}, {.shape = cube, .layer = Physics::Layers::DEBRIS});
-      const auto velocity = Math::RandVecInCone({world.Rng().RandFloat(), world.Rng().RandFloat()}, hit.flatNormalWorld, glm::quarter_pi<float>()) * 4.0f;
+      const auto velocity = Math::RandVecInCone({world.Rng().RandFloat(), world.Rng().RandFloat()}, hit.flatNormalWorld, glm::quarter_pi<float>()) * 3.0f;
       reg.emplace_or_replace<LinearVelocity>(e).v = velocity;
     }
   }
@@ -2750,17 +2780,31 @@ BlockId BlockRegistry::Add(BlockDefinition* blockDefinition)
 void ExplodeyBlockDefinition::OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const
 {
   BlockDefinition::OnDestroyBlock(world, voxelPosition);
-  
-  const auto cr = (int)ceil(radius_);
+
+  const auto radius2 = explodeyInfo_.radius * explodeyInfo_.radius;
+  const auto cr = (int)ceil(explodeyInfo_.radius);
   // Additionally damage all blocks in a radius.
   for (int z = -cr; z <= cr; z++)
   for (int y = -cr; y <= cr; y++)
   for (int x = -cr; x <= cr; x++)
   {
     const auto newPos = voxelPosition + glm::ivec3(x, y, z);
-    if (Math::Distance2(voxelPosition, newPos) <= radius_ * radius_ && newPos != voxelPosition)
+    if (Math::Distance2(voxelPosition, newPos) <= radius2 && newPos != voxelPosition)
     {
-      world.DamageBlock(newPos, 100, 1, BlockDamageFlagBits::PICKAXE | BlockDamageFlagBits::AXE);
+      world.DamageBlock(newPos, explodeyInfo_.damage, explodeyInfo_.damageTier, explodeyInfo_.damageFlags);
+    }
+  }
+
+  // Push entities away from center of blast.
+  const auto center = glm::vec3(voxelPosition) + 0.5f;
+  for (auto entity : world.GetEntitiesInSphere(center, explodeyInfo_.radius))
+  {
+    if (auto* v = world.GetRegistry().try_get<LinearVelocity>(entity))
+    {
+      const auto& t = world.GetRegistry().get<GlobalTransform>(entity);
+      
+      const auto force = explodeyInfo_.pushForce;
+      v->v += force * glm::normalize(t.position - center);
     }
   }
 }

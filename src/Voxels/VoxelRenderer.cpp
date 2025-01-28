@@ -329,7 +329,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
           },
         .renderTargetFormats =
           {
-            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat}},
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat, Frame::sceneIlluminanceFormat}},
             .depthAttachmentFormat  = Frame::sceneDepthFormat,
           },
       },

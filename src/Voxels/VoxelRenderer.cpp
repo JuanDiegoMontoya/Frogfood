@@ -150,11 +150,12 @@ namespace
 
   [[nodiscard]] Fvog::Texture LoadImageFile(const std::filesystem::path& path)
   {
+    stbi_set_flip_vertically_on_load(1);
     int x            = 0;
     int y            = 0;
     const auto pixels = stbi_load((GetTextureDirectory() / path).string().c_str(), &x, &y, nullptr, 4);
     assert(pixels);
-    auto texture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, path.string().c_str());
+    auto texture = Fvog::CreateTexture2D({static_cast<uint32_t>(x), static_cast<uint32_t>(y)}, Fvog::Format::R8G8B8A8_UNORM, Fvog::TextureUsage::READ_ONLY, path.string());
     texture.UpdateImageSLOW({
       .extent = {static_cast<uint32_t>(x), static_cast<uint32_t>(y)},
       .data   = pixels,
@@ -880,6 +881,21 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     {
       if (ImGui::Begin("Crafting"))
       {
+        // Get set of blocks around player. This is used to find the "crafting stations" that are near the player, which some recipes call for.
+        auto nearVoxels = std::unordered_set<BlockId>();
+        const auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
+        for (int z = -5; z <= 5; z++)
+        for (int y = -5; y <= 5; y++)
+        for (int x = -5; x <= 5; x++)
+        {
+          const auto vp = glm::vec3(x, y, z);
+          const auto fp = glm::ivec3(glm::floor(gt.position));
+          if (Math::Distance2(glm::vec3(fp) + vp + 0.5f, gt.position) <= 5 * 5)
+          {
+            nearVoxels.emplace(grid.GetVoxelAt(glm::ivec3(vp) + fp));
+          }
+        }
+
         const auto& crafting = world.GetRegistry().ctx().get<Crafting>();
         const auto& itemRegistry = world.GetRegistry().ctx().get<ItemRegistry>();
         for (int index = 0; const auto& recipe : crafting.recipes)
@@ -889,7 +905,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::Separator();
           }
           ImGui::PushID(index);
-          ImGui::BeginDisabled(!i.CanCraftRecipe(recipe));
+          ImGui::BeginDisabled(!i.CanCraftRecipe(recipe) || !nearVoxels.contains(recipe.craftingStation));
           if (ImGui::Button("Craft"))
           {
             i.CraftRecipe(recipe, playerEntity);

@@ -16,6 +16,12 @@ SketchyBuffer::SketchyBuffer(size_t bufferSize, [[maybe_unused]] std::string nam
   Fvog::detail::CheckVkResult(vmaCreateVirtualBlock(Fvog::detail::Address(VmaVirtualBlockCreateInfo{.size = bufferSize}), &allocator_));
 }
 
+// TODO: dtor and move ops
+//SketchyBuffer::~SketchyBuffer()
+//{
+//  vmaDestroyVirtualBlock(allocator_);
+//}
+
 SketchyBuffer::Alloc SketchyBuffer::Allocate(size_t size, size_t alignment)
 {
   ZoneScoped;

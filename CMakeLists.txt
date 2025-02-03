@@ -104,7 +104,7 @@ add_executable(frogRender
 )
 
 # Precompiled headers for standard library
-target_precompile_headers(frogRender PUBLIC 
+target_precompile_headers(frogRender PRIVATE 
     <algorithm>
     <array>
     <bit>
@@ -153,6 +153,11 @@ target_compile_options(frogRender
     >
     >
 )
+
+option(FROGRENDER_DISABLE_OPTS "Disable compiler optimizations for release builds" FALSE)
+if (MSVC AND FROGRENDER_DISABLE_OPTS)
+    target_compile_options(frogRender PRIVATE -Od)
+endif()
 
 option(FROGRENDER_FORCE_COLORED_OUTPUT "Always produce ANSI-colored output (GNU/Clang only)." TRUE)
 if (${FORCE_COLORED_OUTPUT})
@@ -204,6 +209,8 @@ target_link_libraries(frogRender
     glslang-default-resource-limits
     SPIRV
     EnTT
+    FastNoise
+    unordered_dense
 )
 
 target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE ImTextureID=ImU64)

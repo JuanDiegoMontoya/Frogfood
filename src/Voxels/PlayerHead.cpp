@@ -138,6 +138,12 @@ public:
     //auto* app = static_cast<PlayerHead*>(glfwGetWindowUserPointer(window));
     //app->OnPathDrop({paths, static_cast<size_t>(count)});
   }
+
+  static void ScrollCallback(GLFWwindow* window, double xOffset, double yOffset)
+  {
+    auto* app = static_cast<PlayerHead*>(glfwGetWindowUserPointer(window));
+    app->inputSystem_->ScrollCallback(xOffset, yOffset);
+  }
 };
 
 static auto MakeVkbSwapchain(const vkb::Device& device,
@@ -274,6 +280,7 @@ PlayerHead::PlayerHead(const CreateInfo& createInfo) : presentMode(createInfo.pr
   glfwSetCursorEnterCallback(window, ApplicationAccess2::CursorEnterCallback);
   glfwSetFramebufferSizeCallback(window, ApplicationAccess2::FramebufferResizeCallback);
   glfwSetDropCallback(window, ApplicationAccess2::PathDropCallback);
+  glfwSetScrollCallback(window, ApplicationAccess2::ScrollCallback);
 
   // Load app icon
   {

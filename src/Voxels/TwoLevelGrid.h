@@ -1,11 +1,15 @@
 #pragma once
+#include "ClassImplMacros.h"
 #include "SketchyBuffer.h"
 #include "glm/vec2.hpp"
 #include "glm/vec3.hpp"
+#include "ankerl/unordered_dense.h"
 
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 
+// Modifying operations are NOT thread-safe.
 struct TwoLevelGrid
 {
   static constexpr int BL_BRICK_SIDE_LENGTH = 8;
@@ -90,10 +94,20 @@ struct TwoLevelGrid
   size_t numTopLevelBricks_{};
   glm::ivec3 topLevelBricksDims_{};
   glm::ivec3 dimensions_{};
+
+  #if 0
   std::unordered_map<uint32_t, SketchyBuffer::Alloc> topLevelBrickIndexToAlloc;
   std::unordered_map<uint32_t, SketchyBuffer::Alloc> bottomLevelBrickIndexToAlloc;
 
   // Used to determine which bricks to look at when coalescing the grid
   std::unordered_set<TopLevelBrickPtr*> dirtyTopLevelBricks;
   std::unordered_set<BottomLevelBrickPtr*> dirtyBottomLevelBricks;
+  #else
+  ankerl::unordered_dense::map<uint32_t, SketchyBuffer::Alloc> topLevelBrickIndexToAlloc;
+  ankerl::unordered_dense::map<uint32_t, SketchyBuffer::Alloc> bottomLevelBrickIndexToAlloc;
+
+  // Used to determine which bricks to look at when coalescing the grid
+  ankerl::unordered_dense::set<TopLevelBrickPtr*> dirtyTopLevelBricks;
+  ankerl::unordered_dense::set<BottomLevelBrickPtr*> dirtyBottomLevelBricks;
+  #endif
 };

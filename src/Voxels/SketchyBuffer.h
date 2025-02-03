@@ -14,6 +14,13 @@ class SketchyBuffer
 {
 public:
   explicit SketchyBuffer(size_t bufferSize, std::string name = {});
+  //~SketchyBuffer();
+
+  //SketchyBuffer(const SketchyBuffer&) = delete;
+  //SketchyBuffer& operator=(const SketchyBuffer&) = delete;
+
+  //SketchyBuffer(SketchyBuffer&& old) noexcept;
+  //SketchyBuffer& operator=(SketchyBuffer&& old) noexcept;
 
   struct Alloc
   {

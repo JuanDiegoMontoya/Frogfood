@@ -31,10 +31,12 @@ public:
 
   void CursorPosCallback(double currentCursorX, double currentCursorY);
   void CursorEnterCallback(int entered);
+  void ScrollCallback(double xOffset, double yOffset);
 
 private:
   GLFWwindow* window_;
   glm::dvec2 cursorPos{};
   glm::dvec2 cursorFrameOffset{};
+  glm::dvec2 scrollOffset{};
   bool cursorJustEnteredWindow = true;
 };

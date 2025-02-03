@@ -236,6 +236,7 @@ void TwoLevelGrid::CoalesceBricksSLOW()
 
 void TwoLevelGrid::CoalesceDirtyBricks()
 {
+  ZoneScoped;
   for (auto* bottomLevelBrickPtr : dirtyBottomLevelBricks)
   {
     CoalesceBottomLevelBrick(*bottomLevelBrickPtr);

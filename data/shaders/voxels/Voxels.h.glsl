@@ -495,7 +495,8 @@ vec3 GetHitEmission(HitSurfaceParameters hit)
 	vec3 emission = material.emissionFactor;
 	if (bool(material.materialFlags & HAS_EMISSION_TEXTURE))
 	{
-		emission *= textureLod(material.emissionTexture, g_voxels.voxelSampler, hit.texCoords, 0).rgb;
+		const vec4 texEmission = textureLod(material.emissionTexture, g_voxels.voxelSampler, hit.texCoords, 0);
+		emission *= texEmission.rgb * texEmission.a;
 	}
 	return emission;
     //if (ivec3(hit.voxelPosition / 3) % 4 == ivec3(0))

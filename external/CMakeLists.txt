@@ -41,6 +41,12 @@ FetchContent_Declare(
     GIT_TAG        v0.16
 )
 
+FetchContent_Declare(
+    fastNoise2
+    GIT_REPOSITORY https://github.com/Auburn/FastNoise2.git
+    GIT_TAG        v0.10.0-alpha
+)
+
 option(KTX_FEATURE_TESTS "" OFF)
 option(KTX_FEATURE_VULKAN "" OFF)
 option(KTX_FEATURE_GL_UPLOAD "" OFF)
@@ -113,6 +119,12 @@ FetchContent_Declare(
     GIT_TAG        v3.13.2
 )
 
+FetchContent_Declare(
+    unordered_dense
+    GIT_REPOSITORY https://github.com/martinus/unordered_dense.git
+    GIT_TAG        v4.5.0
+)
+
 set(DOUBLE_PRECISION OFF)
 #set(GENERATE_DEBUG_SYMBOLS ON)
 #set(OVERRIDE_CXX_FLAGS ON)
@@ -154,7 +166,20 @@ option(TRACY_ON_DEMAND "" ON)
 option(TRACY_ENABLE "Enable profiling" ON)
 option(TRACY_ONLY_IPV4 "IPv4 only" ON)
 
-FetchContent_MakeAvailable(glm fastgltf ktx meshoptimizer tracy volk vkbootstrap vma glslang EnTT)
+FetchContent_MakeAvailable(
+    glm
+    fastgltf
+    ktx
+    meshoptimizer
+    tracy
+    volk
+    vkbootstrap
+    vma
+    glslang
+    EnTT
+    fastNoise2
+    unordered_dense
+)
 
 set(FSR2_SOURCE ${fsr2_SOURCE_DIR} PARENT_SCOPE)
 
@@ -205,7 +230,7 @@ FetchContent_MakeAvailable(glfw)
 target_compile_definitions(glm INTERFACE GLM_FORCE_SILENT_WARNINGS)
 
 # Precompiled headers for third-party libraries
-target_precompile_headers(frogRender PUBLIC
+target_precompile_headers(frogRender PRIVATE
     "${entt_SOURCE_DIR}/src/entt/entity/registry.hpp"
     "${entt_SOURCE_DIR}/src/entt/entity/entity.hpp"
     "${joltphysics_SOURCE_DIR}/Jolt/Jolt.h"

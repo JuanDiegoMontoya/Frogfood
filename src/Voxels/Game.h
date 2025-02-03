@@ -237,6 +237,8 @@ public:
 
   void InitializeGameState();
 
+  void GenerateMap();
+
   // Adds LocalTransform, GlobalTransform, InterpolatedTransform, RenderTransform, and Hierarchy components.
   entt::entity CreateRenderableEntityNoHashGrid(glm::vec3 position, glm::quat rotation = glm::quat(1, 0, 0, 0), float scale = 1);
   entt::entity CreateRenderableEntity(glm::vec3 position, glm::quat rotation = glm::quat(1, 0, 0, 0), float scale = 1);
@@ -246,6 +248,9 @@ public:
   
   void SetLocalScale(entt::entity entity, float scale);
   [[nodiscard]] entt::entity GetChildNamed(entt::entity entity, std::string_view name) const;
+
+  // Look for ancestor with LinearVelocity and return its value. Otherwise, return 0.
+  [[nodiscard]] glm::vec3 GetInheritedLinearVelocity(entt::entity entity);
 
   // Travels up hierarchy, searching for TeamFlags component.
   [[nodiscard]] const TeamFlags* GetTeamFlags(entt::entity entity) const;
@@ -608,6 +613,7 @@ struct Crafting
   {
     std::vector<ItemIdAndCount> ingredients;
     std::vector<ItemIdAndCount> output;
+    BlockId craftingStation = 0;
   };
 
   std::vector<Recipe> recipes;

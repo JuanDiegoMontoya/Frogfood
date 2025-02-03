@@ -23,6 +23,7 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
   auto newCursorMode        = lastCursorMode;
 
   cursorFrameOffset = {0.0, 0.0};
+  scrollOffset      = {0.0, 0.0};
   
   if (swapchainOk)
   {
@@ -60,7 +61,7 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
 
         if (auto* i = world.GetRegistry().try_get<Inventory>(entity))
         {
-          for (size_t j = 0; j < 8; j++)
+          for (size_t j = 0; j < i->width; j++)
           {
             const auto currentSlotCoord = glm::ivec2(0, j);
             if (glfwGetKey(window_, GLFW_KEY_1 + (int)j) == GLFW_PRESS && j < i->width)
@@ -68,6 +69,13 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
               i->SetActiveSlot(currentSlotCoord, entity);
               break;
             }
+          }
+
+          if (scrollOffset.y != 0)
+          {
+            const auto offset = -(int)scrollOffset.y;
+            const auto newCol = (int)glm::mod((float)i->activeSlotCoord.y + offset, (float)i->width);
+            i->SetActiveSlot({0, newCol}, entity);
           }
         }
       }
@@ -172,4 +180,10 @@ void InputSystem::CursorEnterCallback(int entered)
   {
     cursorJustEnteredWindow = true;
   }
+}
+
+void InputSystem::ScrollCallback(double xOffset, double yOffset)
+{
+  scrollOffset.x += xOffset;
+  scrollOffset.y += yOffset;
 }

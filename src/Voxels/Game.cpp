@@ -30,6 +30,8 @@
 #include "Jolt/Physics/Collision/RayCast.h"
 #include "entt/signal/dispatcher.hpp"
 
+#include "FastNoise/FastNoise.h"
+
 #include <chrono>
 #include <stack>
 
@@ -731,13 +733,16 @@ void World::FixedUpdate(float dt)
       {
         const auto right     = GetRight(transform.rotation);
         const auto forward   = GetForward(transform.rotation);
-        auto tempCameraSpeed = 14.5f * dt;
+        auto tempCameraSpeed = 14.5f;
         tempCameraSpeed *= input.sprint ? 4.0f : 1.0f;
         tempCameraSpeed *= input.walk ? 0.25f : 1.0f;
-        transform.position += input.forward * forward * tempCameraSpeed;
-        transform.position += input.strafe * right * tempCameraSpeed;
-        transform.position.y += input.elevate * tempCameraSpeed;
+        auto velocity = glm::vec3(0);
+        velocity += input.forward * forward * tempCameraSpeed;
+        velocity += input.strafe * right * tempCameraSpeed;
+        velocity.y += input.elevate * tempCameraSpeed;
+        transform.position += velocity * dt;
         UpdateLocalTransform({registry_, entity});
+        registry_.get_or_emplace<LinearVelocity>(entity).v = velocity;
       }
 
       if (auto* fc = registry_.try_get<FlyingCharacterController>(entity))
@@ -1108,11 +1113,12 @@ void World::InitializeGameState()
   [[maybe_unused]] const auto gunId = items.Add(new Gun());
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
   [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition("Stone Pickaxe", 20, 2, BlockDamageFlagBit::PICKAXE));
-  [[maybe_unused]] const auto opPickaxeId = items.Add(new ToolDefinition("OP Pickaxe", 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.05f));
+  [[maybe_unused]] const auto opPickaxeId = items.Add(new ToolDefinition("OP Pickaxe", 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f));
   [[maybe_unused]] const auto spearId = items.Add(new Spear());
 
   auto& blocks = registry_.ctx().insert_or_assign<BlockRegistry>(*this);
-  [[maybe_unused]] const auto stoneBlockId = blocks.Get(blocks.Add(new BlockDefinition({
+
+  const auto& stoneBlock = blocks.Get(blocks.Add(new BlockDefinition({
     .name = "Stone",
     .damageTier = 2,
     .damageFlags = BlockDamageFlagBit::PICKAXE,
@@ -1121,7 +1127,8 @@ void World::InitializeGameState()
         .randomizeTexcoordRotation = true,
         .baseColorTexture          = "stone_albedo",
       },
-  }))).GetItemId();
+  })));
+  [[maybe_unused]] const auto stoneBlockId = stoneBlock.GetItemId();
 
   [[maybe_unused]] const auto frogLightId = blocks.Get(blocks.Add(new BlockDefinition({
     .name              = "Frog light",
@@ -1129,6 +1136,44 @@ void World::InitializeGameState()
     .voxelMaterialDesc = {
       .baseColorFactor = {0, 0, 0},
       .emissionFactor = {1, 5, 1}},
+  }))).GetItemId();
+
+  [[maybe_unused]] const auto grassBlockId = blocks.Get(blocks.Add(new BlockDefinition({
+    .name = "Grass",
+    .initialHealth = 50,
+    .damageTier = 1,
+    .damageFlags = BlockDamageFlagBit::PICKAXE,
+    .voxelMaterialDesc =
+      {
+        .randomizeTexcoordRotation = true,
+        .baseColorTexture          = "grass_albedo",
+      },
+  }))).GetItemId();
+  
+  [[maybe_unused]] const auto malachiteBlockId = blocks.Get(blocks.Add(new BlockDefinition({
+    .name = "Malachite",
+    .initialHealth = 100,
+    .damageTier = 2,
+    .damageFlags = BlockDamageFlagBit::PICKAXE,
+    .voxelMaterialDesc =
+      {
+        .randomizeTexcoordRotation = true,
+        .baseColorTexture          = "malachite_albedo",
+      },
+  }))).GetItemId();
+
+  
+  [[maybe_unused]] const auto forgeBlockId = blocks.Get(blocks.Add(new BlockDefinition({
+    .name = "Forge",
+    .initialHealth = 100,
+    .damageTier = 1,
+    .damageFlags = BlockDamageFlagBit::PICKAXE,
+    .voxelMaterialDesc =
+      {
+        .baseColorTexture          = "forge_side_albedo",
+        .emissionTexture           = "forge_side_emission",
+        .emissionFactor            = {3, 3, 3},
+      },
   }))).GetItemId();
   
   [[maybe_unused]] const auto bombId = blocks.Get(blocks.Add(new ExplodeyBlockDefinition({
@@ -1167,24 +1212,16 @@ void World::InitializeGameState()
 
   auto& crafting = registry_.ctx().insert_or_assign<Crafting>({});
   crafting.recipes.emplace_back(Crafting::Recipe{
-    {{stoneBlockId, 1}},
-    {{gunId, 1}},
-  });
-  crafting.recipes.emplace_back(Crafting::Recipe{
-    {{stoneBlockId, 5}, {gunId, 1}},
-    {{gun2Id, 1}},
-  });
-  crafting.recipes.emplace_back(Crafting::Recipe{
-    {},
-    {{stoneBlockId, 1}},
+    {{stoneBlockId, 5}},
+    {{forgeBlockId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stoneBlockId, 5}},
     {{spearId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
-    {},
-    {{opPickaxeId, 1}},
+    {{stoneBlockId, 5}},
+    {{stonePickaxeId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {},
@@ -1193,6 +1230,7 @@ void World::InitializeGameState()
   crafting.recipes.emplace_back(Crafting::Recipe{
     {},
     {{stupidBombId, 1}},
+    stoneBlock.GetBlockId(),
   });
 
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
@@ -1217,52 +1255,7 @@ void World::InitializeGameState()
   // Reset RNG
   registry_.ctx().insert_or_assign<PCG::Rng>(1234);
 
-  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{1, 1, 1}));
-  // Top level bricks
-  for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
-    for (int j = 0; j < grid.topLevelBricksDims_.y; j++)
-      for (int i = 0; i < grid.topLevelBricksDims_.x; i++)
-      {
-        const auto tl = glm::ivec3{i, j, k};
-
-        // Bottom level bricks
-        for (int c = 0; c < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; c++)
-          for (int b = 0; b < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; b++)
-            for (int a = 0; a < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; a++)
-            {
-              const auto bl = glm::ivec3{a, b, c};
-
-              // Voxels
-              for (int z = 0; z < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; z++)
-                for (int y = 0; y < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; y++)
-                  for (int x = 0; x < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; x++)
-                  {
-                    const auto local = glm::ivec3{x, y, z};
-                    const auto p     = tl * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE + bl * TwoLevelGrid::BL_BRICK_SIDE_LENGTH + local;
-                    // const auto left  = glm::vec3(50, 30, 20);
-                    // const auto right = glm::vec3(90, 30, 20);
-                    // if ((glm::distance(p, left) < 10) || (glm::distance(p, right) < 10) || (p.y > 30 && glm::distance(glm::vec2(p.x, p.z), glm::vec2(70, 20)) < 10))
-                    if (de2(glm::vec3(p) / 10.f + 2.0f) < 0.011f)
-                    // if (de3(p) < 0.011f)
-                    {
-                      if (glm::distance(glm::vec3(p), glm::vec3(20, 10, 40)) < 5)
-                      {
-                        grid.SetVoxelAt(p, 2);
-                      }
-                      else
-                      {
-                        grid.SetVoxelAt(p, 1);
-                      }
-                    }
-                    else
-                    {
-                      grid.SetVoxelAt(p, 0);
-                    }
-                  }
-            }
-
-        grid.CoalesceDirtyBricks();
-      }
+  GenerateMap();
 
   // Make player entity
   auto p = registry_.create();
@@ -1282,15 +1275,15 @@ void World::InitializeGameState()
   registry_.emplace<GlobalTransform>(p) = {tp.position, tp.rotation, tp.scale};
   registry_.emplace<PreviousGlobalTransform>(p);
   registry_.emplace<RenderTransform>(p);
-  GivePlayerCharacterController(p);
+  //GivePlayerCharacterController(p);
   //GivePlayerFlyingCharacterController(p);
-  //registry_.emplace<NoclipCharacterController>(p);
+  registry_.emplace<NoclipCharacterController>(p);
   registry_.emplace_or_replace<LinearVelocity>(p);
   //cc.character->SetMaxStrength(10000000);
   auto& inventory = registry_.emplace<Inventory>(p, *this);
   inventory.OverwriteSlot({0, 0}, {gunId}, p);
   inventory.OverwriteSlot({0, 1}, {gun2Id}, p);
-  inventory.OverwriteSlot({0, 2}, {stonePickaxeId}, p);
+  inventory.OverwriteSlot({0, 2}, {opPickaxeId}, p);
 
   GivePlayerColliders(p);
 
@@ -1307,17 +1300,6 @@ void World::InitializeGameState()
   registry_.emplace<Name>(pe).name = "Floor";
   Physics::AddRigidBody({registry_, pe}, {
     .shape = plane.GetPtr(),
-    .activate = false,
-    .motionType = JPH::EMotionType::Static,
-    .layer = Physics::Layers::WORLD,
-  });
-
-  auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));
-
-  auto ve = registry_.create();
-  registry_.emplace<Name>(ve).name = "Voxels";
-  Physics::AddRigidBody({registry_, ve}, {
-    .shape = twoLevelGridShape,
     .activate = false,
     .motionType = JPH::EMotionType::Static,
     .layer = Physics::Layers::WORLD,
@@ -1340,6 +1322,192 @@ void World::InitializeGameState()
       .layer = Physics::Layers::DEBRIS,
     });
   }
+}
+
+void World::GenerateMap()
+{
+  ZoneScoped;
+  auto& blocks = registry_.ctx().get<BlockRegistry>();
+  const auto& grass = blocks.Get("Grass");
+  const auto& malachite = blocks.Get("Malachite");
+
+  auto noiseGraph = FastNoise::NewFromEncodedNodeTree("HgAZABsAJwABAAAAFgARAAAADQADAAAAAADAPxMAAADAPwgAAM3MzD4AAAAAAADNzMw9AQQAAAAAAAAAgD8AAAAAAAAAAAAAAADNzMy+AAAAAAAAAAABGQAbAB0AHgAEAAAAAACPwvU+AAAAAAAAAAAAAAAAMzMzPwAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//CwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQAgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
+  auto lightGraph = FastNoise::New<FastNoise::Simplex>();
+  auto copperGraph = FastNoise::New<FastNoise::Simplex>();
+  auto terrainHeight2D = FastNoise::NewFromEncodedNodeTree("FgARAAAADQADAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAA==");
+  auto surfaceCaves = FastNoise::NewFromEncodedNodeTree("GQAbAB0AHgAEAAAAAAAAAMA/AAAAAAAAAAAAAAAAmpmZPgAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//AwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
+
+  constexpr auto samplesPerAxis = 32;
+  constexpr auto sampleScale    = (float)samplesPerAxis / TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE;
+  auto sampleNoise3D = [samplesPerAxis](const auto& tlCellNoise, glm::vec3 uv) {
+    const auto unnormalized = uv * (float)samplesPerAxis - 0.5f;
+    const auto intCoord     = glm::ivec3(unnormalized);
+    const auto weight       = unnormalized - glm::vec3(intCoord);
+
+    auto texelFetch3D = [&](glm::ivec3 p)
+    {
+      p = glm::clamp(p, glm::ivec3(0), glm::ivec3(samplesPerAxis - 1));
+      return tlCellNoise[p.x + p.y * samplesPerAxis + p.z * samplesPerAxis * samplesPerAxis];
+    };
+
+    const auto bln = texelFetch3D(intCoord + glm::ivec3(0, 0, 0));
+    const auto brn = texelFetch3D(intCoord + glm::ivec3(1, 0, 0));
+    const auto tln = texelFetch3D(intCoord + glm::ivec3(0, 1, 0));
+    const auto trn = texelFetch3D(intCoord + glm::ivec3(1, 1, 0));
+    const auto blf = texelFetch3D(intCoord + glm::ivec3(0, 0, 1));
+    const auto brf = texelFetch3D(intCoord + glm::ivec3(1, 0, 1));
+    const auto tlf = texelFetch3D(intCoord + glm::ivec3(0, 1, 1));
+    const auto trf = texelFetch3D(intCoord + glm::ivec3(1, 1, 1));
+
+    const auto n = glm::mix(glm::mix(bln, brn, weight.x), glm::mix(tln, trn, weight.x), weight.y);
+    const auto f = glm::mix(glm::mix(blf, brf, weight.x), glm::mix(tlf, trf, weight.x), weight.y);
+    return glm::mix(n, f, weight.z);
+  };
+
+  auto sampleNoise2D = [samplesPerAxis](const auto& tlCellNoise, glm::vec2 uv)
+  {
+    const auto unnormalized = uv * (float)samplesPerAxis - 0.5f;
+    const auto intCoord     = glm::ivec2(unnormalized);
+    const auto weight       = unnormalized - glm::vec2(intCoord);
+
+    auto texelFetch2D = [&](glm::ivec2 p)
+    {
+      p = glm::clamp(p, glm::ivec2(0), glm::ivec2(samplesPerAxis - 1));
+      return tlCellNoise[p.x + p.y * samplesPerAxis];
+    };
+
+    const auto bl = texelFetch2D(intCoord + glm::ivec2(0, 0));
+    const auto br = texelFetch2D(intCoord + glm::ivec2(1, 0));
+    const auto tl = texelFetch2D(intCoord + glm::ivec2(0, 1));
+    const auto tr = texelFetch2D(intCoord + glm::ivec2(1, 1));
+
+    return glm::mix(glm::mix(bl, br, weight.x), glm::mix(tl, tr, weight.x), weight.y);
+  };
+
+
+  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 6, 4}));
+
+  // Top level bricks
+
+  for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
+  {
+    for (int i = 0; i < grid.topLevelBricksDims_.x; i++)
+    {
+      auto tlTerrainHeight = std::vector<float>(samplesPerAxis * samplesPerAxis);
+      {
+        ZoneScopedN("terrainHeight");
+        //terrainHeight2D->GenUniformGrid3D(tlTerrainHeight.data(),
+        //  int(sampleScale * (i * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
+        //  0,
+        //  int(sampleScale * (k * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
+        //  samplesPerAxis,
+        //  1,
+        //  samplesPerAxis,
+        //  0.108f / sampleScale,
+        //  1234);
+
+        terrainHeight2D->GenUniformGrid2D(tlTerrainHeight.data(),
+          int(sampleScale * (i * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
+          int(sampleScale * (k * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
+          samplesPerAxis,
+          samplesPerAxis,
+          0.008f / sampleScale,
+          1234);
+      }
+      for (int j = 0; j < grid.topLevelBricksDims_.y; j++) // Y last so we can compute heightmap once
+      {
+        const auto tl    = glm::ivec3{i, j, k};
+        auto tlCellNoise = std::vector<float>(samplesPerAxis * samplesPerAxis * samplesPerAxis);
+        {
+          ZoneScopedN("noiseGraph->GenUniformGrid3D");
+          surfaceCaves->GenUniformGrid3D(tlCellNoise.data(),
+            int(sampleScale * (tl.x * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
+            int(sampleScale * (tl.y * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE - 180)),
+            int(sampleScale * (tl.z * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
+            samplesPerAxis,
+            samplesPerAxis,
+            samplesPerAxis,
+            0.008f / sampleScale,
+            1234);
+        }
+
+        // Bottom level bricks
+        for (int c = 0; c < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; c++)
+        {
+          for (int b = 0; b < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; b++)
+          {
+            for (int a = 0; a < TwoLevelGrid::TL_BRICK_SIDE_LENGTH; a++)
+            {
+              const auto bl = glm::ivec3{a, b, c};
+
+              // Voxels
+              for (int z = 0; z < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; z++)
+              {
+                for (int y = 0; y < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; y++)
+                {
+                  for (int x = 0; x < TwoLevelGrid::BL_BRICK_SIDE_LENGTH; x++)
+                  {
+                    const auto local  = glm::ivec3{x, y, z};
+                    const auto p      = tl * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE + bl * TwoLevelGrid::BL_BRICK_SIDE_LENGTH + local;
+                    const auto pModTl = p % TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE;
+                    // if (de2(glm::vec3(p) / 10.f + 2.0f) < 0.011f)
+                    // if (de2(glm::vec3(p) / 10.f + 2.0f) < 0.011f)
+                    //  if (de3(p) < 0.011f)
+                    // if (tlCellNoise[pModTl.x + pModTl.y * 64 + pModTl.z * 64 * 64] < 0)
+                    const auto noiseUv3 = (glm::vec3(pModTl) + 0.5f) / (float)TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE;
+                    const auto noiseUv2 = glm::vec2(noiseUv3.x, noiseUv3.z);
+                    const auto height = sampleNoise2D(tlTerrainHeight, noiseUv2) * 10 + 260;
+                    if (p.y < height && sampleNoise3D(tlCellNoise, noiseUv3) < 0)
+                    //if (p.y < height)
+                    {
+                      if (p.y > height - 1)
+                      {
+                        grid.SetVoxelAt(p, grass.GetBlockId());
+                      }
+                      else
+                      {
+                        const auto pf = glm::vec3(p) * 0.018f;
+                        if (lightGraph->GenSingle3D(pf.x, pf.y, pf.z, 12345) + 0.9f < 0)
+                        {
+                          grid.SetVoxelAt(p, 2);
+                        }
+                        else if (copperGraph->GenSingle3D(pf.x * 3, pf.y * 5, pf.z * 3, 123456) + 0.95f < 0)
+                        {
+                          grid.SetVoxelAt(p, malachite.GetBlockId());
+                        }
+                        else
+                        {
+                          grid.SetVoxelAt(p, 1);
+                        }
+                      }
+                    }
+                    else
+                    {
+                      grid.SetVoxelAt(p, 0);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        grid.CoalesceDirtyBricks();
+      }
+    }
+  }
+
+  auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));
+
+  auto ve                          = registry_.create();
+  registry_.emplace<Name>(ve).name = "Voxels";
+  Physics::AddRigidBody({registry_, ve},
+    {
+      .shape      = twoLevelGridShape,
+      .activate   = false,
+      .motionType = JPH::EMotionType::Static,
+      .layer      = Physics::Layers::WORLD,
+    });
 }
 
 entt::entity World::CreateRenderableEntityNoHashGrid(glm::vec3 position, glm::quat rotation, float scale)
@@ -1414,6 +1582,20 @@ entt::entity World::GetChildNamed(entt::entity entity, std::string_view name) co
     }
   }
   return entt::null;
+}
+
+glm::vec3 World::GetInheritedLinearVelocity(entt::entity entity)
+{
+  assert(registry_.valid(entity));
+  if (auto* vel = registry_.try_get<LinearVelocity>(entity))
+  {
+    return vel->v;
+  }
+  if (auto* h = registry_.try_get<Hierarchy>(entity); h && h->parent != entt::null)
+  {
+    return GetInheritedLinearVelocity(h->parent);
+  }
+  return {0, 0, 0};
 }
 
 const TeamFlags* World::GetTeamFlags(entt::entity entity) const
@@ -2339,7 +2521,7 @@ bool Inventory::CanCraftRecipe(Crafting::Recipe recipe) const
       }
     }
   }
-
+  
   for (const auto& ingredient : recipe.ingredients)
   {
     if (ingredient.count > 0)
@@ -2442,12 +2624,13 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
       registry.emplace<Mesh>(b).name                 = "frog";
       registry.emplace<Lifetime>(b).remainingSeconds = 8;
 
+      const auto inheritedVelocity = world.GetInheritedLinearVelocity(self);
       auto& projectile       = registry.emplace<Projectile>(b);
-      projectile.initialSpeed = velocity;
+      projectile.initialSpeed = velocity + glm::length(inheritedVelocity);
       projectile.drag        = 0.25f;
       projectile.restitution = 0.25f;
 
-      registry.emplace<LinearVelocity>(b, dir * velocity);
+      registry.emplace<LinearVelocity>(b, dir * velocity + inheritedVelocity);
 
       auto& contactDamage     = registry.emplace<ContactDamage>(b);
       contactDamage.damage    = damage;
@@ -2753,6 +2936,11 @@ void BlockDefinition::OnDestroyBlock(World& world, glm::ivec3 voxelPosition) con
 {
   auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
   grid.SetVoxelAt(voxelPosition, 0);
+}
+
+const BlockDefinition& BlockRegistry::Get(const std::string& name) const
+{
+  return *idToDefinition_.at(nameToId_.at(name));
 }
 
 const BlockDefinition& BlockRegistry::Get(BlockId id) const

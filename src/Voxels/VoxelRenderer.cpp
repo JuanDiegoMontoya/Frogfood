@@ -192,6 +192,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
   g_meshes.emplace("tracer", LoadObjFile(GetAssetDirectory() / "models/tracer.obj"));
   g_meshes.emplace("cube", LoadObjFile(GetAssetDirectory() / "models/cube.obj"));
   g_meshes.emplace("spear", LoadObjFile(GetAssetDirectory() / "models/spear.obj"));
+  g_meshes.emplace("pickaxe", LoadObjFile(GetAssetDirectory() / "models/pickaxe.obj"));
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -501,7 +502,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     }
     auto worldFromObject = glm::translate(glm::mat4(1), actualTransform.position) * glm::mat4_cast(actualTransform.rotation) * glm::scale(glm::mat4(1), glm::vec3(actualTransform.scale));
     auto& gpuMesh = g_meshes[mesh.name];
-    meshUniformzVec.emplace_back(worldFromObject, gpuMesh.vertexBuffer->GetDeviceAddress());
+    meshUniformzVec.emplace_back(worldFromObject, gpuMesh.vertexBuffer->GetDeviceAddress(), mesh.tint);
     drawCalls.emplace_back(&gpuMesh);
   }
 

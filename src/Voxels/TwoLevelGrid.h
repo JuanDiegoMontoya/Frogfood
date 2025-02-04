@@ -88,6 +88,13 @@ struct TwoLevelGrid
   void FreeTopLevelBrick(uint32_t index);
   void FreeBottomLevelBrick(uint32_t index);
 
+  // LOW LEVEL
+
+  // Entrusts the caller with the responsibility of marking pages dirty.
+  // Intended for world loading and other cases where mass modification is needed.
+  void SetVoxelAtNoDirty(glm::ivec3 voxelCoord, voxel_t voxel);
+  void MarkTopLevelBrickAndChildrenDirty(glm::ivec3 topLevelBrickPos);
+
   SketchyBuffer buffer;
   SketchyBuffer::Alloc topLevelBrickPtrs{};
   uint32_t topLevelBrickPtrsBaseIndex{};

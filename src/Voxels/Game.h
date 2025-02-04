@@ -353,7 +353,7 @@ public:
     return 0.25f;
   }
 
-  virtual void Update(float dt, World&, ItemState& state) const
+  virtual void Update(float dt, World&, [[maybe_unused]] entt::entity self, ItemState& state) const
   {
     state.useAccum += dt;
   }
@@ -450,14 +450,25 @@ public:
 class ToolDefinition : public ItemDefinition
 {
 public:
-  ToolDefinition(std::string_view name, float blockDamage, int blockDamageTier, BlockDamageFlags blockDamageFlags, float useDt = 0.25f)
-    : name_(name), blockDamage_(blockDamage), blockDamageTier_(blockDamageTier), blockDamageFlags_(blockDamageFlags), useDt_(useDt)
+  struct CreateInfo
+  {
+    std::string name;
+    std::optional<std::string> meshName;
+    glm::vec3 meshTint;
+    float blockDamage;
+    int blockDamageTier;
+    BlockDamageFlags blockDamageFlags;
+    float useDt = 0.25f;
+  };
+
+  ToolDefinition(const CreateInfo& createInfo)
+    : createInfo_(createInfo)
   {
   }
 
   std::string GetName() const override
   {
-    return name_;
+    return createInfo_.name;
   }
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
@@ -467,15 +478,19 @@ public:
 
   float GetUseDt() const override
   {
-    return useDt_;
+    return createInfo_.useDt;
   }
 
 protected:
-  std::string name_;
-  float blockDamage_;
-  int blockDamageTier_;
-  BlockDamageFlags blockDamageFlags_;
-  float useDt_;
+  CreateInfo createInfo_;
+};
+
+class RainbowTool : public ToolDefinition
+{
+public:
+  using ToolDefinition::ToolDefinition;
+
+  void Update(float dt, World& world, entt::entity self, ItemState& state) const override;
 };
 
 class Block : public ItemDefinition
@@ -858,6 +873,7 @@ struct TickRate
 struct Mesh
 {
   std::string name;
+  glm::vec3 tint = {1, 1, 1};
 };
 
 // Use when you want a child entity's collide events to be counted as the parent's.

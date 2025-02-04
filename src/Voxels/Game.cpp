@@ -867,8 +867,8 @@ void World::FixedUpdate(float dt)
       {
         const auto spawnPos = transform.position + GetForward(transform.rotation) * 5.0f;
         //CreateTunnelingWorm(spawnPos);
-        //SpawnMeleeFrog(spawnPos);
-        SpawnFlyingFrog(spawnPos);
+        SpawnMeleeFrog(spawnPos);
+        //SpawnFlyingFrog(spawnPos);
       }
 
       if (input.usePrimary)
@@ -888,13 +888,19 @@ void World::FixedUpdate(float dt)
     // Update items in inventories (important to ensure cooldowns, etc. reset even when items are put away).
     for (auto&& [entity, player, inventory] : registry_.view<Player, Inventory>(entt::exclude<GhostPlayer>).each())
     {
-      for (auto& row : inventory.slots)
+      for (size_t row = 0; row < inventory.height; row++)
       {
-        for (auto& slot : row)
+        for (size_t col = 0; col < inventory.width; col++)
         {
+          auto& slot = inventory.slots[row][col];
           if (slot.id != nullItem)
           {
-            registry_.ctx().get<ItemRegistry>().Get(slot.id).Update(dt, *this, slot);
+            entt::entity self = entt::null;
+            if (inventory.activeSlotCoord == glm::ivec2{row, col})
+            {
+              self = inventory.activeSlotEntity;
+            }
+            registry_.ctx().get<ItemRegistry>().Get(slot.id).Update(dt, *this, self, slot);
           }
         }
       }
@@ -1112,8 +1118,8 @@ void World::InitializeGameState()
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
   [[maybe_unused]] const auto gunId = items.Add(new Gun());
   [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
-  [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition("Stone Pickaxe", 20, 2, BlockDamageFlagBit::PICKAXE));
-  [[maybe_unused]] const auto opPickaxeId = items.Add(new ToolDefinition("OP Pickaxe", 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f));
+  [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition({"Stone Pickaxe", "pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
+  [[maybe_unused]] const auto opPickaxeId = items.Add(new RainbowTool({"OP Pickaxe", "pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
   [[maybe_unused]] const auto spearId = items.Add(new Spear());
 
   auto& blocks = registry_.ctx().insert_or_assign<BlockRegistry>(*this);
@@ -1332,7 +1338,6 @@ void World::GenerateMap()
   const auto& malachite = blocks.Get("Malachite");
 
   auto noiseGraph = FastNoise::NewFromEncodedNodeTree("HgAZABsAJwABAAAAFgARAAAADQADAAAAAADAPxMAAADAPwgAAM3MzD4AAAAAAADNzMw9AQQAAAAAAAAAgD8AAAAAAAAAAAAAAADNzMy+AAAAAAAAAAABGQAbAB0AHgAEAAAAAACPwvU+AAAAAAAAAAAAAAAAMzMzPwAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//CwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQAgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
-  auto lightGraph = FastNoise::New<FastNoise::Simplex>();
   auto copperGraph = FastNoise::New<FastNoise::Simplex>();
   auto terrainHeight2D = FastNoise::NewFromEncodedNodeTree("FgARAAAADQADAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAA==");
   auto surfaceCaves = FastNoise::NewFromEncodedNodeTree("GQAbAB0AHgAEAAAAAAAAAMA/AAAAAAAAAAAAAAAAmpmZPgAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//AwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
@@ -1385,7 +1390,7 @@ void World::GenerateMap()
   };
 
 
-  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 6, 4}));
+  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{8, 5, 8}));
 
   // Top level bricks
 
@@ -1418,6 +1423,7 @@ void World::GenerateMap()
       {
         const auto tl    = glm::ivec3{i, j, k};
         auto tlCellNoise = std::vector<float>(samplesPerAxis * samplesPerAxis * samplesPerAxis);
+        auto tlCopperNoise = std::vector<float>(samplesPerAxis * samplesPerAxis * samplesPerAxis);
         {
           ZoneScopedN("noiseGraph->GenUniformGrid3D");
           surfaceCaves->GenUniformGrid3D(tlCellNoise.data(),
@@ -1428,6 +1434,16 @@ void World::GenerateMap()
             samplesPerAxis,
             samplesPerAxis,
             0.008f / sampleScale,
+            1234);
+
+          copperGraph->GenUniformGrid3D(tlCopperNoise.data(),
+            int(sampleScale * (tl.x * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
+            int(sampleScale * (tl.y * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE - 180)),
+            int(sampleScale * (tl.z * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
+            samplesPerAxis,
+            samplesPerAxis,
+            samplesPerAxis,
+            0.018f * 4 / sampleScale,
             1234);
         }
 
@@ -1462,28 +1478,24 @@ void World::GenerateMap()
                     {
                       if (p.y > height - 1)
                       {
-                        grid.SetVoxelAt(p, grass.GetBlockId());
+                        grid.SetVoxelAtNoDirty(p, grass.GetBlockId());
                       }
                       else
                       {
                         const auto pf = glm::vec3(p) * 0.018f;
-                        if (lightGraph->GenSingle3D(pf.x, pf.y, pf.z, 12345) + 0.9f < 0)
+                        if (sampleNoise3D(tlCopperNoise, noiseUv3) + 0.95f < 0)
                         {
-                          grid.SetVoxelAt(p, 2);
-                        }
-                        else if (copperGraph->GenSingle3D(pf.x * 3, pf.y * 5, pf.z * 3, 123456) + 0.95f < 0)
-                        {
-                          grid.SetVoxelAt(p, malachite.GetBlockId());
+                          grid.SetVoxelAtNoDirty(p, malachite.GetBlockId());
                         }
                         else
                         {
-                          grid.SetVoxelAt(p, 1);
+                          grid.SetVoxelAtNoDirty(p, 1);
                         }
                       }
                     }
                     else
                     {
-                      grid.SetVoxelAt(p, 0);
+                      grid.SetVoxelAtNoDirty(p, 0);
                     }
                   }
                 }
@@ -1492,6 +1504,7 @@ void World::GenerateMap()
           }
         }
 
+        grid.MarkTopLevelBrickAndChildrenDirty(tl);
         grid.CoalesceDirtyBricks();
       }
     }
@@ -2075,7 +2088,7 @@ entt::entity World::CreateTunnelingWorm(glm::vec3 position)
     sphere2Settings.mDensity = 100000.0f / (10 * i + 1.0f);
     auto sphere2             = sphere2Settings.Create().Get();
     
-    auto a                          = CreateRenderableEntity(position + glm::vec3{20, 75, i / 1.0f}, glm::identity<glm::quat>(), i == 0 ? 0.5f : 1.0f);
+    auto a                          = CreateRenderableEntity(position + glm::vec3{0, 0, i / 1.0f}, glm::identity<glm::quat>(), i == 0 ? 0.5f : 1.0f);
     registry_.emplace<Name>(a).name = i == 0 ? "Worm head" : "Worm body";
     registry_.emplace<Mesh>(a).name = "frog";
     auto body                       = JPH::BodyID();
@@ -2667,10 +2680,17 @@ entt::entity Gun2::Materialize(World& world) const
 
 entt::entity ToolDefinition::Materialize(World& world) const
 {
-  auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::angleAxis(glm::radians(-90.0f), glm::vec3(1, 0, 0)));
-  world.GetRegistry().emplace<Mesh>(self).name = "ar15";
-  world.GetRegistry().emplace<Name>(self).name = "Pickaxe";
-  //SetParent({world->GetRegistry(), self}, world);
+  if (!createInfo_.meshName)
+  {
+    return entt::null;
+  }
+
+  auto self = world.CreateRenderableEntity({0.3f, -0.7f, -0.7f});
+  auto& mesh = world.GetRegistry().emplace<Mesh>(self);
+  mesh.name = *createInfo_.meshName;
+  mesh.tint = createInfo_.meshTint;
+
+  world.GetRegistry().emplace<Name>(self).name = GetName();
   return self;
 }
 
@@ -2686,6 +2706,10 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
     return;
   }
 
+  auto& path = world.GetRegistry().emplace_or_replace<LinearPath>(self);
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .rotation = glm::angleAxis(glm::radians(30.0f), glm::vec3(0, 0, 1)), .offsetSeconds = GetUseDt() * 0.3f});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = GetUseDt() * 0.3f});
+
   state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
   auto& reg      = world.GetRegistry();
   const auto& h  = reg.get<Hierarchy>(self);
@@ -2698,7 +2722,7 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
   auto hit   = TwoLevelGrid::HitSurfaceParameters();
   if (grid.TraceRaySimple(pos, dir, 10, hit))
   {
-    world.DamageBlock(glm::ivec3(hit.voxelPosition), blockDamage_, blockDamageTier_, blockDamageFlags_);
+    world.DamageBlock(glm::ivec3(hit.voxelPosition), createInfo_.blockDamage, createInfo_.blockDamageTier, createInfo_.blockDamageFlags);
 
     constexpr float debrisSize = 0.0525f;
     auto cube = JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(debrisSize)));
@@ -2995,4 +3019,23 @@ void ExplodeyBlockDefinition::OnDestroyBlock(World& world, glm::ivec3 voxelPosit
       v->v += force * glm::normalize(t.position - center);
     }
   }
+}
+
+void RainbowTool::Update(float dt, World& world, entt::entity self, ItemState& state) const
+{
+  ToolDefinition::Update(dt, world, self, state);
+  if (self == entt::null)
+  {
+    return;
+  }
+
+  using namespace glm;
+  auto hsv_to_rgb = [](vec3 hsv)
+  {
+    vec3 rgb = clamp(abs(mod(hsv.x * 6.0f + vec3(0.0, 4.0, 2.0), 6.0f) - 3.0f) - 1.0f, 0.0f, 1.0f);
+    return hsv.z * mix(vec3(1.0), rgb, hsv.y);
+  };
+
+  auto& mesh = world.GetRegistry().get<Mesh>(self);
+  mesh.tint  = hsv_to_rgb({0.33f * world.GetRegistry().ctx().get<float>("time"_hs), 0.875f, 0.85f});
 }

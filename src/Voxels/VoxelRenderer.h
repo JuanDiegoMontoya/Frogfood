@@ -79,6 +79,7 @@ namespace Temp
   {
     glm::mat4 worldFromObject;
     VkDeviceAddress vertexBuffer;
+    glm::vec3 tint;
   };
 } // namespace "Temp"
 

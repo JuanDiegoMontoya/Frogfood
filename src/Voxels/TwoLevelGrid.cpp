@@ -368,3 +368,66 @@ void TwoLevelGrid::FreeBottomLevelBrick(uint32_t index)
   buffer.Free(it->second);
   bottomLevelBrickIndexToAlloc.erase(it);
 }
+
+void TwoLevelGrid::SetVoxelAtNoDirty(glm::ivec3 voxelCoord, voxel_t voxel)
+{
+  assert(glm::all(glm::greaterThanEqual(voxelCoord, glm::ivec3(0))));
+  assert(glm::all(glm::lessThan(voxelCoord, dimensions_)));
+
+  auto [topLevelCoord, bottomLevelCoord, localVoxelCoord] = GetCoordsOfVoxelAt(voxelCoord);
+
+  const auto topLevelIndex = FlattenTopLevelBrickCoord(topLevelCoord);
+  assert(topLevelIndex < numTopLevelBricks_);
+  auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + topLevelIndex];
+
+  if (topLevelBrickPtr.voxelsDoBeAllSame)
+  {
+    // Make a top-level brick
+    topLevelBrickPtr = TopLevelBrickPtr{.voxelsDoBeAllSame = false, .topLevelBrick = AllocateTopLevelBrick(topLevelBrickPtr.voxelIfAllSame)};
+  }
+
+  const auto bottomLevelIndex = FlattenBottomLevelBrickCoord(bottomLevelCoord);
+  assert(bottomLevelIndex < CELLS_PER_TL_BRICK);
+  assert(topLevelBrickPtr.topLevelBrick < buffer.SizeBytes() / sizeof(TopLevelBrick));
+  auto& bottomLevelBrickPtr = buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks[bottomLevelIndex];
+
+  if (bottomLevelBrickPtr.voxelsDoBeAllSame)
+  {
+    // Make a bottom-level brick
+    bottomLevelBrickPtr = BottomLevelBrickPtr{.voxelsDoBeAllSame = false, .bottomLevelBrick = AllocateBottomLevelBrick(bottomLevelBrickPtr.voxelIfAllSame)};
+  }
+
+  const auto localVoxelIndex = FlattenVoxelCoord(localVoxelCoord);
+  assert(localVoxelIndex < CELLS_PER_BL_BRICK);
+  assert(bottomLevelBrickPtr.bottomLevelBrick < buffer.SizeBytes() / sizeof(BottomLevelBrick));
+  auto& dstVoxel = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[localVoxelIndex];
+  dstVoxel       = voxel;
+}
+
+void TwoLevelGrid::MarkTopLevelBrickAndChildrenDirty(glm::ivec3 topLevelBrickPos)
+{
+  const auto topLevelIndex = FlattenTopLevelBrickCoord(topLevelBrickPos);
+  assert(topLevelIndex < numTopLevelBricks_);
+  auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + topLevelIndex];
+
+  buffer.MarkDirtyPages(&topLevelBrickPtr);
+  dirtyTopLevelBricks.emplace(&topLevelBrickPtr);
+
+  if (topLevelBrickPtr.voxelsDoBeAllSame)
+  {
+    return;
+  }
+
+  for (auto& bottomLevelBrickPtr : buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks)
+  {
+    buffer.MarkDirtyPages(&bottomLevelBrickPtr);
+    dirtyBottomLevelBricks.emplace(&bottomLevelBrickPtr);
+
+    //if (bottomLevelBrickPtr.voxelsDoBeAllSame)
+    //{
+    //  continue;
+    //}
+
+    //const auto& bottomLevelBrick = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick];
+  }
+}

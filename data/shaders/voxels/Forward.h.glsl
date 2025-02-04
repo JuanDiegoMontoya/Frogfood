@@ -25,6 +25,7 @@ struct ObjectUniforms
 {
   mat4 worldFromObject;
   VertexBuffer vertexBuffer;
+  vec3 tint;
   //FVOG_UINT32 materialId;
   //FVOG_UINT32 materialBufferIndex;
   //FVOG_UINT32 samplerIndex;

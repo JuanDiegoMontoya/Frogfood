@@ -35,6 +35,9 @@
 #include <chrono>
 #include <stack>
 
+#include <execution>
+#include <algorithm>
+
 #define GAME_CATCH_EXCEPTIONS 0
 
 // We don't want this to happen when the component/entity is actually deleted, as we care about having a valid parent.
@@ -1333,18 +1336,21 @@ void World::InitializeGameState()
 void World::GenerateMap()
 {
   ZoneScoped;
-  auto& blocks = registry_.ctx().get<BlockRegistry>();
-  const auto& grass = blocks.Get("Grass");
+  auto& blocks          = registry_.ctx().get<BlockRegistry>();
+  const auto& grass     = blocks.Get("Grass");
   const auto& malachite = blocks.Get("Malachite");
 
-  auto noiseGraph = FastNoise::NewFromEncodedNodeTree("HgAZABsAJwABAAAAFgARAAAADQADAAAAAADAPxMAAADAPwgAAM3MzD4AAAAAAADNzMw9AQQAAAAAAAAAgD8AAAAAAAAAAAAAAADNzMy+AAAAAAAAAAABGQAbAB0AHgAEAAAAAACPwvU+AAAAAAAAAAAAAAAAMzMzPwAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//CwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQAgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
-  auto copperGraph = FastNoise::New<FastNoise::Simplex>();
+  auto noiseGraph = FastNoise::NewFromEncodedNodeTree(
+    "HgAZABsAJwABAAAAFgARAAAADQADAAAAAADAPxMAAADAPwgAAM3MzD4AAAAAAADNzMw9AQQAAAAAAAAAgD8AAAAAAAAAAAAAAADNzMy+AAAAAAAAAAABGQAbAB0AHgAEAAAAAACPwvU+AAAAAAAAAAAAAAAAMzMzPwAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//CwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQAgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
+  auto copperGraph     = FastNoise::New<FastNoise::Simplex>();
   auto terrainHeight2D = FastNoise::NewFromEncodedNodeTree("FgARAAAADQADAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAA==");
-  auto surfaceCaves = FastNoise::NewFromEncodedNodeTree("GQAbAB0AHgAEAAAAAAAAAMA/AAAAAAAAAAAAAAAAmpmZPgAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//AwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
+  auto surfaceCaves    = FastNoise::NewFromEncodedNodeTree(
+    "GQAbAB0AHgAEAAAAAAAAAMA/AAAAAAAAAAAAAAAAmpmZPgAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//AwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
 
   constexpr auto samplesPerAxis = 32;
   constexpr auto sampleScale    = (float)samplesPerAxis / TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE;
-  auto sampleNoise3D = [samplesPerAxis](const auto& tlCellNoise, glm::vec3 uv) {
+  auto sampleNoise3D            = [samplesPerAxis](const auto& tlCellNoise, glm::vec3 uv)
+  {
     const auto unnormalized = uv * (float)samplesPerAxis - 0.5f;
     const auto intCoord     = glm::ivec3(unnormalized);
     const auto weight       = unnormalized - glm::vec3(intCoord);
@@ -1389,27 +1395,29 @@ void World::GenerateMap()
     return glm::mix(glm::mix(bl, br, weight.x), glm::mix(tl, tr, weight.x), weight.y);
   };
 
+  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{10, 5, 10}));
 
-  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{8, 5, 8}));
-
-  // Top level bricks
-
+  auto tlBrickColCoords = std::vector<glm::ivec2>();
   for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
   {
     for (int i = 0; i < grid.topLevelBricksDims_.x; i++)
     {
+      tlBrickColCoords.emplace_back(k, i);
+    }
+  }
+
+  // Top level bricks
+  std::for_each(std::execution::par, tlBrickColCoords.begin(), tlBrickColCoords.end(), [&](glm::ivec2 tlBrickColCoord)
+  //for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
+  //{
+  //  for (int i = 0; i < grid.topLevelBricksDims_.x; i++)
+    {
+      const int k = tlBrickColCoord[0];
+      const int i = tlBrickColCoord[1];
+
       auto tlTerrainHeight = std::vector<float>(samplesPerAxis * samplesPerAxis);
       {
         ZoneScopedN("terrainHeight");
-        //terrainHeight2D->GenUniformGrid3D(tlTerrainHeight.data(),
-        //  int(sampleScale * (i * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
-        //  0,
-        //  int(sampleScale * (k * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
-        //  samplesPerAxis,
-        //  1,
-        //  samplesPerAxis,
-        //  0.108f / sampleScale,
-        //  1234);
 
         terrainHeight2D->GenUniformGrid2D(tlTerrainHeight.data(),
           int(sampleScale * (i * TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE)),
@@ -1505,10 +1513,11 @@ void World::GenerateMap()
         }
 
         grid.MarkTopLevelBrickAndChildrenDirty(tl);
-        grid.CoalesceDirtyBricks();
+        // TODO: coalesce top-level brick
       }
-    }
-  }
+    });
+  //}
+  grid.CoalesceDirtyBricks();
 
   auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));
 

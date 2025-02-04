@@ -9,6 +9,10 @@
 
 #include <type_traits>
 #include <algorithm>
+#include <mutex>
+
+std::mutex STINKY_MUTEX;
+//TracyLockable(std::mutex, STINKY_MUTEX); // Crashes Tracy client, possibly because I have too many threads.
 
 // Assert that we can memset these types and produce them from a bag of bytes.
 static_assert(std::is_trivially_constructible_v<TwoLevelGrid::TopLevelBrick>);
@@ -323,15 +327,23 @@ int TwoLevelGrid::FlattenVoxelCoord(glm::ivec3 coord)
 uint32_t TwoLevelGrid::AllocateTopLevelBrick(voxel_t initialVoxel)
 {
   ZoneScoped;
-  // The alignment of the allocation should be the size of the object being allocated so it can be indexed from the base ptr
-  auto allocation = buffer.Allocate(sizeof(TopLevelBrick), sizeof(TopLevelBrick));
-  auto index      = uint32_t(allocation.offset / sizeof(TopLevelBrick));
-  topLevelBrickIndexToAlloc.emplace(index, allocation);
+
+  uint32_t index;
+
+  {
+    auto lk = std::unique_lock(STINKY_MUTEX);
+    // The alignment of the allocation should be the size of the object being allocated so it can be indexed from the base ptr
+    auto allocation = buffer.Allocate(sizeof(TopLevelBrick), sizeof(TopLevelBrick));
+    index           = uint32_t(allocation.offset / sizeof(TopLevelBrick));
+    topLevelBrickIndexToAlloc.emplace(index, allocation);
+  }
+
   // Initialize
   auto& top = buffer.GetBase<TopLevelBrick>()[index];
   std::construct_at(&top);
   std::ranges::fill(top.bricks, BottomLevelBrickPtr{.voxelsDoBeAllSame = true, .bottomLevelBrick = initialVoxel});
 #ifndef GAME_HEADLESS
+  auto lk = std::unique_lock(STINKY_MUTEX);
   buffer.MarkDirtyPages(&top);
 #endif
   return index;
@@ -340,14 +352,22 @@ uint32_t TwoLevelGrid::AllocateTopLevelBrick(voxel_t initialVoxel)
 uint32_t TwoLevelGrid::AllocateBottomLevelBrick(voxel_t initialVoxel)
 {
   ZoneScoped;
-  auto allocation = buffer.Allocate(sizeof(BottomLevelBrick), sizeof(BottomLevelBrick));
-  auto index      = uint32_t(allocation.offset / sizeof(BottomLevelBrick));
-  bottomLevelBrickIndexToAlloc.emplace(index, allocation);
+  
+  uint32_t index;
+
+  {
+    auto lk         = std::unique_lock(STINKY_MUTEX);
+    auto allocation = buffer.Allocate(sizeof(BottomLevelBrick), sizeof(BottomLevelBrick));
+    index      = uint32_t(allocation.offset / sizeof(BottomLevelBrick));
+    bottomLevelBrickIndexToAlloc.emplace(index, allocation);
+  }
+
   // Initialize
   auto& bottom = buffer.GetBase<BottomLevelBrick>()[index];
   std::construct_at(&bottom);
   std::ranges::fill(bottom.voxels, initialVoxel);
 #ifndef GAME_HEADLESS
+  auto lk = std::unique_lock(STINKY_MUTEX);
   buffer.MarkDirtyPages(&bottom);
 #endif
   return index;
@@ -383,7 +403,7 @@ void TwoLevelGrid::SetVoxelAtNoDirty(glm::ivec3 voxelCoord, voxel_t voxel)
   if (topLevelBrickPtr.voxelsDoBeAllSame)
   {
     // Make a top-level brick
-    topLevelBrickPtr = TopLevelBrickPtr{.voxelsDoBeAllSame = false, .topLevelBrick = AllocateTopLevelBrick(topLevelBrickPtr.voxelIfAllSame)};
+    topLevelBrickPtr = TopLevelBrickPtr{.voxelsDoBeAllSame = false, .topLevelBrick = AllocateTopLevelBrickNoDirty(topLevelBrickPtr.voxelIfAllSame)};
   }
 
   const auto bottomLevelIndex = FlattenBottomLevelBrickCoord(bottomLevelCoord);
@@ -394,7 +414,7 @@ void TwoLevelGrid::SetVoxelAtNoDirty(glm::ivec3 voxelCoord, voxel_t voxel)
   if (bottomLevelBrickPtr.voxelsDoBeAllSame)
   {
     // Make a bottom-level brick
-    bottomLevelBrickPtr = BottomLevelBrickPtr{.voxelsDoBeAllSame = false, .bottomLevelBrick = AllocateBottomLevelBrick(bottomLevelBrickPtr.voxelIfAllSame)};
+    bottomLevelBrickPtr = BottomLevelBrickPtr{.voxelsDoBeAllSame = false, .bottomLevelBrick = AllocateBottomLevelBrickNoDirty(bottomLevelBrickPtr.voxelIfAllSame)};
   }
 
   const auto localVoxelIndex = FlattenVoxelCoord(localVoxelCoord);
@@ -404,12 +424,55 @@ void TwoLevelGrid::SetVoxelAtNoDirty(glm::ivec3 voxelCoord, voxel_t voxel)
   dstVoxel       = voxel;
 }
 
+uint32_t TwoLevelGrid::AllocateTopLevelBrickNoDirty(voxel_t initialVoxel)
+{
+  ZoneScoped;
+
+  uint32_t index;
+
+  {
+    auto lk = std::unique_lock(STINKY_MUTEX);
+    // The alignment of the allocation should be the size of the object being allocated so it can be indexed from the base ptr
+    auto allocation = buffer.Allocate(sizeof(TopLevelBrick), sizeof(TopLevelBrick));
+    index           = uint32_t(allocation.offset / sizeof(TopLevelBrick));
+    topLevelBrickIndexToAlloc.emplace(index, allocation);
+  }
+
+  // Initialize
+  auto& top = buffer.GetBase<TopLevelBrick>()[index];
+  std::construct_at(&top);
+  std::ranges::fill(top.bricks, BottomLevelBrickPtr{.voxelsDoBeAllSame = true, .bottomLevelBrick = initialVoxel});
+  return index;
+}
+
+uint32_t TwoLevelGrid::AllocateBottomLevelBrickNoDirty(voxel_t initialVoxel)
+{
+  ZoneScoped;
+
+  uint32_t index;
+
+  {
+    auto lk         = std::unique_lock(STINKY_MUTEX);
+    auto allocation = buffer.Allocate(sizeof(BottomLevelBrick), sizeof(BottomLevelBrick));
+    index           = uint32_t(allocation.offset / sizeof(BottomLevelBrick));
+    bottomLevelBrickIndexToAlloc.emplace(index, allocation);
+  }
+
+  // Initialize
+  auto& bottom = buffer.GetBase<BottomLevelBrick>()[index];
+  std::construct_at(&bottom);
+  std::ranges::fill(bottom.voxels, initialVoxel);
+  return index;
+}
+
 void TwoLevelGrid::MarkTopLevelBrickAndChildrenDirty(glm::ivec3 topLevelBrickPos)
 {
+  ZoneScoped;
   const auto topLevelIndex = FlattenTopLevelBrickCoord(topLevelBrickPos);
   assert(topLevelIndex < numTopLevelBricks_);
   auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + topLevelIndex];
 
+  auto lk = std::unique_lock(STINKY_MUTEX);
   buffer.MarkDirtyPages(&topLevelBrickPtr);
   dirtyTopLevelBricks.emplace(&topLevelBrickPtr);
 
@@ -418,16 +481,19 @@ void TwoLevelGrid::MarkTopLevelBrickAndChildrenDirty(glm::ivec3 topLevelBrickPos
     return;
   }
 
-  for (auto& bottomLevelBrickPtr : buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick].bricks)
+  auto& topLevelBrick = buffer.GetBase<TopLevelBrick>()[topLevelBrickPtr.topLevelBrick];
+  buffer.MarkDirtyPages(&topLevelBrick);
+  for (auto& bottomLevelBrickPtr : topLevelBrick.bricks)
   {
     buffer.MarkDirtyPages(&bottomLevelBrickPtr);
     dirtyBottomLevelBricks.emplace(&bottomLevelBrickPtr);
 
-    //if (bottomLevelBrickPtr.voxelsDoBeAllSame)
-    //{
-    //  continue;
-    //}
+    if (bottomLevelBrickPtr.voxelsDoBeAllSame)
+    {
+      continue;
+    }
 
-    //const auto& bottomLevelBrick = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick];
+    const auto& bottomLevelBrick = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick];
+    buffer.MarkDirtyPages(&bottomLevelBrick);
   }
 }

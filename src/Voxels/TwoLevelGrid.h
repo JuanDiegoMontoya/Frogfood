@@ -84,7 +84,7 @@ struct TwoLevelGrid
   static int FlattenBottomLevelBrickCoord(glm::ivec3 coord);
   static int FlattenVoxelCoord(glm::ivec3 coord);
   [[nodiscard]] uint32_t AllocateTopLevelBrick(voxel_t initialVoxel);
-  uint32_t AllocateBottomLevelBrick(voxel_t initialVoxel);
+  [[nodiscard]] uint32_t AllocateBottomLevelBrick(voxel_t initialVoxel);
   void FreeTopLevelBrick(uint32_t index);
   void FreeBottomLevelBrick(uint32_t index);
 
@@ -93,6 +93,8 @@ struct TwoLevelGrid
   // Entrusts the caller with the responsibility of marking pages dirty.
   // Intended for world loading and other cases where mass modification is needed.
   void SetVoxelAtNoDirty(glm::ivec3 voxelCoord, voxel_t voxel);
+  [[nodiscard]] uint32_t AllocateTopLevelBrickNoDirty(voxel_t initialVoxel);
+  [[nodiscard]] uint32_t AllocateBottomLevelBrickNoDirty(voxel_t initialVoxel);
   void MarkTopLevelBrickAndChildrenDirty(glm::ivec3 topLevelBrickPos);
 
   SketchyBuffer buffer;

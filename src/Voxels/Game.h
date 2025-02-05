@@ -388,6 +388,11 @@ public:
 
   ItemId Add(ItemDefinition* itemDefinition);
 
+  std::span<const std::unique_ptr<ItemDefinition>> GetAllItemDefinitions() const
+  {
+    return idToDefinition_;
+  }
+
 private:
   std::unordered_map<std::string, ItemId> nameToId_;
   std::vector<std::unique_ptr<ItemDefinition>> idToDefinition_;

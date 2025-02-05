@@ -783,7 +783,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       return;
     }
 
-    auto&& [playerEntity, p, i, gt] = *range.begin();
+    auto&& [playerEntity, p, inventory, gt] = *range.begin();
     
     // TODO: replace with bitmap font rendered above each creature
     auto collector = Physics::NearestRayCollector();
@@ -819,17 +819,17 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     if (ImGui::Begin("Inventory", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDecoration))
     {
       ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, {0.5f, 0.5f});
-      ImGui::BeginTable("Inventory", (int)i.width, ImGuiTableFlags_Borders);
+      ImGui::BeginTable("Inventory", (int)inventory.width, ImGuiTableFlags_Borders);
 
-      for (size_t row = 0; row < i.slots.size(); row++)
+      for (size_t row = 0; row < inventory.slots.size(); row++)
       {
         ImGui::PushID(int(row));
-        for (size_t col = 0; col < i.slots[row].size(); col++)
+        for (size_t col = 0; col < inventory.slots[row].size(); col++)
         {
           const auto currentSlotCoord = glm::ivec2(row, col);
           ImGui::TableNextColumn();
           ImGui::PushID(int(col));
-          auto& slot = i.slots[row][col];
+          auto& slot = inventory.slots[row][col];
           std::string nameStr  = "";
           if (slot.id != nullItem)
           {
@@ -842,9 +842,9 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           }
           const auto name = nameStr.c_str();
           const auto cursorPos = ImGui::GetCursorPos();
-          if (ImGui::Selectable(("##" + nameStr).c_str(), i.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
+          if (ImGui::Selectable(("##" + nameStr).c_str(), inventory.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
           {
-            i.SetActiveSlot(currentSlotCoord, playerEntity);
+            inventory.SetActiveSlot(currentSlotCoord, playerEntity);
           }
           if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
           {
@@ -859,7 +859,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             {
               assert(payload->DataSize == sizeof(glm::ivec2));
               const auto sourceRowCol = *static_cast<const glm::ivec2*>(payload->Data);
-              i.SwapSlots(sourceRowCol, {row, col}, playerEntity);
+              inventory.SwapSlots(sourceRowCol, {row, col}, playerEntity);
             }
             ImGui::EndDragDropTarget();
           }
@@ -887,7 +887,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             assert(payload->DataSize == sizeof(glm::ivec2));
             const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
 
-            if (auto dropped = i.DropItem(rowCol); dropped != entt::null)
+            if (auto dropped = inventory.DropItem(rowCol); dropped != entt::null)
             {
               const auto throwdir = GetForward(gt.rotation);
               const auto pos = gt.position + throwdir * 1.0f;
@@ -931,10 +931,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::Separator();
           }
           ImGui::PushID(index);
-          ImGui::BeginDisabled(!i.CanCraftRecipe(recipe) || !nearVoxels.contains(recipe.craftingStation));
+          ImGui::BeginDisabled(!inventory.CanCraftRecipe(recipe) || !nearVoxels.contains(recipe.craftingStation));
           if (ImGui::Button("Craft"))
           {
-            i.CraftRecipe(recipe, playerEntity);
+            inventory.CraftRecipe(recipe, playerEntity);
           }
           ImGui::Text("Output");
           ImGui::Indent();
@@ -1228,6 +1228,43 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           name = n->name;
         }
         ImGui::Text("%u (%s)", entt::to_entity(entity), name.c_str());
+      }
+    }
+    ImGui::End();
+
+    auto range = world.GetRegistry().view<Player, LocalPlayer, Inventory, GlobalTransform>().each();
+
+    if (range.begin() == range.end())
+    {
+      return;
+    }
+
+    auto&& [playerEntity, p, inventory, gt] = *range.begin();
+
+    if (ImGui::Begin("It's free real estate"))
+    {
+      const auto& itemRegistry = world.GetRegistry().ctx().get<ItemRegistry>();
+      for (int i = 0; const auto& itemDefinition : itemRegistry.GetAllItemDefinitions())
+      {
+        ImGui::PushID(i);
+        if (ImGui::Button(itemDefinition->GetName().c_str(), {-1, 0}))
+        {
+          auto item = ItemState{static_cast<ItemId>(i), 1};
+          inventory.TryStackItem(item);
+          if (item.count > 0)
+          {
+            if (auto slot = inventory.GetFirstEmptySlot())
+            {
+              inventory.OverwriteSlot(*slot, item, playerEntity);
+            }
+            else
+            {
+              world.CreateDroppedItem(item, gt.position, gt.rotation, gt.scale);
+            }
+          }
+        }
+        ImGui::PopID();
+        i++;
       }
     }
     ImGui::End();

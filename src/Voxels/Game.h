@@ -4,6 +4,7 @@
 #include "TwoLevelGrid.h"
 #include "Physics/Physics.h"
 #include "Fvog/detail/Flags.h"
+#include "shaders/Light.h.glsl" // "TEMP"
 
 #include "entt/entity/registry.hpp"
 #include "entt/entity/entity.hpp"
@@ -395,9 +396,30 @@ private:
 class Gun : public ItemDefinition
 {
 public:
+  struct CreateInfo
+  {
+    std::string name  = "Gun";
+    std::string model = "ar15";
+    glm::vec3 tint    = {1, 1, 1};
+    float scale       = 1;
+    float damage      = 20;
+    float knockback   = 3;
+    float fireRateRpm = 800;
+    float bullets     = 1;
+    float velocity    = 300;
+    float accuracyMoa = 4;
+    float vrecoil     = 1.0f; // Degrees
+    float vrecoilDev  = 0.25f;
+    float hrecoil     = 0.0f;
+    float hrecoilDev  = 0.25f;
+    std::optional<GpuLight> light;
+  };
+
+  explicit Gun(const CreateInfo& createInfo) : createInfo_(createInfo) {}
+
   std::string GetName() const override
   {
-    return "Gun";
+    return createInfo_.name;
   }
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
@@ -407,44 +429,11 @@ public:
 
   [[nodiscard]] float GetUseDt() const override
   {
-    return 1.0f / (fireRateRpm / 60.0f);
+    return 1.0f / (createInfo_.fireRateRpm / 60.0f);
   }
 
-  float damage      = 20;
-  float knockback   = 3;
-  float fireRateRpm = 800;
-  float bullets     = 1;
-  float velocity    = 300;
-  float accuracyMoa = 4;
-  float vrecoil     = 1.0f; // Degrees
-  float vrecoilDev  = 0.25f;
-  float hrecoil     = 0.0f;
-  float hrecoilDev  = 0.25f;
-};
-
-class Gun2 : public Gun
-{
-public:
-  Gun2() : Gun()
-  {
-    damage      = 10;
-    fireRateRpm = 80;
-    knockback   = 2;
-    bullets     = 9;
-    velocity    = 50;
-    accuracyMoa = 300;
-    vrecoil     = 10;
-    vrecoilDev  = 3;
-    hrecoil     = 1;
-    hrecoilDev  = 1;
-  }
-
-  std::string GetName() const override
-  {
-    return "Gun2";
-  }
-
-  [[nodiscard]] entt::entity Materialize(World& world) const override;
+private:
+  CreateInfo createInfo_;
 };
 
 class ToolDefinition : public ItemDefinition

@@ -5,6 +5,8 @@
 #include "../Math.h.glsl"
 #include "../Utility.h.glsl"
 #include "../Hash.h.glsl"
+#include "../Light.h.glsl"
+#include "../Pbr.h.glsl"
 
 const int BL_BRICK_SIDE_LENGTH = 8;
 const int CELLS_PER_BL_BRICK   = BL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH;
@@ -72,6 +74,11 @@ FVOG_DECLARE_STORAGE_BUFFERS_2(VoxelMaterials)
 	GpuVoxelMaterial materials[];
 }voxelMaterialsBuffers[];
 
+FVOG_DECLARE_STORAGE_BUFFERS_2(Lights)
+{
+  GpuLight lights[];
+}lightsBuffers[];
+
 struct Voxels
 {
 	FVOG_IVEC3 topLevelBricksDims;
@@ -80,6 +87,8 @@ struct Voxels
 	FVOG_UINT32 bufferIdx;
 	FVOG_UINT32 materialBufferIdx;
 	Sampler voxelSampler;
+  FVOG_UINT32 numLights;
+  FVOG_UINT32 lightBufferIdx;
 };
 
 Voxels g_voxels;
@@ -519,6 +528,23 @@ float TraceSunRay(vec3 rayPosition, vec3 sunDir)
 	return 1;
 }
 
+float GetPunctualLightVisibility(vec3 surfacePos, uint lightIndex)
+{
+  const GpuLight light = lightsBuffers[g_voxels.lightBufferIdx].lights[lightIndex];
+  const float lightDist = distance(surfacePos, light.position);
+
+	HitSurfaceParameters hit;
+	if (vx_TraceRayMultiLevel(surfacePos, normalize(light.position - surfacePos), lightDist * 3, hit))
+  {
+    const float hitDist = distance(hit.positionWorld, surfacePos);
+    if (hitDist < lightDist)
+    {
+      return 0.0;
+    }
+  }
+  return 1.0;
+}
+
 vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint samples, uint bounces, Texture2D noiseTexture)
 {
 	vec3 indirectIlluminance = {0, 0, 0};
@@ -571,8 +597,8 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
 
           //prevRayDir = curRayDir;
           curRayPos = hit.positionWorld + hit.flatNormalWorld * 0.0001;
-			normal = hit.flatNormalWorld;
-			currentAlbedo = GetHitAlbedo(hit);
+          normal = hit.flatNormalWorld;
+          currentAlbedo = GetHitAlbedo(hit);
 
           //curSurface.albedo = hit.albedo.rgb;
           //curSurface.normal = hit.smoothNormalWorld;
@@ -590,8 +616,8 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
         //     shadowUniforms.rtSunDiameterRadians,
         //     xi,
         //     numSunShadowRays);
-		const vec3 sunDir = normalize(vec3(.7, 1, .3));
-		const float sunShadow = TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4, sunDir);
+          const vec3 sunDir = normalize(vec3(.7, 1, .3));
+          const float sunShadow = TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4, sunDir);
 
           //indirectIlluminance += sunColor_internal_space * 
           indirectIlluminance +=  
@@ -603,6 +629,24 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
             sunShadow * 10000 /
             //sunShadow / 
             solid_angle_mapping_PDF(radians(0.5));
+
+          if (g_voxels.numLights > 0)
+          {
+            // Local light NEE
+            const uint lightIndex = PCG_RandU32(randState) % g_voxels.numLights;
+            const float lightPdf = 1.0 / g_voxels.numLights;
+            GpuLight light = lightsBuffers[g_voxels.lightBufferIdx].lights[lightIndex];
+
+            const float visibility = GetPunctualLightVisibility(hit.positionWorld + hit.flatNormalWorld * 0.0001, lightIndex);
+            if (visibility > 0)
+            {
+              Surface surface;
+              surface.albedo = GetHitAlbedo(hit);
+              surface.normal = hit.flatNormalWorld;
+              surface.position = hit.positionWorld;
+              indirectIlluminance += throughput * visibility * EvaluatePunctualLightLambert(light, surface, COLOR_SPACE_sRGB_LINEAR) / lightPdf;
+            }
+          }
         }
         else
         {
@@ -610,8 +654,8 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
         //   const vec3 skyEmittance = color_convert_src_to_dst(shadingUniforms.skyIlluminance.rgb * shadingUniforms.skyIlluminance.a,
         //     COLOR_SPACE_sRGB_LINEAR,
         //     shadingUniforms.shadingInternalColorSpace);
-			//const vec3 skyEmittance = {.1, .3, .5};
-			const vec3 skyEmittance = curRayDir * .5 + .5;
+          //const vec3 skyEmittance = {.1, .3, .5};
+          const vec3 skyEmittance = curRayDir * .5 + .5;
           indirectIlluminance += skyEmittance * throughput;
           break;
         }

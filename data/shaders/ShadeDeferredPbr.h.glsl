@@ -3,6 +3,7 @@
 
 #include "Resources.h.glsl"
 #include "Color.h.glsl"
+#include "Light.h.glsl"
 
 #if defined(__cplusplus) || defined(SHADING_PUSH_CONSTANTS)
 #ifdef __cplusplus
@@ -35,31 +36,6 @@ FVOG_DECLARE_ARGUMENTS(ShadingPushConstants)
   Buffer debugLinesBuffer;
 };
 #endif
-
-#define LIGHT_TYPE_DIRECTIONAL 0u
-#define LIGHT_TYPE_POINT       1u
-#define LIGHT_TYPE_SPOT        2u
-
-struct GpuLight
-{
-#ifdef __cplusplus
-  GpuLight() : 
-    colorSpace(COLOR_SPACE_sRGB_LINEAR)
-  {}
-  bool operator==(const GpuLight&) const noexcept = default;
-#endif
-  FVOG_VEC3 color;
-  FVOG_UINT32 type;
-  FVOG_VEC3 direction;  // Directional and spot only
-  // Point and spot lights use candela (lm/sr) while directional use lux (lm/m^2)
-  FVOG_FLOAT intensity;
-  FVOG_VEC3 position;        // Point and spot only
-  FVOG_FLOAT range;          // Point and spot only
-  FVOG_FLOAT innerConeAngle; // Spot only
-  FVOG_FLOAT outerConeAngle; // Spot only
-  FVOG_UINT32 colorSpace;    // sRGB_LINEAR or BT2020_LINEAR only
-  FVOG_UINT32 _padding;
-};
 
 #define SHADOW_MODE_VIRTUAL_SHADOW_MAP 0
 #define SHADOW_MODE_RAY_TRACED         1

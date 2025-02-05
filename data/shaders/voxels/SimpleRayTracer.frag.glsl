@@ -46,9 +46,30 @@ void main()
 		radiance += albedo * NoL * TraceSunRay(hit.positionWorld + hit.flatNormalWorld * 1e-4, sunDir);
 		radiance += GetHitEmission(hit);
 
+		const ivec2 gid = ivec2(gl_FragCoord.xy);
+
+		if (g_voxels.numLights > 0)
+		{
+			uint randState = PCG_Hash(gid.y + PCG_Hash(gid.x));
+			// Local light NEE
+			const uint lightIndex = PCG_RandU32(randState) % g_voxels.numLights;
+			const float lightPdf = 1.0 / g_voxels.numLights;
+			GpuLight light = lightsBuffers[g_voxels.lightBufferIdx].lights[lightIndex];
+
+			const float visibility = GetPunctualLightVisibility(hit.positionWorld + hit.flatNormalWorld * 0.0001, lightIndex);
+			if (visibility > 0)
+			{
+				Surface surface;
+				surface.albedo = GetHitAlbedo(hit);
+				surface.normal = hit.flatNormalWorld;
+				surface.position = hit.positionWorld;
+				indirectIlluminance += visibility * EvaluatePunctualLightLambert(light, surface, COLOR_SPACE_sRGB_LINEAR) / lightPdf;
+			}
+		}
+
 		const uint samples = 1;
 		const uint bounces = 2;
-		indirectIlluminance += TraceIndirectLighting(ivec2(gl_FragCoord), hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, samples, bounces, pc.noiseTexture);
+		indirectIlluminance += TraceIndirectLighting(gid, hit.positionWorld + hit.flatNormalWorld * 1e-4, hit.flatNormalWorld, samples, bounces, pc.noiseTexture);
 
 		const vec4 posClip = uniforms.viewProj * vec4(hit.positionWorld, 1.0);
 		gl_FragDepth = posClip.z / posClip.w;

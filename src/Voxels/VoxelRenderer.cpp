@@ -525,6 +525,20 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     });
   }
 
+  auto lights = std::vector<GpuLight>();
+  for (auto&& [entity, light, transform] : world.GetRegistry().view<GpuLight, GlobalTransform>().each())
+  {
+    light.position = transform.position;
+    light.direction = GetForward(transform.rotation);
+    if (const auto* rt = world.GetRegistry().try_get<RenderTransform>(entity))
+    {
+      light.position = rt->transform.position;
+      light.direction = GetForward(rt->transform.rotation);
+    }
+    light.colorSpace = COLOR_SPACE_sRGB_LINEAR;
+    lights.emplace_back(light);
+  }
+
   if (world.GetRegistry().ctx().contains<TwoLevelGrid>())
   {
     auto lines = std::vector<Debug::Line>();
@@ -552,6 +566,15 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
         billboardInstanceBuffer.emplace((uint32_t)billboards.size(), "Billboards");
       }
       billboardInstanceBuffer->UpdateData(commandBuffer, billboards);
+    }
+
+    if (!lights.empty())
+    {
+      if (!lightBuffer || lightBuffer->Size() < lights.size() * sizeof(GpuLight))
+      {
+        lightBuffer.emplace((uint32_t)lights.size(), "Lights");
+      }
+      lightBuffer->UpdateData(commandBuffer, lights);
     }
 
     auto voxelSampler = Fvog::Sampler(
@@ -600,6 +623,8 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .bufferIdx                  = grid.buffer.GetGpuBuffer().GetResourceHandle().index,
       .materialBufferIdx          = voxelMaterialBuffer->GetResourceHandle().index,
       .voxelSampler               = voxelSampler,
+      .numLights                  = (uint32_t)lights.size(),
+      .lightBufferIdx             = lights.empty() ? 0 : lightBuffer->GetDeviceBuffer().GetResourceHandle().index,
     };
     {
       // Voxels

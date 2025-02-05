@@ -1119,8 +1119,48 @@ void World::InitializeGameState()
   
   // Reset item registry
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
-  [[maybe_unused]] const auto gunId = items.Add(new Gun());
-  [[maybe_unused]] const auto gun2Id = items.Add(new Gun2());
+  [[maybe_unused]] const auto gunId = items.Add(new Gun({}));
+
+  [[maybe_unused]] const auto gun2Id = items.Add(new Gun({
+    .name        = "Frogun",
+    .model       = "frog",
+    .scale       = 0.125f,
+    .damage      = 10,
+    .knockback   = 80,
+    .fireRateRpm = 2,
+    .bullets     = 9,
+    .velocity    = 50,
+    .accuracyMoa = 300,
+    .vrecoil     = 10,
+    .vrecoilDev  = 3,
+    .hrecoil     = 1,
+    .hrecoilDev  = 1,
+  }));
+
+  auto light      = GpuLight();
+  light.color     = {1.0f, 0.4f, 0.2f};
+  light.intensity = 500;
+  light.type      = LIGHT_TYPE_POINT;
+  light.range     = 200;
+
+  [[maybe_unused]] const auto flareGunId = items.Add(new Gun({
+    .name        = "Flare Gun",
+    .model       = "ar15",
+    .tint        = {1, 0.4f, 0.22f},
+    .scale       = 1,
+    .damage      = 10,
+    .knockback   = 1,
+    .fireRateRpm = 90,
+    .bullets     = 1,
+    .velocity    = 60,
+    .accuracyMoa = 40,
+    //.vrecoil = ,
+    //.vrecoilDev = ,
+    //.hrecoil = ,
+    //.hrecoilDev = ,
+    .light = light,
+  }));
+
   [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition({"Stone Pickaxe", "pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
   [[maybe_unused]] const auto opPickaxeId = items.Add(new RainbowTool({"OP Pickaxe", "pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
   [[maybe_unused]] const auto spearId = items.Add(new Spear());
@@ -1231,6 +1271,10 @@ void World::InitializeGameState()
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stoneBlockId, 5}},
     {{stonePickaxeId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {},
+    {{flareGunId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {},
@@ -1395,7 +1439,7 @@ void World::GenerateMap()
     return glm::mix(glm::mix(bl, br, weight.x), glm::mix(tl, tr, weight.x), weight.y);
   };
 
-  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{10, 5, 10}));
+  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{5, 5, 5}));
 
   auto tlBrickColCoords = std::vector<glm::ivec2>();
   for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
@@ -1491,7 +1535,7 @@ void World::GenerateMap()
                       else
                       {
                         const auto pf = glm::vec3(p) * 0.018f;
-                        if (sampleNoise3D(tlCopperNoise, noiseUv3) + 0.95f < 0)
+                        if (sampleNoise3D(tlCopperNoise, noiseUv3) + 0.96f < 0)
                         {
                           grid.SetVoxelAtNoDirty(p, malachite.GetBlockId());
                         }
@@ -2602,9 +2646,13 @@ void Inventory::CraftRecipe(Crafting::Recipe recipe, entt::entity parent)
 
 entt::entity Gun::Materialize(World& world) const
 {
-  auto self                                    = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f});
-  world.GetRegistry().emplace<Mesh>(self).name = "ar15";
-  world.GetRegistry().emplace<Name>(self).name = "Gun";
+  auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f});
+  world.SetLocalScale(self, createInfo_.scale);
+  auto& mesh = world.GetRegistry().emplace<Mesh>(self);
+  mesh.name  = createInfo_.model;
+  mesh.tint  = createInfo_.tint;
+
+  world.GetRegistry().emplace<Name>(self).name = createInfo_.name;
   return self;
 }
 
@@ -2628,12 +2676,13 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
   {
     state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
 
-    for (int i = 0; i < bullets; i++)
+    for (int i = 0; i < createInfo_.bullets; i++)
     {
       const float bulletScale = 0.05f;
       auto bulletShape        = JPH::Ref(new JPH::SphereShape(.04f));
       bulletShape->SetDensity(11000);
-      const auto dir = Math::RandVecInCone({world.Rng().RandFloat(), world.Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(accuracyMoa / 60.0f));
+      const auto dir =
+        Math::RandVecInCone({world.Rng().RandFloat(), world.Rng().RandFloat()}, GetForward(transform.rotation), glm::radians(createInfo_.accuracyMoa / 60.0f));
       auto up = glm::vec3(0, 1, 0);
       if (glm::epsilonEqual(abs(dot(dir, glm::vec3(0, 1, 0))), 1.0f, 0.001f))
       {
@@ -2646,17 +2695,22 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
       registry.emplace<Mesh>(b).name                 = "frog";
       registry.emplace<Lifetime>(b).remainingSeconds = 8;
 
-      const auto inheritedVelocity = world.GetInheritedLinearVelocity(self);
-      auto& projectile       = registry.emplace<Projectile>(b);
-      projectile.initialSpeed = velocity + glm::length(inheritedVelocity);
-      projectile.drag        = 0.25f;
-      projectile.restitution = 0.25f;
+      if (createInfo_.light)
+      {
+        registry.emplace<GpuLight>(b, *createInfo_.light);
+      }
 
-      registry.emplace<LinearVelocity>(b, dir * velocity + inheritedVelocity);
+      const auto inheritedVelocity = world.GetInheritedLinearVelocity(self);
+      auto& projectile             = registry.emplace<Projectile>(b);
+      projectile.initialSpeed      = createInfo_.velocity + glm::length(inheritedVelocity);
+      projectile.drag              = 0.25f;
+      projectile.restitution       = 0.25f;
+
+      registry.emplace<LinearVelocity>(b, dir * createInfo_.velocity + inheritedVelocity);
 
       auto& contactDamage     = registry.emplace<ContactDamage>(b);
-      contactDamage.damage    = damage;
-      contactDamage.knockback = knockback;
+      contactDamage.damage    = createInfo_.damage;
+      contactDamage.knockback = createInfo_.knockback;
 
       if (auto* team = world.GetTeamFlags(self))
       {
@@ -2667,8 +2721,8 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
     // If parent is player, apply recoil
     if (auto* h = registry.try_get<Hierarchy>(self); h && h->parent != entt::null)
     {
-      const auto vr = glm::radians(vrecoil + world.Rng().RandFloat(-vrecoilDev, vrecoilDev));
-      const auto hr = glm::radians(hrecoil + world.Rng().RandFloat(-hrecoilDev, hrecoilDev));
+      const auto vr = glm::radians(createInfo_.vrecoil + world.Rng().RandFloat(-createInfo_.vrecoilDev, createInfo_.vrecoilDev));
+      const auto hr = glm::radians(createInfo_.hrecoil + world.Rng().RandFloat(-createInfo_.hrecoilDev, createInfo_.hrecoilDev));
       if (auto* is = registry.try_get<InputLookState>(h->parent))
       {
         is->pitch += vr;
@@ -2677,14 +2731,6 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
       }
     }
   }
-}
-
-entt::entity Gun2::Materialize(World& world) const
-{
-  auto self                                = Gun::Materialize(world);
-  world.GetRegistry().get<Mesh>(self).name = "frog";
-  world.SetLocalScale(self, 0.125f);
-  return self;
 }
 
 entt::entity ToolDefinition::Materialize(World& world) const

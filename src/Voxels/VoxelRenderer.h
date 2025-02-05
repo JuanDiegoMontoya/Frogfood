@@ -6,6 +6,7 @@
 #include "TwoLevelGrid.h"
 #include "debug/Shapes.h"
 #include "techniques/denoising/spatial/Bilateral.h"
+#include "shaders/Light.h.glsl"
 
 #include "glm/vec2.hpp"
 #include "glm/vec3.hpp"
@@ -43,6 +44,8 @@ namespace Temp
     FVOG_UINT32 bufferIdx;
     FVOG_UINT32 materialBufferIdx;
     shared::Sampler voxelSampler;
+    FVOG_UINT32 numLights;
+    FVOG_UINT32 lightBufferIdx;
   };
 
   FVOG_DECLARE_ARGUMENTS(PushConstants)
@@ -125,6 +128,7 @@ private:
   PipelineManager::GraphicsPipelineKey debugLinesPipeline;
   PipelineManager::GraphicsPipelineKey billboardsPipeline;
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
+  std::optional<Fvog::NDeviceBuffer<GpuLight>> lightBuffer;
   std::optional<Fvog::NDeviceBuffer<Temp::BillboardInstance>> billboardInstanceBuffer;
   std::optional<Fvog::Buffer> voxelMaterialBuffer;
   std::optional<Fvog::Texture> noiseTexture;

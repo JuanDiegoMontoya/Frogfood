@@ -117,6 +117,25 @@ vec3 BRDF(vec3 viewDir, vec3 L, Surface surface)
   return Fr + Fd * (vec3(1) - F) * (1.0 - surface.metallic);
 }
 
+vec3 EvaluatePunctualLightLambert(GpuLight light, Surface surface, uint internalColorSpace)
+{
+  vec3 surfaceToLight = light.position - surface.position;
+  vec3 L = normalize(surfaceToLight);
+  float NoL = clamp(dot(surface.normal, L), 0.0, 1.0);
+
+  float attenuation = GetSquareFalloffAttenuation(surfaceToLight, 1.0 / light.range);
+
+  if (light.type == LIGHT_TYPE_SPOT)
+  {
+    attenuation *= GetSpotAngleAttenuation(light.innerConeAngle, light.outerConeAngle, light.direction, L);
+  }
+
+  vec3 lightColor_internal_space = color_convert_src_to_dst(light.color,
+    light.colorSpace,
+    internalColorSpace);
+  return surface.albedo / M_PI * attenuation * NoL * light.color * light.intensity;
+}
+
 vec3 EvaluatePunctualLight(vec3 viewDir, GpuLight light, Surface surface, uint internalColorSpace)
 {
   vec3 surfaceToLight = light.position - surface.position;

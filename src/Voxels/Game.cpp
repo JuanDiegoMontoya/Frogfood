@@ -1126,8 +1126,8 @@ void World::InitializeGameState()
     .model       = "frog",
     .scale       = 0.125f,
     .damage      = 10,
-    .knockback   = 80,
-    .fireRateRpm = 2,
+    .knockback   = 2,
+    .fireRateRpm = 80,
     .bullets     = 9,
     .velocity    = 50,
     .accuracyMoa = 300,
@@ -1256,6 +1256,16 @@ void World::InitializeGameState()
   }
   ))).GetItemId();
 
+  [[maybe_unused]] const auto torchBlockItemId = blocks.Get(blocks.Add(new BlockDefinition({.name = "Torch",
+      .voxelMaterialDesc =
+        VoxelMaterialDesc{
+          //.baseColorTexture          =,
+          //.baseColorFactor           =,
+          //.emissionTexture           =,
+          .emissionFactor = {5, 3, 2},
+        },
+  }))).GetItemId();
+
   auto* head = registry_.ctx().get<Head*>();
   head->CreateRenderingMaterials(blocks.GetAllDefinitions());
 
@@ -1307,8 +1317,6 @@ void World::InitializeGameState()
 
   // Reset RNG
   registry_.ctx().insert_or_assign<PCG::Rng>(1234);
-
-  GenerateMap();
 
   // Make player entity
   auto p = registry_.create();
@@ -1380,6 +1388,10 @@ void World::InitializeGameState()
 void World::GenerateMap()
 {
   ZoneScoped;
+#ifndef GAME_HEADLESS
+  auto& progress  = registry_.ctx().get<std::atomic_int32_t>("progress"_hs);
+  auto& total     = registry_.ctx().get<std::atomic_int32_t>("total"_hs);
+#endif
   auto& blocks          = registry_.ctx().get<BlockRegistry>();
   const auto& grass     = blocks.Get("Grass");
   const auto& malachite = blocks.Get("Malachite");
@@ -1439,7 +1451,10 @@ void World::GenerateMap()
     return glm::mix(glm::mix(bl, br, weight.x), glm::mix(tl, tr, weight.x), weight.y);
   };
 
-  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{5, 5, 5}));
+  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 5, 4}));
+#ifndef GAME_HEADLESS
+  total.store((int32_t)grid.numTopLevelBricks_);
+#endif
 
   auto tlBrickColCoords = std::vector<glm::ivec2>();
   for (int k = 0; k < grid.topLevelBricksDims_.z; k++)
@@ -1558,6 +1573,9 @@ void World::GenerateMap()
 
         grid.MarkTopLevelBrickAndChildrenDirty(tl);
         // TODO: coalesce top-level brick
+#ifndef GAME_HEADLESS
+        progress.fetch_add(1);
+#endif
       }
     });
   //}
@@ -2801,8 +2819,22 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
 entt::entity Block::Materialize(World& world) const
 {
   auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
-  world.GetRegistry().emplace<Mesh>(self).name = "cube";
-  world.GetRegistry().emplace<Name>(self).name = "Block";
+  auto& mesh = world.GetRegistry().emplace<Mesh>(self);
+  mesh.name = "cube";
+  const auto& material = world.GetRegistry().ctx().get<BlockRegistry>().Get(voxel).GetMaterialDesc();
+  mesh.tint = material.baseColorFactor;
+  if (!material.emissionTexture && glm::length(material.emissionFactor) > 0.01f)
+  {
+    // TODO: Convert from luminance (cd/m^2) to luminous intensity (cd)
+    auto light      = GpuLight();
+    light.color     = material.emissionFactor;
+    light.intensity = 1;
+    light.type      = LIGHT_TYPE_POINT;
+    light.range     = 100;
+    world.GetRegistry().emplace<GpuLight>(self, light);
+  }
+
+  world.GetRegistry().emplace<Name>(self).name = GetName();
   return self;
 }
 

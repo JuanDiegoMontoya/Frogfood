@@ -712,6 +712,7 @@ enum class GameState
   MENU,
   GAME,
   PAUSED,
+  LOADING,
 };
 
 inline const char* GameStateToStr(GameState g)

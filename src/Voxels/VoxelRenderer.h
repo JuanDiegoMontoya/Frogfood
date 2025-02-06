@@ -99,6 +99,7 @@ private:
 
   void OnFramebufferResize(uint32_t newWidth, uint32_t newHeight);
   void OnRender(double dt, World& world, VkCommandBuffer commandBuffer, uint32_t swapchainImageIndex);
+  void RenderGame(double dt, World& world, VkCommandBuffer commandBuffer);
   void OnGui(DeltaTime dt, World& world, VkCommandBuffer commandBuffer);
 
   Fvog::Texture& GetOrEmplaceCachedTexture(const std::string& name);

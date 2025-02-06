@@ -31,6 +31,8 @@
 #include <memory>
 #include <numeric>
 #include <type_traits>
+#include <future>
+#include <atomic>
 
 namespace
 {
@@ -417,6 +419,33 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     head_->shouldResizeNextFrame = false;
   }
 
+  auto ctx = Fvog::Context(commandBuffer);
+
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
+
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
+
+  if (Fvog::GetDevice().supportsRayTracing)
+  {
+    vkCmdBindDescriptorSets(commandBuffer,
+      VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+      Fvog::GetDevice().defaultPipelineLayout,
+      0,
+      1,
+      &Fvog::GetDevice().descriptorSet_,
+      0,
+      nullptr);
+  }
+
+  if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
+  {
+    ctx.Barrier();
+    RenderGame(dt, world, commandBuffer);
+    ctx.Barrier();
+  }
+
+  ctx.ImageBarrier(head_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+
   const auto nearestSampler = Fvog::Sampler({
     .magFilter     = VK_FILTER_NEAREST,
     .minFilter     = VK_FILTER_NEAREST,
@@ -427,18 +456,44 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     .maxAnisotropy = 0,
   });
 
+  //const auto renderArea = VkRect2D{.offset = {}, .extent = {renderOutputWidth, renderOutputHeight}};
+  const auto renderArea = VkRect2D{.offset = {}, .extent = {head_->windowFramebufferWidth, head_->windowFramebufferHeight}};
+  vkCmdBeginRendering(commandBuffer,
+    Fvog::detail::Address(VkRenderingInfo{
+      .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
+      .renderArea           = renderArea,
+      .layerCount           = 1,
+      .colorAttachmentCount = 1,
+      .pColorAttachments    = Fvog::detail::Address(VkRenderingAttachmentInfo{
+           .sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+           .imageView   = head_->swapchainImageViews_[swapchainImageIndex],
+           .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+           .loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR,
+           .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
+           .clearValue  = {.color = VkClearColorValue{.float32 = {0, 0, 1, 1}}},
+      }),
+    }));
+
+  //vkCmdSetViewport(commandBuffer, 0, 1, Fvog::detail::Address(VkViewport{0, 0, (float)renderOutputWidth, (float)renderOutputHeight, 0, 1}));
+  vkCmdSetViewport(commandBuffer, 0, 1, Fvog::detail::Address(VkViewport{0, 0, (float)head_->windowFramebufferWidth, (float)head_->windowFramebufferHeight, 0, 1}));
+  vkCmdSetScissor(commandBuffer, 0, 1, &renderArea);
+  ctx.BindGraphicsPipeline(debugTexturePipeline.GetPipeline());
+  auto pushConstants = Temp::DebugTextureArguments{
+    .textureIndex = frame.sceneColor->ImageView().GetSampledResourceHandle().index,
+    .samplerIndex = nearestSampler.GetResourceHandle().index,
+  };
+
+  ctx.SetPushConstants(pushConstants);
+  ctx.Draw(3, 1, 0, 0);
+
+  vkCmdEndRendering(commandBuffer);
+
+  ctx.ImageBarrier(head_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+}
+
+void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkCommandBuffer commandBuffer)
+{
   auto ctx = Fvog::Context(commandBuffer);
-
-  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
-
-  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
-
-  if (Fvog::GetDevice().supportsRayTracing)
-  {
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, Fvog::GetDevice().defaultPipelineLayout, 0, 1, &Fvog::GetDevice().descriptorSet_, 0, nullptr);
-  }
-
-  ctx.Barrier();
 
   if (world.GetRegistry().ctx().contains<TwoLevelGrid>())
   {
@@ -448,7 +503,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   ctx.Barrier();
 
-  auto viewMat = glm::mat4(1);
+  auto viewMat  = glm::mat4(1);
   auto position = glm::vec3();
   for (auto&& [entity, inputLook, transform] : world.GetRegistry().view<const InputLookState, const GlobalTransform, LocalPlayer>().each())
   {
@@ -461,11 +516,11 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       position = renderTransform->transform.position;
     }
     auto rotation = glm::mat4_cast(glm::inverse(rotationQuat));
-    viewMat = glm::translate(rotation, -position);
+    viewMat       = glm::translate(rotation, -position);
   }
 
   const auto view_from_world = viewMat;
-  //const auto clip_from_view = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
+  // const auto clip_from_view = Math::InfReverseZPerspectiveRH(cameraFovyRadians, aspectRatio, cameraNearPlane);
   const auto clip_from_view  = Math::InfReverseZPerspectiveRH(glm::radians(65.0f), (float)head_->windowFramebufferWidth / head_->windowFramebufferHeight, 0.1f);
   const auto clip_from_world = clip_from_view * view_from_world;
 
@@ -490,7 +545,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .flags                  = 0,
       .alphaHashScale         = 0,
     });
-  
+
   auto drawCalls       = std::vector<GpuMesh*>();
   auto meshUniformzVec = std::vector<Temp::ObjectUniforms>();
   for (auto&& [entity, transform, mesh] : world.GetRegistry().view<GlobalTransform, Mesh>().each())
@@ -500,7 +555,8 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
     {
       actualTransform = renderTransform->transform;
     }
-    auto worldFromObject = glm::translate(glm::mat4(1), actualTransform.position) * glm::mat4_cast(actualTransform.rotation) * glm::scale(glm::mat4(1), glm::vec3(actualTransform.scale));
+    auto worldFromObject = glm::translate(glm::mat4(1), actualTransform.position) * glm::mat4_cast(actualTransform.rotation) *
+                           glm::scale(glm::mat4(1), glm::vec3(actualTransform.scale));
     auto& gpuMesh = g_meshes[mesh.name];
     meshUniformzVec.emplace_back(worldFromObject, gpuMesh.vertexBuffer->GetDeviceAddress(), mesh.tint);
     drawCalls.emplace_back(&gpuMesh);
@@ -528,11 +584,11 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
   auto lights = std::vector<GpuLight>();
   for (auto&& [entity, light, transform] : world.GetRegistry().view<GpuLight, GlobalTransform>().each())
   {
-    light.position = transform.position;
+    light.position  = transform.position;
     light.direction = GetForward(transform.rotation);
     if (const auto* rt = world.GetRegistry().try_get<RenderTransform>(entity))
     {
-      light.position = rt->transform.position;
+      light.position  = rt->transform.position;
       light.direction = GetForward(rt->transform.rotation);
     }
     light.colorSpace = COLOR_SPACE_sRGB_LINEAR;
@@ -541,7 +597,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
 
   if (world.GetRegistry().ctx().contains<TwoLevelGrid>())
   {
-    auto lines = std::vector<Debug::Line>();
+    auto lines           = std::vector<Debug::Line>();
     const auto& ecsLines = world.GetRegistry().ctx().get<std::vector<Debug::Line>>();
     lines.insert(lines.end(), ecsLines.begin(), ecsLines.end());
 #ifdef JPH_DEBUG_RENDERER
@@ -588,7 +644,7 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       },
       "Voxel Sampler");
 
-    auto& grid           = world.GetRegistry().ctx().get<TwoLevelGrid>();
+    auto& grid            = world.GetRegistry().ctx().get<TwoLevelGrid>();
     auto albedoAttachment = Fvog::RenderColorAttachment{
       .texture = frame.sceneAlbedo.value().ImageView(),
       .loadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
@@ -642,9 +698,9 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       TracyVkZone(head_->tracyVkContext_, commandBuffer, "Meshes");
       ctx.BindGraphicsPipeline(meshPipeline.GetPipeline());
       ctx.SetPushConstants(Temp::MeshArgs{
-        .objects = meshUniformz.GetDeviceAddress(),
-        .frame = perFrameUniforms.GetDeviceBuffer().GetDeviceAddress(),
-        .voxels = voxels,
+        .objects      = meshUniformz.GetDeviceAddress(),
+        .frame        = perFrameUniforms.GetDeviceBuffer().GetDeviceAddress(),
+        .voxels       = voxels,
         .noiseTexture = noiseTexture->ImageView().GetTexture2D(),
       });
 
@@ -695,43 +751,6 @@ void VoxelRenderer::OnRender([[maybe_unused]] double dt, World& world, VkCommand
       .cameraPos                = position,
     },
     commandBuffer);
-
-  ctx.Barrier();
-  ctx.ImageBarrier(head_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-
-  //const auto renderArea = VkRect2D{.offset = {}, .extent = {renderOutputWidth, renderOutputHeight}};
-  const auto renderArea = VkRect2D{.offset = {}, .extent = {head_->windowFramebufferWidth, head_->windowFramebufferHeight}};
-  vkCmdBeginRendering(commandBuffer,
-    Fvog::detail::Address(VkRenderingInfo{
-      .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
-      .renderArea           = renderArea,
-      .layerCount           = 1,
-      .colorAttachmentCount = 1,
-      .pColorAttachments    = Fvog::detail::Address(VkRenderingAttachmentInfo{
-           .sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-           .imageView   = head_->swapchainImageViews_[swapchainImageIndex],
-           .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-           .loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR,
-           .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
-           .clearValue  = {.color = VkClearColorValue{.float32 = {0, 0, 1, 1}}},
-      }),
-    }));
-
-  //vkCmdSetViewport(commandBuffer, 0, 1, Fvog::detail::Address(VkViewport{0, 0, (float)renderOutputWidth, (float)renderOutputHeight, 0, 1}));
-  vkCmdSetViewport(commandBuffer, 0, 1, Fvog::detail::Address(VkViewport{0, 0, (float)head_->windowFramebufferWidth, (float)head_->windowFramebufferHeight, 0, 1}));
-  vkCmdSetScissor(commandBuffer, 0, 1, &renderArea);
-  ctx.BindGraphicsPipeline(debugTexturePipeline.GetPipeline());
-  auto pushConstants = Temp::DebugTextureArguments{
-    .textureIndex = frame.sceneColor->ImageView().GetSampledResourceHandle().index,
-    .samplerIndex = nearestSampler.GetResourceHandle().index,
-  };
-
-  ctx.SetPushConstants(pushConstants);
-  ctx.Draw(3, 1, 0, 0);
-
-  vkCmdEndRendering(commandBuffer);
-
-  ctx.ImageBarrier(head_->swapchainImages_[swapchainImageIndex], VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 
 void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)
@@ -744,8 +763,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     {
       if (ImGui::Button("Play"))
       {
-        gameState = GameState::GAME;
+        gameState = GameState::LOADING;
         world.InitializeGameState();
+        world.GetRegistry().ctx().emplace_as<std::atomic_int32_t>("progress"_hs, 0);
+        world.GetRegistry().ctx().emplace_as<std::atomic_int32_t>("total"_hs, 1);
+        world.GetRegistry().ctx().emplace_as<std::future<void>>("loading"_hs, std::async(std::launch::async, [&world] { world.GenerateMap(); }));
       }
     }
     ImGui::End();
@@ -982,7 +1004,29 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     }
     ImGui::End();
     break;
-  default:;
+  case GameState::LOADING:
+  {
+    // There is an ongoing connection attempt or the world is loading.
+    auto& future = world.GetRegistry().ctx().get<std::future<void>>("loading"_hs);
+    using namespace std::chrono_literals;
+    if (future.wait_for(0s) == std::future_status::ready)
+    {
+      gameState = GameState::GAME;
+    }
+    else
+    {
+      // Show loading bar.
+      const auto& progress = world.GetRegistry().ctx().get<std::atomic_int32_t>("progress"_hs);
+      const auto& total = world.GetRegistry().ctx().get<std::atomic_int32_t>("total"_hs);
+      if (ImGui::Begin("Loading"))
+      {
+        ImGui::Text("frogress: %d / %d", progress.load(), total.load());
+      }
+      ImGui::End();
+    }
+    break;
+  }
+  default: assert(0);
   }
 
   if (world.GetRegistry().ctx().get<Debugging>().showDebugGui)

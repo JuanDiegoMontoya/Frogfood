@@ -11,6 +11,7 @@
 #include "Pathfinding.h"
 #include "MathUtilities.h"
 #include "HashGrid.h"
+#include "Prefab.h"
 
 #include "entt/entity/handle.hpp"
 
@@ -34,9 +35,9 @@
 
 #include <chrono>
 #include <stack>
-
 #include <execution>
 #include <algorithm>
+#include <mutex>
 
 #define GAME_CATCH_EXCEPTIONS 0
 
@@ -1116,7 +1117,7 @@ void World::InitializeGameState()
   {
     registry_.destroy(e);
   }
-  
+
   // Reset item registry
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
   [[maybe_unused]] const auto gunId = items.Add(new Gun({}));
@@ -1256,6 +1257,17 @@ void World::InitializeGameState()
   }
   ))).GetItemId();
 
+  [[maybe_unused]] const auto woodBlockId = blocks.Add(new BlockDefinition({
+    .name          = "Wood",
+    .initialHealth = 100,
+    .damageTier    = 1,
+    .damageFlags   = BlockDamageFlagBit::AXE,
+    .voxelMaterialDesc =
+      {
+        .baseColorFactor = {0.39f, 0.24f, 0.08f},
+      },
+  }));
+
   [[maybe_unused]] const auto torchBlockItemId = blocks.Get(blocks.Add(new BlockDefinition({.name = "Torch",
       .voxelMaterialDesc =
         VoxelMaterialDesc{
@@ -1268,6 +1280,19 @@ void World::InitializeGameState()
 
   auto* head = registry_.ctx().get<Head*>();
   head->CreateRenderingMaterials(blocks.GetAllDefinitions());
+
+  auto& prefabs = registry_.ctx().insert_or_assign<PrefabRegistry>({});
+  //const auto grassId = blocks.Get("Grass").GetBlockId();
+  //const auto frogLightBlockId = blocks.Get("Frog Light").GetBlockId();
+
+  auto* testTree = new SimplePrefab({.name = "Tree"});
+  auto& binky    = testTree->voxels;
+  binky.emplace_back(glm::ivec3(0, 0, 0), woodBlockId);
+  binky.emplace_back(glm::ivec3(0, 1, 0), woodBlockId);
+  binky.emplace_back(glm::ivec3(0, 2, 0), woodBlockId);
+  binky.emplace_back(glm::ivec3(0, 3, 0), woodBlockId);
+  binky.emplace_back(glm::ivec3(0, 4, 0), woodBlockId);
+  prefabs.Add(testTree);
 
   auto& crafting = registry_.ctx().insert_or_assign<Crafting>({});
   crafting.recipes.emplace_back(Crafting::Recipe{
@@ -1402,6 +1427,7 @@ void World::GenerateMap()
   auto terrainHeight2D = FastNoise::NewFromEncodedNodeTree("FgARAAAADQADAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAA==");
   auto surfaceCaves    = FastNoise::NewFromEncodedNodeTree(
     "GQAbAB0AHgAEAAAAAAAAAMA/AAAAAAAAAAAAAAAAmpmZPgAAAAAAAAAAAAAAAAAAAACAPwETAJqZmT4aAAERAAIAAAAAAOBAEAAAAIhBHwAWAAEAAAALAAMAAAACAAAAAwAAAAQAAAAAAAAAPwEUAP//AwAAAAAAPwAAAAA/AAAAAD8AAAAAPwEXAAAAgL8AAIA/PQoXQFK4HkATAAAAoEAGAACPwnU8AJqZmT4AAAAAAADhehQ/ARsADQAEAAAAAAAAQBMAAADAPwgAAAAAAD8AAAAAAAEaAAAAAIA/AR4AHQAEAAAAAAAAAIA/AAAAAAAAAAAAAAAAzcxMPwAAAAAAAAAAAAAAgD8AAAAAAA==");
+  auto trees = FastNoise::New<FastNoise::Value>();
 
   constexpr auto samplesPerAxis = 32;
   constexpr auto sampleScale    = (float)samplesPerAxis / TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE;
@@ -1464,6 +1490,9 @@ void World::GenerateMap()
       tlBrickColCoords.emplace_back(k, i);
     }
   }
+
+  std::mutex coalesceMutex;
+  auto treePositions = std::vector<glm::ivec3>();
 
   // Top level bricks
   std::for_each(std::execution::par, tlBrickColCoords.begin(), tlBrickColCoords.end(), [&](glm::ivec2 tlBrickColCoord)
@@ -1539,11 +1568,16 @@ void World::GenerateMap()
                     // if (tlCellNoise[pModTl.x + pModTl.y * 64 + pModTl.z * 64 * 64] < 0)
                     const auto noiseUv3 = (glm::vec3(pModTl) + 0.5f) / (float)TwoLevelGrid::TL_BRICK_VOXELS_PER_SIDE;
                     const auto noiseUv2 = glm::vec2(noiseUv3.x, noiseUv3.z);
-                    const auto height = sampleNoise2D(tlTerrainHeight, noiseUv2) * 10 + 260;
+                    const auto height = (int)(sampleNoise2D(tlTerrainHeight, noiseUv2) * 10 + 260);
                     if (p.y < height && sampleNoise3D(tlCellNoise, noiseUv3) < 0)
                     //if (p.y < height)
                     {
-                      if (p.y > height - 1)
+                      if (p.y == height - 1 && trees->GenSingle2D((float)p.x, (float)p.z, 123456) > 0.98f)
+                      {
+                        auto lock = std::unique_lock(coalesceMutex);
+                        treePositions.emplace_back(p);
+                      }
+                      else if (p.y > height - 2)
                       {
                         grid.SetVoxelAtNoDirty(p, grass.GetBlockId());
                       }
@@ -1576,9 +1610,20 @@ void World::GenerateMap()
 #ifndef GAME_HEADLESS
         progress.fetch_add(1);
 #endif
+        //auto lock = std::unique_lock(coalesceMutex);
       }
     });
   //}
+
+  for (auto treePos : treePositions)
+  {
+    auto treeBlocks = registry_.ctx().get<PrefabRegistry>().Get("Tree").GetVoxels(treePos);
+    for (auto [pos, voxel] : treeBlocks)
+    {
+      grid.SetVoxelAt(treePos + pos, voxel);
+    }
+  }
+
   grid.CoalesceDirtyBricks();
 
   auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));

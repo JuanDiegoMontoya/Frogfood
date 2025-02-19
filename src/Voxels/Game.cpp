@@ -12,6 +12,7 @@
 #include "MathUtilities.h"
 #include "HashGrid.h"
 #include "Prefab.h"
+#include "Reflection.h"
 
 #include "entt/entity/handle.hpp"
 
@@ -46,10 +47,10 @@ static void OnDeferredDeleteConstruct(entt::registry& registry, entt::entity ent
 {
   ZoneScoped;
   assert(registry.valid(entity));
-  auto& h = registry.get<Hierarchy>(entity);
-  if (h.parent != entt::null)
+  auto* h = registry.try_get<Hierarchy>(entity);
+  if (h && h->parent != entt::null)
   {
-    auto& ph = registry.get<Hierarchy>(h.parent);
+    auto& ph = registry.get<Hierarchy>(h->parent);
     ph.RemoveChild(entity);
   }
 }
@@ -301,6 +302,13 @@ void OnGlobalTransformRemove(entt::registry& registry, entt::entity entity)
   registry.ctx().get<HashGrid>().erase(entity);
 }
 
+void OnLinearPathRemove(entt::registry& registry, entt::entity entity)
+{
+  auto& path = registry.get<LinearPath>(entity);
+  registry.emplace_or_replace<LocalTransform>(entity, path.originalLocalTransform);
+  UpdateLocalTransform({registry, entity});
+}
+
 Game::Game(uint32_t tickHz)
 {
   world_ = std::make_unique<World>();
@@ -337,6 +345,9 @@ Game::Game(uint32_t tickHz)
   world_->GetRegistry().on_construct<Physics::CharacterController>().connect<&OnCharacterControllerConstruct>();
   world_->GetRegistry().on_construct<Physics::CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleConstruct>();
   world_->GetRegistry().on_destroy<GlobalTransform>().connect<&OnGlobalTransformRemove>();
+  world_->GetRegistry().on_destroy<LinearPath>().connect<&OnLinearPathRemove>();
+
+  Core::Reflection::InitializeReflection();
 }
 
 Game::~Game()
@@ -2823,10 +2834,14 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
   {
     return;
   }
-
+  auto& registry = world.GetRegistry();
+  if (registry.all_of<LinearPath>(self))
+  {
+    registry.remove<LinearPath>(self);
+  }
   auto& path = world.GetRegistry().emplace_or_replace<LinearPath>(self);
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .rotation = glm::angleAxis(glm::radians(30.0f), glm::vec3(0, 0, 1)), .offsetSeconds = GetUseDt() * 0.3f});
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = GetUseDt() * 0.3f});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .rotation = glm::angleAxis(glm::radians(30.0f), glm::vec3(0, 0, 1)), .offsetSeconds = GetUseDt() * 0.4f});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = GetUseDt() * 0.4f});
 
   state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
   auto& reg      = world.GetRegistry();

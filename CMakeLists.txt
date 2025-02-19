@@ -102,6 +102,8 @@ add_executable(frogRender
     src/Fvog/Descriptor.cpp
     src/Fvog/detail/VmaFwd.h
     src/Voxels/Prefab.h
+    src/Voxels/Reflection.h
+    src/Voxels/Reflection.cpp
 )
 
 # Precompiled headers for standard library
@@ -148,8 +150,10 @@ target_compile_options(frogRender
     /W4
     /WX
     /permissive-
+    /Zc:preprocessor # Enable preprocessor compliance
     /wd4324 # structure was padded
     $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:
+    /bigobj
     #/JMC # Has a non-negligible perf impact.
     >
     >

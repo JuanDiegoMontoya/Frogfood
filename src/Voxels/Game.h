@@ -831,7 +831,7 @@ struct NoclipCharacterController {};
 struct Projectile
 {
   float initialSpeed{}; // Used to calculate damage.
-  float drag = 0;
+  float drag = 0; // TODO: remove (use Friction)
   float restitution = 0.25f;
 };
 

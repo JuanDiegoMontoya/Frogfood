@@ -135,4 +135,5 @@ private:
   std::optional<Fvog::Texture> noiseTexture;
   std::unordered_map<std::string, Fvog::Texture> stringToTexture;
   PlayerHead* head_;
+  entt::entity selectedEntity = entt::null;
 };

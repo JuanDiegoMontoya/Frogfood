@@ -8,6 +8,7 @@
 #include "Fvog/Rendering2.h"
 #include "Fvog/detail/Common.h"
 #include "shaders/Config.shared.h"
+#include "Reflection.h"
 
 #include "Physics/Physics.h" // TODO: remove
 #include "Jolt/Physics/Collision/Shape/BoxShape.h"
@@ -25,6 +26,8 @@
 #include "stb_image.h"
 #include "Jolt/Physics/Collision/CastResult.h"
 #include "Jolt/Physics/Collision/RayCast.h"
+#include "entt/meta/meta.hpp"
+#include "entt/meta/factory.hpp"
 
 #include "tracy/TracyVulkan.hpp"
 
@@ -753,6 +756,56 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
     commandBuffer);
 }
 
+static void DrawComponentHelper(entt::meta_any instance, entt::meta_custom custom, bool readonly, int& guiId)
+{
+  using namespace Core::Reflection;
+  auto meta = instance.type();
+
+  // If the type has a bespoke EditorWrite or EditorRead function, use that. Otherwise, recurse over data members.
+  PropertiesMap map = {};
+  if (auto* mp = static_cast<const PropertiesMap*>(custom))
+  {
+    map = *mp;
+  }
+  if (auto readFunc = meta.func("EditorRead"_hs); readFunc && readonly)
+  {
+    readFunc.invoke(instance, map);
+  }
+  else if (auto writeFunc = meta.func("EditorWrite"_hs))
+  {
+    writeFunc.invoke(instance, map);
+  }
+  else
+  {
+    for (auto [id, data] : meta.data())
+    {
+      if (auto traits = data.traits<Traits>(); traits & Traits::EDITOR || traits & Traits::EDITOR_READ)
+      {
+        ImGui::PushID(guiId++);
+        //ImGui::Indent();
+        DrawComponentHelper(data.get(instance), data.custom(), readonly || traits & Traits::EDITOR_READ, guiId);
+        //ImGui::Unindent();
+        ImGui::PopID();
+      }
+    }
+  }
+}
+
+static std::string FixupTypeString(std::string_view str)
+{
+  if (auto pos = str.find("::"); pos != std::string_view::npos)
+  {
+    return std::string(str.substr(pos + 2));
+  }
+
+  if (auto pos = str.find_first_of(' '); pos != std::string_view::npos)
+  {
+    return std::string(str.substr(pos + 1));
+  }
+
+  return std::string(str);
+}
+
 void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
@@ -1031,189 +1084,156 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
 
   if (world.GetRegistry().ctx().get<Debugging>().showDebugGui)
   {
+    auto& registry = world.GetRegistry();
     if (ImGui::Begin("Entities"))
     {
-      auto& registry = world.GetRegistry();
+      if (!ImGui::IsAnyItemHovered() && ImGui::IsWindowHovered() && ImGui::GetIO().MouseClicked[ImGuiMouseButton_Left])
+      {
+        selectedEntity = entt::null;
+      }
+
+      // Show entity hierarchy.
       for (auto e : registry.view<entt::entity>())
       {
         ImGui::PushID((int)e);
         bool opened = false;
 
+        int flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (selectedEntity == e)
+        {
+          flags |= ImGuiTreeNodeFlags_Selected;
+        }
+
         if (auto* s = registry.try_get<Name>(e))
         {
-          opened = ImGui::TreeNode("entity", "%u (%s) (v%u)", entt::to_entity(e), s->name.c_str(), entt::to_version(e));
+          opened = ImGui::TreeNodeEx("entity", flags, "%u (%s) (v%u)", entt::to_entity(e), s->name.c_str(), entt::to_version(e));
         }
         else
         {
-          opened = ImGui::TreeNode("entity", "%u (v%u)", entt::to_entity(e), entt::to_version(e));
+          opened = ImGui::TreeNodeEx("entity", flags, "%u (v%u)", entt::to_entity(e), entt::to_version(e));
         }
+
+        // Single-clicking anywhere should select the node
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+        {
+          selectedEntity = e;
+        }
+
         if (opened)
         {
-          if (auto* t = registry.try_get<LocalTransform>(e))
-          {
-            ImGui::SeparatorText("Transform");
-            ImGui::DragFloat3("Position", &t->position[0], 0.25f);
-            ImGui::DragFloat4("Rotation", &t->rotation[0], 0.125f);
-            ImGui::DragFloat("Scale", &t->scale, 0.125f);
-          }
-          if (auto* it = registry.try_get<PreviousGlobalTransform>(e))
-          {
-            ImGui::SeparatorText("InterpolatedTransform");
-            ImGui::Text("Accumulator: %f", dt.fraction);
-            ImGui::Text("Position: %f, %f, %f", it->position[0], it->position[1], it->position[2]);
-            ImGui::Text("Rotation: %f, %f, %f, %f", it->rotation.w, it->rotation.x, it->rotation.y, it->rotation.z);
-            ImGui::Text("Scale: %f", it->scale);
-          }
-          if (auto* rt = registry.try_get<RenderTransform>(e))
-          {
-            ImGui::SeparatorText("RenderTransform");
-            const auto& tr = rt->transform;
-            ImGui::Text("Position: %f, %f, %f", tr.position[0], tr.position[1], tr.position[2]);
-            ImGui::Text("Rotation: %f, %f, %f, %f", tr.rotation.w, tr.rotation.x, tr.rotation.y, tr.rotation.z);
-            ImGui::Text("Scale: %f", tr.scale);
-          }
-          if (auto* h = registry.try_get<Health>(e))
-          {
-            ImGui::SeparatorText("Health");
-            ImGui::SliderFloat("HP", &h->hp, 0, h->maxHp, "%.2f", ImGuiSliderFlags_NoRoundToFormat);
-            ImGui::DragFloat("Max HP", &h->maxHp, 0.25f, 0, 100000, "%.2f");
-          }
-          if (auto* cd = registry.try_get<ContactDamage>(e))
-          {
-            ImGui::SeparatorText("ContactDamage");
-            ImGui::DragFloat("Damage", &cd->damage, 0.125f, 0, 100, "%.0f");
-            ImGui::DragFloat("Knockback", &cd->knockback, 0.125f, 0, 100, "%.1f");
-          }
-          if (auto* tf = registry.try_get<TeamFlags>(e))
-          {
-            ImGui::SeparatorText("TeamFlags");
-            ImGui::Text("Flags: %u", tf->flags);
-          }
-          if (auto* v = registry.try_get<LinearVelocity>(e))
-          {
-            ImGui::SeparatorText("LinearVelocity");
-            ImGui::DragFloat3("##LinearVelocity", &v->v[0], 0.125f);
-          }
-          if (auto* f = registry.try_get<Friction>(e))
-          {
-            ImGui::SeparatorText("Friction");
-            ImGui::DragFloat3("##Friction", &f->axes[0], 0.0125f, 0, 20);
-          }
-          if (auto* p = registry.try_get<Player>(e))
-          {
-            ImGui::SeparatorText("Player");
-          }
-          bool hasNoclipCharacterController = registry.all_of<NoclipCharacterController>(e);
-          if (ImGui::Checkbox("NoclipCharacterController", &hasNoclipCharacterController))
-          {
-            if (!hasNoclipCharacterController)
-            {
-              registry.remove<NoclipCharacterController>(e);
-            }
-            else
-            {
-              registry.emplace<NoclipCharacterController>(e);
-            }
-          }
-          auto* flyingCharacterController   = registry.try_get<FlyingCharacterController>(e);
-          bool hasFlyingCharacterController     = flyingCharacterController;
-          if (ImGui::Checkbox("FlyingCharacterController", &hasFlyingCharacterController))
-          {
-            if (!hasFlyingCharacterController)
-            {
-              registry.remove<Physics::CharacterController>(e);
-            }
-            else
-            {
-              world.GivePlayerFlyingCharacterController(e);
-            }
-          }
-          auto* characterController = registry.try_get<Physics::CharacterController>(e);
-          bool hasCharacterController = characterController;
-          if (ImGui::Checkbox("CharacterController", &hasCharacterController))
-          {
-            if (!hasCharacterController)
-            {
-              registry.remove<Physics::CharacterController>(e);
-            }
-            else
-            {
-              world.GivePlayerCharacterController(e);
-            }
-          }
-          auto* characterControllerShrimple   = registry.try_get<Physics::CharacterControllerShrimple>(e);
-          bool hasCharacterControllerShrimple = characterControllerShrimple;
-          if (ImGui::Checkbox("CharacterControllerShrimple", &hasCharacterControllerShrimple))
-          {
-            if (!hasCharacterControllerShrimple)
-            {
-              registry.remove<Physics::CharacterControllerShrimple>(e);
-            }
-            else
-            {
-              world.GivePlayerCharacterControllerShrimple(e);
-            }
-          }
-          if (auto* is = registry.try_get<InputState>(e))
-          {
-            ImGui::SeparatorText("InputState");
-            ImGui::Text("strafe: %f", is->strafe);
-            ImGui::Text("forward: %f", is->forward);
-            ImGui::Text("elevate: %f", is->elevate);
-            ImGui::Text("jump         : %d", is->jump);
-            ImGui::Text("sprint       : %d", is->sprint);
-            ImGui::Text("walk         : %d", is->walk);
-            ImGui::Text("usePrimary   : %d", is->usePrimary);
-            ImGui::Text("useSecondary : %d", is->useSecondary);
-            ImGui::Text("interact     : %d", is->interact);
-          }
-          if (auto* ils = registry.try_get<InputLookState>(e))
-          {
-            ImGui::SeparatorText("InputLookState");
-          }
-          if (auto* rb = registry.try_get<Physics::RigidBody>(e))
-          {
-            ImGui::SeparatorText("RigidBody");
-          }
-          if (auto* m = registry.try_get<Mesh>(e))
-          {
-            ImGui::SeparatorText("Mesh");
-            ImGui::Text("%s", m->name.c_str());
-          }
-          if (auto* d = registry.try_get<DroppedItem>(e))
-          {
-            ImGui::SeparatorText("DroppedItem");
-            const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(d->item.id);
-            ImGui::Text("%u (%s)", d->item.id, d->item.id != nullItem ? def.GetName().c_str() : "NULL");
-            ImGui::Text("%d / %d", d->item.count, def.GetMaxStackSize());
-          }
-          if (const auto* lp = registry.try_get<LinearPath>(e))
-          {
-            ImGui::SeparatorText("LinearPath");
-            ImGui::Text("%.3fs", lp->secondsElapsed);
-          }
-          if (auto* bh = registry.try_get<BlockHealth>(e))
-          {
-            ImGui::SeparatorText("BlockHealth");
-            ImGui::SliderFloat("##BlockHealth", &bh->health, 0, 100, "%.0f");
-          }
-          if (registry.all_of<DeferredDelete>(e))
-          {
-            ImGui::SeparatorText("DeferredDelete");
-          }
-          if (auto* h = registry.try_get<Hierarchy>(e))
-          {
-            ImGui::SeparatorText("Hierarchy");
-            ImGui::Text(h->parent == entt::null ? "Parent: null" : "Parent: %u", entt::to_entity(h->parent));
-            for (auto child : h->children)
-            {
-              ImGui::Text("Child: %u", entt::to_entity(child));
-            }
-          }
+          ImGui::TextUnformatted("TODO lol");
           ImGui::TreePop();
         }
         ImGui::Separator();
         ImGui::PopID();
+      }
+    }
+    ImGui::End();
+
+    if (ImGui::Begin("Components"))
+    {
+      if (registry.valid(selectedEntity))
+      {
+        auto e = selectedEntity;
+        
+        if (ImGui::Button("Delete Entity"))
+        {
+          registry.emplace_or_replace<DeferredDelete>(e);
+        }
+        ImGui::SameLine();
+        if (ImGui::BeginCombo("##add", "Add Component"))
+        {
+          using MetaPair = decltype(*entt::resolve().begin());
+          auto metas = std::vector<MetaPair>();
+          for (auto pair : entt::resolve())
+          {
+            if ((registry.storage(pair.first) && !registry.storage(pair.first)->contains(e)))
+            {
+              metas.emplace_back(pair);
+            }
+          }
+          std::sort(metas.begin(),
+            metas.end(),
+            [](const MetaPair& p1, const MetaPair& p2) { return FixupTypeString(p1.second.info().name()) < FixupTypeString(p2.second.info().name()); });
+
+          for (auto [id, meta] : metas)
+          {
+            if (meta.traits<Core::Reflection::Traits>() & Core::Reflection::Traits::COMPONENT)
+            {
+              const auto label        = FixupTypeString(meta.info().name());
+              auto addFunc            = meta.func("add"_hs);
+              auto emplaceDefaultFunc = meta.func("EmplaceDefault"_hs);
+              int flags               = 0;
+              if (!addFunc && !emplaceDefaultFunc)
+              {
+                flags |= ImGuiSelectableFlags_Disabled;
+              }
+              if (ImGui::Selectable(label.c_str(), false, flags))
+              {
+                if (addFunc)
+                {
+                  addFunc.invoke({}, &world, e); // Can't figure out how to invoke with a reference (std::ref doesn't work), so pointers it is.
+                }
+                else if (emplaceDefaultFunc)
+                {
+                  emplaceDefaultFunc.invoke({}, &registry, e);
+                }
+                else
+                {
+                  // Sad face :(
+                  assert(false);
+                }
+              }
+            }
+          }
+          ImGui::EndCombo();
+        }
+
+        // Sort component types by name.
+        using SetPair = std::pair<entt::id_type, entt::sparse_set*>;
+        auto storages = std::vector<SetPair>();
+        for (auto pair : registry.storage())
+        {
+          storages.emplace_back(pair.first, &pair.second);
+        }
+        std::sort(storages.begin(),
+          storages.end(),
+          [](const SetPair& p1, const SetPair& p2)
+          {
+            auto meta1 = entt::resolve(p1.first);
+            auto meta2 = entt::resolve(p2.first);
+            if (meta1 && meta2)
+            {
+              return FixupTypeString(meta1.info().name()) < FixupTypeString(meta2.info().name());
+            }
+            return p1.first < p2.first;
+          });
+        
+        for (int i = 0; auto&& [id, storage] : storages)
+        {
+          if (!storage->contains(e))
+          {
+            continue;
+          }
+
+          ImGui::PushID(i++);
+          if (ImGui::Button("X"))
+          {
+            storage->remove(e);
+          }
+          ImGui::SameLine();
+          ImGui::SeparatorText(FixupTypeString(storage->type().name()).c_str());
+
+          if (auto meta = entt::resolve(id); storage->contains(e) && meta)
+          {
+            DrawComponentHelper(meta.from_void(storage->value(e)), meta.custom(), meta.traits<Core::Reflection::Traits>() & Core::Reflection::Traits::EDITOR_READ, i);
+          }
+          else
+          {
+            ImGui::Text("Reflection is unavailable for this type.");
+          }
+          ImGui::PopID();
+        }
       }
     }
     ImGui::End();

@@ -304,9 +304,12 @@ void OnGlobalTransformRemove(entt::registry& registry, entt::entity entity)
 
 void OnLinearPathRemove(entt::registry& registry, entt::entity entity)
 {
-  auto& path = registry.get<LinearPath>(entity);
-  registry.emplace_or_replace<LocalTransform>(entity, path.originalLocalTransform);
-  UpdateLocalTransform({registry, entity});
+  if (!registry.all_of<DeferredDelete>(entity))
+  {
+    auto& path = registry.get<LinearPath>(entity);
+    registry.emplace_or_replace<LocalTransform>(entity, path.originalLocalTransform);
+    UpdateLocalTransform({registry, entity});
+  }
 }
 
 Game::Game(uint32_t tickHz)
@@ -1131,10 +1134,9 @@ void World::InitializeGameState()
 
   // Reset item registry
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
-  [[maybe_unused]] const auto gunId = items.Add(new Gun({}));
+  [[maybe_unused]] const auto gunId = items.Add(new Gun("M4", {}));
 
-  [[maybe_unused]] const auto gun2Id = items.Add(new Gun({
-    .name        = "Frogun",
+  [[maybe_unused]] const auto gun2Id = items.Add(new Gun("Frogun", {
     .model       = "frog",
     .scale       = 0.125f,
     .damage      = 10,
@@ -1155,8 +1157,7 @@ void World::InitializeGameState()
   light.type      = LIGHT_TYPE_POINT;
   light.range     = 200;
 
-  [[maybe_unused]] const auto flareGunId = items.Add(new Gun({
-    .name        = "Flare Gun",
+  [[maybe_unused]] const auto flareGunId = items.Add(new Gun("Flare Gun", {
     .model       = "ar15",
     .tint        = {1, 0.4f, 0.22f},
     .scale       = 1,
@@ -1173,9 +1174,12 @@ void World::InitializeGameState()
     .light = light,
   }));
 
-  [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition({"Stone Pickaxe", "pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
-  [[maybe_unused]] const auto opPickaxeId = items.Add(new RainbowTool({"OP Pickaxe", "pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
-  [[maybe_unused]] const auto spearId = items.Add(new Spear());
+  [[maybe_unused]] const auto stickItemId    = items.Add(new SpriteItem("Stick", "stick"));
+  [[maybe_unused]] const auto coolStickItemId= items.Add(new SpriteItem("Cool Stick", "stick"));
+  [[maybe_unused]] const auto stoneAxeId     = items.Add(new ToolDefinition("Stone Axe", {"axe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::AXE}));
+  [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition("Stone Pickaxe", {"pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
+  [[maybe_unused]] const auto opPickaxeId    = items.Add(new RainbowTool("OP Pickaxe", {"pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
+  [[maybe_unused]] const auto spearId        = items.Add(new Spear("Stone Spear"));
 
   auto& blocks = registry_.ctx().insert_or_assign<BlockRegistry>(*this);
 
@@ -1273,6 +1277,7 @@ void World::InitializeGameState()
     .initialHealth = 100,
     .damageTier    = 1,
     .damageFlags   = BlockDamageFlagBit::AXE,
+    .lootDrop      = "tree",
     .voxelMaterialDesc =
       {
         .baseColorFactor = {0.39f, 0.24f, 0.08f},
@@ -1318,19 +1323,6 @@ void World::InitializeGameState()
     {{stoneBlockId, 5}},
     {{stonePickaxeId, 1}},
   });
-  crafting.recipes.emplace_back(Crafting::Recipe{
-    {},
-    {{flareGunId, 1}},
-  });
-  crafting.recipes.emplace_back(Crafting::Recipe{
-    {},
-    {{bombId, 1}},
-  });
-  crafting.recipes.emplace_back(Crafting::Recipe{
-    {},
-    {{stupidBombId, 1}},
-    stoneBlock.GetBlockId(),
-  });
 
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
   auto standardLoot = std::make_unique<LootDrops>();
@@ -1350,6 +1342,19 @@ void World::InitializeGameState()
     .chanceForOne = 0.125f,
   });
   loot.Add("standard", std::move(standardLoot));
+
+  auto treeLoot = std::make_unique<LootDrops>();
+  treeLoot->drops.emplace_back(RandomLootDrop{
+    .item         = stickItemId,
+    .count        = 6,
+    .chanceForOne = 0.5f,
+  });
+  treeLoot->drops.emplace_back(RandomLootDrop{
+    .item         = coolStickItemId,
+    .count        = 1,
+    .chanceForOne = 0.01f,
+  });
+  loot.Add("tree", std::move(treeLoot));
 
   // Reset RNG
   registry_.ctx().insert_or_assign<PCG::Rng>(1234);
@@ -1378,9 +1383,9 @@ void World::InitializeGameState()
   registry_.emplace_or_replace<LinearVelocity>(p);
   //cc.character->SetMaxStrength(10000000);
   auto& inventory = registry_.emplace<Inventory>(p, *this);
-  inventory.OverwriteSlot({0, 0}, {gunId}, p);
-  inventory.OverwriteSlot({0, 1}, {gun2Id}, p);
-  inventory.OverwriteSlot({0, 2}, {opPickaxeId}, p);
+  inventory.OverwriteSlot({0, 0}, {spearId}, p);
+  inventory.OverwriteSlot({0, 1}, {stonePickaxeId}, p);
+  inventory.OverwriteSlot({0, 2}, {stoneAxeId}, p);
 
   GivePlayerColliders(p);
 
@@ -2368,7 +2373,22 @@ float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, Bloc
       }
       else if (auto* lp = std::get_if<std::string>(&dropType))
       {
-        assert(false && "not implemented");
+        auto* table           = registry_.ctx().get<LootRegistry>().Get(*lp);
+        assert(table);
+        const auto& itemRegistry = registry_.ctx().get<ItemRegistry>();
+        for (auto drop : table->Collect(Rng()))
+        {
+          const auto& def    = itemRegistry.Get(drop.item);
+          auto droppedEntity = def.Materialize(*this);
+          def.GiveCollider(*this, droppedEntity);
+          registry_.get<LocalTransform>(droppedEntity).position = worldPos;
+          UpdateLocalTransform({registry_, droppedEntity});
+          registry_.emplace<DroppedItem>(droppedEntity, DroppedItem{{.id = drop.item, .count = drop.count}});
+          auto velocity = glm::vec3(0);
+          const auto newEntityVelocity =
+            velocity + Rng().RandFloat(1, 3) * Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, glm::vec3(0, 1, 0), glm::half_pi<float>());
+          registry_.emplace_or_replace<LinearVelocity>(droppedEntity, newEntityVelocity);
+        }
       }
     }
 
@@ -2726,7 +2746,7 @@ entt::entity Gun::Materialize(World& world) const
   mesh.name  = createInfo_.model;
   mesh.tint  = createInfo_.tint;
 
-  world.GetRegistry().emplace<Name>(self).name = createInfo_.name;
+  world.GetRegistry().emplace<Name>(self).name = name_;
   return self;
 }
 
@@ -2969,6 +2989,21 @@ ItemId ItemRegistry::Add(ItemDefinition* itemDefinition)
   nameToId_.try_emplace(itemDefinition->GetName(), id);
   idToDefinition_.emplace_back(itemDefinition);
   return id;
+}
+
+entt::entity SpriteItem::Materialize(World& world) const
+{
+  auto self            = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
+  auto& billboard      = world.GetRegistry().emplace<Billboard>(self);
+  billboard.name       = sprite_;
+
+  world.GetRegistry().emplace<Name>(self).name = GetName();
+  return self;
+}
+
+void SpriteItem::Dematerialize(World& world, entt::entity self) const
+{
+  world.GetRegistry().emplace<DeferredDelete>(self);
 }
 
 std::vector<ItemIdAndCount> RandomLootDrop::Sample(PCG::Rng& rng) const

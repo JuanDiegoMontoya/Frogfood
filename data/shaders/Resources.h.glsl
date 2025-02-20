@@ -236,6 +236,11 @@ FVOG_DECLARE_STORAGE_IMAGES(uimage2DArray);
 FVOG_DECLARE_ACCELERATION_STRUCTURES;
 #endif
 
+vec4 texture(Texture2D tex, Sampler sam, vec2 uv)
+{
+  return texture(Fvog_sampler2D(tex.texIdx, sam.samplerIdx), uv);
+}
+
 vec4 texelFetch(Texture2D tex, ivec2 coord, int level)
 {
   //ASSERT_MSG(tex.type == FVOG_DESCRIPTOR_TYPE_SAMPLED_IMAGE, "texelFetch: Invalid descriptor type!\n");

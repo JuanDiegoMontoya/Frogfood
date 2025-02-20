@@ -478,4 +478,8 @@ void Core::Reflection::InitializeReflection()
     TRAITS(Traits::EDITOR_READ)
     DATA(Inventory, slots)
     TRAITS(Traits::EDITOR_READ);
+
+  REFLECT_COMPONENT(Billboard)
+    DATA(Billboard, name)
+    TRAITS(EDITOR);
 }

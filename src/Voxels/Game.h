@@ -112,6 +112,8 @@ struct VoxelMaterialDesc
   glm::vec3 emissionFactor = {0, 0, 0};
 };
 
+struct DropSelf {};
+
 class BlockDefinition
 {
 public:
@@ -121,6 +123,7 @@ public:
     float initialHealth = 100;
     int damageTier{};
     BlockDamageFlags damageFlags = BlockDamageFlagBit::ALL_TOOLS;
+    std::variant<std::monostate, DropSelf, ItemState, std::string> lootDrop = DropSelf{};
     // Giving every block a unique set of materials isn't ideal, but it will suffice in the short run.
     VoxelMaterialDesc voxelMaterialDesc;
   };
@@ -143,7 +146,19 @@ public:
   // with itself.
   virtual std::variant<std::monostate, ItemState, std::string> GetLootDropType() const
   {
-    return ItemState{.id = itemId_};
+    if (std::get_if<DropSelf>(&createInfo_.lootDrop))
+    {
+      return ItemState{.id = itemId_};
+    }
+    if (auto* is = std::get_if<ItemState>(&createInfo_.lootDrop))
+    {
+      return *is;
+    }
+    if (auto* s = std::get_if<std::string>(&createInfo_.lootDrop))
+    {
+      return *s;
+    }
+    return std::monostate{};
   }
 
   [[nodiscard]] std::string GetName() const
@@ -333,13 +348,18 @@ float GetHeight(entt::handle handle);
 class ItemDefinition
 {
 public:
+  ItemDefinition(std::string_view name) : name_(name) {}
   virtual ~ItemDefinition() = default;
   
-  virtual std::string GetName() const = 0;
+  virtual std::string GetName() const
+  {
+    return name_;
+  }
 
   // Create an entity
-  [[nodiscard]] virtual entt::entity Materialize(World& world) const = 0;
-  virtual void Dematerialize(World& world, entt::entity self) const = 0;
+  [[nodiscard]] virtual entt::entity Materialize(World&) const = 0;
+
+  virtual void Dematerialize(World&, [[maybe_unused]] entt::entity self) const = 0;
 
   // Spawn the entity if necessary, give it physics, and unparent it from the player
   virtual Physics::RigidBody& GiveCollider(World& world, entt::entity self) const;
@@ -366,8 +386,11 @@ public:
 
   [[nodiscard]] virtual glm::vec3 GetDroppedColliderSize() const
   {
-    return glm::vec3{0.3f};
+    return glm::vec3{0.25f};
   }
+
+protected:
+  std::string name_;
 };
 
 class ItemRegistry
@@ -398,12 +421,36 @@ private:
   std::vector<std::unique_ptr<ItemDefinition>> idToDefinition_;
 };
 
+class SpriteItem : public ItemDefinition
+{
+public:
+  SpriteItem(std::string_view name, std::string_view sprite)
+    : ItemDefinition(name),
+      sprite_(sprite) {}
+
+  entt::entity Materialize(World&) const override;
+
+  void Dematerialize(World&, entt::entity self) const override;
+
+  glm::vec3 GetDroppedColliderSize() const override
+  {
+    return glm::vec3(0.125f);
+  }
+
+  int GetMaxStackSize() const override
+  {
+    return 100;
+  }
+
+protected:
+  std::string sprite_;
+};
+
 class Gun : public ItemDefinition
 {
 public:
   struct CreateInfo
   {
-    std::string name  = "Gun";
     std::string model = "ar15";
     glm::vec3 tint    = {1, 1, 1};
     float scale       = 1;
@@ -420,12 +467,7 @@ public:
     std::optional<GpuLight> light;
   };
 
-  explicit Gun(const CreateInfo& createInfo) : createInfo_(createInfo) {}
-
-  std::string GetName() const override
-  {
-    return createInfo_.name;
-  }
+  explicit Gun(std::string_view name, const CreateInfo& createInfo) : ItemDefinition(name), createInfo_(createInfo) {}
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
   void Dematerialize(World& world, entt::entity self) const override;
@@ -446,7 +488,6 @@ class ToolDefinition : public ItemDefinition
 public:
   struct CreateInfo
   {
-    std::string name;
     std::optional<std::string> meshName;
     glm::vec3 meshTint;
     float blockDamage;
@@ -455,14 +496,10 @@ public:
     float useDt = 0.25f;
   };
 
-  ToolDefinition(const CreateInfo& createInfo)
-    : createInfo_(createInfo)
+  ToolDefinition(std::string_view name, const CreateInfo& createInfo)
+    : ItemDefinition(name),
+      createInfo_(createInfo)
   {
-  }
-
-  std::string GetName() const override
-  {
-    return createInfo_.name;
   }
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
@@ -490,7 +527,7 @@ public:
 class Block : public ItemDefinition
 {
 public:
-  Block(BlockId voxel, std::string_view name) : voxel(voxel), name_(name) {}
+  Block(BlockId voxel, std::string_view name) : ItemDefinition(name), voxel(voxel) {}
 
   [[nodiscard]] int GetMaxStackSize() const override
   {
@@ -518,19 +555,12 @@ public:
   }
 
   TwoLevelGrid::voxel_t voxel;
-
-private:
-  std::string name_;
 };
 
 class Spear : public ItemDefinition
 {
 public:
-
-  std::string GetName() const override
-  {
-    return "Spear";
-  }
+  using ItemDefinition::ItemDefinition;
 
   void UsePrimary(float dt, World&, entt::entity, ItemState&) const override;
 
@@ -869,6 +899,11 @@ struct Mesh
 {
   std::string name;
   glm::vec3 tint = {1, 1, 1};
+};
+
+struct Billboard
+{
+  std::string name;
 };
 
 // Use when you want a child entity's collide events to be counted as the parent's.

@@ -183,6 +183,7 @@ namespace
     FVOG_UINT32 globalUniformsIndex;
     FVOG_VEC3 cameraRight;
     FVOG_VEC3 cameraUp;
+    shared::Sampler texSampler;
   };
 
   std::unordered_map<std::string, GpuMesh> g_meshes;
@@ -198,6 +199,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
   g_meshes.emplace("cube", LoadObjFile(GetAssetDirectory() / "models/cube.obj"));
   g_meshes.emplace("spear", LoadObjFile(GetAssetDirectory() / "models/spear.obj"));
   g_meshes.emplace("pickaxe", LoadObjFile(GetAssetDirectory() / "models/pickaxe.obj"));
+  g_meshes.emplace("axe", LoadObjFile(GetAssetDirectory() / "models/axe.obj"));
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -320,6 +322,39 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
       PipelineManager::ShaderModuleCreateInfo{
         .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
         .path  = GetShaderDirectory() / "Billboard.frag.glsl",
+      },
+    .state =
+      {
+        .inputAssemblyState = {.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST},
+        .rasterizationState =
+          {
+            .cullMode = VK_CULL_MODE_NONE,
+          },
+        .depthState =
+          {
+            .depthTestEnable  = true,
+            .depthWriteEnable = false,
+            .depthCompareOp   = FVOG_COMPARE_OP_NEARER,
+          },
+        .renderTargetFormats =
+          {
+            .colorAttachmentFormats = {{Frame::sceneAlbedoFormat, Frame::sceneNormalFormat, Frame::sceneIlluminanceFormat, Frame::sceneIlluminanceFormat}},
+            .depthAttachmentFormat  = Frame::sceneDepthFormat,
+          },
+      },
+  });
+
+  billboardSpritesPipeline = GetPipelineManager().EnqueueCompileGraphicsPipeline({
+    .name = "Billboard Sprites",
+    .vertexModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::VERTEX_SHADER,
+        .path  = GetShaderDirectory() / "BillboardSprite.vert.glsl",
+      },
+    .fragmentModuleInfo =
+      PipelineManager::ShaderModuleCreateInfo{
+        .stage = Fvog::PipelineStage::FRAGMENT_SHADER,
+        .path  = GetShaderDirectory() / "BillboardSprite.frag.glsl",
       },
     .state =
       {
@@ -584,6 +619,14 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
     });
   }
 
+  auto billboardSprites = std::vector<Temp::BillboardSpriteInstance>();
+  for (auto&& [entity, transform, billboardSprite] : world.GetRegistry().view<RenderTransform, Billboard>().each())
+  {
+    billboardSprites.emplace_back(transform.transform.position,
+      glm::vec2(transform.transform.scale),
+      GetOrEmplaceCachedTexture(billboardSprite.name).ImageView().GetTexture2D());
+  }
+
   auto lights = std::vector<GpuLight>();
   for (auto&& [entity, light, transform] : world.GetRegistry().view<GpuLight, GlobalTransform>().each())
   {
@@ -634,6 +677,15 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
         lightBuffer.emplace((uint32_t)lights.size(), "Lights");
       }
       lightBuffer->UpdateData(commandBuffer, lights);
+    }
+
+    if (!billboardSprites.empty())
+    {
+      if (!billboardSpriteInstanceBuffer || billboardSpriteInstanceBuffer->Size() < billboardSprites.size() * sizeof(Temp::BillboardSpriteInstance))
+      {
+        billboardSpriteInstanceBuffer.emplace((uint32_t)billboardSprites.size(), "Billboard Sprites");
+      }
+      billboardSpriteInstanceBuffer->UpdateData(commandBuffer, billboardSprites);
     }
 
     auto voxelSampler = Fvog::Sampler(
@@ -733,8 +785,22 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
           .globalUniformsIndex = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
           .cameraRight         = {view_from_world[0][0], view_from_world[1][0], view_from_world[2][0]},
           .cameraUp            = {view_from_world[0][1], view_from_world[1][1], view_from_world[2][1]},
+          .texSampler          = voxelSampler,
         });
         ctx.Draw(uint32_t(billboards.size() * 6), 1, 0, 0);
+      }
+
+      if (!billboardSprites.empty())
+      {
+        ctx.BindGraphicsPipeline(billboardSpritesPipeline.GetPipeline());
+        ctx.SetPushConstants(BillboardPushConstants{
+          .billboardsIndex     = billboardSpriteInstanceBuffer->GetDeviceBuffer().GetResourceHandle().index,
+          .globalUniformsIndex = perFrameUniforms.GetDeviceBuffer().GetResourceHandle().index,
+          .cameraRight         = {view_from_world[0][0], view_from_world[1][0], view_from_world[2][0]},
+          .cameraUp            = {view_from_world[0][1], view_from_world[1][1], view_from_world[2][1]},
+          .texSampler          = voxelSampler,
+        });
+        ctx.Draw(uint32_t(billboardSprites.size() * 6), 1, 0, 0);
       }
     }
     ctx.EndRendering();

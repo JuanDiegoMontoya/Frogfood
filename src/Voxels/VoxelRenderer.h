@@ -78,6 +78,13 @@ namespace Temp
     float middle;
   };
 
+  struct BillboardSpriteInstance
+  {
+    glm::vec3 position;
+    glm::vec2 scale;
+    shared::Texture2D texture;
+  };
+
   struct ObjectUniforms
   {
     glm::mat4 worldFromObject;
@@ -128,9 +135,11 @@ private:
   PipelineManager::GraphicsPipelineKey debugTexturePipeline;
   PipelineManager::GraphicsPipelineKey debugLinesPipeline;
   PipelineManager::GraphicsPipelineKey billboardsPipeline;
+  PipelineManager::GraphicsPipelineKey billboardSpritesPipeline;
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
   std::optional<Fvog::NDeviceBuffer<GpuLight>> lightBuffer;
   std::optional<Fvog::NDeviceBuffer<Temp::BillboardInstance>> billboardInstanceBuffer;
+  std::optional<Fvog::NDeviceBuffer<Temp::BillboardSpriteInstance>> billboardSpriteInstanceBuffer;
   std::optional<Fvog::Buffer> voxelMaterialBuffer;
   std::optional<Fvog::Texture> noiseTexture;
   std::unordered_map<std::string, Fvog::Texture> stringToTexture;

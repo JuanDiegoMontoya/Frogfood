@@ -20,6 +20,7 @@
 #include <variant>
 #include <vector>
 #include <unordered_map>
+#include <functional>
 
 struct ItemState;
 using namespace entt::literals;
@@ -61,6 +62,8 @@ struct GlobalTransform
   float scale;
 };
 
+struct BlockEntity {};
+
 // Similar to noclip character controller, but has inertia.
 struct FlyingCharacterController
 {
@@ -91,6 +94,8 @@ struct ItemState
 using BlockId               = TwoLevelGrid::voxel_t;
 constexpr BlockId nullBlock = ~0u;
 
+using EntityPrefabId = uint32_t;
+
 enum class BlockDamageFlagBit
 {
   NONE    = 0,
@@ -105,6 +110,7 @@ FVOG_DECLARE_FLAG_TYPE(BlockDamageFlags, BlockDamageFlagBit, uint32_t);
 
 struct VoxelMaterialDesc
 {
+  bool isInvisible               = false;
   bool randomizeTexcoordRotation = false;
   std::optional<std::string> baseColorTexture;
   glm::vec3 baseColorFactor = {1, 1, 1};
@@ -229,6 +235,25 @@ private:
   ExplodeyCreateInfo explodeyInfo_;
 };
 
+class BlockEntityDefinition : public BlockDefinition
+{
+public:
+
+  struct BlockEntityCreateInfo
+  {
+    EntityPrefabId id;
+  };
+
+  explicit BlockEntityDefinition(const CreateInfo& info, const BlockEntityCreateInfo& blockEntityInfo)
+    : BlockDefinition(info), blockEntityInfo_(blockEntityInfo) {}
+
+  bool OnTryPlaceBlock(World& world, glm::ivec3 voxelPosition) const override;
+  void OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const override;
+
+private:
+  BlockEntityCreateInfo blockEntityInfo_;
+};
+
 class World
 {
 public:
@@ -296,11 +321,7 @@ public:
 
   [[nodiscard]] entt::entity GetNearestPlayer(glm::vec3 position);
 
-  entt::entity SpawnMeleeFrog(glm::vec3 position);
-  entt::entity SpawnFlyingFrog(glm::vec3 position);
-  entt::entity CreateSnake();
-  entt::entity CreateTunnelingWorm(glm::vec3 position);
-
+  // Returns the amount of damage successfully inflicted.
   float DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, BlockDamageFlags damageType);
 
   const BlockDefinition& GetBlockDefinitionFromItem(ItemId item);
@@ -309,6 +330,41 @@ public:
 private:
   uint64_t ticks_ = 0;
   entt::registry registry_;
+};
+
+using EntityPrefabDefinition = std::function<entt::entity(World&, glm::vec3, glm::quat)>;
+
+class EntityPrefabRegistry
+{
+public:
+  EntityPrefabRegistry() = default;
+
+  ~EntityPrefabRegistry() = default;
+
+  NO_COPY(EntityPrefabRegistry);
+  DEFAULT_MOVE(EntityPrefabRegistry);
+
+  [[nodiscard]] const EntityPrefabDefinition& Get(const std::string& name) const
+  {
+    return idToDefinition_.at(nameToId_.at(name));
+  }
+  [[nodiscard]] const EntityPrefabDefinition& Get(EntityPrefabId id) const
+  {
+    return idToDefinition_.at(id);
+  }
+  [[nodiscard]] EntityPrefabId GetId(const std::string& name) const;
+
+  EntityPrefabId Add(const std::string& name, EntityPrefabDefinition entityPrefabDefinition)
+  {
+    const auto myId = static_cast<uint32_t>(idToDefinition_.size());
+    nameToId_.emplace(name, myId);
+    idToDefinition_.emplace_back(std::move(entityPrefabDefinition));
+    return myId;
+  }
+
+private:
+  std::unordered_map<std::string, EntityPrefabId> nameToId_;
+  std::vector<EntityPrefabDefinition> idToDefinition_;
 };
 
 class BlockRegistry

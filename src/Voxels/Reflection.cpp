@@ -482,4 +482,26 @@ void Core::Reflection::InitializeReflection()
   REFLECT_COMPONENT(Billboard)
     DATA(Billboard, name)
     TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(GpuLight)
+    DATA(GpuLight, color)
+    TRAITS(EDITOR)
+    DATA(GpuLight, type)
+    TRAITS(EDITOR)
+    DATA(GpuLight, direction)
+    TRAITS(EDITOR)
+    DATA(GpuLight, intensity)
+    TRAITS(EDITOR)
+    DATA(GpuLight, position)
+    TRAITS(EDITOR)
+    DATA(GpuLight, range)
+    TRAITS(EDITOR)
+    DATA(GpuLight, innerConeAngle)
+    TRAITS(EDITOR)
+    DATA(GpuLight, outerConeAngle)
+    TRAITS(EDITOR)
+    DATA(GpuLight, colorSpace)
+    TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(BlockEntity);
 }

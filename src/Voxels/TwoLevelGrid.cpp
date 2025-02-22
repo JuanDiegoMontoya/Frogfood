@@ -159,8 +159,7 @@ TwoLevelGrid::voxel_t TwoLevelGrid::GetVoxelAt(glm::ivec3 voxelCoord) const
 void TwoLevelGrid::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
 {
   // ZoneScoped;
-  assert(glm::all(glm::greaterThanEqual(voxelCoord, glm::ivec3(0))));
-  assert(glm::all(glm::lessThan(voxelCoord, dimensions_)));
+  assert(IsPositionInGrid(voxelCoord));
 
   auto [topLevelCoord, bottomLevelCoord, localVoxelCoord] = GetCoordsOfVoxelAt(voxelCoord);
 
@@ -387,6 +386,11 @@ void TwoLevelGrid::FreeBottomLevelBrick(uint32_t index)
   assert(it != bottomLevelBrickIndexToAlloc.end());
   buffer.Free(it->second);
   bottomLevelBrickIndexToAlloc.erase(it);
+}
+
+bool TwoLevelGrid::IsPositionInGrid(glm::ivec3 worldPos)
+{
+  return glm::all(glm::greaterThanEqual(worldPos, glm::ivec3(0))) && glm::all(glm::lessThan(worldPos, dimensions_));
 }
 
 void TwoLevelGrid::SetVoxelAtNoDirty(glm::ivec3 voxelCoord, voxel_t voxel)

@@ -42,7 +42,9 @@ SketchyBuffer::Alloc SketchyBuffer::Allocate(size_t size, size_t alignment)
     }),
     &allocation,
     &offset));
-
+  // We only expect to have one SketchyBuffer, so this should be fine.
+  TracyAllocN(allocation, size, "Voxel Pool");
+  
   // Push offset forward to multiple of the true alignment, then subtract that amount from the remaining size
   auto offsetAmount = (alignment - (offset % alignment)) % alignment;
   offset += offsetAmount;
@@ -53,6 +55,7 @@ SketchyBuffer::Alloc SketchyBuffer::Allocate(size_t size, size_t alignment)
 void SketchyBuffer::Free(Alloc alloc)
 {
   ZoneScoped;
+  TracyFreeN(alloc.allocation, "Voxel Pool");
   vmaVirtualFree(allocator_, alloc.allocation);
 }
 

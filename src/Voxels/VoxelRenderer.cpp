@@ -50,9 +50,10 @@ namespace
 
   enum class MaterialFlagBit
   {
-    HAS_BASE_COLOR_TEXTURE        = 1 << 0,
-    HAS_EMISSION_TEXTURE          = 1 << 1,
-    RANDOMIZE_TEXCOORDS_ROTATION  = 1 << 2,
+    HAS_BASE_COLOR_TEXTURE       = 1 << 0,
+    HAS_EMISSION_TEXTURE         = 1 << 1,
+    RANDOMIZE_TEXCOORDS_ROTATION = 1 << 2,
+    IS_INVISIBLE                 = 1 << 3,
   };
   FVOG_DECLARE_FLAG_TYPE(VoxelMaterialFlags, MaterialFlagBit, uint32_t);
 
@@ -423,6 +424,10 @@ void VoxelRenderer::CreateRenderingMaterials(std::span<const std::unique_ptr<Blo
     {
       gpuMat.materialFlags |= MaterialFlagBit::HAS_EMISSION_TEXTURE;
       gpuMat.emissionTexture = GetOrEmplaceCachedTexture(*desc.emissionTexture).ImageView().GetTexture2D();
+    }
+    if (desc.isInvisible)
+    {
+      gpuMat.materialFlags |= MaterialFlagBit::IS_INVISIBLE;
     }
 
     voxelMaterials.emplace_back(gpuMat);

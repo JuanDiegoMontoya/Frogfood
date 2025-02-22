@@ -88,6 +88,8 @@ struct TwoLevelGrid
   void FreeTopLevelBrick(uint32_t index);
   void FreeBottomLevelBrick(uint32_t index);
 
+  bool IsPositionInGrid(glm::ivec3 worldPos);
+
   // LOW LEVEL
 
   // Entrusts the caller with the responsibility of marking pages dirty.

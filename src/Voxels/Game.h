@@ -373,7 +373,7 @@ public:
   BlockRegistry(World& world) : world_(&world)
   {
     // Hardcode air as the first block.
-    Add(new BlockDefinition({.name = "air"}));
+    Add(new BlockDefinition({.name = "air", .voxelMaterialDesc = {.isInvisible = true}}));
   }
 
   ~BlockRegistry() = default;

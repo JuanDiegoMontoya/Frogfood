@@ -201,6 +201,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
   g_meshes.emplace("spear", LoadObjFile(GetAssetDirectory() / "models/spear.obj"));
   g_meshes.emplace("pickaxe", LoadObjFile(GetAssetDirectory() / "models/pickaxe.obj"));
   g_meshes.emplace("axe", LoadObjFile(GetAssetDirectory() / "models/axe.obj"));
+  g_meshes.emplace("torch", LoadObjFile(GetAssetDirectory() / "models/torch.obj"));
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };

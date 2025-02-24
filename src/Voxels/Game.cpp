@@ -688,6 +688,19 @@ entt::entity CreateTunnelingWorm(World& world, glm::vec3 position, glm::quat)
   return head;
 }
 
+entt::entity SpawnTorch(World& world, glm::vec3 position, glm::quat rotation)
+{
+  auto& registry = world.GetRegistry();
+  const auto entity = world.CreateRenderableEntity(position, rotation);
+  registry.emplace<Mesh>(entity, "torch");
+  registry.emplace<Name>(entity, "Torch");
+  auto& light     = registry.emplace<GpuLight>(entity);
+  light.type      = LIGHT_TYPE_POINT;
+  light.color     = {1, 0.58f, 0.3f};
+  light.intensity = 15;
+  light.range     = 200;
+  return entity;
+}
 
 
 
@@ -1468,7 +1481,8 @@ void World::InitializeGameState()
 
   // Reset entity prefab registry
   auto& entityPrefabs = registry_.ctx().insert_or_assign<EntityPrefabRegistry>({});
-  auto meleeFrogId = entityPrefabs.Add("Melee Frog", &SpawnMeleeFrog);
+  [[maybe_unused]] auto meleeFrogId = entityPrefabs.Add("Melee Frog", &SpawnMeleeFrog);
+  [[maybe_unused]] auto torchId     = entityPrefabs.Add("Torch", &SpawnTorch);
 
   // Reset item registry
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
@@ -1633,10 +1647,11 @@ void World::InitializeGameState()
         },
   }))).GetItemId();
 
-  blocks.Add(new BlockEntityDefinition({.name = "TEST", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}}, {.id = meleeFrogId}));
+  blocks.Add(new BlockEntityDefinition({.name = "TEST", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}}, {.id = torchId}));
 
   auto* head = registry_.ctx().get<Head*>();
-  head->CreateRenderingMaterials(blocks.GetAllDefinitions());
+  auto blockDefs = blocks.GetAllDefinitions();
+  head->CreateRenderingMaterials(blockDefs);
 
   auto& prefabs = registry_.ctx().insert_or_assign<PrefabRegistry>({});
   //const auto grassId = blocks.Get("Grass").GetBlockId();
@@ -1793,6 +1808,29 @@ void World::InitializeGameState()
       .layer = Physics::Layers::DEBRIS,
     });
   }
+
+  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 5, 4}));
+
+  auto voxelMats = std::vector<TwoLevelGrid::Material>();
+  for (const auto& def : blockDefs)
+  {
+    voxelMats.emplace_back(TwoLevelGrid::Material{
+      .isVisible = !def->GetMaterialDesc().isInvisible,
+    });
+  }
+  grid.SetMaterialArray(std::move(voxelMats));
+
+  auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));
+
+  auto ve                          = registry_.create();
+  registry_.emplace<Name>(ve).name = "Voxels";
+  Physics::AddRigidBody({registry_, ve},
+    {
+      .shape      = twoLevelGridShape,
+      .activate   = false,
+      .motionType = JPH::EMotionType::Static,
+      .layer      = Physics::Layers::WORLD,
+    });
 }
 
 void World::GenerateMap()
@@ -1862,7 +1900,8 @@ void World::GenerateMap()
     return glm::mix(glm::mix(bl, br, weight.x), glm::mix(tl, tr, weight.x), weight.y);
   };
 
-  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 5, 4}));
+  auto& grid = registry_.ctx().get<TwoLevelGrid>();
+
 #ifndef GAME_HEADLESS
   total.store((int32_t)grid.numTopLevelBricks_);
 #endif
@@ -1925,7 +1964,7 @@ void World::GenerateMap()
             samplesPerAxis,
             samplesPerAxis,
             samplesPerAxis,
-            0.018f * 4 / sampleScale,
+            0.018f * 5 / sampleScale,
             1234);
         }
 
@@ -1970,7 +2009,7 @@ void World::GenerateMap()
                       else
                       {
                         const auto pf = glm::vec3(p) * 0.018f;
-                        if (sampleNoise3D(tlCopperNoise, noiseUv3) + 0.96f < 0)
+                        if (sampleNoise3D(tlCopperNoise, noiseUv3) + 0.81f < 0)
                         {
                           grid.SetVoxelAtNoDirty(p, malachite.GetBlockId());
                         }
@@ -2028,18 +2067,6 @@ void World::GenerateMap()
   }
 
   grid.CoalesceDirtyBricks();
-
-  auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));
-
-  auto ve                          = registry_.create();
-  registry_.emplace<Name>(ve).name = "Voxels";
-  Physics::AddRigidBody({registry_, ve},
-    {
-      .shape      = twoLevelGridShape,
-      .activate   = false,
-      .motionType = JPH::EMotionType::Static,
-      .layer      = Physics::Layers::WORLD,
-    });
 }
 
 entt::entity World::CreateRenderableEntityNoHashGrid(glm::vec3 position, glm::quat rotation, float scale)
@@ -3295,17 +3322,7 @@ bool BlockEntityDefinition::OnTryPlaceBlock(World& world, glm::ivec3 voxelPositi
     auto& entityPrefabs = world.GetRegistry().ctx().get<EntityPrefabRegistry>();
     auto spawnedEntity  = entityPrefabs.Get(blockEntityInfo_.id)(world, glm::vec3(0), glm::identity<glm::quat>());
     auto& registry      = world.GetRegistry();
-
-    //registry.remove<Physics::RigidBody>(spawnedEntity);
-    registry.remove<Health>(spawnedEntity);
-    registry.remove<Physics::CharacterControllerShrimple>(spawnedEntity);
-    registry.remove<Physics::RigidBodySettings>(spawnedEntity);
-    auto& light = registry.emplace<GpuLight>(spawnedEntity);
-    light.type  = LIGHT_TYPE_POINT;
-    light.color = {1, 1, 1};
-    light.intensity = 50;
-    light.range     = 200;
-    //light.position  = worldPosition;
+    
     auto parent = registry.create();
     registry.emplace<BlockEntity>(parent);
     registry.emplace<Hierarchy>(parent);

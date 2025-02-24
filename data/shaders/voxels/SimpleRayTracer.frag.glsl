@@ -34,8 +34,8 @@ void main()
 	vec3 radiance = {0, 0, 0};
 
 	HitSurfaceParameters hit;
-	//if (vx_TraceRaySimple(rayPos, rayDir, 5120, hit))
-	if (vx_TraceRayMultiLevel(rayPos, rayDir, 512, hit))
+	//if (vx_TraceRaySimple(rayPos, rayDir, 512, hit))
+	if (vx_TraceRayMultiLevel(rayPos, rayDir, 32, hit))
 	{
 		albedo = GetHitAlbedo(hit);
 		normal = hit.flatNormalWorld;
@@ -83,8 +83,8 @@ void main()
 
 	//o_color += vec3(gTopLevelBricksTraversed / 8, gBottomLevelBricksTraversed / 64, gVoxelsTraversed / 512);
 	//o_color = vec3(gTopLevelBricksTraversed / 8);
-	//o_color = vec3(gBottomLevelBricksTraversed / 64);
-	//o_color = vec3(gVoxelsTraversed / 512);
+	//radiance = vec3(gBottomLevelBricksTraversed / 64);
+	//radiance = vec3(gVoxelsTraversed / 512);
 
 	//o_color = o_color / (1 + o_color); // Reinhard
 	//imageStore(pc.outputImage, gid, vec4(pow(o_color, vec3(1/2.2)), 1));

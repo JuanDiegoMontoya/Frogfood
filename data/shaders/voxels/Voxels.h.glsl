@@ -20,8 +20,14 @@ const int TL_BRICK_VOXELS_PER_SIDE = TL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH
 
 #define voxel_t uint
 
+struct OccupancyBitmask
+{
+  uint bitmask[16];
+};
+
 struct BottomLevelBrick
 {
+  OccupancyBitmask occupancy;
   voxel_t voxels[512];
 };
 
@@ -104,6 +110,12 @@ Voxels g_voxels;
 #define TOP_LEVEL_BRICKS    topLevelBricksBuffers[g_voxels.bufferIdx].topLevelBricks
 #define BOTTOM_LEVEL_BRICKS bottomLevelBricksBuffers[g_voxels.bufferIdx].bottomLevelBricks
 
+// DO NOT USE- glslang generates inefficient code
+bool OccupancyBitmask_Get(OccupancyBitmask occupancy, uint index)
+{
+  return bool(occupancy.bitmask[index / 32u] & (1u << index % 32u));
+}
+
 struct GridHierarchyCoords
 {
   ivec3 topLevel;
@@ -181,6 +193,30 @@ voxel_t GetVoxelAt(ivec3 voxelCoord)
   return BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].voxels[localVoxelIndex];
 }
 
+bool GetOccupancyAt(ivec3 voxelCoord)
+{
+  GridHierarchyCoords coords = GetCoordsOfVoxelAt(voxelCoord);
+
+  const uint topLevelIndex          = FlattenTopLevelBrickCoord(coords.topLevel);
+  TopLevelBrickPtr topLevelBrickPtr = TOP_LEVEL_PTRS[g_voxels.topLevelBrickPtrsBaseIndex + topLevelIndex];
+
+  if (topLevelBrickPtr.voxelsDoBeAllSame != 0)
+  {
+    return voxel_t(topLevelBrickPtr.topLevelBrickIndexOrVoxelIfAllSame) != 0;
+  }
+
+  const uint bottomLevelIndex             = FlattenBottomLevelBrickCoord(coords.bottomLevel);
+  BottomLevelBrickPtr bottomLevelBrickPtr = TOP_LEVEL_BRICKS[topLevelBrickPtr.topLevelBrickIndexOrVoxelIfAllSame].bricks[bottomLevelIndex];
+
+  if (bottomLevelBrickPtr.voxelsDoBeAllSame != 0)
+  {
+    return voxel_t(bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame) != 0;
+  }
+
+  const uint localVoxelIndex = FlattenVoxelCoord(coords.localVoxel);
+  return bool(BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].occupancy.bitmask[localVoxelIndex / 32u] & (1u << localVoxelIndex % 32u));
+}
+
 struct HitSurfaceParameters
 {
   voxel_t voxel;
@@ -238,14 +274,17 @@ bool vx_TraceRayVoxels(vec3 rayPosition, vec3 rayDirection, BottomLevelBrickPtr 
   const vec3 S         = init.S;
   const vec3 stepDir   = init.stepDir;
   vec3 sideDist        = (S - stepDir * fract(rayPosition)) * deltaDist;
-
-  for (int i = 0; all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, ivec3(BL_BRICK_SIDE_LENGTH))); i++)
+  
+  for (int i = 0; all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, vec3(BL_BRICK_SIDE_LENGTH))); i++)
   {
     gVoxelsTraversed++;
     const uint localVoxelIndex = FlattenVoxelCoord(ivec3(mapPos));
-    voxel_t voxel              = BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].voxels[localVoxelIndex];
-    if (vx_IsVisible(voxel))
+    // Calling OccupancyBitmask_Get here destroys perf, presumably because the optimizer can't remove the array copy.
+    //const bool occupancy = OccupancyBitmask_Get(BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].occupancy, localVoxelIndex);
+    const bool occupancy = bool(BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].occupancy.bitmask[localVoxelIndex / 32u] & (1u << localVoxelIndex % 32u));
+    if (occupancy)
     {
+      const voxel_t voxel = BOTTOM_LEVEL_BRICKS[bottomLevelBrickPtr.bottomLevelBrickIndexOrVoxelIfAllSame].voxels[localVoxelIndex];
       const vec3 p      = mapPos + 0.5 - stepDir * 0.5;
       const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
 
@@ -362,7 +401,7 @@ bool vx_TraceRayMultiLevel(vec3 rayPosition, vec3 rayDirection, float tMax, out 
   vec3 cases = sideDist;
 
   bool hasHit = false;
-  for (int i = 0; i < 150; i++)
+  for (int i = 0; i < tMax; i++)
   {
     // For the top level, traversal outside the map area is ok, just skip
     if (all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, g_voxels.topLevelBricksDims)))
@@ -478,9 +517,10 @@ bool vx_TraceRaySimple(vec3 rayPosition, vec3 rayDirection, float tMax, out HitS
     // Putting the exit condition down here implicitly skips the first voxel
     if (all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, ivec3(g_voxels.dimensions))))
     {
-      const voxel_t voxel = GetVoxelAt(ivec3(mapPos));
-      if (vx_IsVisible(voxel))
+      const bool occupancy = GetOccupancyAt(ivec3(mapPos));
+      if (occupancy)
       {
+        const voxel_t voxel = GetVoxelAt(ivec3(mapPos));
         const vec3 p      = mapPos + 0.5 - stepDir * 0.5; // Point on axis plane
         const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);
 
@@ -542,7 +582,7 @@ vec3 GetHitEmission(HitSurfaceParameters hit)
 float TraceSunRay(vec3 rayPosition, vec3 sunDir)
 {
   HitSurfaceParameters hit2;
-  if (vx_TraceRayMultiLevel(rayPosition, sunDir, 512, hit2))
+  if (vx_TraceRayMultiLevel(rayPosition, sunDir, 64, hit2))
   {
     return 0;
   }
@@ -613,7 +653,7 @@ vec3 TraceIndirectLighting(ivec2 gid, vec3 rayPosition, vec3 normal, uint sample
       throughput *= cos_theta * brdf_over_pdf;
 
       HitSurfaceParameters hit;
-      if (vx_TraceRayMultiLevel(curRayPos, curRayDir, 10000, hit))
+      if (vx_TraceRayMultiLevel(curRayPos, curRayDir, 16, hit))
       {
         indirectIlluminance += throughput * GetHitEmission(hit);
 

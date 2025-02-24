@@ -23,6 +23,25 @@ struct TwoLevelGrid
 
   using voxel_t = uint32_t;
 
+  struct OccupancyBitmask
+  {
+    bool Get(uint32_t index) const
+    {
+      assert(index < 512);
+      return bitmask[index / 32u] & (1u << index % 32u);
+    }
+
+    void Set(uint32_t index, bool value)
+    {
+      assert(index < 512);
+      auto& val = bitmask[index / 32u];
+      val       = val & ~(1u << index % 32u);
+      val |= static_cast<uint32_t>(value) << index % 32u;
+    }
+
+    uint32_t bitmask[16];
+  };
+
   struct HitSurfaceParameters
   {
     voxel_t voxel;
@@ -36,6 +55,7 @@ struct TwoLevelGrid
   // The storage of a "chunk"
   struct BottomLevelBrick
   {
+    OccupancyBitmask occupancy;
     voxel_t voxels[CELLS_PER_BL_BRICK];
   };
 
@@ -90,6 +110,16 @@ struct TwoLevelGrid
 
   bool IsPositionInGrid(glm::ivec3 worldPos);
 
+  struct Material
+  {
+    bool isVisible;
+  };
+
+  void SetMaterialArray(std::vector<Material> materials)
+  {
+    materials_ = std::move(materials);
+  }
+
   // LOW LEVEL
 
   // Entrusts the caller with the responsibility of marking pages dirty.
@@ -121,4 +151,6 @@ struct TwoLevelGrid
   ankerl::unordered_dense::set<TopLevelBrickPtr*> dirtyTopLevelBricks;
   ankerl::unordered_dense::set<BottomLevelBrickPtr*> dirtyBottomLevelBricks;
   #endif
+
+  std::vector<Material> materials_;
 };

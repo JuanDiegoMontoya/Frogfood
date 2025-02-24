@@ -193,8 +193,9 @@ void TwoLevelGrid::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
   const auto localVoxelIndex = FlattenVoxelCoord(localVoxelCoord);
   assert(localVoxelIndex < CELLS_PER_BL_BRICK);
   assert(bottomLevelBrickPtr.bottomLevelBrick < buffer.SizeBytes() / sizeof(BottomLevelBrick));
-  auto& dstVoxel = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[localVoxelIndex];
-  dstVoxel       = voxel;
+  auto& blBrick  = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick];
+  auto& dstVoxel = blBrick.voxels[localVoxelIndex] = voxel;
+  blBrick.occupancy.Set(localVoxelIndex, materials_[voxel].isVisible);
 #ifndef GAME_HEADLESS
   buffer.MarkDirtyPages(&dstVoxel);
 #endif
@@ -365,6 +366,7 @@ uint32_t TwoLevelGrid::AllocateBottomLevelBrick(voxel_t initialVoxel)
   auto& bottom = buffer.GetBase<BottomLevelBrick>()[index];
   std::construct_at(&bottom);
   std::ranges::fill(bottom.voxels, initialVoxel);
+  std::ranges::fill(bottom.occupancy.bitmask, materials_[initialVoxel].isVisible ? ~0u : 0u);
 #ifndef GAME_HEADLESS
   auto lk = std::unique_lock(STINKY_MUTEX);
   buffer.MarkDirtyPages(&bottom);
@@ -424,8 +426,9 @@ void TwoLevelGrid::SetVoxelAtNoDirty(glm::ivec3 voxelCoord, voxel_t voxel)
   const auto localVoxelIndex = FlattenVoxelCoord(localVoxelCoord);
   assert(localVoxelIndex < CELLS_PER_BL_BRICK);
   assert(bottomLevelBrickPtr.bottomLevelBrick < buffer.SizeBytes() / sizeof(BottomLevelBrick));
-  auto& dstVoxel = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick].voxels[localVoxelIndex];
-  dstVoxel       = voxel;
+  auto& blBrick  = buffer.GetBase<BottomLevelBrick>()[bottomLevelBrickPtr.bottomLevelBrick];
+  blBrick.voxels[localVoxelIndex] = voxel;
+  blBrick.occupancy.Set(localVoxelIndex, materials_[voxel].isVisible);
 }
 
 uint32_t TwoLevelGrid::AllocateTopLevelBrickNoDirty(voxel_t initialVoxel)
@@ -466,6 +469,7 @@ uint32_t TwoLevelGrid::AllocateBottomLevelBrickNoDirty(voxel_t initialVoxel)
   auto& bottom = buffer.GetBase<BottomLevelBrick>()[index];
   std::construct_at(&bottom);
   std::ranges::fill(bottom.voxels, initialVoxel);
+  std::ranges::fill(bottom.occupancy.bitmask, materials_[initialVoxel].isVisible ? ~0u : 0u);
   return index;
 }
 

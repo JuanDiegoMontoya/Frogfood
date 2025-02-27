@@ -198,6 +198,7 @@ void TwoLevelGrid::SetVoxelAt(glm::ivec3 voxelCoord, voxel_t voxel)
   blBrick.occupancy.Set(localVoxelIndex, materials_[voxel].isVisible);
 #ifndef GAME_HEADLESS
   buffer.MarkDirtyPages(&dstVoxel);
+  buffer.MarkDirtyPages(&blBrick.occupancy.bitmask[localVoxelIndex / 32u]);
 #endif
   dirtyTopLevelBricks.insert(&topLevelBrickPtr);
   dirtyBottomLevelBricks.insert(&bottomLevelBrickPtr);

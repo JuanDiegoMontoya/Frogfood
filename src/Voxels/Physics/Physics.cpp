@@ -481,7 +481,6 @@ namespace Physics
       
       s->bodyInterfaceNoLock->SetPosition(cc.character->GetBodyID(),
         ToJolt(transform.position),
-        //ToJolt(transform.rotation).Normalized(),
         JPH::EActivation::Activate);
       s->bodyInterfaceNoLock->SetLinearVelocity(cc.character->GetBodyID(), ToJolt(linearVelocity.v));
     }
@@ -539,8 +538,9 @@ namespace Physics
       velocity = ToGlm(s->bodyInterfaceNoLock->GetLinearVelocity(character->GetBodyID()));
     }
 
-    // Update transform of each entity with a RigidBody component
-    for (auto&& [entity, rigidBody, rigidBodySettings, transform, linearVelocity] : world.GetRegistry().view<RigidBody, RigidBodySettings, LocalTransform, LinearVelocity>().each())
+    // Update transform of each entity with a RigidBody component. If we don't exclude character controllers from being updated here, we get funny behavior.
+    for (auto&& [entity, rigidBody, rigidBodySettings, transform, linearVelocity] :
+      world.GetRegistry().view<RigidBody, RigidBodySettings, LocalTransform, LinearVelocity>(/*entt::exclude<CharacterControllerShrimple>*/).each())
     {
       if (rigidBodySettings.motionType == JPH::EMotionType::Dynamic && s->bodyInterfaceNoLock->IsActive(rigidBody.body))
       {

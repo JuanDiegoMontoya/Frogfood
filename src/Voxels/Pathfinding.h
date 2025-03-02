@@ -24,9 +24,10 @@ namespace Pathfinding
   {
     glm::ivec3 start;
     glm::ivec3 goal;
-    int height;
-    float w;
+    int height = 1;
+    float w = 1;
     bool canFly = false;
+    int maxNodesToSearch = 1000;
 
     bool operator==(const FindPathParams&) const noexcept = default;
   };

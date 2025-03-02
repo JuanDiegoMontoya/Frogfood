@@ -504,4 +504,16 @@ void Core::Reflection::InitializeReflection()
     TRAITS(EDITOR);
 
   REFLECT_COMPONENT(BlockEntity);
+
+  REFLECT_COMPONENT(DespawnWhenFarFromPlayer)
+    DATA(DespawnWhenFarFromPlayer, maxDistance)
+    TRAITS(EDITOR)
+    DATA(DespawnWhenFarFromPlayer, gracePeriod)
+    TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(Loot)
+    DATA(Loot, name)
+    TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(Enemy);
 }

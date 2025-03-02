@@ -13,12 +13,11 @@
 #include "glm/gtx/hash.hpp"
 #include "glm/gtx/component_wise.hpp"
 #include "glm/gtc/epsilon.hpp"
+#include "ankerl/unordered_dense.h"
 
 #include "tracy/Tracy.hpp"
 
 #include <queue>
-#include <unordered_set>
-#include <unordered_map>
 
 namespace Pathfinding
 {
@@ -94,7 +93,7 @@ namespace Pathfinding
       return neighbors;
     }
 
-    auto ReconstructPath(const std::unordered_map<glm::ivec3, glm::ivec3>& cameFrom, glm::ivec3 start, glm::ivec3 goal)
+    auto ReconstructPath(const ankerl::unordered_dense::map<glm::ivec3, glm::ivec3>& cameFrom, glm::ivec3 start, glm::ivec3 goal)
     {
       assert(cameFrom.contains(goal));
       auto path = std::vector<glm::vec3>();
@@ -160,16 +159,15 @@ namespace Pathfinding
       return left.priority > right.priority;
     };
     auto frontier  = std::priority_queue<FNode, std::vector<FNode>, decltype(cmp)>(cmp);
-    auto cameFrom  = std::unordered_map<glm::ivec3, glm::ivec3>();
-    auto costSoFar = std::unordered_map<glm::ivec3, float>();
+    auto cameFrom  = ankerl::unordered_dense::map<glm::ivec3, glm::ivec3>();
+    auto costSoFar = ankerl::unordered_dense::map<glm::ivec3, float>();
     
     frontier.emplace(params.start, 0.0f);
     costSoFar.emplace(params.start, 0.0f);
     cameFrom.emplace(params.start, params.start);
-
-    constexpr auto MAX_ITERATIONS = 1000;
-    const auto& grid              = world.GetRegistry().ctx().get<TwoLevelGrid>();
-    for (int i = 0; !frontier.empty() && i < MAX_ITERATIONS; i++)
+    
+    const auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
+    for (int i = 0; !frontier.empty() && i < params.maxNodesToSearch; i++)
     {
       const auto [current, currentPriority] = frontier.top();
       frontier.pop();
@@ -225,6 +223,6 @@ namespace Pathfinding
 
 std::size_t std::hash<Pathfinding::FindPathParams>::operator()(const Pathfinding::FindPathParams& p) const noexcept
 {
-  auto tup = std::make_tuple(p.start, p.goal, p.height, p.w);
+  auto tup = std::make_tuple(p.start, p.goal, p.height, p.w, p.maxNodesToSearch);
   return ::hash<decltype(tup)>{}(tup);
 }

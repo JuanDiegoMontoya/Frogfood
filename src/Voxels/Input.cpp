@@ -3,6 +3,7 @@
 #include "GLFW/glfw3.h"
 #include "glm/vec3.hpp"
 #include "imgui.h"
+#include "tracy/Tracy.hpp"
 
 #include <thread>
 #include <chrono>
@@ -27,6 +28,7 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
   
   if (swapchainOk)
   {
+    ZoneScopedN("glfwPollEvents");
     glfwPollEvents();
   }
   else

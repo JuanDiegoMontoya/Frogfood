@@ -327,12 +327,43 @@ public:
   const BlockDefinition& GetBlockDefinitionFromItem(ItemId item);
   ItemId GetItemIdFromBlock(BlockId block);
 
+  uint64_t GetTicks() const
+  {
+    return ticks_;
+  }
+
 private:
   uint64_t ticks_ = 0;
   entt::registry registry_;
 };
 
-using EntityPrefabDefinition = std::function<entt::entity(World&, glm::vec3, glm::quat)>;
+class EntityPrefabDefinition
+{
+public:
+  struct CreateInfo
+  {
+    float spawnChance      = 0;
+    float minSpawnDistance = 30;
+    float maxSpawnDistance = 90;
+    bool canSpawnFloating  = false;
+  };
+
+  explicit EntityPrefabDefinition(const CreateInfo& createInfo = {}) : info_(createInfo) {}
+  DEFAULT_MOVE(EntityPrefabDefinition);
+  NO_COPY(EntityPrefabDefinition);
+
+  virtual ~EntityPrefabDefinition() = default;
+
+  virtual entt::entity Spawn(World& world, glm::vec3 position, glm::quat rotation = glm::identity<glm::quat>()) const = 0;
+
+  [[nodiscard]] const CreateInfo& GetCreateInfo() const
+  {
+    return info_;
+  }
+
+protected:
+  CreateInfo info_;
+};
 
 class EntityPrefabRegistry
 {
@@ -346,25 +377,30 @@ public:
 
   [[nodiscard]] const EntityPrefabDefinition& Get(const std::string& name) const
   {
-    return idToDefinition_.at(nameToId_.at(name));
+    return *idToDefinition_.at(nameToId_.at(name));
   }
   [[nodiscard]] const EntityPrefabDefinition& Get(EntityPrefabId id) const
   {
-    return idToDefinition_.at(id);
+    return *idToDefinition_.at(id);
   }
   [[nodiscard]] EntityPrefabId GetId(const std::string& name) const;
 
-  EntityPrefabId Add(const std::string& name, EntityPrefabDefinition entityPrefabDefinition)
+  EntityPrefabId Add(const std::string& name, EntityPrefabDefinition* entityPrefabDefinition)
   {
     const auto myId = static_cast<uint32_t>(idToDefinition_.size());
     nameToId_.emplace(name, myId);
-    idToDefinition_.emplace_back(std::move(entityPrefabDefinition));
+    idToDefinition_.emplace_back(entityPrefabDefinition);
     return myId;
+  }
+
+  std::span<const std::unique_ptr<EntityPrefabDefinition>> GetAllPrefabs() const
+  {
+    return std::span(idToDefinition_);
   }
 
 private:
   std::unordered_map<std::string, EntityPrefabId> nameToId_;
-  std::vector<EntityPrefabDefinition> idToDefinition_;
+  std::vector<std::unique_ptr<EntityPrefabDefinition>> idToDefinition_;
 };
 
 class BlockRegistry
@@ -1004,6 +1040,35 @@ struct LocalPlayer {};
 struct SimpleEnemyBehavior {};
 struct SimplePathfindingEnemyBehavior {};
 
+struct AiWanderBehavior
+{
+  float minWanderDistance  = 3;
+  float maxWanderDistance  = 6;
+  float timeBetweenMoves   = 2;
+  float accumulator        = 0;
+  bool targetCanBeFloating = false;
+};
+
+struct AiTarget
+{
+  entt::entity currentTarget = entt::null;
+};
+
+struct AiVision
+{
+  // Spherical cone in which an AI actor can detect another entity.
+  float coneAngleRad = glm::half_pi<float>();
+  float distance     = 20;
+  float invAcuity    = 1; // Time taken, at max distance, for target in cone to be spotted.
+  float accumulator  = 0;
+};
+
+struct AiHearing
+{
+  // Absolute distance in which an AI actor can automatically detect another entity.
+  float distance = 5;
+};
+
 struct PredatoryBirdBehavior
 {
   enum class State
@@ -1024,6 +1089,12 @@ struct WormEnemyBehavior
   float maxTurnSpeedDegPerSec = 180;
 };
 
+struct WalkingMovementAttributes
+{
+  float runBaseSpeed = 5;
+  float walkModifier = 0.35f;
+};
+
 struct KnockbackMultiplier
 {
   float factor = 1;
@@ -1036,6 +1107,27 @@ struct CannotBePickedUp
 };
 
 struct NoHashGrid {};
+
+struct DespawnWhenFarFromPlayer
+{
+  float maxDistance = 60;
+  float gracePeriod = 10;
+};
+
+class NpcSpawnDirector
+{
+public:
+  explicit NpcSpawnDirector(World& world) : world_(&world) {}
+
+  void Update(float dt);
+
+private:
+  World* world_;
+  float accumulator = 0;
+  float timeBetweenSpawns = 1;
+};
+
+struct Enemy {};
 
 // Game class used for client and server
 class Game

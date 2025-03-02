@@ -171,6 +171,7 @@ static auto MakeVkbSwapchain(const vkb::Device& device,
 
 void PlayerHead::VariableUpdatePre(DeltaTime dt, World& world)
 {
+  ZoneScopedN("PlayerHead::VariableUpdatePre");
   worldThisFrame_   = &world;
 
   inputSystem_->VariableUpdatePre(dt, world, swapchainOk);
@@ -178,7 +179,7 @@ void PlayerHead::VariableUpdatePre(DeltaTime dt, World& world)
 
 void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
 {
-  ZoneScopedN("Frame");
+  ZoneScopedN("PlayerHead::VariableUpdatePost");
 
   if (world.GetRegistry().ctx().get<GameState>() == GameState::GAME)
   {
@@ -186,8 +187,16 @@ void PlayerHead::VariableUpdatePost(DeltaTime dt, World& world)
     {
       if (auto* previousGlobalTransform = world.GetRegistry().try_get<PreviousGlobalTransform>(entity))
       {
-        const auto alpha                   = dt.fraction;
-        renderTransform.transform.position = glm::mix(previousGlobalTransform->position, transform.position, alpha);
+        const auto alpha = dt.fraction;
+        // Improve numerical stability when motionless.
+        if (previousGlobalTransform->position != transform.position)
+        {
+          renderTransform.transform.position = glm::mix(previousGlobalTransform->position, transform.position, alpha);
+        }
+        else
+        {
+          renderTransform.transform.position = transform.position;
+        }
         renderTransform.transform.rotation = glm::slerp(previousGlobalTransform->rotation, transform.rotation, alpha);
         renderTransform.transform.scale    = glm::mix(previousGlobalTransform->scale, transform.scale, alpha);
       }

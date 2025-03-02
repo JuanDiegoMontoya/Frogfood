@@ -177,4 +177,13 @@ namespace Math
     float h = glm::clamp(dot(pa, ba) / glm::dot(ba, ba), 0.0f, 1.0f);
     return glm::distance(pa, ba * h);
   }
+
+  inline glm::vec3 SphericalToCartesian(float elevation, float azimuth, float radius = 1.0f)
+  {
+    return {
+      radius * std::sin(elevation) * std::cos(azimuth),
+      radius * std::cos(elevation),
+      radius * std::sin(elevation) * std::sin(azimuth)
+    };
+  }
 } // namespace Math

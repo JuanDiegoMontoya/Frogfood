@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
+#include <mutex>
+#include <memory>
 
 // Modifying operations are NOT thread-safe.
 struct TwoLevelGrid
@@ -108,7 +110,7 @@ struct TwoLevelGrid
   void FreeTopLevelBrick(uint32_t index);
   void FreeBottomLevelBrick(uint32_t index);
 
-  bool IsPositionInGrid(glm::ivec3 worldPos);
+  bool IsPositionInGrid(glm::ivec3 worldPos) const;
 
   struct Material
   {
@@ -152,5 +154,8 @@ struct TwoLevelGrid
   ankerl::unordered_dense::set<BottomLevelBrickPtr*> dirtyBottomLevelBricks;
   #endif
 
+private:
   std::vector<Material> materials_;
+  std::unique_ptr<std::mutex> mutex_;
+  // TracyLockable(std::mutex, STINKY_MUTEX); // Crashes Tracy client, possibly because I have too many threads.
 };

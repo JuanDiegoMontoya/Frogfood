@@ -9,10 +9,6 @@
 
 #include <type_traits>
 #include <algorithm>
-#include <mutex>
-
-std::mutex STINKY_MUTEX;
-//TracyLockable(std::mutex, STINKY_MUTEX); // Crashes Tracy client, possibly because I have too many threads.
 
 // Assert that we can memset these types and produce them from a bag of bytes.
 static_assert(std::is_trivially_constructible_v<TwoLevelGrid::TopLevelBrick>);
@@ -107,6 +103,8 @@ TwoLevelGrid::TwoLevelGrid(glm::ivec3 topLevelBrickDims)
 #endif
   }
   topLevelBrickPtrsBaseIndex = uint32_t(topLevelBrickPtrs.offset / sizeof(TopLevelBrickPtr));
+
+  mutex_ = std::make_unique<std::mutex>();
 }
 
 TwoLevelGrid::GridHierarchyCoords TwoLevelGrid::GetCoordsOfVoxelAt(glm::ivec3 voxelCoord) const
@@ -332,7 +330,7 @@ uint32_t TwoLevelGrid::AllocateTopLevelBrick(voxel_t initialVoxel)
   uint32_t index;
 
   {
-    auto lk = std::unique_lock(STINKY_MUTEX);
+    auto lk = std::unique_lock(*mutex_);
     // The alignment of the allocation should be the size of the object being allocated so it can be indexed from the base ptr
     auto allocation = buffer.Allocate(sizeof(TopLevelBrick), sizeof(TopLevelBrick));
     index           = uint32_t(allocation.offset / sizeof(TopLevelBrick));
@@ -344,7 +342,7 @@ uint32_t TwoLevelGrid::AllocateTopLevelBrick(voxel_t initialVoxel)
   std::construct_at(&top);
   std::ranges::fill(top.bricks, BottomLevelBrickPtr{.voxelsDoBeAllSame = true, .bottomLevelBrick = initialVoxel});
 #ifndef GAME_HEADLESS
-  auto lk = std::unique_lock(STINKY_MUTEX);
+  auto lk = std::unique_lock(*mutex_);
   buffer.MarkDirtyPages(&top);
 #endif
   return index;
@@ -357,7 +355,7 @@ uint32_t TwoLevelGrid::AllocateBottomLevelBrick(voxel_t initialVoxel)
   uint32_t index;
 
   {
-    auto lk         = std::unique_lock(STINKY_MUTEX);
+    auto lk         = std::unique_lock(*mutex_);
     auto allocation = buffer.Allocate(sizeof(BottomLevelBrick), sizeof(BottomLevelBrick));
     index      = uint32_t(allocation.offset / sizeof(BottomLevelBrick));
     bottomLevelBrickIndexToAlloc.emplace(index, allocation);
@@ -369,7 +367,7 @@ uint32_t TwoLevelGrid::AllocateBottomLevelBrick(voxel_t initialVoxel)
   std::ranges::fill(bottom.voxels, initialVoxel);
   std::ranges::fill(bottom.occupancy.bitmask, materials_[initialVoxel].isVisible ? ~0u : 0u);
 #ifndef GAME_HEADLESS
-  auto lk = std::unique_lock(STINKY_MUTEX);
+  auto lk = std::unique_lock(*mutex_);
   buffer.MarkDirtyPages(&bottom);
 #endif
   return index;
@@ -391,7 +389,7 @@ void TwoLevelGrid::FreeBottomLevelBrick(uint32_t index)
   bottomLevelBrickIndexToAlloc.erase(it);
 }
 
-bool TwoLevelGrid::IsPositionInGrid(glm::ivec3 worldPos)
+bool TwoLevelGrid::IsPositionInGrid(glm::ivec3 worldPos) const
 {
   return glm::all(glm::greaterThanEqual(worldPos, glm::ivec3(0))) && glm::all(glm::lessThan(worldPos, dimensions_));
 }
@@ -439,7 +437,7 @@ uint32_t TwoLevelGrid::AllocateTopLevelBrickNoDirty(voxel_t initialVoxel)
   uint32_t index;
 
   {
-    auto lk = std::unique_lock(STINKY_MUTEX);
+    auto lk = std::unique_lock(*mutex_);
     // The alignment of the allocation should be the size of the object being allocated so it can be indexed from the base ptr
     auto allocation = buffer.Allocate(sizeof(TopLevelBrick), sizeof(TopLevelBrick));
     index           = uint32_t(allocation.offset / sizeof(TopLevelBrick));
@@ -460,7 +458,7 @@ uint32_t TwoLevelGrid::AllocateBottomLevelBrickNoDirty(voxel_t initialVoxel)
   uint32_t index;
 
   {
-    auto lk         = std::unique_lock(STINKY_MUTEX);
+    auto lk         = std::unique_lock(*mutex_);
     auto allocation = buffer.Allocate(sizeof(BottomLevelBrick), sizeof(BottomLevelBrick));
     index           = uint32_t(allocation.offset / sizeof(BottomLevelBrick));
     bottomLevelBrickIndexToAlloc.emplace(index, allocation);
@@ -481,7 +479,7 @@ void TwoLevelGrid::MarkTopLevelBrickAndChildrenDirty(glm::ivec3 topLevelBrickPos
   assert(topLevelIndex < numTopLevelBricks_);
   auto& topLevelBrickPtr = buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + topLevelIndex];
 
-  auto lk = std::unique_lock(STINKY_MUTEX);
+  auto lk = std::unique_lock(*mutex_);
   buffer.MarkDirtyPages(&topLevelBrickPtr);
   dirtyTopLevelBricks.emplace(&topLevelBrickPtr);
 

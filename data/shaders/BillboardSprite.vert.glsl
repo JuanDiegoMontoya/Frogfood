@@ -5,6 +5,7 @@
 
 layout(location = 0) out vec2 v_uv;
 layout(location = 1) flat out Texture2D v_texture;
+layout(location = 2) out vec3 v_tint;
 
 // vertices in [0, 1]
 vec2 CreateQuad(uint vertexID) // triangle list
@@ -17,6 +18,7 @@ struct BillboardSpriteInstance
 {
   vec3 position;
   vec2 scale;
+  vec3 tint;
   Texture2D texture;
 };
 
@@ -43,6 +45,7 @@ void main()
 
   const BillboardSpriteInstance instance = billboardBuffers[pc.billboardsIndex].instances[index];
   v_texture = instance.texture;
+  v_tint    = instance.tint;
 
   vec3 vertexPosition_worldspace =
     instance.position +

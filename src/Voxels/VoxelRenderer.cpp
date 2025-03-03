@@ -28,6 +28,7 @@
 #include "Jolt/Physics/Collision/RayCast.h"
 #include "entt/meta/meta.hpp"
 #include "entt/meta/factory.hpp"
+#include "entt/meta/container.hpp"
 
 #include "tracy/TracyVulkan.hpp"
 
@@ -602,7 +603,12 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
     auto worldFromObject = glm::translate(glm::mat4(1), actualTransform.position) * glm::mat4_cast(actualTransform.rotation) *
                            glm::scale(glm::mat4(1), glm::vec3(actualTransform.scale));
     auto& gpuMesh = g_meshes[mesh.name];
-    meshUniformzVec.emplace_back(worldFromObject, gpuMesh.vertexBuffer->GetDeviceAddress(), mesh.tint);
+    auto tint     = glm::vec3(1);
+    if (auto* tp = world.GetRegistry().try_get<Tint>(entity))
+    {
+      tint = tp->color;
+    }
+    meshUniformzVec.emplace_back(worldFromObject, gpuMesh.vertexBuffer->GetDeviceAddress(), tint);
     drawCalls.emplace_back(&gpuMesh);
   }
 
@@ -628,8 +634,14 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
   auto billboardSprites = std::vector<Temp::BillboardSpriteInstance>();
   for (auto&& [entity, transform, billboardSprite] : world.GetRegistry().view<RenderTransform, Billboard>().each())
   {
+    auto tint = glm::vec3(1);
+    if (auto* tp = world.GetRegistry().try_get<Tint>(entity))
+    {
+      tint = tp->color;
+    }
     billboardSprites.emplace_back(transform.transform.position,
       glm::vec2(transform.transform.scale),
+      tint,
       GetOrEmplaceCachedTexture(billboardSprite.name).ImageView().GetTexture2D());
   }
 
@@ -828,41 +840,6 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
     commandBuffer);
 }
 
-static void DrawComponentHelper(entt::meta_any instance, entt::meta_custom custom, bool readonly, int& guiId)
-{
-  using namespace Core::Reflection;
-  auto meta = instance.type();
-
-  // If the type has a bespoke EditorWrite or EditorRead function, use that. Otherwise, recurse over data members.
-  PropertiesMap map = {};
-  if (auto* mp = static_cast<const PropertiesMap*>(custom))
-  {
-    map = *mp;
-  }
-  if (auto readFunc = meta.func("EditorRead"_hs); readFunc && readonly)
-  {
-    readFunc.invoke(instance, map);
-  }
-  else if (auto writeFunc = meta.func("EditorWrite"_hs))
-  {
-    writeFunc.invoke(instance, map);
-  }
-  else
-  {
-    for (auto [id, data] : meta.data())
-    {
-      if (auto traits = data.traits<Traits>(); traits & Traits::EDITOR || traits & Traits::EDITOR_READ)
-      {
-        ImGui::PushID(guiId++);
-        //ImGui::Indent();
-        DrawComponentHelper(data.get(instance), data.custom(), readonly || traits & Traits::EDITOR_READ, guiId);
-        //ImGui::Unindent();
-        ImGui::PopID();
-      }
-    }
-  }
-}
-
 static std::string FixupTypeString(std::string_view str)
 {
   if (auto pos = str.find("::"); pos != std::string_view::npos)
@@ -876,6 +853,90 @@ static std::string FixupTypeString(std::string_view str)
   }
 
   return std::string(str);
+}
+
+static void DrawComponentHelper(entt::meta_any instance, entt::meta_custom custom, bool readonly, int& guiId)
+{
+  using namespace Core::Reflection;
+  auto meta = instance.type();
+
+  // If the type has a bespoke EditorWrite or EditorRead function, use that. Otherwise, recurse over data members.
+  PropertiesMap properties = {};
+  if (auto* mp = static_cast<const PropertiesMap*>(custom))
+  {
+    properties = *mp;
+  }
+
+  if (auto writeFunc = meta.func("EditorWrite"_hs); writeFunc && !readonly)
+  {
+    writeFunc.invoke(instance, properties);
+  }
+  else if (auto readFunc = meta.func("EditorRead"_hs))
+  {
+    readFunc.invoke(instance, properties);
+  }
+  else if (meta.is_sequence_container())
+  {
+    bool isOpen = false;
+    bool didIndent = false;
+    if (auto it = properties.find("name"_hs); it != properties.end())
+    {
+      isOpen = ImGui::TreeNodeEx(instance.try_cast<void>(), 0, "%s: %d", *it->second.try_cast<const char*>(), (int)instance.as_sequence_container().size());
+    }
+    else
+    {
+      auto name = FixupTypeString(meta.info().name());
+      isOpen    = ImGui::TreeNodeEx(instance.try_cast<void>(), 0, "%s: %d", name.c_str(), (int)instance.as_sequence_container().size());
+      ImGui::Indent();
+      didIndent = true;
+    }
+    if (isOpen)
+    {
+      for (auto element : instance.as_sequence_container())
+      {
+        auto eType = element.type();
+        ImGui::PushID(guiId++);
+        DrawComponentHelper(element, eType.custom(), readonly, guiId);
+        ImGui::PopID();
+      }
+      ImGui::TreePop();
+    }
+    if (didIndent)
+    {
+      ImGui::Unindent();
+    }
+  }
+  else if (meta.is_associative_container())
+  {
+    ImGui::Text("TODO: associative containers");
+    // TODO: Make two-column table.
+    for (auto element : instance.as_associative_container())
+    {
+      //auto eType = element.second.type();
+      //if (auto traits = eType.traits<Traits>(); traits & Traits::EDITOR || traits & Traits::EDITOR_READ)
+      //{
+      //  ImGui::PushID(guiId++);
+      //  ImGui::Indent();
+      //  DrawComponentHelper(element.second.get(eType.id()), eType.custom(), readonly || traits & Traits::EDITOR_READ, guiId);
+      //  ImGui::Unindent();
+      //  ImGui::PopID();
+      //}
+    }
+  }
+  else
+  {
+    for (auto [id, data] : meta.data())
+    {
+      if (auto traits = data.traits<Traits>(); traits & Traits::EDITOR || traits & Traits::EDITOR_READ)
+      {
+        ImGui::PushID(guiId++);
+        ImGui::Indent();
+        DrawComponentHelper(data.get(instance), data.custom(), readonly || traits & Traits::EDITOR_READ, guiId);
+        ImGui::Unindent();
+        ImGui::PopID();
+      }
+    }
+  }
 }
 
 void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)

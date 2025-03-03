@@ -1,6 +1,7 @@
 #include "Reflection.h"
 
 #include "imgui.h"
+#include "entt/meta/container.hpp"
 
 #include <type_traits>
 
@@ -248,16 +249,50 @@ namespace Core::Reflection
     GetEditorName(label, properties);
     ImGui::Text("%.*s", static_cast<int>(s.size()), s.c_str());
   }
+
+  static void EditorWriteEntity(entt::entity& entity, const PropertiesMap& properties)
+  {
+    const char* label = "entity";
+    GetEditorName(label, properties);
+    using T = std::underlying_type_t<entt::entity>;
+    auto temp = entity;
+    if (ImGui::InputScalar(label, ScalarToImGuiDataType<T>(), &temp, nullptr, nullptr, ScalarToFormatString<T>(), ImGuiInputTextFlags_EnterReturnsTrue))
+    {
+      // TODO: Validate new entity ID with registry.
+      entity = temp;
+    }
+  }
+
+  static void EditorReadEntity(entt::entity entity, const PropertiesMap& properties)
+  {
+    const char* label = "entity";
+    GetEditorName(label, properties);
+    using T = std::underlying_type_t<entt::entity>;
+    if (entity == entt::null)
+    {
+      ImGui::Text("%s: null", label);
+    }
+    else
+    {
+      ImGui::Text("%s: %u, v%u", label, (uint32_t)entt::to_entity(entity), (uint32_t)entt::to_version(entity));
+    }
+  }
 } // namespace Core::Reflection
 
 void Core::Reflection::InitializeReflection()
 {
   entt::meta_reset();
-  
-#define REFLECTION(T) entt::meta<T>()
-#define REFLECT_COMPONENT_NO_DEFAULT(T) entt::meta<T>()\
+
+//#define MAKE_IDENTIFIER(T) [[maybe_unused]] bool reflection_for_ ## T
+#define MAKE_IDENTIFIER(T)
+#define REFLECTION(T) MAKE_IDENTIFIER(T); entt::meta<T>()
+#define REFLECT_COMPONENT_NO_DEFAULT(T) \
+  MAKE_IDENTIFIER(T);                   \
+  entt::meta<T>()\
   .traits(Traits::COMPONENT)
-#define REFLECT_COMPONENT(T) entt::meta<T>()\
+#define REFLECT_COMPONENT(T) \
+  MAKE_IDENTIFIER(T);        \
+  entt::meta<T>()            \
   .traits(Traits::COMPONENT) \
   .func<[](entt::registry* registry, entt::entity entity) { registry->emplace<T>(entity); }>("EmplaceDefault"_hs)
 #define TRAITS(Traits) .traits(Traits)
@@ -275,13 +310,14 @@ void Core::Reflection::InitializeReflection()
   entt::meta<glm::quat>().func<&EditorWriteQuat>("EditorWrite"_hs).func<&EditorReadQuat>("EditorRead"_hs);
   entt::meta<std::string>().func<&EditorWriteString>("EditorWrite"_hs).func<&EditorReadString>("EditorRead"_hs);
   entt::meta<bool>().func<&EditorWriteScalar<bool>>("EditorWrite"_hs).func<&EditorReadScalar<bool>>("EditorRead"_hs);
+  entt::meta<entt::entity>().func<&EditorWriteEntity>("EditorWrite"_hs).func<&EditorReadEntity>("EditorRead"_hs);
 
   REFLECT_COMPONENT(LocalTransform)
     DATA(LocalTransform, position, PROP_SPEED(0.20f))
     TRAITS(Traits::EDITOR)
     DATA(LocalTransform, rotation)
     TRAITS(Traits::EDITOR)
-    DATA(LocalTransform, scale, PROP_SPEED(0.125f))
+    DATA(LocalTransform, scale, PROP_SPEED(0.0125f))
     TRAITS(Traits::EDITOR);
   
   REFLECT_COMPONENT(GlobalTransform)
@@ -362,30 +398,29 @@ void Core::Reflection::InitializeReflection()
 
   REFLECT_COMPONENT(Mesh)
     DATA(Mesh, name)
-    TRAITS(Traits::EDITOR)
-    DATA(Mesh, tint)
     TRAITS(Traits::EDITOR);
 
   REFLECT_COMPONENT(NoclipCharacterController);
 
   REFLECT_COMPONENT(FlyingCharacterController)
     .func<[](World* w, entt::entity e) { w->GivePlayerFlyingCharacterController(e); }>("add"_hs)
-    DATA(FlyingCharacterController, maxSpeed)
+    DATA(FlyingCharacterController, maxSpeed, PROP_MAX(50.0f))
     TRAITS(Traits::EDITOR)
-    DATA(FlyingCharacterController, acceleration)
+    DATA(FlyingCharacterController, acceleration, PROP_MAX(50.0f))
     TRAITS(Traits::EDITOR);
 
-  REFLECT_COMPONENT(Physics::CharacterController)
+  using namespace Physics;
+  REFLECT_COMPONENT(CharacterController)
     .func<[](World* w, entt::entity e) { w->GivePlayerCharacterController(e); }>("add"_hs);
   
-  REFLECT_COMPONENT(Physics::CharacterControllerShrimple)
+  REFLECT_COMPONENT(CharacterControllerShrimple)
     .func<[](World* w, entt::entity e) { w->GivePlayerCharacterControllerShrimple(e); }>("add"_hs);
 
   REFLECT_COMPONENT(Name)
     DATA(Name, name)
     TRAITS(Traits::EDITOR);
 
-  REFLECT_COMPONENT(Physics::RigidBody);
+  REFLECT_COMPONENT(RigidBody);
 
   REFLECT_COMPONENT(DroppedItem)
     DATA(DroppedItem, item)
@@ -405,7 +440,17 @@ void Core::Reflection::InitializeReflection()
 
   REFLECT_COMPONENT(SimpleEnemyBehavior);
 
-  REFLECT_COMPONENT(PredatoryBirdBehavior);
+  REFLECT_COMPONENT(PredatoryBirdBehavior)
+    DATA(PredatoryBirdBehavior, state)
+    TRAITS(Traits::EDITOR)
+    DATA(PredatoryBirdBehavior, accum)
+    TRAITS(Traits::EDITOR)
+    DATA(PredatoryBirdBehavior, target)
+    TRAITS(Traits::EDITOR_READ)
+    DATA(PredatoryBirdBehavior, idlePosition)
+    TRAITS(Traits::EDITOR)
+    DATA(PredatoryBirdBehavior, lineOfSightDuration)
+    TRAITS(Traits::EDITOR);
 
   REFLECT_COMPONENT(SimplePathfindingEnemyBehavior);
 
@@ -422,6 +467,7 @@ void Core::Reflection::InitializeReflection()
     TRAITS(Traits::EDITOR)
     DATA(LinearPath, originalLocalTransform);
 
+  //using LinearPath::KeyFrame;
   REFLECTION(LinearPath::KeyFrame)
     TRAITS(Traits::EDITOR)
     DATA(LinearPath::KeyFrame, position)
@@ -456,7 +502,7 @@ void Core::Reflection::InitializeReflection()
     TRAITS(Traits::EDITOR);
 
   REFLECT_COMPONENT(Invulnerability)
-    DATA(Invulnerability, remainingSeconds)
+    DATA(Invulnerability, remainingSeconds, PROP_MAX(1000.0f))
     TRAITS(Traits::EDITOR);
 
   REFLECT_COMPONENT(CannotDamageEntities)
@@ -464,7 +510,7 @@ void Core::Reflection::InitializeReflection()
     TRAITS(Traits::EDITOR);
 
   REFLECT_COMPONENT(Projectile)
-    DATA(Projectile, initialSpeed)
+    DATA(Projectile, initialSpeed, PROP_MAX(500.0f))
     TRAITS(Traits::EDITOR)
     DATA(Projectile, drag)
     TRAITS(Traits::EDITOR)
@@ -516,4 +562,50 @@ void Core::Reflection::InitializeReflection()
     TRAITS(EDITOR);
 
   REFLECT_COMPONENT(Enemy);
+
+  REFLECT_COMPONENT(AiWanderBehavior)
+    DATA(AiWanderBehavior, minWanderDistance, PROP_MAX(10.0f))
+    TRAITS(EDITOR)
+    DATA(AiWanderBehavior, maxWanderDistance, PROP_MAX(10.0f))
+    TRAITS(EDITOR)
+    DATA(AiWanderBehavior, timeBetweenMoves, PROP_MAX(10.0f))
+    TRAITS(EDITOR)
+    DATA(AiWanderBehavior, accumulator)
+    TRAITS(EDITOR)
+    DATA(AiWanderBehavior, targetCanBeFloating)
+    TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(AiTarget)
+    DATA(AiTarget, currentTarget)
+    TRAITS(EDITOR_READ);
+
+  REFLECT_COMPONENT(AiVision)
+    DATA(AiVision, coneAngleRad, PROP_MAX(glm::two_pi<float>()))
+    TRAITS(EDITOR)
+    DATA(AiVision, distance)
+    TRAITS(EDITOR)
+    DATA(AiVision, invAcuity, PROP_MAX(5.0f))
+    TRAITS(EDITOR)
+    DATA(AiVision, accumulator)
+    TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(AiHearing)
+    DATA(AiHearing, distance, PROP_MAX(25.0f))
+    TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(KnockbackMultiplier)
+    DATA(KnockbackMultiplier, factor, PROP_MAX(10.0f))
+    TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(Tint)
+    DATA(Tint, color)
+    TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(WalkingMovementAttributes)
+    DATA(WalkingMovementAttributes, runBaseSpeed, PROP_MAX(20.0f))
+    TRAITS(EDITOR)
+    DATA(WalkingMovementAttributes, walkModifier)
+    TRAITS(EDITOR)
+    DATA(WalkingMovementAttributes, runMaxSpeed, PROP_MAX(20.0f))
+    TRAITS(EDITOR);
 }

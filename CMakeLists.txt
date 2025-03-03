@@ -155,6 +155,9 @@ target_compile_options(frogRender
     $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:
     /bigobj
     #/JMC # Has a non-negligible perf impact.
+    #/UNDEBUG # Undefine NDEBUG for DebugFast builds. Causes linker errors with Jolt.
+    /ZI          # Program Database for Edit and Continue
+    /INCREMENTAL # Incremental linking is required for Edit and Continue
     >
     >
 )

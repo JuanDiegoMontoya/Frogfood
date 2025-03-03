@@ -3,6 +3,7 @@
 
 layout(location = 0) in vec2 v_uv;
 layout(location = 1) flat in Texture2D v_texture;
+layout(location = 2) in vec3 v_tint;
 
 layout(location = 0) out vec4 o_albedo;
 layout(location = 2) out vec4 o_indirectIlluminance;
@@ -23,6 +24,7 @@ FVOG_DECLARE_ARGUMENTS(BillboardPushConstants)
 void main()
 {
   o_albedo = texture(v_texture, pc.texSampler, v_uv);
+  o_albedo.rgb *= v_tint;
   o_indirectIlluminance = vec4(0, 0, 0, 1);
   o_radiance = o_albedo;
   

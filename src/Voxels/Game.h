@@ -516,9 +516,10 @@ private:
 class SpriteItem : public ItemDefinition
 {
 public:
-  SpriteItem(std::string_view name, std::string_view sprite)
+  SpriteItem(std::string_view name, std::string_view sprite, glm::vec3 tint = glm::vec3(1))
     : ItemDefinition(name),
-      sprite_(sprite) {}
+      sprite_(sprite),
+      tint_(tint) {}
 
   entt::entity Materialize(World&) const override;
 
@@ -536,6 +537,7 @@ public:
 
 protected:
   std::string sprite_;
+  glm::vec3 tint_;
 };
 
 class Gun : public ItemDefinition
@@ -903,6 +905,7 @@ struct CannotDamageEntities
 };
 
 struct DeferredDelete {};
+
 struct Lifetime
 {
   float remainingSeconds = 0;
@@ -990,7 +993,11 @@ struct TickRate
 struct Mesh
 {
   std::string name;
-  glm::vec3 tint = {1, 1, 1};
+};
+
+struct Tint
+{
+  glm::vec3 color = {1, 1, 1};
 };
 
 struct Billboard
@@ -1093,6 +1100,7 @@ struct WalkingMovementAttributes
 {
   float runBaseSpeed = 5;
   float walkModifier = 0.35f;
+  float runMaxSpeed  = 5;
 };
 
 struct KnockbackMultiplier

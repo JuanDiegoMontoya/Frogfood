@@ -82,6 +82,7 @@ namespace Temp
   {
     glm::vec3 position;
     glm::vec2 scale;
+    glm::vec3 tint;
     shared::Texture2D texture;
   };
 

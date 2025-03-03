@@ -427,7 +427,7 @@ public:
     registry.emplace<AiHearing>(e);
     registry.emplace<AiTarget>(e);
     registry.emplace<AiWanderBehavior>(e);
-    registry.emplace<WalkingMovementAttributes>(e) = {.runBaseSpeed = 3};
+    registry.emplace<WalkingMovementAttributes>(e) = {.runBaseSpeed = 3.5f, .runMaxSpeed = 3.5f};
 
     auto& contactDamage  = registry.emplace<ContactDamage>(e);
     contactDamage.damage = 10;
@@ -495,7 +495,7 @@ public:
     auto& contactDamage  = registry.emplace<ContactDamage>(e);
     contactDamage.damage = 15;
 
-    registry.emplace<FlyingCharacterController>(e) = {.maxSpeed = 4, .acceleration = 15};
+    registry.emplace<FlyingCharacterController>(e) = {.maxSpeed = 3.5, .acceleration = 15};
     registry.emplace_or_replace<LinearVelocity>(e);
     auto rb = Physics::AddRigidBody({registry, e}, {.shape = sphere, .layer = Physics::Layers::CHARACTER});
     Physics::GetBodyInterface().SetGravityFactor(rb.body, 0);
@@ -958,13 +958,13 @@ void World::FixedUpdate(float dt)
         else if (behavior.state != PredatoryBirdBehavior::State::IDLE)
         {
           behavior.state = PredatoryBirdBehavior::State::IDLE;
-          behavior.idlePosition = transform.position;
+          behavior.idlePosition = transform.position + glm::vec3(0, 5, 0);
         }
       }
       else if (behavior.state != PredatoryBirdBehavior::State::IDLE)
       {
         behavior.state = PredatoryBirdBehavior::State::IDLE;
-        behavior.idlePosition = transform.position;
+        behavior.idlePosition = transform.position + glm::vec3(0, 5, 0);
       }
 
       // Birds always be moving forward.
@@ -976,6 +976,7 @@ void World::FixedUpdate(float dt)
       {
         const auto target = behavior.idlePosition + glm::vec3(sin(behavior.accum * 1.2f) * 8, 2 + sin(behavior.accum * 4) * 2, cos(behavior.accum * 1.2f) * 8);
         transform.rotation = glm::quatLookAtRH(glm::normalize(target - transform.position), {0, 1, 0});
+        input.forward      = 0.5f;
         break;
       }
       case PredatoryBirdBehavior::State::CIRCLING:
@@ -1011,7 +1012,7 @@ void World::FixedUpdate(float dt)
         const auto& pt    = registry_.get<GlobalTransform>(behavior.target);
         transform.rotation = glm::quatLookAtRH(glm::normalize(pt.position - transform.position), {0, 1, 0});
 
-        if (glm::distance(pt.position, transform.position) < 2 || behavior.accum > 5.0f)
+        if (glm::distance(pt.position, transform.position) < 1.5f || behavior.accum > 5.0f)
         {
           behavior.accum = 0;
           behavior.state = PredatoryBirdBehavior::State::CIRCLING;
@@ -1382,7 +1383,6 @@ void World::FixedUpdate(float dt)
             deltaVelocity += glm::vec3{0, -15 * dt, 0};
           }
           friction.y               = 0;
-          constexpr float maxSpeed = 5;
 
           // Apply friction
           auto newVelocity = glm::vec3(velocity.x, 0, velocity.z);
@@ -1394,9 +1394,9 @@ void World::FixedUpdate(float dt)
 
           // Clamp xz speed
           const float speed = glm::length(newVelocity);
-          if (speed > maxSpeed)
+          if (speed > attribs->runMaxSpeed)
           {
-            newVelocity = glm::normalize(newVelocity) * maxSpeed;
+            newVelocity = glm::normalize(newVelocity) * attribs->runMaxSpeed;
           }
 
           // Y is not affected by speed clamp or friction
@@ -1679,8 +1679,8 @@ void World::InitializeGameState()
 
   // Reset entity prefab registry
   auto& entityPrefabs = registry_.ctx().insert_or_assign<EntityPrefabRegistry>({});
-  [[maybe_unused]] auto meleeFrogId = entityPrefabs.Add("Melee Frog", new MeleeFrogDefinition({.spawnChance = 0.125f}));
-  [[maybe_unused]] auto flyingFrogId = entityPrefabs.Add("Flying Frog", new FlyingFrogDefinition({.spawnChance = 0.125f, .canSpawnFloating = true}));
+  [[maybe_unused]] auto meleeFrogId = entityPrefabs.Add("Melee Frog", new MeleeFrogDefinition({.spawnChance = 0.075f}));
+  [[maybe_unused]] auto flyingFrogId = entityPrefabs.Add("Flying Frog", new FlyingFrogDefinition({.spawnChance = 0.05f, .canSpawnFloating = true}));
   [[maybe_unused]] auto torchId     = entityPrefabs.Add("Torch", new TorchDefinition());
 
   // Reset item registry
@@ -1727,7 +1727,7 @@ void World::InitializeGameState()
 
   [[maybe_unused]] const auto coinItemId     = items.Add(new SpriteItem("Coin", "coin"));
   [[maybe_unused]] const auto charcoalItemId = items.Add(new SpriteItem("Charcoal", "charcoal"));
-  [[maybe_unused]] const auto stickItemId    = items.Add(new SpriteItem("Stick", "stick"));
+  [[maybe_unused]] const auto stickItemId    = items.Add(new SpriteItem("Stick", "stick", {1, 0, 0}));
   [[maybe_unused]] const auto coolStickItemId= items.Add(new SpriteItem("Cool Stick", "stick"));
   [[maybe_unused]] const auto stoneAxeId     = items.Add(new ToolDefinition("Stone Axe", {"axe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::AXE}));
   [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition("Stone Pickaxe", {"pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
@@ -3023,9 +3023,8 @@ entt::entity Gun::Materialize(World& world) const
 {
   auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f});
   world.SetLocalScale(self, createInfo_.scale);
-  auto& mesh = world.GetRegistry().emplace<Mesh>(self);
-  mesh.name  = createInfo_.model;
-  mesh.tint  = createInfo_.tint;
+  world.GetRegistry().emplace<Mesh>(self, createInfo_.model);
+  world.GetRegistry().emplace<Tint>(self, createInfo_.tint);
 
   world.GetRegistry().emplace<Name>(self).name = name_;
   return self;
@@ -3116,10 +3115,8 @@ entt::entity ToolDefinition::Materialize(World& world) const
   }
 
   auto self = world.CreateRenderableEntity({0.3f, -0.7f, -0.7f});
-  auto& mesh = world.GetRegistry().emplace<Mesh>(self);
-  mesh.name = *createInfo_.meshName;
-  mesh.tint = createInfo_.meshTint;
-
+  world.GetRegistry().emplace<Mesh>(self, *createInfo_.meshName);
+  world.GetRegistry().emplace<Tint>(self, createInfo_.meshTint);
   world.GetRegistry().emplace<Name>(self).name = GetName();
   return self;
 }
@@ -3184,7 +3181,7 @@ entt::entity Block::Materialize(World& world) const
   auto& mesh = world.GetRegistry().emplace<Mesh>(self);
   mesh.name = "cube";
   const auto& material = world.GetRegistry().ctx().get<BlockRegistry>().Get(voxel).GetMaterialDesc();
-  mesh.tint = material.baseColorFactor;
+  world.GetRegistry().emplace<Tint>(self, material.baseColorFactor);
   if (!material.emissionTexture && glm::length(material.emissionFactor) > 0.01f)
   {
     // TODO: Convert from luminance (cd/m^2) to luminous intensity (cd)
@@ -3275,11 +3272,10 @@ ItemId ItemRegistry::Add(ItemDefinition* itemDefinition)
 
 entt::entity SpriteItem::Materialize(World& world) const
 {
-  auto self            = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
-  auto& billboard      = world.GetRegistry().emplace<Billboard>(self);
-  billboard.name       = sprite_;
-
-  world.GetRegistry().emplace<Name>(self).name = GetName();
+  auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
+  world.GetRegistry().emplace<Billboard>(self, sprite_);
+  world.GetRegistry().emplace<Tint>(self, tint_);
+  world.GetRegistry().emplace<Name>(self, GetName());
   return self;
 }
 
@@ -3500,8 +3496,8 @@ void RainbowTool::Update(float dt, World& world, entt::entity self, ItemState& s
     return hsv.z * mix(vec3(1.0), rgb, hsv.y);
   };
 
-  auto& mesh = world.GetRegistry().get<Mesh>(self);
-  mesh.tint  = hsv_to_rgb({0.33f * world.GetRegistry().ctx().get<float>("time"_hs), 0.875f, 0.85f});
+  auto& tint = world.GetRegistry().get<Tint>(self);
+  tint.color = hsv_to_rgb({0.33f * world.GetRegistry().ctx().get<float>("time"_hs), 0.875f, 0.85f});
 }
 
 bool BlockEntityDefinition::OnTryPlaceBlock(World& world, glm::ivec3 voxelPosition) const
@@ -3555,15 +3551,16 @@ void NpcSpawnDirector::Update(float dt)
     accumulator -= timeBetweenSpawns;
 
     constexpr size_t MAX_ENEMIES = 10;
-    if (registry.view<Enemy>().size() >= MAX_ENEMIES)
-    {
-      continue;
-    }
 
     for (auto&& [entity, player, transform] : registry.view<Player, GlobalTransform>().each())
     {
       for (const auto& pDefinition : registry.ctx().get<EntityPrefabRegistry>().GetAllPrefabs())
       {
+        if (registry.view<Enemy>().size() >= MAX_ENEMIES)
+        {
+          continue;
+        }
+
         const auto& info = pDefinition->GetCreateInfo();
 
         if (rng.RandFloat() > info.spawnChance)
@@ -3577,6 +3574,7 @@ void NpcSpawnDirector::Update(float dt)
           if (auto realPos = SampleWalkablePosition(grid, rng, transform.position, info.minSpawnDistance, info.maxSpawnDistance, info.canSpawnFloating))
           {
             pDefinition->Spawn(*world_, *realPos);
+            break;
           }
         }
       }

@@ -939,6 +939,115 @@ static void DrawComponentHelper(entt::meta_any instance, entt::meta_custom custo
   }
 }
 
+// `minified`: Display just the first row of the inventory. Used to display the player's hotbar.
+// `userTransform`: Transform of the entity interacting with the container. Used to calculate throw position and direction.
+static void DrawInventory(World& world, entt::entity parent, const GlobalTransform& userTransform, Inventory& inventory, bool minified = false)
+{
+  auto& registry = world.GetRegistry();
+  struct InventoryDragDropPayload
+  {
+    glm::ivec2 sourceRowCol;
+    entt::entity sourceEntity;
+  };
+
+  auto title = "Inventory" + std::to_string(std::underlying_type_t<entt::entity>(parent));
+  if (ImGui::Begin(title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDecoration))
+  {
+    ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, {0.5f, 0.5f});
+    ImGui::BeginTable(title.c_str(), (int)inventory.width, ImGuiTableFlags_Borders);
+
+    for (size_t row = 0; row < inventory.slots.size(); row++)
+    {
+      ImGui::PushID(int(row));
+      for (size_t col = 0; col < inventory.slots[row].size(); col++)
+      {
+        const auto currentSlotCoord = glm::ivec2(row, col);
+        ImGui::TableNextColumn();
+        ImGui::PushID(int(col));
+        auto& slot          = inventory.slots[row][col];
+        std::string nameStr = "";
+        if (slot.id != nullItem)
+        {
+          const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(slot.id);
+          nameStr         = def.GetName();
+          if (def.GetMaxStackSize() > 1)
+          {
+            nameStr += "\n" + std::to_string(slot.count) + "/" + std::to_string(def.GetMaxStackSize());
+          }
+        }
+        const auto name      = nameStr.c_str();
+        const auto cursorPos = ImGui::GetCursorPos();
+        if (ImGui::Selectable(("##" + nameStr).c_str(), inventory.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
+        {
+          inventory.SetActiveSlot(currentSlotCoord, parent);
+        }
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+        {
+          const auto dragDropPayload = InventoryDragDropPayload{
+            .sourceRowCol = currentSlotCoord,
+            .sourceEntity = parent,
+          };
+          ImGui::SetDragDropPayload("INVENTORY_SLOT", &dragDropPayload, sizeof(dragDropPayload));
+          ImGui::Text("%s", name);
+          ImGui::EndDragDropSource();
+        }
+        if (ImGui::BeginDragDropTarget())
+        {
+          if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INVENTORY_SLOT"))
+          {
+            assert(payload->DataSize == sizeof(InventoryDragDropPayload));
+            const auto inventoryPayload = *static_cast<const InventoryDragDropPayload*>(payload->Data);
+            SwapInventorySlots(world, inventoryPayload.sourceEntity, inventoryPayload.sourceRowCol, parent, currentSlotCoord);
+          }
+          ImGui::EndDragDropTarget();
+        }
+        ImGui::SetCursorPos(cursorPos);
+        ImGui::TextWrapped("%s", name);
+        ImGui::PopID();
+      }
+      ImGui::PopID();
+      // Only show first row if inventory is not open
+      if (minified)
+      {
+        break;
+      }
+    }
+    ImGui::EndTable();
+
+    if (!minified)
+    {
+      // Moving entity from inventory to world
+      ImGui::Selectable("Ground", false, 0, {ImGui::GetContentRegionAvail().x, 50});
+      if (ImGui::BeginDragDropTarget())
+      {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INVENTORY_SLOT"))
+        {
+          assert(payload->DataSize == sizeof(InventoryDragDropPayload));
+          const auto inventoryPayload = *static_cast<const InventoryDragDropPayload*>(payload->Data);
+
+          if (registry.valid(inventoryPayload.sourceEntity))
+          {
+            if (auto* plInventory = registry.try_get<Inventory>(inventoryPayload.sourceEntity))
+            {
+              if (auto dropped = plInventory->DropItem(inventoryPayload.sourceRowCol); dropped != entt::null)
+              {
+                const auto throwdir                                       = GetForward(userTransform.rotation);
+                const auto pos                                            = userTransform.position + throwdir * 1.0f;
+                world.GetRegistry().get<LocalTransform>(dropped).position = pos;
+                world.GetRegistry().get<LinearVelocity>(dropped).v        = throwdir * 3.0f;
+                UpdateLocalTransform({world.GetRegistry(), dropped});
+              }
+            }
+          }
+        }
+        ImGui::EndDragDropTarget();
+      }
+    }
+    ImGui::PopStyleVar();
+  }
+  ImGui::End();
+}
+
 void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_unused]] VkCommandBuffer commandBuffer)
 {
   ZoneScoped;
@@ -1024,92 +1133,27 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     }
     ImGui::End();
 
-    if (ImGui::Begin("Inventory", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDecoration))
+    DrawInventory(world, playerEntity, gt, inventory, !p.inventoryIsOpen);
+
+    if (world.GetRegistry().valid(p.openContainerId))
     {
-      ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, {0.5f, 0.5f});
-      ImGui::BeginTable("Inventory", (int)inventory.width, ImGuiTableFlags_Borders);
-
-      for (size_t row = 0; row < inventory.slots.size(); row++)
+      if (auto* ip = world.GetRegistry().try_get<Inventory>(p.openContainerId))
       {
-        ImGui::PushID(int(row));
-        for (size_t col = 0; col < inventory.slots[row].size(); col++)
-        {
-          const auto currentSlotCoord = glm::ivec2(row, col);
-          ImGui::TableNextColumn();
-          ImGui::PushID(int(col));
-          auto& slot = inventory.slots[row][col];
-          std::string nameStr  = "";
-          if (slot.id != nullItem)
-          {
-            const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(slot.id);
-            nameStr         = def.GetName();
-            if (def.GetMaxStackSize() > 1)
-            {
-              nameStr += "\n" + std::to_string(slot.count) + "/" + std::to_string(def.GetMaxStackSize());
-            }
-          }
-          const auto name = nameStr.c_str();
-          const auto cursorPos = ImGui::GetCursorPos();
-          if (ImGui::Selectable(("##" + nameStr).c_str(), inventory.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
-          {
-            inventory.SetActiveSlot(currentSlotCoord, playerEntity);
-          }
-          if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
-          {
-            const auto rowCol = glm::ivec2(row, col);
-            ImGui::SetDragDropPayload("INVENTORY_SLOT", &rowCol, sizeof(rowCol));
-            ImGui::Text("%s", name);
-            ImGui::EndDragDropSource();
-          }
-          if (ImGui::BeginDragDropTarget())
-          {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INVENTORY_SLOT"))
-            {
-              assert(payload->DataSize == sizeof(glm::ivec2));
-              const auto sourceRowCol = *static_cast<const glm::ivec2*>(payload->Data);
-              inventory.SwapSlots(sourceRowCol, {row, col}, playerEntity);
-            }
-            ImGui::EndDragDropTarget();
-          }
-          ImGui::SetCursorPos(cursorPos);
-          ImGui::TextWrapped("%s", name);
-          ImGui::PopID();
-        }
-        ImGui::PopID();
-        // Only show first row if inventory is not open
-        if (!p.inventoryIsOpen)
-        {
-          break;
-        }
+        p.inventoryIsOpen = true;
+        DrawInventory(world, p.openContainerId, gt, *ip);
       }
-      ImGui::EndTable();
-
-      if (p.inventoryIsOpen)
-      {
-        // Moving entity from inventory to world
-        ImGui::Selectable("Ground", false, 0, {ImGui::GetContentRegionAvail().x, 50});
-        if (ImGui::BeginDragDropTarget())
-        {
-          if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("INVENTORY_SLOT"))
-          {
-            assert(payload->DataSize == sizeof(glm::ivec2));
-            const auto rowCol = *static_cast<const glm::ivec2*>(payload->Data);
-
-            if (auto dropped = inventory.DropItem(rowCol); dropped != entt::null)
-            {
-              const auto throwdir = GetForward(gt.rotation);
-              const auto pos = gt.position + throwdir * 1.0f;
-              world.GetRegistry().get<LocalTransform>(dropped).position = pos;
-              world.GetRegistry().get<LinearVelocity>(dropped).v        = throwdir * 3.0f;
-              UpdateLocalTransform({world.GetRegistry(), dropped});
-            }
-          }
-          ImGui::EndDragDropTarget();
-        }
-      }
-      ImGui::PopStyleVar();
     }
-    ImGui::End();
+
+    if (p.showInteractPrompt)
+    {
+      ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+      constexpr auto flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground;
+      if (ImGui::Begin("Interact", nullptr, flags))
+      {
+        ImGui::Text("Press F to pay respects");
+      }
+      ImGui::End();
+    }
 
     if (p.inventoryIsOpen)
     {

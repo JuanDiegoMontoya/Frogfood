@@ -71,6 +71,18 @@ struct FlyingCharacterController
   float acceleration;
 };
 
+struct Hierarchy
+{
+  void AddChild(entt::entity child);
+  void RemoveChild(entt::entity child);
+
+  entt::entity parent = entt::null;
+  std::vector<entt::entity> children;
+
+  bool useLocalPositionAsGlobal = false;
+  bool useLocalRotationAsGlobal = false;
+};
+
 enum class TeamFlagBits
 {
   NEUTRAL  = 0,
@@ -295,6 +307,21 @@ public:
 
   // Travels up hierarchy, searching for TeamFlags component.
   [[nodiscard]] const TeamFlags* GetTeamFlags(entt::entity entity) const;
+
+  template<typename T>
+  [[nodiscard]] std::pair<entt::entity, T*> GetComponentFromAncestor(entt::entity entity)
+  {
+    assert(registry_.valid(entity));
+    if (auto* component = registry_.try_get<T>(entity))
+    {
+      return {entity, component};
+    }
+    if (auto* h = registry_.try_get<Hierarchy>(entity); h && h->parent != entt::null)
+    {
+      return GetComponentFromAncestor<T>(h->parent);
+    }
+    return {entt::null, nullptr};
+  }
 
   Physics::CharacterController& GivePlayerCharacterController(entt::entity playerEntity);
   Physics::CharacterControllerShrimple& GivePlayerCharacterControllerShrimple(entt::entity playerEntity);
@@ -763,6 +790,8 @@ struct Inventory
   // (row, col) of equipped slot
   glm::ivec2 activeSlotCoord    = {0, 0};
 
+  bool canHaveActiveItem = true;
+
   // The held item
   entt::entity activeSlotEntity = entt::null;
 
@@ -789,6 +818,9 @@ struct Inventory
   bool CanCraftRecipe(Crafting::Recipe recipe) const;
   void CraftRecipe(Crafting::Recipe recipe, entt::entity parent);
 };
+
+// If parent1 and parent2 both have an inventory, swaps items between them.
+bool SwapInventorySlots(World& world, entt::entity parent1, glm::ivec2 parent1Slot, entt::entity parent2, glm::ivec2 parent2Slot);
 
 class Networking
 {
@@ -884,6 +916,8 @@ struct Player
 {
   uint32_t id = 0;
   bool inventoryIsOpen = false;
+  entt::entity openContainerId = entt::null;
+  bool showInteractPrompt = false; // TODO: Move to LocalPlayer since this info is purely visual.
 };
 
 // Tag for systems to exclude.
@@ -919,18 +953,6 @@ glm::vec3 GetUp(glm::quat rotation);
 glm::vec3 GetRight(glm::quat rotation);
 
 void SetParent(entt::handle handle, entt::entity parent);
-
-struct Hierarchy
-{
-  void AddChild(entt::entity child);
-  void RemoveChild(entt::entity child);
-
-  entt::entity parent = entt::null;
-  std::vector<entt::entity> children;
-
-  bool useLocalPositionAsGlobal = false;
-  bool useLocalRotationAsGlobal = false;
-};
 
 // Use with GlobalTransform and RenderTransform for smooth object movement.
 struct PreviousGlobalTransform

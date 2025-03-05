@@ -582,7 +582,7 @@ void Core::Reflection::InitializeReflection()
   REFLECT_COMPONENT(AiVision)
     DATA(AiVision, coneAngleRad, PROP_MAX(glm::two_pi<float>()))
     TRAITS(EDITOR)
-    DATA(AiVision, distance)
+    DATA(AiVision, distance, PROP_MAX(50.0f))
     TRAITS(EDITOR)
     DATA(AiVision, invAcuity, PROP_MAX(5.0f))
     TRAITS(EDITOR)
@@ -590,7 +590,7 @@ void Core::Reflection::InitializeReflection()
     TRAITS(EDITOR);
 
   REFLECT_COMPONENT(AiHearing)
-    DATA(AiHearing, distance, PROP_MAX(25.0f))
+    DATA(AiHearing, distance, PROP_MAX(50.0f))
     TRAITS(EDITOR);
 
   REFLECT_COMPONENT(KnockbackMultiplier)

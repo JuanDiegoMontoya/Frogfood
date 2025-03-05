@@ -95,6 +95,10 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
       if (ImGui::GetKeyPressedAmount(ImGuiKey_Tab, 10000, 1))
       {
         p.inventoryIsOpen = !p.inventoryIsOpen;
+        if (!p.inventoryIsOpen)
+        {
+          p.openContainerId = entt::null;
+        }
       }
 
       if (p.inventoryIsOpen)

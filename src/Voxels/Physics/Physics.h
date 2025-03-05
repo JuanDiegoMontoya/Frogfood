@@ -87,6 +87,7 @@ namespace Physics
   CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings);
   CharacterControllerShrimple& AddCharacterControllerShrimple(entt::handle handle, const CharacterControllerShrimpleSettings& settings);
   void RegisterConstraint(JPH::Ref<JPH::Constraint> constraint, JPH::BodyID body1, JPH::BodyID body2);
+  [[nodiscard]] std::unique_ptr<JPH::IgnoreMultipleBodiesFilter> GetIgnoreEntityAndChildrenFilter(entt::handle handle);
 
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery();
   JPH::BodyInterface& GetBodyInterface();

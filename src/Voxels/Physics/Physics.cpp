@@ -306,6 +306,37 @@ namespace Physics
     s->bodyToConstraints.emplace(body2, constraint.GetPtr());
   }
 
+  static void GetIgnoreEntityAndChildrenFilterHelper(entt::handle handle, JPH::IgnoreMultipleBodiesFilter& bodyFilter)
+  {
+    if (auto* cc = handle.try_get<CharacterController>())
+    {
+      bodyFilter.IgnoreBody(cc->character->GetInnerBodyID());
+    }
+    if (auto* cc = handle.try_get<CharacterControllerShrimple>())
+    {
+      bodyFilter.IgnoreBody(cc->character->GetBodyID());
+    }
+    if (auto* rb = handle.try_get<RigidBody>())
+    {
+      bodyFilter.IgnoreBody(rb->body);
+    }
+
+    if (auto* h = handle.try_get<Hierarchy>())
+    {
+      for (auto child : h->children)
+      {
+        GetIgnoreEntityAndChildrenFilterHelper({*handle.registry(), child}, bodyFilter);
+      }
+    }
+  }
+
+  std::unique_ptr<JPH::IgnoreMultipleBodiesFilter> GetIgnoreEntityAndChildrenFilter(entt::handle handle)
+  {
+    auto bodyFilter = std::make_unique<JPH::IgnoreMultipleBodiesFilter>();
+    GetIgnoreEntityAndChildrenFilterHelper(handle, *bodyFilter);
+    return bodyFilter;
+  }
+
   static void RemoveConstraintsFromBody(JPH::BodyID body)
   {
     auto constraintsToRemoveFromOtherBodies = std::vector<std::pair<JPH::BodyID, JPH::Constraint*>>();

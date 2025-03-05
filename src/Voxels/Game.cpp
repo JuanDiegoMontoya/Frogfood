@@ -1407,16 +1407,78 @@ void World::FixedUpdate(float dt)
       }
     }
 
+    // Close open containers if too far away.
+    for (auto&& [entity, player, transform] : registry_.view<Player, GlobalTransform>().each())
+    {
+      if (registry_.valid(player.openContainerId))
+      {
+        player.showInteractPrompt = false;
+        if (!registry_.all_of<Inventory>(player.openContainerId))
+        {
+          player.openContainerId = entt::null;
+          continue;
+        }
+
+        if (auto* ct = registry_.try_get<GlobalTransform>(player.openContainerId); ct && glm::distance(transform.position, ct->position) > 6)
+        {
+          player.openContainerId = entt::null;
+          continue;
+        }
+      }
+      else
+      {
+        player.openContainerId = entt::null;
+      }
+    }
+
     // Player interaction
     for (auto&& [entity, player, transform, input, inventory] : registry_.view<Player, GlobalTransform, InputState, Inventory>(entt::exclude<GhostPlayer>).each())
     {
-      //if (input.interact)
-      //{
-      //  const auto spawnPos = transform.position + GetForward(transform.rotation) * 5.0f;
-      //  //CreateTunnelingWorm(spawnPos);
-      //  SpawnMeleeFrog(*this, spawnPos, glm::identity<glm::quat>());
-      //  //SpawnFlyingFrog(spawnPos);
-      //}
+      const auto forward = GetForward(transform.rotation);
+      auto rayCast       = JPH::RRayCast(Physics::ToJolt(transform.position), Physics::ToJolt(forward * 5.0f));
+      entt::entity hitEntity = entt::null;
+
+      auto settings      = JPH::RayCastSettings();
+      auto collector = JPH::ClosestHitCollisionCollector<JPH::CastRayCollector>();
+      Physics::GetNarrowPhaseQuery().CastRay(rayCast,
+        settings,
+        collector,
+        Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_PROJECTILE),
+        Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_PROJECTILE),
+        *Physics::GetIgnoreEntityAndChildrenFilter({registry_, entity}));
+      //auto result = JPH::RayCastResult();
+      //if (Physics::GetNarrowPhaseQuery().CastRay(rayCast,
+      //      result,
+      //      Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_PROJECTILE),
+      //      Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_PROJECTILE),
+      //      *Physics::GetIgnoreEntityAndChildrenFilter({registry_, entity})))
+      if (collector.HadHit())
+      {
+        hitEntity = static_cast<entt::entity>(Physics::GetBodyInterface().GetUserData(collector.mHit.mBodyID));
+        if (registry_.valid(hitEntity) && GetComponentFromAncestor<Inventory>(hitEntity).second)
+        {
+          player.showInteractPrompt = true;
+        }
+        else
+        {
+          player.showInteractPrompt = false;
+        }
+      }
+      else
+      {
+        player.showInteractPrompt = false;
+      }
+
+      if (input.interact)
+      {
+        if (registry_.valid(hitEntity))
+        {
+          if (auto [ent, inv] = GetComponentFromAncestor<Inventory>(hitEntity); inv)
+          {
+            player.openContainerId = ent;
+          }
+        }
+      }
 
       if (input.usePrimary)
       {
@@ -2756,6 +2818,24 @@ static void RefreshGlobalTransform(entt::handle handle)
   }
 }
 
+bool SwapInventorySlots(World& world, entt::entity parent1, glm::ivec2 parent1Slot, entt::entity parent2, glm::ivec2 parent2Slot)
+{
+  auto* inventory1 = world.GetRegistry().try_get<Inventory>(parent1);
+  auto* inventory2 = world.GetRegistry().try_get<Inventory>(parent2);
+  if (!inventory1 || !inventory2)
+  {
+    return false;
+  }
+
+  auto item1 = inventory1->slots[parent1Slot.x][parent1Slot.y];
+  auto item2 = inventory2->slots[parent2Slot.x][parent2Slot.y];
+
+  inventory1->OverwriteSlot(parent1Slot, item2, parent1);
+  inventory2->OverwriteSlot(parent2Slot, item1, parent2);
+
+  return true;
+}
+
 void UpdateLocalTransform(entt::handle handle)
 {
   ZoneScoped;
@@ -2837,6 +2917,11 @@ void Hierarchy::RemoveChild(entt::entity child)
 
 void Inventory::SetActiveSlot(glm::ivec2 rowCol, entt::entity parent)
 {
+  if (!canHaveActiveItem)
+  {
+    return;
+  }
+
   if (rowCol != activeSlotCoord)
   {
     if (ActiveSlot().id != nullItem)
@@ -2855,17 +2940,20 @@ void Inventory::SetActiveSlot(glm::ivec2 rowCol, entt::entity parent)
 void Inventory::SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent)
 {
   // Handle moving active item onto another slot or vice versa
-  const bool firstIsActive = first == activeSlotCoord;
-  const bool secondIsActive = second == activeSlotCoord;
-  if (firstIsActive)
+  if (canHaveActiveItem)
   {
-    SetActiveSlot(second, parent);
-    activeSlotCoord = first;
-  }
-  else if (secondIsActive)
-  {
-    SetActiveSlot(first, parent);
-    activeSlotCoord = second;
+    const bool firstIsActive  = first == activeSlotCoord;
+    const bool secondIsActive = second == activeSlotCoord;
+    if (firstIsActive)
+    {
+      SetActiveSlot(second, parent);
+      activeSlotCoord = first;
+    }
+    else if (secondIsActive)
+    {
+      SetActiveSlot(first, parent);
+      activeSlotCoord = second;
+    }
   }
   std::swap(slots[second[0]][second[1]], slots[first[0]][first[1]]);
 }
@@ -2880,7 +2968,7 @@ entt::entity Inventory::DropItem(glm::ivec2 slot)
 
   const auto& def = world->GetRegistry().ctx().get<ItemRegistry>().Get(item.id);
 
-  if (activeSlotCoord == slot)
+  if (canHaveActiveItem && activeSlotCoord == slot)
   {
     def.Dematerialize(*world, activeSlotEntity);
     activeSlotEntity = entt::null;
@@ -2896,12 +2984,12 @@ entt::entity Inventory::DropItem(glm::ivec2 slot)
 void Inventory::OverwriteSlot(glm::ivec2 rowCol, ItemState itemState, entt::entity parent)
 {
   const bool dstIsActive = rowCol == activeSlotCoord;
-  if (dstIsActive && ActiveSlot().id != nullItem)
+  if (canHaveActiveItem && dstIsActive && ActiveSlot().id != nullItem)
   {
     world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Dematerialize(*world, activeSlotEntity);
   }
   slots[rowCol[0]][rowCol[1]] = itemState;
-  if (dstIsActive && itemState.id != nullItem)
+  if (canHaveActiveItem && dstIsActive && itemState.id != nullItem)
   {
     activeSlotEntity = world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Materialize(*world);
     SetParent({world->GetRegistry(), activeSlotEntity}, parent);

@@ -855,7 +855,7 @@ static std::string FixupTypeString(std::string_view str)
   return std::string(str);
 }
 
-static void DrawComponentHelper(entt::meta_any instance, entt::meta_custom custom, bool readonly, int& guiId)
+static bool DrawComponentHelper(entt::handle handle, entt::meta_any instance, entt::meta_custom custom, bool readonly, int& guiId)
 {
   using namespace Core::Reflection;
   auto meta = instance.type();
@@ -867,9 +867,10 @@ static void DrawComponentHelper(entt::meta_any instance, entt::meta_custom custo
     properties = *mp;
   }
 
+  bool changed = false;
   if (auto writeFunc = meta.func("EditorWrite"_hs); writeFunc && !readonly)
   {
-    writeFunc.invoke(instance, properties);
+    changed |= writeFunc.invoke(instance, properties).cast<bool>();
   }
   else if (auto readFunc = meta.func("EditorRead"_hs))
   {
@@ -896,7 +897,7 @@ static void DrawComponentHelper(entt::meta_any instance, entt::meta_custom custo
       {
         auto eType = element.type();
         ImGui::PushID(guiId++);
-        DrawComponentHelper(element, eType.custom(), readonly, guiId);
+        changed |= DrawComponentHelper(handle, element.as_ref(), eType.custom(), readonly, guiId);
         ImGui::PopID();
       }
       ImGui::TreePop();
@@ -931,12 +932,19 @@ static void DrawComponentHelper(entt::meta_any instance, entt::meta_custom custo
       {
         ImGui::PushID(guiId++);
         ImGui::Indent();
-        DrawComponentHelper(data.get(instance), data.custom(), readonly || traits & Traits::EDITOR_READ, guiId);
+        changed |= DrawComponentHelper(handle, data.get(instance), data.custom(), readonly || traits & Traits::EDITOR_READ, guiId);
         ImGui::Unindent();
         ImGui::PopID();
       }
     }
   }
+
+  if (auto onUpdateFunc = meta.func("OnUpdate"_hs); onUpdateFunc && changed)
+  {
+    onUpdateFunc.invoke({}, handle);
+  }
+
+  return changed;
 }
 
 // `minified`: Display just the first row of the inventory. Used to display the player's hotbar.
@@ -1403,7 +1411,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
 
           if (auto meta = entt::resolve(id); storage->contains(e) && meta)
           {
-            DrawComponentHelper(meta.from_void(storage->value(e)), meta.custom(), meta.traits<Core::Reflection::Traits>() & Core::Reflection::Traits::EDITOR_READ, i);
+            DrawComponentHelper({registry, e},
+              meta.from_void(storage->value(e)),
+              meta.custom(),
+              meta.traits<Core::Reflection::Traits>() & Core::Reflection::Traits::EDITOR_READ,
+              i);
           }
           else
           {

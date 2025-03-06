@@ -250,7 +250,7 @@ namespace Core::Reflection
     ImGui::Text("%.*s", static_cast<int>(s.size()), s.c_str());
   }
 
-  static void EditorWriteEntity(entt::entity& entity, const PropertiesMap& properties)
+  static bool EditorWriteEntity(entt::entity& entity, const PropertiesMap& properties)
   {
     const char* label = "entity";
     GetEditorName(label, properties);
@@ -260,7 +260,9 @@ namespace Core::Reflection
     {
       // TODO: Validate new entity ID with registry.
       entity = temp;
+      return true;
     }
+    return false;
   }
 
   static void EditorReadEntity(entt::entity entity, const PropertiesMap& properties)
@@ -276,6 +278,12 @@ namespace Core::Reflection
     {
       ImGui::Text("%s: %u, v%u", label, (uint32_t)entt::to_entity(entity), (uint32_t)entt::to_version(entity));
     }
+  }
+
+  // Tentative, unsure if something like this is necessary.
+  static void EditorUpdateTransform(entt::handle handle)
+  {
+    UpdateLocalTransform(handle);
   }
 } // namespace Core::Reflection
 
@@ -311,8 +319,9 @@ void Core::Reflection::InitializeReflection()
   entt::meta<std::string>().func<&EditorWriteString>("EditorWrite"_hs).func<&EditorReadString>("EditorRead"_hs);
   entt::meta<bool>().func<&EditorWriteScalar<bool>>("EditorWrite"_hs).func<&EditorReadScalar<bool>>("EditorRead"_hs);
   entt::meta<entt::entity>().func<&EditorWriteEntity>("EditorWrite"_hs).func<&EditorReadEntity>("EditorRead"_hs);
-
+  
   REFLECT_COMPONENT(LocalTransform)
+    .func<&EditorUpdateTransform>("OnUpdate"_hs)
     DATA(LocalTransform, position, PROP_SPEED(0.20f))
     TRAITS(Traits::EDITOR)
     DATA(LocalTransform, rotation)

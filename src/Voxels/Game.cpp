@@ -774,6 +774,20 @@ public:
   }
 };
 
+class ChestDefinition : public EntityPrefabDefinition
+{
+public:
+  using EntityPrefabDefinition::EntityPrefabDefinition;
+
+  entt::entity Spawn(World& world, glm::vec3 position, glm::quat rotation) const override
+  {
+    auto& registry    = world.GetRegistry();
+    const auto entity = world.CreateRenderableEntity(position, rotation);
+    registry.emplace<Name>(entity, "Chest");
+    registry.emplace<Inventory>(entity, world);
+    return entity;
+  }
+};
 
 
 
@@ -1435,10 +1449,11 @@ void World::FixedUpdate(float dt)
     for (auto&& [entity, player, transform, input, inventory] : registry_.view<Player, GlobalTransform, InputState, Inventory>(entt::exclude<GhostPlayer>).each())
     {
       const auto forward = GetForward(transform.rotation);
-      auto rayCast       = JPH::RRayCast(Physics::ToJolt(transform.position), Physics::ToJolt(forward * 5.0f));
+      constexpr float RAY_LENGTH = 4.0f;
+      auto rayCast       = JPH::RRayCast(Physics::ToJolt(transform.position), Physics::ToJolt(forward * RAY_LENGTH));
       entt::entity hitEntity = entt::null;
 
-      auto settings      = JPH::RayCastSettings();
+      auto settings  = JPH::RayCastSettings();
       auto collector = JPH::ClosestHitCollisionCollector<JPH::CastRayCollector>();
       Physics::GetNarrowPhaseQuery().CastRay(rayCast,
         settings,
@@ -1446,22 +1461,35 @@ void World::FixedUpdate(float dt)
         Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_PROJECTILE),
         Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_PROJECTILE),
         *Physics::GetIgnoreEntityAndChildrenFilter({registry_, entity}));
-      //auto result = JPH::RayCastResult();
-      //if (Physics::GetNarrowPhaseQuery().CastRay(rayCast,
-      //      result,
-      //      Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_PROJECTILE),
-      //      Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_PROJECTILE),
-      //      *Physics::GetIgnoreEntityAndChildrenFilter({registry_, entity})))
       if (collector.HadHit())
       {
         hitEntity = static_cast<entt::entity>(Physics::GetBodyInterface().GetUserData(collector.mHit.mBodyID));
-        if (registry_.valid(hitEntity) && GetComponentFromAncestor<Inventory>(hitEntity).second)
+        if (registry_.valid(hitEntity))
         {
-          player.showInteractPrompt = true;
-        }
-        else
-        {
-          player.showInteractPrompt = false;
+          // Ray actually hit a voxel... see if it hit a voxel with a corresponding block entity.
+          if (registry_.all_of<Voxels>(hitEntity))
+          {
+            const auto hitPos = transform.position + forward * (collector.mHit.mFraction * RAY_LENGTH + 1e-3f);
+            const auto voxelHitPos = glm::ivec3(hitPos);
+            for (auto e2 : GetEntitiesInSphere(glm::vec3(voxelHitPos) + glm::vec3(0.5f), 0.25f))
+            {
+              if (registry_.all_of<BlockEntity>(e2))
+              {
+                hitEntity = e2;
+                break;
+              }
+            }
+          }
+
+          if (auto [e3, _] = GetComponentFromAncestorOrDescendant<Inventory>(hitEntity); e3 != entt::null)
+          {
+            hitEntity                 = e3;
+            player.showInteractPrompt = true;
+          }
+          else
+          {
+            player.showInteractPrompt = false;
+          }
         }
       }
       else
@@ -1615,13 +1643,12 @@ void World::FixedUpdate(float dt)
     }
 
     // Process entities with Health
-    for (auto&& [entity, health] : registry_.view<Health>(entt::exclude<GhostPlayer>).each())
+    for (auto&& [entity, health, transform] : registry_.view<Health, GlobalTransform>(entt::exclude<GhostPlayer>).each())
     {
       if (health.hp <= 0)
       {
         if (auto* loot = registry_.try_get<Loot>(entity))
         {
-          const auto& transform = registry_.get<GlobalTransform>(entity);
           auto* table = registry_.ctx().get<LootRegistry>().Get(loot->name);
           assert(table);
           const auto& itemRegistry = registry_.ctx().get<ItemRegistry>();
@@ -1656,14 +1683,12 @@ void World::FixedUpdate(float dt)
       }
     }
 
-    // Process destroyed entities
+    // Recursively mark entities in hierarchies for deletion.
     auto entitiesToDestroy = std::stack<entt::entity>();
     for (auto entity : registry_.view<DeferredDelete>())
     {
       entitiesToDestroy.push(entity);
     }
-
-    // "Recursively" destroy entities in hierarchies
     while (!entitiesToDestroy.empty())
     {
       auto entity = entitiesToDestroy.top();
@@ -1673,10 +1698,41 @@ void World::FixedUpdate(float dt)
       {
         for (auto child : h->children)
         {
+          registry_.emplace_or_replace<DeferredDelete>(child);
           entitiesToDestroy.push(child);
         }
       }
-      
+    }
+
+    // Here, we get a chance to perform game logic on any entity that is about to be deleted.
+
+    // Non-player entities dump their inventory when they are destroyed.
+    for (auto&& [entity, transform, inventory] : registry_.view<GlobalTransform, Inventory, DeferredDelete>(entt::exclude<Player>).each())
+    {
+      for (size_t row = 0; row < inventory.height; row++)
+      {
+        for (size_t col = 0; col < inventory.width; col++)
+        {
+          if (const auto droppedEntity = inventory.DropItem({row, col}); droppedEntity != entt::null)
+          {
+            registry_.get<LocalTransform>(droppedEntity).position = transform.position;
+            UpdateLocalTransform({registry_, droppedEntity});
+            auto velocity = glm::vec3(0);
+            if (auto* v = registry_.try_get<LinearVelocity>(entity))
+            {
+              velocity = v->v;
+            }
+            const auto newEntityVelocity =
+              velocity + Rng().RandFloat(1, 3) * Math::RandVecInCone({Rng().RandFloat(), Rng().RandFloat()}, glm::vec3(0, 1, 0), glm::half_pi<float>());
+            registry_.emplace_or_replace<LinearVelocity>(droppedEntity, newEntityVelocity);
+          }
+        }
+      }
+    }
+
+    // Actually destroy entities that were marked for deletion.
+    for (auto entity : registry_.view<DeferredDelete>())
+    {
       registry_.destroy(entity);
     }
 
@@ -1744,6 +1800,7 @@ void World::InitializeGameState()
   [[maybe_unused]] auto meleeFrogId = entityPrefabs.Add("Melee Frog", new MeleeFrogDefinition({.spawnChance = 0.075f}));
   [[maybe_unused]] auto flyingFrogId = entityPrefabs.Add("Flying Frog", new FlyingFrogDefinition({.spawnChance = 0.05f, .canSpawnFloating = true}));
   [[maybe_unused]] auto torchId     = entityPrefabs.Add("Torch", new TorchDefinition());
+  [[maybe_unused]] auto chestId      = entityPrefabs.Add("Chest", new ChestDefinition());
 
   // Reset item registry
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
@@ -1787,14 +1844,14 @@ void World::InitializeGameState()
     .light = light,
   }));
 
-  [[maybe_unused]] const auto coinItemId     = items.Add(new SpriteItem("Coin", "coin"));
-  [[maybe_unused]] const auto charcoalItemId = items.Add(new SpriteItem("Charcoal", "charcoal"));
-  [[maybe_unused]] const auto stickItemId    = items.Add(new SpriteItem("Stick", "stick", {1, 0, 0}));
-  [[maybe_unused]] const auto coolStickItemId= items.Add(new SpriteItem("Cool Stick", "stick"));
-  [[maybe_unused]] const auto stoneAxeId     = items.Add(new ToolDefinition("Stone Axe", {"axe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::AXE}));
-  [[maybe_unused]] const auto stonePickaxeId = items.Add(new ToolDefinition("Stone Pickaxe", {"pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
-  [[maybe_unused]] const auto opPickaxeId    = items.Add(new RainbowTool("OP Pickaxe", {"pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
-  [[maybe_unused]] const auto spearId        = items.Add(new Spear("Stone Spear"));
+  [[maybe_unused]] const auto coinItemId      = items.Add(new SpriteItem("Coin", "coin"));
+  [[maybe_unused]] const auto charcoalItemId  = items.Add(new SpriteItem("Charcoal", "charcoal"));
+  [[maybe_unused]] const auto stickItemId     = items.Add(new SpriteItem("Stick", "stick"));
+  [[maybe_unused]] const auto coolStickItemId = items.Add(new SpriteItem("Cool Stick", "stick", {1, 0, 0}));
+  [[maybe_unused]] const auto stoneAxeId      = items.Add(new ToolDefinition("Stone Axe", {"axe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::AXE}));
+  [[maybe_unused]] const auto stonePickaxeId  = items.Add(new ToolDefinition("Stone Pickaxe", {"pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
+  [[maybe_unused]] const auto opPickaxeId     = items.Add(new RainbowTool("OP Pickaxe", {"pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
+  [[maybe_unused]] const auto spearId         = items.Add(new Spear("Stone Spear"));
 
   auto& blocks = registry_.ctx().insert_or_assign<BlockRegistry>(*this);
 
@@ -1910,6 +1967,7 @@ void World::InitializeGameState()
   }))).GetItemId();
 
   blocks.Add(new BlockEntityDefinition({.name = "TEST", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}}, {.id = torchId}));
+  blocks.Add(new BlockEntityDefinition({.name = "Cheste", .voxelMaterialDesc = VoxelMaterialDesc{.baseColorTexture = "chest"}}, {.id = chestId}));
 
   auto* head = registry_.ctx().get<Head*>();
   auto blockDefs = blocks.GetAllDefinitions();
@@ -2044,24 +2102,6 @@ void World::InitializeGameState()
     .layer = Physics::Layers::WORLD,
   });
 
-  auto sphereSettings = JPH::SphereShapeSettings(1);
-  sphereSettings.SetEmbedded();
-  sphereSettings.mDensity = 0.1f;
-  auto sphere = sphereSettings.Create().Get();
-  
-  for (int i = 0; i < 10; i++)
-  {
-    auto a = CreateRenderableEntity({0, 5 + i * 2, i * .1f});
-    registry_.emplace<Name>(a).name = "Ball";
-    registry_.emplace<Mesh>(a).name = "frog";
-    auto rb = Physics::AddRigidBody({registry_, a}, {
-      .shape = sphere,
-      .activate = true,
-      .motionType = JPH::EMotionType::Dynamic,
-      .layer = Physics::Layers::DEBRIS,
-    });
-  }
-
   auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 5, 4}));
 
   auto voxelMats = std::vector<TwoLevelGrid::Material>();
@@ -2077,6 +2117,7 @@ void World::InitializeGameState()
 
   auto ve                          = registry_.create();
   registry_.emplace<Name>(ve).name = "Voxels";
+  registry_.emplace<Voxels>(ve);
   Physics::AddRigidBody({registry_, ve},
     {
       .shape      = twoLevelGridShape,
@@ -3118,11 +3159,6 @@ entt::entity Gun::Materialize(World& world) const
   return self;
 }
 
-void Gun::Dematerialize(World& world, entt::entity self) const
-{
-  world.GetRegistry().emplace<DeferredDelete>(self);
-}
-
 void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
 {
   auto& registry = world.GetRegistry();
@@ -3209,11 +3245,6 @@ entt::entity ToolDefinition::Materialize(World& world) const
   return self;
 }
 
-void ToolDefinition::Dematerialize(World& world, entt::entity self) const
-{
-  world.GetRegistry().emplace<DeferredDelete>(self);
-}
-
 void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
 {
   if (state.useAccum < GetUseDt())
@@ -3226,7 +3257,7 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
     registry.remove<LinearPath>(self);
   }
   auto& path = world.GetRegistry().emplace_or_replace<LinearPath>(self);
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .rotation = glm::angleAxis(glm::radians(30.0f), glm::vec3(0, 0, 1)), .offsetSeconds = GetUseDt() * 0.4f});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, -0.25f, -0.25f}, .rotation = glm::angleAxis(glm::radians(-30.0f), glm::vec3(1, 0, 0)), .offsetSeconds = GetUseDt() * 0.4f});
   path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = GetUseDt() * 0.4f});
 
   state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
@@ -3285,11 +3316,6 @@ entt::entity Block::Materialize(World& world) const
   return self;
 }
 
-void Block::Dematerialize(World& world, entt::entity self) const
-{
-  world.GetRegistry().emplace<DeferredDelete>(self);
-}
-
 void Block::UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const
 {
   if (state.useAccum < GetUseDt())
@@ -3320,6 +3346,14 @@ void Block::UsePrimary(float dt, World& world, entt::entity self, ItemState& sta
         }
       }
     }
+  }
+}
+
+void ItemDefinition::Dematerialize(World& world, entt::entity self) const
+{
+  if (self != entt::null)
+  {
+    world.GetRegistry().emplace_or_replace<DeferredDelete>(self);
   }
 }
 
@@ -3365,11 +3399,6 @@ entt::entity SpriteItem::Materialize(World& world) const
   world.GetRegistry().emplace<Tint>(self, tint_);
   world.GetRegistry().emplace<Name>(self, GetName());
   return self;
-}
-
-void SpriteItem::Dematerialize(World& world, entt::entity self) const
-{
-  world.GetRegistry().emplace<DeferredDelete>(self);
 }
 
 std::vector<ItemIdAndCount> RandomLootDrop::Sample(PCG::Rng& rng) const
@@ -3486,11 +3515,6 @@ entt::entity Spear::Materialize(World& world) const
   world.GetRegistry().emplace<Mesh>(self).name = "spear";
   world.GetRegistry().emplace<Name>(self).name = "Spear";
   return self;
-}
-
-void Spear::Dematerialize(World& world, entt::entity self) const
-{
-  world.GetRegistry().emplace<DeferredDelete>(self);
 }
 
 BlockDefinition::BlockDefinition(const CreateInfo& info)

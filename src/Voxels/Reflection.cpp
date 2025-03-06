@@ -617,4 +617,6 @@ void Core::Reflection::InitializeReflection()
     TRAITS(EDITOR)
     DATA(WalkingMovementAttributes, runMaxSpeed, PROP_MAX(20.0f))
     TRAITS(EDITOR);
+
+  REFLECT_COMPONENT(Voxels);
 }

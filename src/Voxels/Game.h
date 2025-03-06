@@ -323,6 +323,37 @@ public:
     return {entt::null, nullptr};
   }
 
+  template<typename T>
+  [[nodiscard]] std::pair<entt::entity, T*> GetComponentFromDescendant(entt::entity entity)
+  {
+    assert(registry_.valid(entity));
+    if (auto* component = registry_.try_get<T>(entity))
+    {
+      return {entity, component};
+    }
+    if (auto* h = registry_.try_get<Hierarchy>(entity))
+    {
+      for (auto child : h->children)
+      {
+        if (auto pair = GetComponentFromDescendant<T>(child); pair.first != entt::null)
+        {
+          return pair;
+        }
+      }
+    }
+    return {entt::null, nullptr};
+  }
+
+  template<typename T>
+  [[nodiscard]] std::pair<entt::entity, T*> GetComponentFromAncestorOrDescendant(entt::entity entity)
+  {
+    if (auto pair = GetComponentFromAncestor<T>(entity); pair.first != entt::null)
+    {
+      return pair;
+    }
+    return GetComponentFromDescendant<T>(entity);
+  }
+
   Physics::CharacterController& GivePlayerCharacterController(entt::entity playerEntity);
   Physics::CharacterControllerShrimple& GivePlayerCharacterControllerShrimple(entt::entity playerEntity);
   FlyingCharacterController& GivePlayerFlyingCharacterController(entt::entity playerEntity);
@@ -478,7 +509,7 @@ public:
   // Create an entity
   [[nodiscard]] virtual entt::entity Materialize(World&) const = 0;
 
-  virtual void Dematerialize(World&, [[maybe_unused]] entt::entity self) const = 0;
+  virtual void Dematerialize(World& world, entt::entity self) const;
 
   // Spawn the entity if necessary, give it physics, and unparent it from the player
   virtual Physics::RigidBody& GiveCollider(World& world, entt::entity self) const;
@@ -550,8 +581,6 @@ public:
 
   entt::entity Materialize(World&) const override;
 
-  void Dematerialize(World&, entt::entity self) const override;
-
   glm::vec3 GetDroppedColliderSize() const override
   {
     return glm::vec3(0.125f);
@@ -591,7 +620,6 @@ public:
   explicit Gun(std::string_view name, const CreateInfo& createInfo) : ItemDefinition(name), createInfo_(createInfo) {}
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
-  void Dematerialize(World& world, entt::entity self) const override;
 
   void UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const override;
 
@@ -624,7 +652,6 @@ public:
   }
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
-  void Dematerialize(World& world, entt::entity self) const override;
 
   void UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const override;
 
@@ -666,7 +693,6 @@ public:
   }
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
-  void Dematerialize(World& world, entt::entity self) const override;
 
   void UsePrimary(float dt, World& world, entt::entity self, ItemState& state) const override;
 
@@ -686,8 +712,6 @@ public:
   void UsePrimary(float dt, World&, entt::entity, ItemState&) const override;
 
   [[nodiscard]] entt::entity Materialize(World& world) const override;
-
-  void Dematerialize(World& world, entt::entity self) const override;
 
   float GetUseDt() const override
   {
@@ -1073,7 +1097,7 @@ struct AiWanderBehavior
 {
   float minWanderDistance  = 3;
   float maxWanderDistance  = 6;
-  float timeBetweenMoves   = 2;
+  float timeBetweenMoves   = 8;
   float accumulator        = 0;
   bool targetCanBeFloating = false;
 };
@@ -1158,6 +1182,9 @@ private:
 };
 
 struct Enemy {};
+
+// This component exists solely to check if a physics ray hit the voxel world.
+struct Voxels {};
 
 // Game class used for client and server
 class Game

@@ -125,6 +125,19 @@ FetchContent_Declare(
     GIT_TAG        v4.5.0
 )
 
+FetchContent_Declare(
+    choc
+    GIT_REPOSITORY https://github.com/Tracktion/choc.git
+    GIT_TAG        08bfc6dd16120dbf9c04037201e76bba77817aad
+)
+
+if (NOT choc_POPULATED)
+    FetchContent_Populate(choc)
+    add_library(choc INTERFACE)
+    target_include_directories(choc INTERFACE ${choc_SOURCE_DIR})
+endif()
+
+
 set(DOUBLE_PRECISION OFF)
 #set(GENERATE_DEBUG_SYMBOLS ON)
 #set(OVERRIDE_CXX_FLAGS ON)

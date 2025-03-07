@@ -784,9 +784,27 @@ public:
     auto& registry    = world.GetRegistry();
     const auto entity = world.CreateRenderableEntity(position, rotation);
     registry.emplace<Name>(entity, "Chest");
-    registry.emplace<Inventory>(entity, world);
+    registry.emplace<Inventory>(entity, world).canHaveActiveItem = false;
     return entity;
   }
+};
+
+class ShrimpleMeshPrefabDefinition : public EntityPrefabDefinition
+{
+public:
+  explicit ShrimpleMeshPrefabDefinition(std::string_view model, const CreateInfo& createInfo = {}) : EntityPrefabDefinition(createInfo), modelName(model) {}
+
+  entt::entity Spawn(World& world, glm::vec3 position, glm::quat rotation) const override
+  {
+    auto& registry    = world.GetRegistry();
+    const auto entity = world.CreateRenderableEntity(position, rotation);
+    registry.emplace<Mesh>(entity, modelName);
+    registry.emplace<Name>(entity, modelName);
+    return entity;
+  }
+
+private:
+  std::string modelName;
 };
 
 
@@ -1801,6 +1819,7 @@ void World::InitializeGameState()
   [[maybe_unused]] auto flyingFrogId = entityPrefabs.Add("Flying Frog", new FlyingFrogDefinition({.spawnChance = 0.05f, .canSpawnFloating = true}));
   [[maybe_unused]] auto torchId     = entityPrefabs.Add("Torch", new TorchDefinition());
   [[maybe_unused]] auto chestId      = entityPrefabs.Add("Chest", new ChestDefinition());
+  [[maybe_unused]] auto mushroomId   = entityPrefabs.Add("Mushroom", new ShrimpleMeshPrefabDefinition("mushroom"));
 
   // Reset item registry
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
@@ -1848,6 +1867,7 @@ void World::InitializeGameState()
   [[maybe_unused]] const auto charcoalItemId  = items.Add(new SpriteItem("Charcoal", "charcoal"));
   [[maybe_unused]] const auto stickItemId     = items.Add(new SpriteItem("Stick", "stick"));
   [[maybe_unused]] const auto coolStickItemId = items.Add(new SpriteItem("Cool Stick", "stick", {1, 0, 0}));
+  [[maybe_unused]] const auto healingPotionItemId = items.Add(new SpriteItem("Healing Potion", "potion_healing"));
   [[maybe_unused]] const auto stoneAxeId      = items.Add(new ToolDefinition("Stone Axe", {"axe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::AXE}));
   [[maybe_unused]] const auto stonePickaxeId  = items.Add(new ToolDefinition("Stone Pickaxe", {"pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
   [[maybe_unused]] const auto opPickaxeId     = items.Add(new RainbowTool("OP Pickaxe", {"pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
@@ -1968,6 +1988,7 @@ void World::InitializeGameState()
 
   blocks.Add(new BlockEntityDefinition({.name = "TEST", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}}, {.id = torchId}));
   blocks.Add(new BlockEntityDefinition({.name = "Cheste", .voxelMaterialDesc = VoxelMaterialDesc{.baseColorTexture = "chest"}}, {.id = chestId}));
+  const auto mushroomBlockItemId = blocks.Get(blocks.Add(new BlockEntityDefinition({.name = "Shroom", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}}, {.id = mushroomId}))).GetItemId();
 
   auto* head = registry_.ctx().get<Head*>();
   auto blockDefs = blocks.GetAllDefinitions();
@@ -2026,6 +2047,10 @@ void World::InitializeGameState()
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stickItemId, 1}, {charcoalItemId, 1}},
     {{torchBlockItemId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{stoneBlockId, 1}, {charcoalItemId, 1}, {mushroomBlockItemId, 1}},
+    {{healingPotionItemId, 1}},
   });
 
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});

@@ -70,34 +70,34 @@ void PipelineManager::EnqueueRecompileShader(const ShaderModuleCreateInfo& shade
   try
   {
     auto& shaderModule = shaderModules_.at(shaderInfo);
-    shaderModule.status = Status::PENDING;
-    shaderModule.isOutOfDate = false;
-    shaderModule.lastWriteTime = std::filesystem::directory_entry(shaderInfo.path).last_write_time();
+    shaderModule->status = Status::PENDING;
+    *shaderModule->isOutOfDate = false;
+    //shaderModule->lastWriteTime = std::filesystem::directory_entry(shaderInfo.path).last_write_time();
 
     // TODO: defer, name (see below)
 
     try
     {
       auto newShader       = Fvog::Shader(shaderInfo.stage, shaderInfo.path);
-      *shaderModule.shader = std::move(newShader);
-      shaderModule.status  = Status::SUCCESS;
+      *shaderModule->shader = std::move(newShader);
+      shaderModule->status  = Status::SUCCESS;
     }
     catch (std::exception&)
     {
-      shaderModule.status = Status::FAILED;
+      shaderModule->status = Status::FAILED;
       throw;
     }
 
     // Recompile all pipelines that use this shader
     for (auto& [_, v] : computePipelines_)
     {
-      if (v.shaderModuleValue == &shaderModule)
+      if (v.shaderModuleValue == shaderModule.get())
       {
         try
         {
           auto newPipeline = Fvog::ComputePipeline({
             .name   = "temp", // TODO: reuse actual pipeline name
-            .shader = shaderModule.shader.get(),
+            .shader = shaderModule->shader.get(),
           });
 
           *v.pipeline = std::move(newPipeline);
@@ -112,7 +112,7 @@ void PipelineManager::EnqueueRecompileShader(const ShaderModuleCreateInfo& shade
 
     for (auto& [_, v] : graphicsPipelines_)
     {
-      if (std::find(v.stages.begin(), v.stages.end(), shaderModule.info) != v.stages.end())
+      if (std::find(v.stages.begin(), v.stages.end(), shaderModule->info) != v.stages.end())
       {
         try
         {
@@ -122,8 +122,8 @@ void PipelineManager::EnqueueRecompileShader(const ShaderModuleCreateInfo& shade
           {
             switch (stage.stage)
             {
-            case Fvog::PipelineStage::VERTEX_SHADER: vs = shaderModules_.at(stage).shader.get(); break;
-            case Fvog::PipelineStage::FRAGMENT_SHADER: fs = shaderModules_.at(stage).shader.get(); break;
+            case Fvog::PipelineStage::VERTEX_SHADER: vs = shaderModules_.at(stage)->shader.get(); break;
+            case Fvog::PipelineStage::FRAGMENT_SHADER: fs = shaderModules_.at(stage)->shader.get(); break;
             default: assert(false);
             }
           }
@@ -158,29 +158,15 @@ void PipelineManager::EnqueueRecompileShader(const ShaderModuleCreateInfo& shade
   }
 }
 
-void PipelineManager::PollModifiedShaders()
-{
-  ZoneScoped;
-
-  for (auto& [_, shaderModule] : shaderModules_)
-  {
-    auto lastWriteTime = std::filesystem::directory_entry(shaderModule.info.path).last_write_time();
-    if (shaderModule.lastWriteTime < lastWriteTime)
-    {
-      shaderModule.isOutOfDate = true;
-    }
-  }
-}
-
 void PipelineManager::EnqueueModifiedShaders()
 {
   ZoneScoped;
 
   for (auto& [_, shaderModule] : shaderModules_)
   {
-    if (shaderModule.isOutOfDate)
+    if (*shaderModule->isOutOfDate)
     {
-      EnqueueRecompileShader(shaderModule.info);
+      EnqueueRecompileShader(shaderModule->info);
     }
   }
 }
@@ -194,7 +180,7 @@ std::vector<const PipelineManager::ShaderModuleValue*> PipelineManager::GetShade
 
   for (auto& [_, value] : shaderModules_)
   {
-    modules.push_back(&value);
+    modules.push_back(value.get());
   }
 
   return modules;
@@ -237,27 +223,36 @@ PipelineManager::ShaderModuleValue& PipelineManager::EmplaceOrGetShaderModuleVal
   // TODO: defer shader creation
   if (auto it = shaderModules_.find(createInfo); it != shaderModules_.end())
   {
-    return it->second;
+    return *it->second;
   }
-  
-  auto shaderModule = ShaderModuleValue{
+
+  auto shaderModule = std::make_unique<ShaderModuleValue>();
+  auto ptr          = shaderModule.get();
+  *shaderModule = ShaderModuleValue{
     .info = createInfo,
     // TODO: defer shader creation
     // TODO: pass name to shader (derive from path?)
+        .fileWatcher = std::make_unique<choc::file::Watcher>(createInfo.path,
+      [ptr](const choc::file::Watcher::Event& event) -> void
+      {
+        if (event.eventType == choc::file::Watcher::EventType::modified)
+        {
+          *ptr->isOutOfDate = true;
+        }
+      }),
   };
   try
   {
-    shaderModule.shader = std::make_unique<Fvog::Shader>(createInfo.stage, createInfo.path);
-    shaderModule.status = Status::SUCCESS;
-    shaderModule.lastWriteTime = std::filesystem::directory_entry(createInfo.path).last_write_time();
+    shaderModule->shader = std::make_unique<Fvog::Shader>(createInfo.stage, createInfo.path);
+    shaderModule->status = Status::SUCCESS;
   }
   catch (std::exception& e)
   {
     printf("shader compilation error: %s\n", e.what());
-    shaderModule.status = Status::FAILED;
+    shaderModule->status = Status::FAILED;
   }
 
-  return shaderModules_.emplace(createInfo, std::move(shaderModule)).first->second;
+  return *shaderModules_.emplace(createInfo, std::move(shaderModule)).first->second;
 }
 
 std::size_t PipelineManager::HashShaderModuleCreateInfo::operator()(const ShaderModuleCreateInfo& s) const noexcept

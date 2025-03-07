@@ -1,6 +1,7 @@
 #pragma once
 #include "Fvog/Pipeline2.h"
 #include "Fvog/Shader2.h"
+#include "platform/choc_FileWatcher.h"
 
 #include <cassert>
 #include <unordered_map>
@@ -8,6 +9,7 @@
 #include <filesystem>
 #include <vector>
 #include <optional>
+#include <atomic>
 
 // The purpose of this class is to serve as a central place to manage shader and pipeline compilation.
 // The interface should be such that multithreaded compilation and shader deduplication could be transparently performed,
@@ -121,8 +123,6 @@ public:
 
   void EnqueueRecompileShader(const ShaderModuleCreateInfo& shaderInfo);
 
-  void PollModifiedShaders();
-
   void EnqueueModifiedShaders();
 
   enum class Status
@@ -139,8 +139,8 @@ public:
     ShaderModuleCreateInfo info;
     // TODO: file watcher?
     std::unique_ptr<Fvog::Shader> shader;
-    std::filesystem::file_time_type lastWriteTime{};
-    bool isOutOfDate = false; // If true, current shader is older than file contents
+    std::unique_ptr<choc::file::Watcher> fileWatcher;
+    std::unique_ptr<std::atomic_bool> isOutOfDate = std::make_unique<std::atomic_bool>(false); // If true, current shader is older than file contents
   };
 
   [[nodiscard]] std::vector<const ShaderModuleValue*> GetShaderModules() const;
@@ -175,7 +175,7 @@ private:
   };
 
   // Caches the compilation of shader modules
-  std::unordered_map<ShaderModuleCreateInfo, ShaderModuleValue, HashShaderModuleCreateInfo> shaderModules_;
+  std::unordered_map<ShaderModuleCreateInfo, std::unique_ptr<ShaderModuleValue>, HashShaderModuleCreateInfo> shaderModules_;
   std::unordered_map<uint64_t, GraphicsPipelineValue> graphicsPipelines_;
   std::unordered_map<uint64_t, ComputePipelineValue> computePipelines_;
 };

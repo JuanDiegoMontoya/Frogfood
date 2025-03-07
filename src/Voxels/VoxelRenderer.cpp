@@ -203,6 +203,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
   g_meshes.emplace("pickaxe", LoadObjFile(GetAssetDirectory() / "models/pickaxe.obj"));
   g_meshes.emplace("axe", LoadObjFile(GetAssetDirectory() / "models/axe.obj"));
   g_meshes.emplace("torch", LoadObjFile(GetAssetDirectory() / "models/torch.obj"));
+  g_meshes.emplace("mushroom", LoadObjFile(GetAssetDirectory() / "models/mushroom.obj"));
 
   head_->renderCallback_ = [this](float dt, World& world, VkCommandBuffer cmd, uint32_t swapchainImageIndex) { OnRender(dt, world, cmd, swapchainImageIndex); };
   head_->framebufferResizeCallback_ = [this](uint32_t newWidth, uint32_t newHeight) { OnFramebufferResize(newWidth, newHeight); };
@@ -985,7 +986,7 @@ static void DrawInventory(World& world, entt::entity parent, const GlobalTransfo
         }
         const auto name      = nameStr.c_str();
         const auto cursorPos = ImGui::GetCursorPos();
-        if (ImGui::Selectable(("##" + nameStr).c_str(), inventory.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
+        if (ImGui::Selectable(("##" + nameStr).c_str(), inventory.canHaveActiveItem && inventory.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
         {
           inventory.SetActiveSlot(currentSlotCoord, parent);
         }
@@ -1079,8 +1080,11 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
   {
     if (ImGui::Begin("Test"))
     {
-      GetPipelineManager().PollModifiedShaders();
-      GetPipelineManager().EnqueueModifiedShaders();
+      {
+        ZoneScopedN("Poll Modified Shaders");
+        GetPipelineManager().PollModifiedShaders();
+        GetPipelineManager().EnqueueModifiedShaders();
+      }
 
       // auto& mainCamera = world.GetSingletonComponent<Temp::View>();
       ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt.real, dt.real * 1000);
@@ -1154,7 +1158,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
 
     if (p.showInteractPrompt)
     {
-      ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+      ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.55f));
       constexpr auto flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoBackground;
       if (ImGui::Begin("Interact", nullptr, flags))
       {
@@ -1272,6 +1276,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     auto& registry = world.GetRegistry();
     if (ImGui::Begin("Entities"))
     {
+      ZoneScopedN("Entities");
       if (!ImGui::IsAnyItemHovered() && ImGui::IsWindowHovered() && ImGui::GetIO().MouseClicked[ImGuiMouseButton_Left])
       {
         selectedEntity = entt::null;
@@ -1317,6 +1322,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
 
     if (ImGui::Begin("Components"))
     {
+      ZoneScopedN("Components");
       if (registry.valid(selectedEntity))
       {
         auto e = selectedEntity;
@@ -1375,26 +1381,35 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
         }
 
         // Sort component types by name.
-        using SetPair = std::pair<entt::id_type, entt::sparse_set*>;
-        auto storages = std::vector<SetPair>();
-        for (auto pair : registry.storage())
+        struct TypeInfo
         {
-          storages.emplace_back(pair.first, &pair.second);
-        }
-        std::sort(storages.begin(),
-          storages.end(),
-          [](const SetPair& p1, const SetPair& p2)
+          entt::meta_type meta;
+          entt::sparse_set* set;
+          std::string fixupString;
+        };
+        static bool isInitialized = false;
+        static auto storages = std::vector<TypeInfo>();
+        if (!isInitialized)
+        {
+          isInitialized = true;
+          for (auto pair : registry.storage())
           {
-            auto meta1 = entt::resolve(p1.first);
-            auto meta2 = entt::resolve(p2.first);
-            if (meta1 && meta2)
+            auto meta = entt::resolve(pair.first);
+            storages.emplace_back(meta, &pair.second, meta ? FixupTypeString(meta.info().name()) : std::string());
+          }
+          std::sort(storages.begin(),
+            storages.end(),
+            [](const TypeInfo& p1, const TypeInfo& p2)
             {
-              return FixupTypeString(meta1.info().name()) < FixupTypeString(meta2.info().name());
-            }
-            return p1.first < p2.first;
-          });
+              if (p1.meta && p2.meta)
+              {
+                return p1.fixupString < p2.fixupString;
+              }
+              return p1.meta.id() < p2.meta.id();
+            });
+        }
         
-        for (int i = 0; auto&& [id, storage] : storages)
+        for (int i = 0; auto&& [meta, storage, _] : storages)
         {
           if (!storage->contains(e))
           {
@@ -1409,7 +1424,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           ImGui::SameLine();
           ImGui::SeparatorText(FixupTypeString(storage->type().name()).c_str());
 
-          if (auto meta = entt::resolve(id); storage->contains(e) && meta)
+          if (storage->contains(e) && meta)
           {
             DrawComponentHelper({registry, e},
               meta.from_void(storage->value(e)),

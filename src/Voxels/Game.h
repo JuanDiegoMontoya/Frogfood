@@ -1108,7 +1108,7 @@ struct AiWanderBehavior
 {
   float minWanderDistance  = 3;
   float maxWanderDistance  = 6;
-  float timeBetweenMoves   = 8;
+  float timeBetweenMoves   = 4;
   float accumulator        = 0;
   bool targetCanBeFloating = false;
 };

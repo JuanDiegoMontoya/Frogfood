@@ -1983,7 +1983,7 @@ void World::InitializeGameState()
         },
   }))).GetItemId();
 
-  blocks.Add(new BlockEntityDefinition({.name = "Torch", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}, .isSolid = false}, {.id = torchId}));
+  blocks.Add(new BlockEntityDefinition({.name = "Torch", .initialHealth = 10, .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}, .isSolid = false}, {.id = torchId}));
   blocks.Add(new BlockEntityDefinition({.name = "Cheste", .voxelMaterialDesc = VoxelMaterialDesc{.baseColorTexture = "chest"}}, {.id = chestId}));
   const auto mushroomBlockItemId = blocks
      .Get(blocks.Add(new BlockEntityDefinition(

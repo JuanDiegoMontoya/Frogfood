@@ -1470,24 +1470,21 @@ void World::FixedUpdate(float dt)
       constexpr float RAY_LENGTH = 4.0f;
       auto rayCast       = JPH::RRayCast(Physics::ToJolt(transform.position), Physics::ToJolt(forward * RAY_LENGTH));
       entt::entity hitEntity = entt::null;
-
-      auto settings  = JPH::RayCastSettings();
-      auto collector = JPH::ClosestHitCollisionCollector<JPH::CastRayCollector>();
-      Physics::GetNarrowPhaseQuery().CastRay(rayCast,
-        settings,
-        collector,
-        Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_PROJECTILE),
-        Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_PROJECTILE),
-        *Physics::GetIgnoreEntityAndChildrenFilter({registry_, entity}));
-      if (collector.HadHit())
+      
+      auto result = JPH::RayCastResult();
+      if (Physics::GetNarrowPhaseQuery().CastRay(rayCast,
+            result,
+            Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_PROJECTILE),
+            Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_PROJECTILE),
+            *Physics::GetIgnoreEntityAndChildrenFilter({registry_, entity})))
       {
-        hitEntity = static_cast<entt::entity>(Physics::GetBodyInterface().GetUserData(collector.mHit.mBodyID));
+        hitEntity = static_cast<entt::entity>(Physics::GetBodyInterface().GetUserData(result.mBodyID));
         if (registry_.valid(hitEntity))
         {
           // Ray actually hit a voxel... see if it hit a voxel with a corresponding block entity.
           if (registry_.all_of<Voxels>(hitEntity))
           {
-            const auto hitPos = transform.position + forward * (collector.mHit.mFraction * RAY_LENGTH + 1e-3f);
+            const auto hitPos = transform.position + forward * (result.mFraction * RAY_LENGTH + 1e-3f);
             const auto voxelHitPos = glm::ivec3(hitPos);
             for (auto e2 : GetEntitiesInSphere(glm::vec3(voxelHitPos) + glm::vec3(0.5f), 0.25f))
             {

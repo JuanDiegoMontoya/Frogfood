@@ -2185,7 +2185,6 @@ void FrogRenderer2::GuiDrawShadersWindow(VkCommandBuffer)
   ZoneScoped;
 
   // Maybe move these to a more fitting location
-  GetPipelineManager().PollModifiedShaders();
   if (autoCompileModifiedShaders)
   {
     GetPipelineManager().EnqueueModifiedShaders();

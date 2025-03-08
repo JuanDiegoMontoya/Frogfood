@@ -182,10 +182,16 @@ bool Physics::TwoLevelGridShape::CastRay([[maybe_unused]] const JPH::RayCast& in
   auto hit = TwoLevelGrid::HitSurfaceParameters();
   if (twoLevelGrid_->TraceRaySimple(origin, direction, 100, hit)) // TODO: fix tMax
   {
+    const auto hitFraction = glm::distance(origin, hit.positionWorld) / tMax;
+    if (hitFraction >= ioHit.GetEarlyOutFraction())
+    {
+      return false;
+    }
+
     auto id            = inSubShapeIDCreator.PushID(TwoLevelGrid::FlattenBottomLevelBrickCoord(glm::ivec3(hit.voxelPosition)), 16).GetID();
     ioHit.mSubShapeID2 = id;
     ioHit.mBodyID      = {}; // TODO?
-    ioHit.mFraction    = glm::distance(origin, hit.positionWorld) / glm::distance(origin, origin + direction * tMax);
+    ioHit.mFraction    = hitFraction;
     if (ioHit.mFraction <= 1)
     {
       return true;

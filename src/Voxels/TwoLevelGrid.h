@@ -52,7 +52,7 @@ struct TwoLevelGrid
     glm::vec3 flatNormalWorld;
     glm::vec2 texCoords;
   };
-  bool TraceRaySimple(glm::vec3 rayPosition, glm::vec3 rayDirection, float tMax, HitSurfaceParameters& hit) const;
+  bool TraceRaySimple(glm::vec3 rayPosition, glm::vec3 rayDirection, float tMax, HitSurfaceParameters& hit, bool skipNonSolid = false) const;
 
   // The storage of a "chunk"
   struct BottomLevelBrick
@@ -115,11 +115,17 @@ struct TwoLevelGrid
   struct Material
   {
     bool isVisible;
+    bool isSolid;
   };
 
   void SetMaterialArray(std::vector<Material> materials)
   {
     materials_ = std::move(materials);
+  }
+
+  bool IsVoxelSolid(voxel_t voxel) const
+  {
+    return materials_[voxel].isSolid;
   }
 
   // LOW LEVEL

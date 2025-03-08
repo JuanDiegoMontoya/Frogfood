@@ -32,30 +32,30 @@ namespace Pathfinding
       // See if this node is a suitable place to stand for a character of a given height. If not, there are no neighbors.
       for (int i = 0; i < height; i++)
       {
-        if (grid.GetVoxelAt(pos + glm::ivec3{0, i, 0}) != 0)
+        if (grid.IsVoxelSolid(grid.GetVoxelAt(pos + glm::ivec3{0, i, 0})))
         {
           return neighbors;
         }
       }
 
       // Does the current node have a floor below it?
-      const bool hasFloor = grid.GetVoxelAt(pos + glm::ivec3{0, -1, 0}) != 0;
+      const bool hasFloor = grid.IsVoxelSolid(grid.GetVoxelAt(pos + glm::ivec3{0, -1, 0}));
 
       // Add all nodes directly adjacent on the walkable plane (von Neumann) if there is a surface below them.
       // We don't care if the nodes are walkable here. If they're unwalkable, they'll be discarded when GetNeighbors is invoked on them.
-      if (hasFloor || grid.GetVoxelAt(pos + glm::ivec3{1, -1, 0}) != 0)
+      if (hasFloor || grid.IsVoxelSolid(grid.GetVoxelAt(pos + glm::ivec3{1, -1, 0})))
       {
         neighbors.push_back(pos + glm::ivec3{1, 0, 0});
       }
-      if (hasFloor || grid.GetVoxelAt(pos + glm::ivec3{-1, -1, 0}) != 0)
+      if (hasFloor || grid.IsVoxelSolid(grid.GetVoxelAt(pos + glm::ivec3{-1, -1, 0})))
       {
         neighbors.push_back(pos + glm::ivec3{-1, 0, 0});
       }
-      if (hasFloor || grid.GetVoxelAt(pos + glm::ivec3{0, -1, 1}) != 0)
+      if (hasFloor || grid.IsVoxelSolid(grid.GetVoxelAt(pos + glm::ivec3{0, -1, 1})))
       {
         neighbors.push_back(pos + glm::ivec3{0, 0, 1});
       }
-      if (hasFloor || grid.GetVoxelAt(pos + glm::ivec3{0, -1, -1}) != 0)
+      if (hasFloor || grid.IsVoxelSolid(grid.GetVoxelAt(pos + glm::ivec3{0, -1, -1})))
       {
         neighbors.push_back(pos + glm::ivec3{0, 0, -1});
       }
@@ -77,7 +77,7 @@ namespace Pathfinding
       // See if this node is a suitable place to stand for a character of a given height. If not, there are no neighbors.
       for (int i = 0; i < height; i++)
       {
-        if (grid.GetVoxelAt(pos + glm::ivec3{0, i, 0}) != 0)
+        if (grid.IsVoxelSolid(grid.GetVoxelAt(pos + glm::ivec3{0, i, 0})))
         {
           return neighbors;
         }
@@ -118,7 +118,7 @@ namespace Pathfinding
       }
 
       // If not falling, but there is no air under destination, increase cost.
-      if (grid.GetVoxelAt(posTo - glm::ivec3(0, 1, 0)) == 0)
+      if (!grid.IsVoxelSolid(grid.GetVoxelAt(posTo - glm::ivec3(0, 1, 0))))
       {
         return 1.125f;
       }
@@ -203,7 +203,7 @@ namespace Pathfinding
     }
 
     // No path found.
-    [[maybe_unused]] const char* text = "No path found";
+    [[maybe_unused]] constexpr char text[] = "No path found";
     ZoneText(text, sizeof(text));
     return {};
   }

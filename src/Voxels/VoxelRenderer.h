@@ -137,6 +137,7 @@ private:
   PipelineManager::GraphicsPipelineKey debugLinesPipeline;
   PipelineManager::GraphicsPipelineKey billboardsPipeline;
   PipelineManager::GraphicsPipelineKey billboardSpritesPipeline;
+  std::optional<Fvog::NDeviceBuffer<Temp::ObjectUniforms>> meshUniformz;
   std::optional<Fvog::NDeviceBuffer<Debug::Line>> lineVertexBuffer;
   std::optional<Fvog::NDeviceBuffer<GpuLight>> lightBuffer;
   std::optional<Fvog::NDeviceBuffer<Temp::BillboardInstance>> billboardInstanceBuffer;

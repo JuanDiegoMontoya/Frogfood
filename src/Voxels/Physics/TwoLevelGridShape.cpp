@@ -49,7 +49,7 @@ void Physics::TwoLevelGridShape::CollideTwoLevelGrid(const Shape* inShape1,
   for (int x = (int)std::floor(s2min.GetX() - VX_AABB_EPSILON); x < (int)std::ceil(s2max.GetX() + VX_AABB_EPSILON); x++)
   {
     // Skip voxel if non-solid
-    if (s1->twoLevelGrid_->GetVoxelAt({x, y, z}) == 0)
+    if (!s1->twoLevelGrid_->IsVoxelSolid(s1->twoLevelGrid_->GetVoxelAt({x, y, z})))
     {
       continue;
     }
@@ -113,7 +113,7 @@ void Physics::TwoLevelGridShape::CastTwoLevelGrid(const JPH::ShapeCast& inShapeC
   for (int x = (int)std::floor(castMin.GetX() - VX_AABB_EPSILON); x < (int)std::ceil(castMax.GetX() + VX_AABB_EPSILON); x++)
   {
     // Skip voxel if non-solid
-    if (s2->twoLevelGrid_->GetVoxelAt({x, y, z}) == 0)
+    if (!s2->twoLevelGrid_->IsVoxelSolid(s2->twoLevelGrid_->GetVoxelAt({x, y, z})))
     {
       continue;
     }
@@ -289,7 +289,7 @@ JPH::Vec3 Physics::TwoLevelGridShape::GetSurfaceNormal([[maybe_unused]] const JP
   // Choose position of solid voxel, which is the one we're colliding with. If both voxels are solid (which shouldn't happen), pick an arbitrary position.
   auto solidVoxel = JPH::Vec3();
   [[maybe_unused]] auto airVoxel = JPH::Vec3();
-  if (v0 != 0)
+  if (twoLevelGrid_->IsVoxelSolid(v0))
   {
     solidVoxel = ToJolt(v0pos);
     airVoxel   = ToJolt(v1pos);

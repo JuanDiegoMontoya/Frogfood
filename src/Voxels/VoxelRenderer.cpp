@@ -613,13 +613,6 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
     drawCalls.emplace_back(&gpuMesh);
   }
 
-  auto meshUniformz = Fvog::TypedBuffer<Temp::ObjectUniforms>({
-    .count = (uint32_t)meshUniformzVec.size(),
-    .flag  = Fvog::BufferFlagThingy::MAP_SEQUENTIAL_WRITE_DEVICE,
-  });
-
-  memcpy(meshUniformz.GetMappedMemory(), meshUniformzVec.data(), meshUniformzVec.size() * sizeof(Temp::ObjectUniforms));
-
   auto billboards = std::vector<Temp::BillboardInstance>();
   for (auto&& [entity, transform, health] : world.GetRegistry().view<RenderTransform, Health>(entt::exclude<LocalPlayer>).each())
   {
@@ -671,6 +664,15 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
     auto physicsLines = debugRenderer->GetLines();
     lines.insert(lines.end(), physicsLines.begin(), physicsLines.end());
 #endif
+    if (!meshUniformzVec.empty())
+    {
+      if (!meshUniformz || meshUniformz->Size() < meshUniformzVec.size() * sizeof(Temp::ObjectUniforms))
+      {
+        meshUniformz.emplace((uint32_t)meshUniformzVec.size(), "Mesh Uniforms");
+      }
+      meshUniformz->UpdateData(commandBuffer, meshUniformzVec);
+    }
+
     if (!lines.empty())
     {
       if (!lineVertexBuffer || lineVertexBuffer->Size() < lines.size() * sizeof(Debug::Line))
@@ -772,7 +774,7 @@ void VoxelRenderer::RenderGame([[maybe_unused]] double dt, World& world, VkComma
       TracyVkZone(head_->tracyVkContext_, commandBuffer, "Meshes");
       ctx.BindGraphicsPipeline(meshPipeline.GetPipeline());
       ctx.SetPushConstants(Temp::MeshArgs{
-        .objects      = meshUniformz.GetDeviceAddress(),
+        .objects      = meshUniformz->GetDeviceBuffer().GetDeviceAddress(),
         .frame        = perFrameUniforms.GetDeviceBuffer().GetDeviceAddress(),
         .voxels       = voxels,
         .noiseTexture = noiseTexture->ImageView().GetTexture2D(),
@@ -1069,6 +1071,12 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       {
         gameState = GameState::LOADING;
         world.InitializeGameState();
+        // emplace_as doesn't overwrite context variables, so we have to first erase them (erase returns false if it failed, which is ok).
+        world.GetRegistry().ctx().erase<std::atomic<const char*>>("progressText"_hs);
+        world.GetRegistry().ctx().erase<std::atomic_int32_t>("progress"_hs);
+        world.GetRegistry().ctx().erase<std::atomic_int32_t>("total"_hs);
+        world.GetRegistry().ctx().erase<std::future<void>>("loading"_hs);
+        world.GetRegistry().ctx().emplace_as<std::atomic<const char*>>("progressText"_hs, "");
         world.GetRegistry().ctx().emplace_as<std::atomic_int32_t>("progress"_hs, 0);
         world.GetRegistry().ctx().emplace_as<std::atomic_int32_t>("total"_hs, 1);
         world.GetRegistry().ctx().emplace_as<std::future<void>>("loading"_hs, std::async(std::launch::async, [&world] { world.GenerateMap(); }));
@@ -1084,11 +1092,8 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
         ZoneScopedN("Poll Modified Shaders");
         GetPipelineManager().EnqueueModifiedShaders();
       }
-
-      // auto& mainCamera = world.GetSingletonComponent<Temp::View>();
+      
       ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt.real, dt.real * 1000);
-      // ImGui::Text("Camera pos: (%.2f, %.2f, %.2f)", mainCamera.position.x, mainCamera.position.y, mainCamera.position.z);
-      // ImGui::Text("Camera dir: (%.2f, %.2f, %.2f)", mainCamera.GetForwardDir().x, mainCamera.GetForwardDir().y, mainCamera.GetForwardDir().z);
       auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
       VmaStatistics stats{};
       vmaGetVirtualBlockStatistics(grid.buffer.GetAllocator(), &stats);
@@ -1257,11 +1262,12 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     else
     {
       // Show loading bar.
+      const auto& progressText = world.GetRegistry().ctx().get<std::atomic<const char*>>("progressText"_hs);
       const auto& progress = world.GetRegistry().ctx().get<std::atomic_int32_t>("progress"_hs);
       const auto& total = world.GetRegistry().ctx().get<std::atomic_int32_t>("total"_hs);
       if (ImGui::Begin("Loading"))
       {
-        ImGui::Text("frogress: %d / %d", progress.load(), total.load());
+        ImGui::Text("%s: %d / %d", progressText.load(), progress.load(), total.load());
       }
       ImGui::End();
     }

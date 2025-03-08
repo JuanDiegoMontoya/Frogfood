@@ -1973,7 +1973,7 @@ void World::InitializeGameState()
       },
   }));
 
-  [[maybe_unused]] const auto torchBlockItemId = blocks.Get(blocks.Add(new BlockDefinition({.name = "Torch",
+  [[maybe_unused]] const auto lightBlockItemId = blocks.Get(blocks.Add(new BlockDefinition({.name = "Light",
       .voxelMaterialDesc =
         VoxelMaterialDesc{
           //.baseColorTexture          =,
@@ -1983,9 +1983,18 @@ void World::InitializeGameState()
         },
   }))).GetItemId();
 
-  blocks.Add(new BlockEntityDefinition({.name = "TEST", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}}, {.id = torchId}));
+  blocks.Add(new BlockEntityDefinition({.name = "Torch", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}, .isSolid = false}, {.id = torchId}));
   blocks.Add(new BlockEntityDefinition({.name = "Cheste", .voxelMaterialDesc = VoxelMaterialDesc{.baseColorTexture = "chest"}}, {.id = chestId}));
-  const auto mushroomBlockItemId = blocks.Get(blocks.Add(new BlockEntityDefinition({.name = "Shroom", .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}}, {.id = mushroomId}))).GetItemId();
+  const auto mushroomBlockItemId = blocks
+     .Get(blocks.Add(new BlockEntityDefinition(
+       {
+         .name              = "Shroom",
+         .initialHealth     = 10,
+         .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true},
+         .isSolid           = false,
+       },
+       {.id = mushroomId})))
+     .GetItemId();
 
   auto* head = registry_.ctx().get<Head*>();
   auto blockDefs = blocks.GetAllDefinitions();
@@ -2043,7 +2052,7 @@ void World::InitializeGameState()
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stickItemId, 1}, {charcoalItemId, 1}},
-    {{torchBlockItemId, 1}},
+    {{lightBlockItemId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stoneBlockId, 1}, {charcoalItemId, 1}, {mushroomBlockItemId, 1}},
@@ -2131,6 +2140,7 @@ void World::InitializeGameState()
   {
     voxelMats.emplace_back(TwoLevelGrid::Material{
       .isVisible = !def->GetMaterialDesc().isInvisible,
+      .isSolid = def->GetIsSolid(),
     });
   }
   grid.SetMaterialArray(std::move(voxelMats));
@@ -2153,6 +2163,7 @@ void World::GenerateMap()
 {
   ZoneScoped;
 #ifndef GAME_HEADLESS
+  auto& progressText = registry_.ctx().get<std::atomic<const char*>>("progressText"_hs);
   auto& progress  = registry_.ctx().get<std::atomic_int32_t>("progress"_hs);
   auto& total     = registry_.ctx().get<std::atomic_int32_t>("total"_hs);
 #endif
@@ -2220,6 +2231,7 @@ void World::GenerateMap()
 
 #ifndef GAME_HEADLESS
   total.store((int32_t)grid.numTopLevelBricks_);
+  progressText.store("Chunks");
 #endif
 
   auto tlBrickColCoords = std::vector<glm::ivec2>();
@@ -2333,7 +2345,7 @@ void World::GenerateMap()
                         {
                           grid.SetVoxelAtNoDirty(p, 1);
                         }
-                        if (trees->GenSingle3D((float)p.x, (float)p.y, (float)p.z, 123321) > 0.9999f)
+                        if (trees->GenSingle3D((float)p.x, (float)p.y, (float)p.z, 123321) > 0.99999f)
                         {
                           auto lock = std::unique_lock(coalesceMutex);
                           dungeonPositions.emplace_back(p);
@@ -2361,6 +2373,30 @@ void World::GenerateMap()
     });
   //}
 
+  constexpr int MAX_MUSHROOMS = 50'000;
+#ifndef GAME_HEADLESS
+  progressText.store("MUSHROOM");
+  progress.store(0);
+  total.store(MAX_MUSHROOMS);
+#endif
+  const auto& MUSHROOM = blocks.Get("Shroom");
+  for (int i = 0; i < MAX_MUSHROOMS; i++)
+  {
+    const auto numVoxels = grid.topLevelBricksDims_ * grid.TL_BRICK_VOXELS_PER_SIDE;
+    const auto pos       = glm::ivec3(Rng().RandU32() % numVoxels.x, Rng().RandU32() % numVoxels.y, Rng().RandU32() % numVoxels.z);
+    const auto testPos   = pos - glm::ivec3(0, 1, 0);
+    if (grid.IsPositionInGrid(testPos) && grid.GetVoxelAt(pos) == 0 && grid.GetVoxelAt(testPos) != 0)
+    {
+      MUSHROOM.OnTryPlaceBlock(*this, pos);
+    }
+#ifndef GAME_HEADLESS
+    progress.fetch_add(1);
+#endif
+  }
+
+#ifndef GAME_HEADLESS
+  progressText.store("Prefabs");
+#endif
   for (auto treePos : treePositions)
   {
     auto treeBlocks = registry_.ctx().get<PrefabRegistry>().Get("Tree").GetVoxels(treePos);
@@ -3318,10 +3354,17 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
 
 entt::entity Block::Materialize(World& world) const
 {
+  auto& blockDef = world.GetRegistry().ctx().get<BlockRegistry>().Get(voxel);
+  if (auto* blockEntityDef = dynamic_cast<const BlockEntityDefinition*>(&blockDef))
+  {
+    auto& entityPrefabs = world.GetRegistry().ctx().get<EntityPrefabRegistry>();
+    const auto& entityPrefab = entityPrefabs.Get(blockEntityDef->GetEntityPrefab());
+    return entityPrefab.Spawn(world, {0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>());
+  }
   auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
   auto& mesh = world.GetRegistry().emplace<Mesh>(self);
   mesh.name = "cube";
-  const auto& material = world.GetRegistry().ctx().get<BlockRegistry>().Get(voxel).GetMaterialDesc();
+  const auto& material = blockDef.GetMaterialDesc();
   world.GetRegistry().emplace<Tint>(self, material.baseColorFactor);
   if (!material.emissionTexture && glm::length(material.emissionFactor) > 0.01f)
   {

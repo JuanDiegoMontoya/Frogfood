@@ -16,7 +16,7 @@ static_assert(std::is_trivially_constructible_v<TwoLevelGrid::TopLevelBrickPtr>)
 static_assert(std::is_trivially_constructible_v<TwoLevelGrid::BottomLevelBrick>);
 static_assert(std::is_trivially_constructible_v<TwoLevelGrid::BottomLevelBrickPtr>);
 
-bool TwoLevelGrid::TraceRaySimple(glm::vec3 rayPosition, glm::vec3 rayDirection, float tMax, HitSurfaceParameters& hit) const
+bool TwoLevelGrid::TraceRaySimple(glm::vec3 rayPosition, glm::vec3 rayDirection, float tMax, HitSurfaceParameters& hit, bool skipNonSolid) const
 {
   using namespace glm;
   // https://www.shadertoy.com/view/X3BXDd
@@ -59,7 +59,7 @@ bool TwoLevelGrid::TraceRaySimple(glm::vec3 rayPosition, glm::vec3 rayDirection,
     if (all(greaterThanEqual(mapPos, vec3(0))) && all(lessThan(mapPos, vec3(dimensions_))))
     {
       const voxel_t voxel = GetVoxelAt(ivec3(mapPos));
-      if (voxel != 0)
+      if (voxel != 0 && (!skipNonSolid || materials_[voxel].isSolid))
       {
         const vec3 p      = mapPos + 0.5f - stepDir * 0.5f; // Point on axis plane
         const vec3 normal = vec3(ivec3(vec3(cases))) * -vec3(stepDir);

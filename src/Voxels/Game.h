@@ -144,6 +144,7 @@ public:
     std::variant<std::monostate, DropSelf, ItemState, std::string> lootDrop = DropSelf{};
     // Giving every block a unique set of materials isn't ideal, but it will suffice in the short run.
     VoxelMaterialDesc voxelMaterialDesc;
+    bool isSolid = true;
   };
 
   explicit BlockDefinition(const CreateInfo& info);
@@ -204,6 +205,11 @@ public:
     return createInfo_.damageFlags;
   }
 
+  [[nodiscard]] bool GetIsSolid() const
+  {
+    return createInfo_.isSolid;
+  }
+
   [[nodiscard]] ItemId GetItemId() const
   {
     return itemId_;
@@ -261,6 +267,11 @@ public:
 
   bool OnTryPlaceBlock(World& world, glm::ivec3 voxelPosition) const override;
   void OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const override;
+
+  EntityPrefabId GetEntityPrefab() const
+  {
+    return blockEntityInfo_.id;
+  }
 
 private:
   BlockEntityCreateInfo blockEntityInfo_;
@@ -467,7 +478,7 @@ public:
   BlockRegistry(World& world) : world_(&world)
   {
     // Hardcode air as the first block.
-    Add(new BlockDefinition({.name = "air", .voxelMaterialDesc = {.isInvisible = true}}));
+    Add(new BlockDefinition({.name = "air", .voxelMaterialDesc = {.isInvisible = true}, .isSolid = false}));
   }
 
   ~BlockRegistry() = default;

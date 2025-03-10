@@ -396,6 +396,8 @@ public:
   const BlockDefinition& GetBlockDefinitionFromItem(ItemId item);
   ItemId GetItemIdFromBlock(BlockId block);
 
+  [[nodiscard]] entt::entity GetBlockEntity(glm::ivec3 voxelPosition);
+
   uint64_t GetTicks() const
   {
     return ticks_;

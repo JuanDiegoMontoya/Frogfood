@@ -247,7 +247,7 @@ VoxelRenderer::VoxelRenderer(PlayerHead* head, World&) : head_(head)
       },
     .state =
       {
-        .rasterizationState = {.cullMode = VK_CULL_MODE_NONE},
+        .rasterizationState = {.cullMode = VK_CULL_MODE_BACK_BIT},
         .depthState         = {.depthTestEnable = true, .depthWriteEnable = true, .depthCompareOp = FVOG_COMPARE_OP_NEARER},
         .renderTargetFormats =
           {

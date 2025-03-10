@@ -10,7 +10,7 @@
 #include <vector>
 
 using PrefabId = uint32_t;
-//class World;
+class World;
 
 class PrefabDefinition
 {
@@ -32,7 +32,7 @@ public:
   NO_COPY_NO_MOVE(PrefabDefinition);
 
   // Generates a list of voxels in object space. `worldPos` is used as the RNG seed.
-  virtual std::vector<std::pair<glm::ivec3, uint32_t>> GetVoxels(glm::ivec3 worldPos) const = 0;
+  virtual std::vector<std::pair<glm::ivec3, uint32_t>> GetVoxels(World& world, glm::ivec3 worldPos) const = 0;
 
 private:
   CreateInfo createInfo_;
@@ -43,7 +43,7 @@ class SimplePrefab : public PrefabDefinition
 public:
   using PrefabDefinition::PrefabDefinition;
 
-  std::vector<std::pair<glm::ivec3, uint32_t>> GetVoxels(glm::ivec3) const override
+  std::vector<std::pair<glm::ivec3, uint32_t>> GetVoxels(World&, glm::ivec3) const override
   {
     return voxels;
   }

@@ -483,6 +483,7 @@ public:
     auto e                         = world.CreateRenderableEntity(position, {1, 0, 0, 0}, 0.4f);
     registry.emplace<Mesh>(e).name = "frog";
     registry.emplace<Name>(e, "Frog");
+    registry.emplace<Tint>(e, glm::vec3{0.25, 0.05f, 1.0f});
     registry.emplace<Health>(e) = {70, 70};
     registry.emplace<PredatoryBirdBehavior>(e);
     // registry_.emplace<Pathfinding::CachedPath>(e).timeBetweenUpdates = 1;
@@ -648,111 +649,119 @@ entt::entity CreateSnake(World& world, glm::vec3, glm::quat)
   return head;
 }
 
-entt::entity CreateTunnelingWorm(World& world, glm::vec3 position, glm::quat)
+class WormBossDefinition : public EntityPrefabDefinition
 {
-  auto& registry          = world.GetRegistry();
-  entt::entity head       = entt::null;
-  auto prevBody2          = std::optional<JPH::BodyID>();
-  entt::entity prevEntity = entt::null;
-  for (int i = 0; i < 10; i++)
+public:
+  using EntityPrefabDefinition::EntityPrefabDefinition;
+
+  entt::entity Spawn(World& world, glm::vec3 position, glm::quat) const override
   {
-    auto sphere2Settings = JPH::SphereShapeSettings(0.5f);
-    sphere2Settings.SetEmbedded();
-    sphere2Settings.mDensity = 100000.0f / (10 * i + 1.0f);
-    auto sphere2             = sphere2Settings.Create().Get();
-
-    auto a                         = world.CreateRenderableEntity(position + glm::vec3{0, 0, i / 1.0f}, glm::identity<glm::quat>(), i == 0 ? 0.5f : 1.0f);
-    registry.emplace<Name>(a).name = i == 0 ? "Worm head" : "Worm body";
-    registry.emplace<Mesh>(a).name = "frog";
-    auto body                      = JPH::BodyID();
-
-    auto rb = Physics::AddRigidBody({registry, a},
-      {
-        .shape      = sphere2,
-        .activate   = true,
-        .isSensor   = true,
-        .motionType = i == 0 ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic,
-        .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
-      });
-
-    body = rb.body;
-
-    Physics::GetBodyInterface().SetGravityFactor(rb.body, 0.0f);
-
-    registry.emplace<Friction>(a, glm::vec3(i == 0 ? 5.0f : 0.2f));
-
-    if (i == 0)
+    auto& registry          = world.GetRegistry();
+    entt::entity head       = entt::null;
+    auto prevBody2          = std::optional<JPH::BodyID>();
+    entt::entity prevEntity = entt::null;
+    constexpr float WORM_SCALE   = 1.0f;
+    for (int i = 0; i < 30; i++)
     {
-      head = a;
+      auto sphere2Settings = JPH::SphereShapeSettings(WORM_SCALE);
+      sphere2Settings.SetEmbedded();
+      sphere2Settings.mDensity = 100000.0f / (1000 * i + 1.0f);
+      auto sphere2             = sphere2Settings.Create().Get();
 
-      registry.emplace<FlyingCharacterController>(a)               = {.maxSpeed = 9, .acceleration = 35.0f};
-      registry.emplace<WormEnemyBehavior>(a).maxTurnSpeedDegPerSec = 65;
-      registry.emplace<InputState>(a);
-      registry.emplace<ContactDamage>(a) = {.damage = 20, .knockback = 5};
-      registry.emplace<TeamFlags>(a, TeamFlagBits::ENEMY);
-      registry.emplace<Health>(a)                     = {500, 500};
-      registry.emplace<Loot>(a).name                  = "standard";
-      registry.emplace<KnockbackMultiplier>(a).factor = 2.0f;
-      registry.emplace<DespawnWhenFarFromPlayer>(a);
-      registry.emplace<Enemy>(a);
-    }
+      auto a = world.CreateRenderableEntity(position + glm::vec3{0, 0, 2 * WORM_SCALE * i}, glm::identity<glm::quat>(), i == 0 ? WORM_SCALE : 1.0f);
+      registry.emplace<Name>(a).name = i == 0 ? "Worm head" : "Worm body";
+      registry.emplace<Mesh>(a).name = "frog";
+      registry.emplace<Tint>(a, glm::vec3{1, 0, 0});
+      auto body                      = JPH::BodyID();
 
-    if (prevBody2)
-    {
-      registry.emplace<ForwardCollisionsToParent>(a);
-      auto prevPos = registry.get<GlobalTransform>(a).position;
-      // auto settings = JPH::Ref(new JPH::SwingTwistConstraintSettings);
-      //// settings->mPosition1           = settings->mPosition2  = Physics::ToJolt(position) + JPH::Vec3(-0.5f, 0, 0);
-      // settings->mPosition1 = settings->mPosition2 = Physics::ToJolt((prevPos + position) / 2.0f);
-      // settings->mTwistAxis1 = settings->mTwistAxis2 = JPH::Vec3::sAxisX();
-      // settings->mPlaneAxis1 = settings->mPlaneAxis2 = JPH::Vec3::sAxisY();
-      // settings->mNormalHalfConeAngle                = JPH::DegreesToRadians(30);
-      // settings->mPlaneHalfConeAngle                 = JPH::DegreesToRadians(30);
-      // settings->mTwistMinAngle                      = JPH::DegreesToRadians(-20);
-      // settings->mTwistMaxAngle                      = JPH::DegreesToRadians(20);
-
-      auto settings          = JPH::Ref(new JPH::DistanceConstraintSettings());
-      settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
-      settings->mMinDistance = 1;
-      settings->mMaxDistance = 1;
-
-      // auto settings   = JPH::Ref(new JPH::FixedConstraintSettings());
-      // settings->mAutoDetectPoint = true;
-
-      auto constraint = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
-      // constraint->SetNumPositionStepsOverride(10);
-      Physics::RegisterConstraint(constraint, *prevBody2, body);
-
-      auto& h                    = registry.get<Hierarchy>(a);
-      h.useLocalPositionAsGlobal = true;
-      h.useLocalRotationAsGlobal = true;
-      SetParent({registry, a}, prevEntity);
-
-      auto hitboxShape                     = JPH::Ref(new JPH::SphereShape(0.5f));
-      auto eHitbox                         = registry.create();
-      registry.emplace<Name>(eHitbox).name = "Worm hitbox";
-      registry.emplace<ForwardCollisionsToParent>(eHitbox);
-      registry.emplace<PreviousGlobalTransform>(eHitbox);
-      auto& tpHitbox                             = registry.emplace<LocalTransform>(eHitbox);
-      tpHitbox.position                          = {};
-      tpHitbox.rotation                          = glm::identity<glm::quat>();
-      tpHitbox.scale                             = 1;
-      registry.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
-      registry.emplace<Hierarchy>(eHitbox);
-      Physics::AddRigidBody({registry, eHitbox},
+      auto rb = Physics::AddRigidBody({registry, a},
         {
-          .shape      = hitboxShape,
+          .shape      = sphere2,
+          .activate   = true,
           .isSensor   = true,
-          .motionType = JPH::EMotionType::Kinematic,
+          .motionType = i == 0 ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic,
           .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
         });
-      SetParent({registry, eHitbox}, a);
+
+      body = rb.body;
+
+      Physics::GetBodyInterface().SetGravityFactor(rb.body, 0.0f);
+
+      registry.emplace<Friction>(a, glm::vec3(i == 0 ? 5.0f : 0.2f));
+
+      if (i == 0)
+      {
+        head = a;
+
+        registry.emplace<FlyingCharacterController>(a)               = {.maxSpeed = 38, .acceleration = 55.0f};
+        registry.emplace<WormEnemyBehavior>(a).maxTurnSpeedDegPerSec = 65;
+        registry.emplace<InputState>(a);
+        registry.emplace<ContactDamage>(a) = {.damage = 20, .knockback = 5};
+        registry.emplace<TeamFlags>(a, TeamFlagBits::ENEMY);
+        registry.emplace<Health>(a)                     = {500, 500};
+        registry.emplace<Loot>(a).name                  = "worm";
+        registry.emplace<KnockbackMultiplier>(a).factor = 0.5f;
+        registry.emplace<DespawnWhenFarFromPlayer>(a);
+        registry.emplace<Enemy>(a);
+      }
+
+      if (prevBody2)
+      {
+        registry.emplace<ForwardCollisionsToParent>(a);
+        auto prevPos = registry.get<GlobalTransform>(a).position;
+        // auto settings = JPH::Ref(new JPH::SwingTwistConstraintSettings);
+        //// settings->mPosition1           = settings->mPosition2  = Physics::ToJolt(position) + JPH::Vec3(-0.5f, 0, 0);
+        // settings->mPosition1 = settings->mPosition2 = Physics::ToJolt((prevPos + position) / 2.0f);
+        // settings->mTwistAxis1 = settings->mTwistAxis2 = JPH::Vec3::sAxisX();
+        // settings->mPlaneAxis1 = settings->mPlaneAxis2 = JPH::Vec3::sAxisY();
+        // settings->mNormalHalfConeAngle                = JPH::DegreesToRadians(30);
+        // settings->mPlaneHalfConeAngle                 = JPH::DegreesToRadians(30);
+        // settings->mTwistMinAngle                      = JPH::DegreesToRadians(-20);
+        // settings->mTwistMaxAngle                      = JPH::DegreesToRadians(20);
+
+        auto settings          = JPH::Ref(new JPH::DistanceConstraintSettings());
+        settings->mSpace       = JPH::EConstraintSpace::LocalToBodyCOM;
+        settings->mMinDistance = WORM_SCALE * 2;
+        settings->mMaxDistance = WORM_SCALE * 2;
+
+        // auto settings   = JPH::Ref(new JPH::FixedConstraintSettings());
+        // settings->mAutoDetectPoint = true;
+
+        auto constraint = Physics::GetBodyInterface().CreateConstraint(settings, *prevBody2, body);
+        // constraint->SetNumPositionStepsOverride(10);
+        Physics::RegisterConstraint(constraint, *prevBody2, body);
+
+        auto& h                    = registry.get<Hierarchy>(a);
+        h.useLocalPositionAsGlobal = true;
+        h.useLocalRotationAsGlobal = true;
+        SetParent({registry, a}, prevEntity);
+
+        //auto hitboxShape                     = JPH::Ref(new JPH::SphereShape(WORM_SCALE));
+        //auto eHitbox                         = registry.create();
+        //registry.emplace<Name>(eHitbox).name = "Worm hitbox";
+        //registry.emplace<ForwardCollisionsToParent>(eHitbox);
+        //registry.emplace<PreviousGlobalTransform>(eHitbox);
+        //auto& tpHitbox                             = registry.emplace<LocalTransform>(eHitbox);
+        //tpHitbox.position                          = {};
+        //tpHitbox.rotation                          = glm::identity<glm::quat>();
+        //tpHitbox.scale                             = 1;
+        //registry.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
+        //registry.emplace<Hierarchy>(eHitbox);
+        //Physics::AddRigidBody({registry, eHitbox},
+        //  {
+        //    .shape      = hitboxShape,
+        //    .isSensor   = true,
+        //    .motionType = JPH::EMotionType::Kinematic,
+        //    .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
+        //  });
+        //SetParent({registry, eHitbox}, a);
+      }
+      prevBody2  = body;
+      prevEntity = a;
     }
-    prevBody2  = body;
-    prevEntity = a;
+    return head;
   }
-  return head;
-}
+};
 
 class TorchDefinition : public EntityPrefabDefinition
 {
@@ -792,20 +801,115 @@ public:
 class ShrimpleMeshPrefabDefinition : public EntityPrefabDefinition
 {
 public:
-  explicit ShrimpleMeshPrefabDefinition(std::string_view model, const CreateInfo& createInfo = {}) : EntityPrefabDefinition(createInfo), modelName(model) {}
+  explicit ShrimpleMeshPrefabDefinition(std::string_view model, glm::vec3 tint = {1, 1, 1}, const CreateInfo& createInfo = {})
+    : EntityPrefabDefinition(createInfo), modelName_(model), tint_(tint)
+  {
+  }
 
   entt::entity Spawn(World& world, glm::vec3 position, glm::quat rotation) const override
   {
     auto& registry    = world.GetRegistry();
     const auto entity = world.CreateRenderableEntity(position, rotation);
-    registry.emplace<Mesh>(entity, modelName);
-    registry.emplace<Name>(entity, modelName);
+    registry.emplace<Mesh>(entity, modelName_);
+    registry.emplace<Name>(entity, modelName_);
+    registry.emplace<Tint>(entity, tint_);
     return entity;
   }
 
 private:
-  std::string modelName;
+  std::string modelName_;
+  glm::vec3 tint_;
 };
+
+class HealingPotionDefinition : public SpriteItem
+{
+public:
+  using SpriteItem::SpriteItem;
+
+  void UsePrimary(float, World& world, entt::entity self, ItemState& state) const override
+  {
+    if (state.useAccum < GetUseDt())
+    {
+      return;
+    }
+
+    auto& registry = world.GetRegistry();
+    auto parent = registry.get<Hierarchy>(self).parent;
+    assert(registry.valid(parent));
+    if (auto* health = registry.try_get<Health>(parent))
+    {
+      if (health->hp < health->maxHp)
+      {
+        health->hp = std::min(health->hp + 20, health->maxHp);
+        state.count -= 1;
+        state.useAccum = 0;
+      }
+    }
+  }
+
+private:
+
+};
+
+class DungeonPrefab : public PrefabDefinition
+{
+public:
+  using PrefabDefinition::PrefabDefinition;
+
+  std::vector<std::pair<glm::ivec3, uint32_t>> GetVoxels(World& world, glm::ivec3 worldPos) const override
+  {
+    auto voxels      = std::vector<std::pair<glm::ivec3, uint32_t>>();
+    auto& blocks     = world.GetRegistry().ctx().get<BlockRegistry>();
+    auto woodBlockId = blocks.Get("Wood").GetBlockId();
+    auto& chest = blocks.Get("Cheste");
+    auto& items      = world.GetRegistry().ctx().get<ItemRegistry>();
+
+    constexpr int ds = 3;
+    for (int z = -ds; z <= ds; z++)
+      for (int y = -ds; y <= ds; y++)
+        for (int x = -ds; x <= ds; x++)
+        {
+          if (x == -ds || x == ds || y == -ds || y == ds || z == -ds || z == ds)
+          {
+            voxels.emplace_back(glm::ivec3(x, y, z), woodBlockId);
+          }
+          else if (x == 0 && y == 0 && z == 0)
+          {
+            chest.OnTryPlaceBlock(world, worldPos);
+            auto chestEntity = world.GetBlockEntity(worldPos);
+            assert(chestEntity != entt::null);
+            if (auto [e, i] = world.GetComponentFromDescendant<Inventory>(chestEntity); i)
+            {
+              i->slots[0][0] = {.id = items.GetId("Electrum"), .count = 10};
+              i->slots[0][1] = {.id = items.GetId("Suspicious Coin"), .count = 1};
+            }
+            //voxels.emplace_back(glm::ivec3(x, y, z), 0);
+          }
+        }
+    return voxels;
+  }
+};
+
+class SpawnBossItemDefinition : public SpriteItem
+{
+public:
+  using SpriteItem::SpriteItem;
+
+  void UsePrimary(float, World& world, entt::entity self, ItemState& state) const override
+  {
+    if (state.useAccum < GetUseDt())
+    {
+      return;
+    }
+
+    auto& prefabs = world.GetRegistry().ctx().get<EntityPrefabRegistry>();
+    const auto& transform = world.GetRegistry().get<GlobalTransform>(self);
+    prefabs.Get("Worm Boss").Spawn(world, transform.position + 20.0f * GetForward(transform.rotation));
+    state.count -= 1;
+    state.useAccum = 0;
+  }
+};
+
 
 
 
@@ -1486,13 +1590,9 @@ void World::FixedUpdate(float dt)
           {
             const auto hitPos = transform.position + forward * (result.mFraction * RAY_LENGTH + 1e-3f);
             const auto voxelHitPos = glm::ivec3(hitPos);
-            for (auto e2 : GetEntitiesInSphere(glm::vec3(voxelHitPos) + glm::vec3(0.5f), 0.25f))
+            if (auto e2 = GetBlockEntity(voxelHitPos); e2 != entt::null)
             {
-              if (registry_.all_of<BlockEntity>(e2))
-              {
-                hitEntity = e2;
-                break;
-              }
+              hitEntity = e2;
             }
           }
 
@@ -1816,7 +1916,8 @@ void World::InitializeGameState()
   [[maybe_unused]] auto flyingFrogId = entityPrefabs.Add("Flying Frog", new FlyingFrogDefinition({.spawnChance = 0.05f, .canSpawnFloating = true}));
   [[maybe_unused]] auto torchId     = entityPrefabs.Add("Torch", new TorchDefinition());
   [[maybe_unused]] auto chestId      = entityPrefabs.Add("Chest", new ChestDefinition());
-  [[maybe_unused]] auto mushroomId   = entityPrefabs.Add("Mushroom", new ShrimpleMeshPrefabDefinition("mushroom"));
+  [[maybe_unused]] auto mushroomId   = entityPrefabs.Add("Mushroom", new ShrimpleMeshPrefabDefinition("mushroom", {.52f, .31f, .16f}));
+  [[maybe_unused]] auto wormBossId   = entityPrefabs.Add("Worm Boss", new WormBossDefinition());
 
   // Reset item registry
   auto& items = registry_.ctx().insert_or_assign<ItemRegistry>({});
@@ -1860,13 +1961,17 @@ void World::InitializeGameState()
     .light = light,
   }));
 
-  [[maybe_unused]] const auto coinItemId      = items.Add(new SpriteItem("Coin", "coin"));
+  [[maybe_unused]] const auto coinItemId      = items.Add(new SpriteItem("Electrum", "coin"));
   [[maybe_unused]] const auto charcoalItemId  = items.Add(new SpriteItem("Charcoal", "charcoal"));
+  [[maybe_unused]] const auto copperIngotItemId = items.Add(new SpriteItem("Copper Ingot", "copper_ingot"));
   [[maybe_unused]] const auto stickItemId     = items.Add(new SpriteItem("Stick", "stick"));
   [[maybe_unused]] const auto coolStickItemId = items.Add(new SpriteItem("Cool Stick", "stick", {1, 0, 0}));
-  [[maybe_unused]] const auto healingPotionItemId = items.Add(new SpriteItem("Healing Potion", "potion_healing"));
-  [[maybe_unused]] const auto stoneAxeId      = items.Add(new ToolDefinition("Stone Axe", {"axe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::AXE}));
-  [[maybe_unused]] const auto stonePickaxeId  = items.Add(new ToolDefinition("Stone Pickaxe", {"pickaxe", {.5f, .5f, .5f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
+  [[maybe_unused]] const auto wormSummonItemId = items.Add(new SpawnBossItemDefinition("Suspicious Coin", "coin", {1, 0.1f, 0.1f}));
+  [[maybe_unused]] const auto healingPotionItemId = items.Add(new HealingPotionDefinition("Healing Potion", "potion_healing"));
+  [[maybe_unused]] const auto stoneAxeId      = items.Add(new ToolDefinition("Stone Axe", {"axe", {.2f, .2f, .2f}, 20, 2, BlockDamageFlagBit::AXE}));
+  [[maybe_unused]] const auto copperAxeId      = items.Add(new ToolDefinition("Copper Axe", {"axe", {.78f, .51f, .27f}, 30, 2, BlockDamageFlagBit::AXE}));
+  [[maybe_unused]] const auto stonePickaxeId  = items.Add(new ToolDefinition("Stone Pickaxe", {"pickaxe", {.2f, .2f, .2f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
+  [[maybe_unused]] const auto copperPickaxeId  = items.Add(new ToolDefinition("Copper Pickaxe", {"pickaxe", {.78f, .51f, .27f}, 30, 2, BlockDamageFlagBit::PICKAXE}));
   [[maybe_unused]] const auto opPickaxeId     = items.Add(new RainbowTool("OP Pickaxe", {"pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
   [[maybe_unused]] const auto spearId         = items.Add(new Spear("Stone Spear"));
 
@@ -1983,8 +2088,8 @@ void World::InitializeGameState()
         },
   }))).GetItemId();
 
-  blocks.Add(new BlockEntityDefinition({.name = "Torch", .initialHealth = 10, .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}, .isSolid = false}, {.id = torchId}));
-  blocks.Add(new BlockEntityDefinition({.name = "Cheste", .voxelMaterialDesc = VoxelMaterialDesc{.baseColorTexture = "chest"}}, {.id = chestId}));
+  const auto torchItemId = blocks.Get(blocks.Add(new BlockEntityDefinition({.name = "Torch", .initialHealth = 10, .voxelMaterialDesc = VoxelMaterialDesc{.isInvisible = true}, .isSolid = false}, {.id = torchId}))).GetItemId();
+  const auto chestItemId = blocks.Get(blocks.Add(new BlockEntityDefinition({.name = "Cheste", .voxelMaterialDesc = VoxelMaterialDesc{.baseColorTexture = "chest"}}, {.id = chestId}))).GetItemId();
   const auto mushroomBlockItemId = blocks
      .Get(blocks.Add(new BlockEntityDefinition(
        {
@@ -2013,23 +2118,7 @@ void World::InitializeGameState()
   binky.emplace_back(glm::ivec3(0, 4, 0), woodBlockId);
   prefabs.Add(testTree);
 
-  auto* testDungeon = new SimplePrefab({.name = "Dungeon"});
-  auto& horse       = testDungeon->voxels;
-
-  constexpr int ds = 3;
-  for (int z = -ds; z <= ds; z++)
-  for (int y = -ds; y <= ds; y++)
-  for (int x = -ds; x <= ds; x++)
-  {
-    if (x == -ds || x == ds || y == -ds || y == ds || z == -ds || z == ds)
-    {
-      horse.emplace_back(glm::ivec3(x, y, z), woodBlockId);
-    }
-    else
-    {
-      horse.emplace_back(glm::ivec3(x, y, z), 0);
-    }
-  }
+  auto* testDungeon = new DungeonPrefab({.name = "Dungeon"});
   prefabs.Add(testDungeon);
 
   auto& crafting = registry_.ctx().insert_or_assign<Crafting>({});
@@ -2052,11 +2141,28 @@ void World::InitializeGameState()
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stickItemId, 1}, {charcoalItemId, 1}},
-    {{lightBlockItemId, 1}},
+    {{torchItemId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stoneBlockId, 1}, {charcoalItemId, 1}, {mushroomBlockItemId, 1}},
     {{healingPotionItemId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{malachiteBlockId, 5}, {charcoalItemId, 1}},
+    {{copperIngotItemId, 1}},
+    forgeBlockItemId,
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{copperIngotItemId, 5}, {stickItemId, 1}},
+    {{copperAxeId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{copperIngotItemId, 5}, {stickItemId, 1}},
+    {{copperPickaxeId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{coinItemId, 10}, {stickItemId, 20}},
+    {{chestItemId , 1}},
   });
 
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
@@ -2080,6 +2186,19 @@ void World::InitializeGameState()
     .chanceForOne = 0.01f,
   });
   loot.Add("tree", std::move(treeLoot));
+
+  auto wormLoot = std::make_unique<LootDrops>();
+  wormLoot->drops.emplace_back(RandomLootDrop{
+    .item = gunId,
+    .count = 1,
+    .chanceForOne = 1,
+  });
+  wormLoot->drops.emplace_back(RandomLootDrop{
+    .item         = coinItemId,
+    .count        = 150,
+    .chanceForOne = 0.5f,
+  });
+  loot.Add("worm", std::move(wormLoot));
 
   // Reset RNG
   registry_.ctx().insert_or_assign<PCG::Rng>(1234);
@@ -2399,7 +2518,7 @@ void World::GenerateMap()
 #endif
   for (auto treePos : treePositions)
   {
-    auto treeBlocks = registry_.ctx().get<PrefabRegistry>().Get("Tree").GetVoxels(treePos);
+    auto treeBlocks = registry_.ctx().get<PrefabRegistry>().Get("Tree").GetVoxels(*this, treePos);
     for (auto [pos, voxel] : treeBlocks)
     {
       grid.SetVoxelAt(treePos + pos, voxel);
@@ -2408,7 +2527,7 @@ void World::GenerateMap()
 
   for (auto dungeonPos : dungeonPositions)
   {
-    auto blockss = registry_.ctx().get<PrefabRegistry>().Get("Dungeon").GetVoxels(dungeonPos);
+    auto blockss = registry_.ctx().get<PrefabRegistry>().Get("Dungeon").GetVoxels(*this, dungeonPos);
     for (auto [pos, voxel] : blockss)
     {
       if (grid.IsPositionInGrid(dungeonPos + pos))
@@ -2843,6 +2962,18 @@ float World::DamageBlock(glm::ivec3 voxelPos, float damage, int damageTier, Bloc
   }
 
   return initialHealth - hp->health;
+}
+
+entt::entity World::GetBlockEntity(glm::ivec3 voxelPosition)
+{
+  for (auto entity : GetEntitiesInSphere(glm::vec3(voxelPosition) + glm::vec3(0.5f), 0.25f))
+  {
+    if (registry_.all_of<BlockEntity>(entity))
+    {
+      return entity;
+    }
+  }
+  return entt::null;
 }
 
 glm::vec3 GetFootPosition(entt::handle handle)
@@ -3703,16 +3834,9 @@ bool BlockEntityDefinition::OnTryPlaceBlock(World& world, glm::ivec3 voxelPositi
 void BlockEntityDefinition::OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const
 {
   BlockDefinition::OnDestroyBlock(world, voxelPosition);
-  for (auto entity : world.GetEntitiesInSphere(glm::vec3(voxelPosition) + glm::vec3(0.5f), 0.25f))
-  {
-    // Remove block entity
-    if (world.GetRegistry().all_of<BlockEntity>(entity))
-    {
-      world.GetRegistry().emplace<DeferredDelete>(entity);
-      return;
-    }
-  }
-  assert(false && "Block entity didn't exist!");
+  auto entity = world.GetBlockEntity(voxelPosition);
+  assert(entity != entt::null && "Block entity didn't exist!");
+  world.GetRegistry().emplace<DeferredDelete>(entity);
 }
 
 void NpcSpawnDirector::Update(float dt)

@@ -275,16 +275,15 @@ JPH::Vec3 Physics::TwoLevelGridShape::GetSurfaceNormal([[maybe_unused]] const JP
   const auto nearestIntCompIdx = absDiffFromInt.GetLowestComponentIndex();
 
   auto pos0 = inLocalPos;
-  pos0.SetComponent(nearestIntCompIdx, floor(inLocalPos[nearestIntCompIdx]));
+  pos0.SetComponent(nearestIntCompIdx, round(inLocalPos[nearestIntCompIdx]));
 
   auto pos1 = inLocalPos;
-  pos1.SetComponent(nearestIntCompIdx, ceil(inLocalPos[nearestIntCompIdx]));
+  pos1.SetComponent(nearestIntCompIdx, round(inLocalPos[nearestIntCompIdx] - 1.0f));
 
   const auto v0pos = glm::ivec3(glm::floor(ToGlm(pos0)));
   const auto v1pos = glm::ivec3(glm::floor(ToGlm(pos1)));
 
-  auto v0 = twoLevelGrid_->GetVoxelAt(v0pos);
-  //auto v1 = twoLevelGrid_->GetVoxelAt(glm::ivec3(ToGlm(pos1)));
+  [[maybe_unused]] auto v0 = twoLevelGrid_->GetVoxelAt(v0pos);
 
   // Choose position of solid voxel, which is the one we're colliding with. If both voxels are solid (which shouldn't happen), pick an arbitrary position.
   auto solidVoxel = JPH::Vec3();
@@ -300,14 +299,7 @@ JPH::Vec3 Physics::TwoLevelGridShape::GetSurfaceNormal([[maybe_unused]] const JP
     airVoxel   = ToJolt(v0pos);
   }
 
-  // Find the greatest component of the difference between the voxel pos and surface pos.
-  const auto dir   = inLocalSurfacePosition - (solidVoxel + JPH::Vec3::sReplicate(0.5f));
-  const auto idx   = dir.Abs().GetHighestComponentIndex();
-  auto normal      = JPH::Vec3::sReplicate(0);
-  normal.SetComponent(idx, dir.GetSign()[idx]);
-  //printf("%f, %f, %f\n", normal[0], normal[1], normal[2]);
-  //printf("%f, %f, %f\n", dir[0], dir[1], dir[2]);
-  return -normal; // FIXME: For some reason, this needs to be negated for bullets to rest properly.
+  return airVoxel - solidVoxel;
 }
 
 int Physics::TwoLevelGridShape::GetTrianglesNext([[maybe_unused]] GetTrianglesContext& ioContext,

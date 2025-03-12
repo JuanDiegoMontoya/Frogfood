@@ -856,37 +856,51 @@ class DungeonPrefab : public PrefabDefinition
 public:
   using PrefabDefinition::PrefabDefinition;
 
-  std::vector<std::pair<glm::ivec3, uint32_t>> GetVoxels(World& world, glm::ivec3 worldPos) const override
+  void Instantiate(World& world, glm::ivec3 worldPos) const override
   {
-    auto voxels      = std::vector<std::pair<glm::ivec3, uint32_t>>();
-    auto& blocks     = world.GetRegistry().ctx().get<BlockRegistry>();
-    auto woodBlockId = blocks.Get("Wood").GetBlockId();
-    auto& chest = blocks.Get("Cheste");
-    auto& items      = world.GetRegistry().ctx().get<ItemRegistry>();
+    const auto& blocks = world.GetRegistry().ctx().get<BlockRegistry>();
+    const auto& items  = world.GetRegistry().ctx().get<ItemRegistry>();
+    const auto& air    = blocks.Get("Air");
+    const auto& wood   = blocks.Get("Wood");
+    const auto& chest  = blocks.Get("Cheste");
+    const auto& light  = blocks.Get("Light");
 
     constexpr int ds = 3;
     for (int z = -ds; z <= ds; z++)
+    {
       for (int y = -ds; y <= ds; y++)
+      {
         for (int x = -ds; x <= ds; x++)
         {
+          const auto blockPos = worldPos + glm::ivec3(x, y, z);
           if (x == -ds || x == ds || y == -ds || y == ds || z == -ds || z == ds)
           {
-            voxels.emplace_back(glm::ivec3(x, y, z), woodBlockId);
+            wood.OnTryPlaceBlock(world, blockPos);
           }
-          else if (x == 0 && y == 0 && z == 0)
+          else if (x == 0 && y == -ds + 1 && z == 0)
           {
-            chest.OnTryPlaceBlock(world, worldPos);
-            auto chestEntity = world.GetBlockEntity(worldPos);
-            assert(chestEntity != entt::null);
-            if (auto [e, i] = world.GetComponentFromDescendant<Inventory>(chestEntity); i)
+            if (chest.OnTryPlaceBlock(world, blockPos))
             {
-              i->slots[0][0] = {.id = items.GetId("Electrum"), .count = 10};
-              i->slots[0][1] = {.id = items.GetId("Suspicious Coin"), .count = 1};
+              auto chestEntity = world.GetBlockEntity(blockPos);
+              assert(chestEntity != entt::null);
+              if (auto [e, i] = world.GetComponentFromDescendant<Inventory>(chestEntity); i)
+              {
+                i->slots[0][0] = {.id = items.GetId("Electrum"), .count = 10};
+                i->slots[0][1] = {.id = items.GetId("Suspicious Coin"), .count = 1};
+              }
             }
-            //voxels.emplace_back(glm::ivec3(x, y, z), 0);
+          }
+          else if (x == 0 && y == ds - 1 && z == 0)
+          {
+            light.OnTryPlaceBlock(world, blockPos);
+          }
+          else
+          {
+            air.OnTryPlaceBlock(world, blockPos);
           }
         }
-    return voxels;
+      }
+    }
   }
 };
 
@@ -1058,7 +1072,7 @@ void World::FixedUpdate(float dt)
       }
 
       // Do da interpolate
-      const float alpha                   = (linearPath.secondsElapsed - firstFrame.offsetSeconds) / (sum - firstFrame.offsetSeconds);
+      const float alpha                   = Math::Ease((linearPath.secondsElapsed - firstFrame.offsetSeconds) / (sum - firstFrame.offsetSeconds), secondFrame.easing);
       const glm::vec3 newRelativePosition = glm::mix(firstFrame.position, secondFrame.position, alpha);
       const glm::quat newRelativeRotation = glm::slerp(firstFrame.rotation, secondFrame.rotation, alpha);
       const float newRelativeScale        = glm::mix(firstFrame.scale, secondFrame.scale, alpha);
@@ -2518,23 +2532,12 @@ void World::GenerateMap()
 #endif
   for (auto treePos : treePositions)
   {
-    auto treeBlocks = registry_.ctx().get<PrefabRegistry>().Get("Tree").GetVoxels(*this, treePos);
-    for (auto [pos, voxel] : treeBlocks)
-    {
-      grid.SetVoxelAt(treePos + pos, voxel);
-    }
+    registry_.ctx().get<PrefabRegistry>().Get("Tree").Instantiate(*this, treePos);
   }
 
   for (auto dungeonPos : dungeonPositions)
   {
-    auto blockss = registry_.ctx().get<PrefabRegistry>().Get("Dungeon").GetVoxels(*this, dungeonPos);
-    for (auto [pos, voxel] : blockss)
-    {
-      if (grid.IsPositionInGrid(dungeonPos + pos))
-      {
-        grid.SetVoxelAt(dungeonPos + pos, voxel);
-      }
-    }
+    registry_.ctx().get<PrefabRegistry>().Get("Dungeon").Instantiate(*this, dungeonPos);
   }
 
   grid.CoalesceDirtyBricks();
@@ -3446,8 +3449,8 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
     registry.remove<LinearPath>(self);
   }
   auto& path = world.GetRegistry().emplace_or_replace<LinearPath>(self);
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, -0.25f, -0.25f}, .rotation = glm::angleAxis(glm::radians(-30.0f), glm::vec3(1, 0, 0)), .offsetSeconds = GetUseDt() * 0.4f});
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = GetUseDt() * 0.4f});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, -0.25f, -0.25f}, .rotation = glm::angleAxis(glm::radians(-30.0f), glm::vec3(1, 0, 0)), .offsetSeconds = GetUseDt() * 0.3f, .easing = Math::Easing::EASE_OUT_CUBIC});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = GetUseDt() * 0.5f, .easing = Math::Easing::EASE_IN_CUBIC});
 
   state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
   auto& reg      = world.GetRegistry();
@@ -3687,8 +3690,8 @@ void Spear::UsePrimary([[maybe_unused]] float dt, World& world, entt::entity sel
 
   state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
   auto& path = world.GetRegistry().emplace<LinearPath>(self);
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .offsetSeconds = 0.15f});
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = 0.15f});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .offsetSeconds = 0.25f, .easing = Math::Easing::EASE_IN_OUT_BACK});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = 0.25f, .easing = Math::Easing::EASE_IN_SINE});
 
   auto& reg    = world.GetRegistry();
   auto child   = reg.create();
@@ -3710,6 +3713,7 @@ entt::entity Spear::Materialize(World& world) const
   auto self                                    = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f});
   world.GetRegistry().emplace<Mesh>(self).name = "spear";
   world.GetRegistry().emplace<Name>(self).name = "Spear";
+  world.GetRegistry().emplace<Tint>(self, glm::vec3{0.2f, 0.2f, 0.2f});
   return self;
 }
 
@@ -3720,8 +3724,12 @@ BlockDefinition::BlockDefinition(const CreateInfo& info)
 bool BlockDefinition::OnTryPlaceBlock(World& world, glm::ivec3 voxelPosition) const
 {
   auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
-  grid.SetVoxelAt(voxelPosition, GetBlockId());
-  return true;
+  if (grid.IsPositionInGrid(voxelPosition))
+  {
+    grid.SetVoxelAt(voxelPosition, GetBlockId());
+    return true;
+  }
+  return false;
 }
 
 void BlockDefinition::OnDestroyBlock(World& world, glm::ivec3 voxelPosition) const

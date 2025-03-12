@@ -285,6 +285,16 @@ namespace Core::Reflection
   {
     UpdateLocalTransform(handle);
   }
+
+  static void EditorUpdateLinearPath(entt::handle handle)
+  {
+    // Path component treats 0 as the "reset transform value", and we don't want to trigger that.
+    auto& path = handle.get<LinearPath>();
+    if (path.secondsElapsed == 0)
+    {
+      path.secondsElapsed = 1e-5f;
+    }
+  }
 } // namespace Core::Reflection
 
 void Core::Reflection::InitializeReflection()
@@ -310,6 +320,10 @@ void Core::Reflection::InitializeReflection()
 #define PROP_SPEED(Scalar) {"speed"_hs, Scalar}
 #define PROP_MIN(Scalar) {"min"_hs, Scalar}
 #define PROP_MAX(Scalar) {"max"_hs, Scalar}
+#define REFLECT_ENUM(T) entt::meta<T>()
+#define ENUMERATOR(E, Member, ...) \
+  .data<E :: Member>(#Member##_hs) \
+  .custom<PropertiesMap>(PropertiesMap{{"name"_hs, #Member} __VA_OPT__(, __VA_ARGS__)})
 
   entt::meta<int>().func<&EditorWriteScalar<int>>("EditorWrite"_hs).func<&EditorReadScalar<int>>("EditorRead"_hs);
   entt::meta<uint32_t>().func<&EditorWriteScalar<uint32_t>>("EditorWrite"_hs).func<&EditorReadScalar<uint32_t>>("EditorRead"_hs);
@@ -470,6 +484,7 @@ void Core::Reflection::InitializeReflection()
     TRAITS(Traits::EDITOR);
 
   REFLECT_COMPONENT(LinearPath)
+    .func<&EditorUpdateLinearPath>("OnUpdate"_hs)
     DATA(LinearPath, frames)
     TRAITS(Traits::EDITOR)
     DATA(LinearPath, secondsElapsed)
@@ -486,6 +501,8 @@ void Core::Reflection::InitializeReflection()
     DATA(LinearPath::KeyFrame, scale)
     TRAITS(Traits::EDITOR)
     DATA(LinearPath::KeyFrame, offsetSeconds)
+    TRAITS(Traits::EDITOR)
+    DATA(LinearPath::KeyFrame, easing)
     TRAITS(Traits::EDITOR);
 
   REFLECT_COMPONENT(BlockHealth)
@@ -619,4 +636,12 @@ void Core::Reflection::InitializeReflection()
     TRAITS(EDITOR);
 
   REFLECT_COMPONENT(Voxels);
+
+  REFLECT_ENUM(Math::Easing)
+    ENUMERATOR(Math::Easing, LINEAR)
+    ENUMERATOR(Math::Easing, EASE_IN_SINE)
+    ENUMERATOR(Math::Easing, EASE_OUT_SINE)
+    ENUMERATOR(Math::Easing, EASE_IN_OUT_BACK)
+    ENUMERATOR(Math::Easing, EASE_IN_CUBIC)
+    ENUMERATOR(Math::Easing, EASE_OUT_CUBIC);
 }

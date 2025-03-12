@@ -186,4 +186,22 @@ namespace Math
       radius * std::sin(elevation) * std::sin(azimuth)
     };
   }
+
+  enum class Easing
+  {
+    LINEAR,
+    EASE_IN_SINE,
+    EASE_OUT_SINE,
+    EASE_IN_OUT_BACK,
+    EASE_IN_CUBIC,
+    EASE_OUT_CUBIC,
+  };
+
+  float Ease(float t, Easing easing);
+
+  float EaseInSine(float t);
+  float EaseOutSine(float t);
+  float EaseInOutBack(float t);
+  float EaseInCubic(float t);
+  float EaseOutCubic(float t);
 } // namespace Math

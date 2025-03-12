@@ -5,6 +5,7 @@
 #include "Physics/Physics.h"
 #include "Fvog/detail/Flags.h"
 #include "shaders/Light.h.glsl" // "TEMP"
+#include "MathUtilities.h"
 
 #include "entt/entity/registry.hpp"
 #include "entt/entity/entity.hpp"
@@ -480,7 +481,7 @@ public:
   BlockRegistry(World& world) : world_(&world)
   {
     // Hardcode air as the first block.
-    Add(new BlockDefinition({.name = "air", .voxelMaterialDesc = {.isInvisible = true}, .isSolid = false}));
+    Add(new BlockDefinition({.name = "Air", .voxelMaterialDesc = {.isInvisible = true}, .isSolid = false}));
   }
 
   ~BlockRegistry() = default;
@@ -728,7 +729,7 @@ public:
 
   float GetUseDt() const override
   {
-    return 0.35f;
+    return 0.55f;
   }
 };
 
@@ -1086,6 +1087,7 @@ struct LinearPath
     glm::quat rotation = glm::identity<glm::quat>();
     float scale = 1;
     float offsetSeconds;
+    Math::Easing easing = Math::Easing::LINEAR;
   };
   std::vector<KeyFrame> frames;
 

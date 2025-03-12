@@ -104,6 +104,8 @@ add_executable(frogRender
     src/Voxels/Prefab.h
     src/Voxels/Reflection.h
     src/Voxels/Reflection.cpp
+    src/Voxels/Prefab.cpp
+    src/MathUtilities.cpp
 )
 
 # Precompiled headers for standard library

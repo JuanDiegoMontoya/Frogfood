@@ -882,17 +882,14 @@ static bool DrawComponentHelper(entt::handle handle, entt::meta_any instance, en
   else if (meta.is_sequence_container())
   {
     bool isOpen = false;
-    bool didIndent = false;
     if (auto it = properties.find("name"_hs); it != properties.end())
     {
-      isOpen = ImGui::TreeNodeEx(instance.try_cast<void>(), 0, "%s: %d", *it->second.try_cast<const char*>(), (int)instance.as_sequence_container().size());
+      isOpen = ImGui::TreeNodeEx(instance.try_cast<void>(), 0, "%s: %d", it->second.cast<const char*>(), (int)instance.as_sequence_container().size());
     }
     else
     {
       auto name = FixupTypeString(meta.info().name());
       isOpen    = ImGui::TreeNodeEx(instance.try_cast<void>(), 0, "%s: %d", name.c_str(), (int)instance.as_sequence_container().size());
-      ImGui::Indent();
-      didIndent = true;
     }
     if (isOpen)
     {
@@ -904,10 +901,6 @@ static bool DrawComponentHelper(entt::handle handle, entt::meta_any instance, en
         ImGui::PopID();
       }
       ImGui::TreePop();
-    }
-    if (didIndent)
-    {
-      ImGui::Unindent();
     }
   }
   else if (meta.is_associative_container())
@@ -925,6 +918,43 @@ static bool DrawComponentHelper(entt::handle handle, entt::meta_any instance, en
       //  ImGui::Unindent();
       //  ImGui::PopID();
       //}
+    }
+  }
+  else if (meta.is_enum())
+  {
+    bool isOpen = false;
+    if (auto it = properties.find("name"_hs); it != properties.end())
+    {
+      isOpen = ImGui::TreeNodeEx(instance.try_cast<void>(), 0, "%s", it->second.cast<const char*>());
+    }
+    else
+    {
+      auto name = FixupTypeString(meta.info().name());
+      isOpen    = ImGui::TreeNodeEx(instance.try_cast<void>(), 0, "%s", name.c_str());
+    }
+    if (isOpen)
+    {
+      for (auto [id, data] : meta.data())
+      {
+        PropertiesMap dataProps = {};
+        if (auto* mp = static_cast<const PropertiesMap*>(data.custom()))
+        {
+          dataProps = *mp;
+        }
+
+        if (auto it = dataProps.find("name"_hs); it != dataProps.end())
+        {
+          ImGui::PushID(guiId++);
+          auto name = it->second.cast<const char*>();
+          if (ImGui::Selectable(name, instance == data.get({}), readonly ? ImGuiSelectableFlags_Disabled : 0))
+          {
+            instance.assign(data.get({}));
+            changed = true;
+          }
+          ImGui::PopID();
+        }
+      }
+      ImGui::TreePop();
     }
   }
   else

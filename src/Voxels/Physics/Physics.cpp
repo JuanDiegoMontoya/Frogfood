@@ -599,8 +599,8 @@ namespace Physics
         s->engine->GetDefaultBroadPhaseLayerFilter(Layers::CAST_PROJECTILE),
         s->engine->GetDefaultLayerFilter(Layers::CAST_PROJECTILE));
 
-      lt.position += castVelocity;
-      linearVelocity.v = newVelocity;
+      lt.position += castVelocity * (float)!projectile.isStuck;
+      linearVelocity.v = newVelocity * (float)!projectile.isStuck;
 
       if (collector.HadHit())
       {
@@ -628,10 +628,16 @@ namespace Physics
           s->engine->GetBodyLockInterfaceNoLock().TryGetBody(collector.mHit.mBodyID)->GetWorldSpaceSurfaceNormal(collector.mHit.mSubShapeID2, ToJolt(hitPosition)));
 
         // The bullet's remaining dt is "stolen". This could be solved by looping until there are no more collisions, but the artifact is difficult to notice.
-        lt.position                = hitPosition + hitNormal * 1e-3f;
+        lt.position = hitPosition + hitNormal * (projectile.sticky ? projectile.stickyDist : 1e-3f);
+        
         constexpr auto restitution = 0.25f;
         // Reflect projectile with more restitution (bounciness) as the impact angle gets shallower.
         linearVelocity.v = glm::reflect(newVelocity, hitNormal) * (1 - (1 - restitution) * abs(glm::dot(glm::normalize(newVelocity), hitNormal)));
+
+        if (projectile.sticky)
+        {
+          projectile.isStuck = true;
+        }
       }
 
       UpdateLocalTransform({world.GetRegistry(), entity});

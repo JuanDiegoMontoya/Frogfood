@@ -475,6 +475,11 @@ void Core::Reflection::InitializeReflection()
     DATA(PredatoryBirdBehavior, lineOfSightDuration)
     TRAITS(Traits::EDITOR);
 
+  REFLECT_ENUM(PredatoryBirdBehavior::State)
+    ENUMERATOR(PredatoryBirdBehavior::State, IDLE)
+    ENUMERATOR(PredatoryBirdBehavior::State, CIRCLING)
+    ENUMERATOR(PredatoryBirdBehavior::State, SWOOPING);
+
   REFLECT_COMPONENT(SimplePathfindingEnemyBehavior);
 
   REFLECT_COMPONENT(NoHashGrid);

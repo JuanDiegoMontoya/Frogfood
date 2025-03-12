@@ -1116,13 +1116,29 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
     break;
   case GameState::GAME:
   {
+    {
+      ZoneScopedN("Poll Modified Shaders");
+      GetPipelineManager().EnqueueModifiedShaders();
+    }
+
+    auto localPlayer = world.TryGetLocalPlayer();
+    if (localPlayer != entt::null)
+    {
+      if (auto* gp = world.GetRegistry().try_get<GhostPlayer>(localPlayer))
+      {
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        constexpr auto flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize;
+        if (ImGui::Begin("###death_window", nullptr, flags))
+        {
+          ImGui::Text("You died");
+          ImGui::Text("%s%.0fs", gp->remainingSeconds < 1 ? "Your computer will explode in " : "", gp->remainingSeconds);
+        }
+        ImGui::End();
+      }
+    }
+
     if (ImGui::Begin("Test"))
     {
-      {
-        ZoneScopedN("Poll Modified Shaders");
-        GetPipelineManager().EnqueueModifiedShaders();
-      }
-      
       ImGui::Text("Framerate: %.0f (%.2fms)", 1 / dt.real, dt.real * 1000);
       auto& grid = world.GetRegistry().ctx().get<TwoLevelGrid>();
       VmaStatistics stats{};
@@ -1222,6 +1238,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
 
         const auto& crafting = world.GetRegistry().ctx().get<Crafting>();
         const auto& itemRegistry = world.GetRegistry().ctx().get<ItemRegistry>();
+        const auto& blockRegistry = world.GetRegistry().ctx().get<BlockRegistry>();
         for (int index = 0; const auto& recipe : crafting.recipes)
         {
           if (index != 0)
@@ -1251,6 +1268,10 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
             ImGui::TextWrapped("%s: %d", def.GetName().c_str(), ingredient.count);
           }
           ImGui::Unindent();
+          if (recipe.craftingStation != 0)
+          {
+            ImGui::Text("Required: %s", blockRegistry.Get(recipe.craftingStation).GetName().c_str());
+          }
           ImGui::EndDisabled();
           ImGui::PopID();
           index++;

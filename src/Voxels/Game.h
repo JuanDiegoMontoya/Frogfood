@@ -309,6 +309,7 @@ public:
   entt::entity CreateRenderableEntity(glm::vec3 position, glm::quat rotation = glm::quat(1, 0, 0, 0), float scale = 1);
   entt::entity CreateDroppedItem(ItemState item, glm::vec3 position, glm::quat rotation = {1, 0, 0, 0}, float scale = 1);
 
+  [[nodiscard]] entt::entity TryGetLocalPlayer();
   [[nodiscard]] GlobalTransform* TryGetLocalPlayerTransform();
   
   void SetLocalScale(entt::entity entity, float scale);
@@ -418,6 +419,7 @@ public:
     float minSpawnDistance = 30;
     float maxSpawnDistance = 90;
     bool canSpawnFloating  = false;
+    bool isVisible         = true;
   };
 
   explicit EntityPrefabDefinition(const CreateInfo& createInfo = {}) : info_(createInfo) {}
@@ -629,6 +631,8 @@ public:
     float hrecoil     = 0.0f;
     float hrecoilDev  = 0.25f;
     std::optional<GpuLight> light;
+    bool sticky = false;
+    float stickyDist = 1e-3f;
   };
 
   explicit Gun(std::string_view name, const CreateInfo& createInfo) : ItemDefinition(name), createInfo_(createInfo) {}
@@ -721,7 +725,14 @@ public:
 class Spear : public ItemDefinition
 {
 public:
-  using ItemDefinition::ItemDefinition;
+  struct SpearCreateInfo
+  {
+    float useDt     = 0.55f;
+    float damage    = 15;
+    float knockback = 5;
+    glm::vec3 tint  = {1, 1, 1};
+  };
+  Spear(std::string_view name, const SpearCreateInfo& info = {}) : ItemDefinition(name), createInfo_(info) {}
 
   void UsePrimary(float dt, World&, entt::entity, ItemState&) const override;
 
@@ -729,8 +740,11 @@ public:
 
   float GetUseDt() const override
   {
-    return 0.55f;
+    return createInfo_.useDt;
   }
+
+private:
+  SpearCreateInfo createInfo_;
 };
 
 struct ItemIdAndCount
@@ -1018,6 +1032,9 @@ struct Projectile
   float initialSpeed{}; // Used to calculate damage.
   float drag = 0; // TODO: remove (use Friction)
   float restitution = 0.25f;
+  bool sticky       = false;
+  float stickyDist  = 1e-3f;
+  bool isStuck      = false;
 };
 
 struct LinearVelocity

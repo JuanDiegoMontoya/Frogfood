@@ -237,8 +237,8 @@ static void OnContactPersisted(World& world, Physics::ContactPersistedPair* ppai
       {
         if (world.AreEntitiesEnemies(entity1, entity2) && world.CanEntityDamageEntity(entity2, entity1))
         {
-          auto& pos1          = world.GetRegistry().get<GlobalTransform>(entity1).position;
-          auto pos2          = world.GetRegistry().get<GlobalTransform>(entity2).position;
+          auto& pos1         = world.GetRegistry().get<GlobalTransform>(entity1).position;
+          auto& pos2         = world.GetRegistry().get<GlobalTransform>(entity2).position;
           const auto& damage = world.GetRegistry().get<ContactDamage>(entity2);
           world.DamageEntity(entity1, damage.damage);
           auto pushDir = pos1 - pos2;
@@ -482,7 +482,7 @@ public:
 
     auto e                         = world.CreateRenderableEntity(position, {1, 0, 0, 0}, 0.4f);
     registry.emplace<Mesh>(e).name = "frog";
-    registry.emplace<Name>(e, "Frog");
+    registry.emplace<Name>(e, "Flying Frog");
     registry.emplace<Tint>(e, glm::vec3{0.25, 0.05f, 1.0f});
     registry.emplace<Health>(e) = {70, 70};
     registry.emplace<PredatoryBirdBehavior>(e);
@@ -1105,16 +1105,16 @@ void World::FixedUpdate(float dt)
             behavior.accum = 0;
           }
         }
-        else if (behavior.state != PredatoryBirdBehavior::State::IDLE)
+        else if (behavior.state != PredatoryBirdBehavior::State::IDLE || behavior.accum < 0.2f) // Hack to prevent idle position from being jacked up when spawning
         {
           behavior.state = PredatoryBirdBehavior::State::IDLE;
-          behavior.idlePosition = transform.position + glm::vec3(0, 5, 0);
+          behavior.idlePosition = transform.position + glm::vec3(0, 0, 0);
         }
       }
       else if (behavior.state != PredatoryBirdBehavior::State::IDLE)
       {
         behavior.state = PredatoryBirdBehavior::State::IDLE;
-        behavior.idlePosition = transform.position + glm::vec3(0, 5, 0);
+        behavior.idlePosition = transform.position + glm::vec3(0, 0, 0);
       }
 
       // Birds always be moving forward.
@@ -1926,10 +1926,10 @@ void World::InitializeGameState()
 
   // Reset entity prefab registry
   auto& entityPrefabs = registry_.ctx().insert_or_assign<EntityPrefabRegistry>({});
-  [[maybe_unused]] auto meleeFrogId = entityPrefabs.Add("Melee Frog", new MeleeFrogDefinition({.spawnChance = 0.075f}));
-  [[maybe_unused]] auto flyingFrogId = entityPrefabs.Add("Flying Frog", new FlyingFrogDefinition({.spawnChance = 0.05f, .canSpawnFloating = true}));
+  [[maybe_unused]] auto meleeFrogId = entityPrefabs.Add("Melee Frog", new MeleeFrogDefinition({.spawnChance = 0.095f}));
+  [[maybe_unused]] auto flyingFrogId = entityPrefabs.Add("Flying Frog", new FlyingFrogDefinition({.spawnChance = 0.035f, .canSpawnFloating = true}));
   [[maybe_unused]] auto torchId     = entityPrefabs.Add("Torch", new TorchDefinition());
-  [[maybe_unused]] auto chestId      = entityPrefabs.Add("Chest", new ChestDefinition());
+  [[maybe_unused]] auto chestId      = entityPrefabs.Add("Chest", new ChestDefinition({.isVisible = false}));
   [[maybe_unused]] auto mushroomId   = entityPrefabs.Add("Mushroom", new ShrimpleMeshPrefabDefinition("mushroom", {.52f, .31f, .16f}));
   [[maybe_unused]] auto wormBossId   = entityPrefabs.Add("Worm Boss", new WormBossDefinition());
 
@@ -1973,6 +1973,8 @@ void World::InitializeGameState()
     //.hrecoil = ,
     //.hrecoilDev = ,
     .light = light,
+    .sticky = true,
+    .stickyDist = 0.125f,
   }));
 
   [[maybe_unused]] const auto coinItemId      = items.Add(new SpriteItem("Electrum", "coin"));
@@ -1987,7 +1989,8 @@ void World::InitializeGameState()
   [[maybe_unused]] const auto stonePickaxeId  = items.Add(new ToolDefinition("Stone Pickaxe", {"pickaxe", {.2f, .2f, .2f}, 20, 2, BlockDamageFlagBit::PICKAXE}));
   [[maybe_unused]] const auto copperPickaxeId  = items.Add(new ToolDefinition("Copper Pickaxe", {"pickaxe", {.78f, .51f, .27f}, 30, 2, BlockDamageFlagBit::PICKAXE}));
   [[maybe_unused]] const auto opPickaxeId     = items.Add(new RainbowTool("OP Pickaxe", {"pickaxe", {1, 1, 1}, 1000, 100, BlockDamageFlagBit::ALL_TOOLS, 0.1f}));
-  [[maybe_unused]] const auto spearId         = items.Add(new Spear("Stone Spear"));
+  [[maybe_unused]] const auto stoneSpearId         = items.Add(new Spear("Stone Spear", {.tint = {0.2f, 0.2f, 0.2f}}));
+  [[maybe_unused]] const auto copperSpearId        = items.Add(new Spear("Copper Spear", {.damage = 20, .knockback = 5, .tint = {.78f, .51f, .27f}}));
 
   auto& blocks = registry_.ctx().insert_or_assign<BlockRegistry>(*this);
 
@@ -2137,16 +2140,20 @@ void World::InitializeGameState()
 
   auto& crafting = registry_.ctx().insert_or_assign<Crafting>({});
   crafting.recipes.emplace_back(Crafting::Recipe{
-    {{stoneBlockId, 5}},
+    {{stoneBlockId, 15}},
     {{forgeBlockItemId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
-    {{stoneBlockId, 5}},
-    {{spearId, 1}},
+    {{stoneBlockId, 5}, {stickItemId, 1}},
+    {{stoneSpearId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
-    {{stoneBlockId, 5}},
+    {{stoneBlockId, 5}, {stickItemId, 1}},
     {{stonePickaxeId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{stoneBlockId, 5}, {stickItemId, 1}},
+    {{stoneAxeId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{stickItemId, 3}},
@@ -2164,19 +2171,27 @@ void World::InitializeGameState()
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{malachiteBlockId, 5}, {charcoalItemId, 1}},
     {{copperIngotItemId, 1}},
-    forgeBlockItemId,
+    blocks.Get("Forge").GetBlockId(),
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{copperIngotItemId, 5}, {stickItemId, 1}},
-    {{copperAxeId, 1}},
+    {{copperSpearId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
     {{copperIngotItemId, 5}, {stickItemId, 1}},
     {{copperPickaxeId, 1}},
   });
   crafting.recipes.emplace_back(Crafting::Recipe{
+    {{copperIngotItemId, 5}, {stickItemId, 1}},
+    {{copperAxeId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
     {{coinItemId, 10}, {stickItemId, 20}},
-    {{chestItemId , 1}},
+    {{chestItemId, 1}},
+  });
+  crafting.recipes.emplace_back(Crafting::Recipe{
+    {{gunId, 1}, {wormSummonItemId, 1}},
+    {{flareGunId, 1}},
   });
 
   auto& loot = registry_.ctx().insert_or_assign<LootRegistry>({});
@@ -2192,7 +2207,7 @@ void World::InitializeGameState()
   treeLoot->drops.emplace_back(RandomLootDrop{
     .item         = stickItemId,
     .count        = 6,
-    .chanceForOne = 0.5f,
+    .chanceForOne = 0.65f,
   });
   treeLoot->drops.emplace_back(RandomLootDrop{
     .item         = coolStickItemId,
@@ -2229,20 +2244,20 @@ void World::InitializeGameState()
   registry_.emplace<TeamFlags>(p, TeamFlagBits::FRIENDLY);
 
   auto& tp = registry_.emplace<LocalTransform>(p);
-  tp.position = {2, 78, 2};
+  tp.position = {60, 270, 60};
   tp.rotation = glm::identity<glm::quat>();
   tp.scale    = 1;
   registry_.emplace<GlobalTransform>(p) = {tp.position, tp.rotation, tp.scale};
   registry_.emplace<PreviousGlobalTransform>(p);
   registry_.emplace<RenderTransform>(p);
   registry_.emplace<WalkingMovementAttributes>(p);
-  //GivePlayerCharacterController(p);
+  GivePlayerCharacterController(p);
   //GivePlayerFlyingCharacterController(p);
-  registry_.emplace<NoclipCharacterController>(p);
+  //registry_.emplace<NoclipCharacterController>(p);
   registry_.emplace_or_replace<LinearVelocity>(p);
   //cc.character->SetMaxStrength(10000000);
   auto& inventory = registry_.emplace<Inventory>(p, *this);
-  inventory.OverwriteSlot({0, 0}, {spearId}, p);
+  inventory.OverwriteSlot({0, 0}, {stoneSpearId}, p);
   inventory.OverwriteSlot({0, 1}, {stonePickaxeId}, p);
   inventory.OverwriteSlot({0, 2}, {stoneAxeId}, p);
 
@@ -2257,13 +2272,15 @@ void World::InitializeGameState()
   auto plane = planeSettings.Create().Get();
   plane->SetEmbedded();
   
-  auto pe = registry_.create();
-  registry_.emplace<Name>(pe).name = "Floor";
+  auto pe = CreateRenderableEntity({});
+  registry_.emplace<Name>(pe).name = "Death Floor";
+  registry_.emplace<ContactDamage>(pe) = {.damage = 1000, .knockback = 0};
   Physics::AddRigidBody({registry_, pe}, {
     .shape = plane.GetPtr(),
     .activate = false,
+    .isSensor = true,
     .motionType = JPH::EMotionType::Static,
-    .layer = Physics::Layers::WORLD,
+    .layer = Physics::Layers::HURTBOX,
   });
 
   auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 5, 4}));
@@ -2587,6 +2604,17 @@ entt::entity World::CreateDroppedItem(ItemState item, glm::vec3 position, glm::q
   return entity;
 }
 
+entt::entity World::TryGetLocalPlayer()
+{
+  auto view = registry_.view<GlobalTransform, LocalPlayer>();
+  auto e    = view.front();
+  if (e != entt::null)
+  {
+    return e;
+  }
+  return entt::null;
+}
+
 GlobalTransform* World::TryGetLocalPlayerTransform()
 {
   auto view = registry_.view<GlobalTransform, LocalPlayer>();
@@ -2707,7 +2735,7 @@ void World::GivePlayerColliders(entt::entity playerEntity)
 void World::KillPlayer(entt::entity playerEntity)
 {
   registry_.remove<NoclipCharacterController, FlyingCharacterController, Physics::CharacterController, Physics::CharacterControllerShrimple>(playerEntity);
-  registry_.emplace<GhostPlayer>(playerEntity).remainingSeconds = 3;
+  registry_.emplace<GhostPlayer>(playerEntity).remainingSeconds = 5;
 
   if (auto e = GetChildNamed(playerEntity, "Player hitbox"); e != entt::null)
   {
@@ -2727,7 +2755,7 @@ void World::RespawnPlayer(entt::entity playerEntity)
 {
   registry_.remove<GhostPlayer>(playerEntity);
   auto& tp    = registry_.emplace_or_replace<LocalTransform>(playerEntity);
-  tp.position = {2, 78, 2};
+  tp.position = {60, 278, 60};
   tp.rotation = glm::identity<glm::quat>();
   tp.scale    = 1;
   UpdateLocalTransform({registry_, playerEntity});
@@ -3395,6 +3423,8 @@ void Gun::UsePrimary(float dt, World& world, entt::entity self, ItemState& state
       projectile.initialSpeed      = createInfo_.velocity + glm::length(inheritedVelocity);
       projectile.drag              = 0.25f;
       projectile.restitution       = 0.25f;
+      projectile.sticky            = createInfo_.sticky;
+      projectile.stickyDist        = createInfo_.stickyDist;
 
       registry.emplace<LinearVelocity>(b, dir * createInfo_.velocity + inheritedVelocity);
 
@@ -3493,7 +3523,10 @@ entt::entity Block::Materialize(World& world) const
   {
     auto& entityPrefabs = world.GetRegistry().ctx().get<EntityPrefabRegistry>();
     const auto& entityPrefab = entityPrefabs.Get(blockEntityDef->GetEntityPrefab());
-    return entityPrefab.Spawn(world, {0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>());
+    if (entityPrefab.GetCreateInfo().isVisible)
+    {
+      return entityPrefab.Spawn(world, {0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>());
+    }
   }
   auto self = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f}, glm::identity<glm::quat>(), 0.25f);
   auto& mesh = world.GetRegistry().emplace<Mesh>(self);
@@ -3539,7 +3572,19 @@ void Block::UsePrimary(float dt, World& world, entt::entity self, ItemState& sta
       const auto newPos = glm::ivec3(hit.voxelPosition + hit.flatNormalWorld);
       if (grid.GetVoxelAt(newPos) == 0)
       {
-        if (world.GetRegistry().ctx().get<BlockRegistry>().Get(voxel).OnTryPlaceBlock(world, newPos))
+        // Ensure area is clear of entities before placing
+        const auto box = JPH::BoxShape(JPH::Vec3::sReplicate(0.45f));
+        auto collector = JPH::AnyHitCollisionCollector<JPH::CollideShapeCollector>();
+        Physics::GetNarrowPhaseQuery().CollideShape(&box,
+          JPH::Vec3::sReplicate(1),
+          JPH::RMat44::sTranslation(Physics::ToJolt(glm::vec3(newPos) + glm::vec3(0.5f))),
+          JPH::CollideShapeSettings(),
+          JPH::RVec3::sZero(),
+          collector,
+          Physics::GetPhysicsSystem().GetDefaultBroadPhaseLayerFilter(Physics::Layers::CAST_PROJECTILE),
+          Physics::GetPhysicsSystem().GetDefaultLayerFilter(Physics::Layers::CAST_PROJECTILE));
+
+        if (!collector.HadHit() && world.GetRegistry().ctx().get<BlockRegistry>().Get(voxel).OnTryPlaceBlock(world, newPos))
         {
           state.count--;
         }
@@ -3690,17 +3735,17 @@ void Spear::UsePrimary([[maybe_unused]] float dt, World& world, entt::entity sel
 
   state.useAccum = glm::clamp(state.useAccum - dt, 0.0f, dt);
   auto& path = world.GetRegistry().emplace<LinearPath>(self);
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .offsetSeconds = 0.25f, .easing = Math::Easing::EASE_IN_OUT_BACK});
-  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = 0.25f, .easing = Math::Easing::EASE_IN_SINE});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, -1}, .offsetSeconds = GetUseDt() * 0.45f, .easing = Math::Easing::EASE_IN_OUT_BACK});
+  path.frames.emplace_back(LinearPath::KeyFrame{.position = {0, 0, 0}, .offsetSeconds = GetUseDt() * 0.45f, .easing = Math::Easing::EASE_IN_SINE});
 
-  auto& reg    = world.GetRegistry();
-  auto child   = reg.create();
+  auto& reg  = world.GetRegistry();
+  auto child = reg.create();
   reg.emplace<Name>(child).name = "Hurtbox";
   reg.emplace<LocalTransform>(child) = {{0, 0, -1}, glm::identity<glm::quat>(), 1};
   reg.emplace<GlobalTransform>(child) = {{0, 0, -1}, glm::identity<glm::quat>(), 1};
   reg.emplace<Lifetime>(child).remainingSeconds = GetUseDt();
   reg.emplace<Hierarchy>(child);
-  reg.emplace<ContactDamage>(child) = {20, 5};
+  reg.emplace<ContactDamage>(child) = {createInfo_.damage, createInfo_.knockback};
   SetParent({reg, child}, self);
 
   auto sphere = JPH::Ref(new JPH::SphereShape(0.125));
@@ -3713,7 +3758,7 @@ entt::entity Spear::Materialize(World& world) const
   auto self                                    = world.CreateRenderableEntity({0.2f, -0.2f, -0.5f});
   world.GetRegistry().emplace<Mesh>(self).name = "spear";
   world.GetRegistry().emplace<Name>(self).name = "Spear";
-  world.GetRegistry().emplace<Tint>(self, glm::vec3{0.2f, 0.2f, 0.2f});
+  world.GetRegistry().emplace<Tint>(self, createInfo_.tint);
   return self;
 }
 
@@ -3859,7 +3904,7 @@ void NpcSpawnDirector::Update(float dt)
   {
     accumulator -= timeBetweenSpawns;
 
-    constexpr size_t MAX_ENEMIES = 10;
+    constexpr size_t MAX_ENEMIES = 20;
 
     for (auto&& [entity, player, transform] : registry.view<Player, GlobalTransform>().each())
     {

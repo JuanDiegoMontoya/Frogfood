@@ -68,7 +68,7 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
             const auto currentSlotCoord = glm::ivec2(0, j);
             if (glfwGetKey(window_, GLFW_KEY_1 + (int)j) == GLFW_PRESS && j < i->width)
             {
-              i->SetActiveSlot(currentSlotCoord, entity);
+              i->SetActiveSlot(world, currentSlotCoord, entity);
               break;
             }
           }
@@ -77,7 +77,7 @@ void InputSystem::VariableUpdatePre(DeltaTime, World& world, bool swapchainOk)
           {
             const auto offset = -(int)scrollOffset.y;
             const auto newCol = (int)glm::mod((float)i->activeSlotCoord.y + offset, (float)i->width);
-            i->SetActiveSlot({0, newCol}, entity);
+            i->SetActiveSlot(world, {0, newCol}, entity);
           }
         }
       }

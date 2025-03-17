@@ -116,7 +116,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     EnTT
     GIT_REPOSITORY https://github.com/skypjack/entt.git
-    GIT_TAG        v3.14.0
+    GIT_TAG        4d3e11645b1356e2a765eb19ac92faea4e6dc748
 )
 
 FetchContent_Declare(
@@ -137,6 +137,15 @@ if (NOT choc_POPULATED)
     target_include_directories(choc INTERFACE ${choc_SOURCE_DIR})
 endif()
 
+set(SKIP_PORTABILITY_TEST ON CACHE BOOL "" FORCE)
+set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "" FORCE)
+set(BUILD_DOC OFF CACHE BOOL "" FORCE)
+set(BUILD_SANDBOX OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    cereal
+    GIT_REPOSITORY https://github.com/USCiLab/cereal.git
+    GIT_TAG        a56bad8bbb770ee266e930c95d37fff2a5be7fea
+)
 
 set(DOUBLE_PRECISION OFF)
 #set(GENERATE_DEBUG_SYMBOLS ON)
@@ -192,6 +201,7 @@ FetchContent_MakeAvailable(
     EnTT
     fastNoise2
     unordered_dense
+    cereal
 )
 
 set(FSR2_SOURCE ${fsr2_SOURCE_DIR} PARENT_SCOPE)

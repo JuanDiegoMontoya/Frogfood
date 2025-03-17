@@ -160,8 +160,8 @@ struct TwoLevelGrid
   ankerl::unordered_dense::set<BottomLevelBrickPtr*> dirtyBottomLevelBricks;
   #endif
 
-private:
   std::vector<Material> materials_;
+private:
   std::unique_ptr<std::mutex> mutex_;
   // TracyLockable(std::mutex, STINKY_MUTEX); // Crashes Tracy client, possibly because I have too many threads.
 };

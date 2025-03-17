@@ -158,12 +158,12 @@ static void OnContactAdded(World& world, Physics::ContactAddedPair* ppair)
 
         if (d.item.id != nullItem)
         {
-          i.TryStackItem(d.item);
+          i.TryStackItem(world, d.item);
           if (d.item.count > 0)
           {
             if (auto slotCoords = i.GetFirstEmptySlot())
             {
-              i.OverwriteSlot(*slotCoords, d.item, entity1);
+              i.OverwriteSlot(world, *slotCoords, d.item, entity1);
               d.item = {.count = 0};
             }
           }
@@ -312,14 +312,16 @@ void OnLinearPathRemove(entt::registry& registry, entt::entity entity)
   }
 }
 
-Game::Game(uint32_t tickHz)
+static Head* gHead_HORRIBLE_HACK{};
+Game::Game(uint32_t)
 {
   world_ = std::make_unique<World>();
   Physics::Initialize(*world_);
   Physics::GetDispatcher().sink<Physics::ContactAddedPair*>().connect<&OnContactAdded>(*world_);
   Physics::GetDispatcher().sink<Physics::ContactPersistedPair*>().connect<&OnContactPersisted>(*world_);
+
 #ifdef GAME_HEADLESS
-  head_ = std::make_unique<NullHead>();
+  head_                                            = std::make_unique<NullHead>();
   world_->GetRegistry().ctx().emplace<GameState>() = GameState::GAME;
   world_->InitializeGameState();
 #else
@@ -330,27 +332,43 @@ Game::Game(uint32_t tickHz)
     .presentMode = VK_PRESENT_MODE_FIFO_KHR,
     .world       = world_.get(),
   });
-  world_->GetRegistry().ctx().emplace<GameState>() = GameState::MENU;
-  world_->GetRegistry().ctx().emplace<std::vector<Debug::Line>>();
+  gHead_HORRIBLE_HACK = head_.get();
 #endif
 
-  world_->GetRegistry().ctx().emplace<Debugging>();
-  world_->GetRegistry().ctx().emplace<TimeScale>();
-  world_->GetRegistry().ctx().emplace<TickRate>().hz = tickHz;
-  world_->GetRegistry().ctx().emplace_as<float>("time"_hs) = 0; // TODO: TEMP
-  world_->GetRegistry().ctx().emplace<Pathfinding::PathCache>(); // Note: should be invalidated when voxel grid changes
-  world_->GetRegistry().ctx().emplace<HashGrid>(16);
-  world_->GetRegistry().ctx().emplace<Head*>() = head_.get(); // Hack
-
-  world_->GetRegistry().on_construct<DeferredDelete>().connect<&OnDeferredDeleteConstruct>();
-  world_->GetRegistry().on_construct<NoclipCharacterController>().connect<&OnNoclipCharacterControllerConstruct>();
-  world_->GetRegistry().on_construct<FlyingCharacterController>().connect<&OnFlyingCharacterControllerConstruct>();
-  world_->GetRegistry().on_construct<Physics::CharacterController>().connect<&OnCharacterControllerConstruct>();
-  world_->GetRegistry().on_construct<Physics::CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleConstruct>();
-  world_->GetRegistry().on_destroy<GlobalTransform>().connect<&OnGlobalTransformRemove>();
-  world_->GetRegistry().on_destroy<LinearPath>().connect<&OnLinearPathRemove>();
+  CreateContextVariablesAndObservers(*world_);
 
   Core::Reflection::InitializeReflection();
+}
+
+void CreateContextVariablesAndObservers(World& world)
+{
+  auto& registry = world.GetRegistry();
+#ifndef GAME_HEADLESS
+  registry.ctx().emplace<GameState>() = GameState::MENU;
+  registry.ctx().emplace<std::vector<Debug::Line>>();
+#endif
+
+  registry.ctx().emplace<PCG::Rng>();
+  registry.ctx().emplace<Debugging>();
+  registry.ctx().emplace<TimeScale>();
+  registry.ctx().emplace<TickRate>().hz = 30;
+  registry.ctx().emplace_as<float>("time"_hs) = 0; // TODO: TEMP
+  registry.ctx().emplace<Pathfinding::PathCache>(); // Note: should be invalidated when voxel grid changes
+  registry.ctx().emplace<HashGrid>(16);
+  registry.ctx().emplace<Head*>() = gHead_HORRIBLE_HACK; // Hack
+  registry.ctx().emplace<NpcSpawnDirector>(world);
+
+  registry.on_construct<DeferredDelete>().connect<&OnDeferredDeleteConstruct>();
+  registry.on_construct<NoclipCharacterController>().connect<&OnNoclipCharacterControllerConstruct>();
+  registry.on_construct<FlyingCharacterController>().connect<&OnFlyingCharacterControllerConstruct>();
+  registry.on_construct<Physics::CharacterController>().connect<&OnCharacterControllerConstruct>();
+  registry.on_construct<Physics::CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleConstruct>();
+  registry.on_destroy<GlobalTransform>().connect<&OnGlobalTransformRemove>();
+  registry.on_destroy<LinearPath>().connect<&OnLinearPathRemove>();
+
+  world.InitializeGameDefinitions();
+
+  Physics::CreateObservers(registry);
 }
 
 Game::~Game()
@@ -408,8 +426,7 @@ public:
   entt::entity Spawn(World& world, glm::vec3 position, glm::quat) const override
   {
     auto& registry = world.GetRegistry();
-    auto sphere    = JPH::Ref(new JPH::SphereShape(0.4f));
-    sphere->SetDensity(0.5f);
+    auto sphere    = Physics::ShapeSettings{Physics::Sphere{0.4f}};
 
     auto e                         = world.CreateRenderableEntity(position, {1, 0, 0, 0}, 0.4f);
     registry.emplace<Mesh>(e).name = "frog";
@@ -432,18 +449,23 @@ public:
     auto& contactDamage  = registry.emplace<ContactDamage>(e);
     contactDamage.damage = 10;
     // Physics::AddCharacterController({registry_, e}, {sphere});
-    Physics::AddCharacterControllerShrimple({registry, e}, {.shape = sphere});
+    registry.emplace<Physics::CharacterControllerShrimpleSettings>(e,
+      Physics::CharacterControllerShrimpleSettings{
+        .shape = sphere,
+      });
     // registry_.emplace<FlyingCharacterController>(e) = {.maxSpeed = 6, .acceleration = 25};
     registry.emplace_or_replace<LinearVelocity>(e);
-    auto rb = Physics::AddRigidBody({registry, e}, {.shape = sphere, .layer = Physics::Layers::CHARACTER});
-    Physics::GetBodyInterface().SetGravityFactor(rb.body, 0);
+    registry.emplace<Physics::RigidBodySettings>(e,
+      Physics::RigidBodySettings{
+        .shape = sphere,
+        .gravityFactor = 0,
+        .layer = Physics::Layers::CHARACTER,
+      });
 
     auto e2                         = world.CreateRenderableEntity({1.0f, 0.3f, -0.8f}, {1, 0, 0, 0}, 1.5f);
     registry.emplace<Name>(e2).name = "Child";
     registry.emplace<Mesh>(e2).name = "ar15";
     SetParent({registry, e2}, e);
-
-    auto hitboxShape = JPH::Ref(new JPH::SphereShape(0.75f));
 
     // Make hitbox/hurtbox collider.
     auto eHitbox                         = registry.create();
@@ -457,9 +479,9 @@ public:
     tpHitbox.scale                             = 1;
     registry.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
     registry.emplace<Hierarchy>(eHitbox);
-    Physics::AddRigidBody({registry, eHitbox},
-      {
-        .shape      = hitboxShape,
+    registry.emplace<Physics::RigidBodySettings>(eHitbox,
+      Physics::RigidBodySettings{
+        .shape      = Physics::Sphere{0.75f},
         .isSensor   = true,
         .motionType = JPH::EMotionType::Kinematic,
         .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
@@ -478,7 +500,6 @@ public:
   entt::entity Spawn(World& world, glm::vec3 position, glm::quat) const override
   {
     auto& registry = world.GetRegistry();
-    auto sphere    = JPH::Ref(new JPH::SphereShape(0.4f));
 
     auto e                         = world.CreateRenderableEntity(position, {1, 0, 0, 0}, 0.4f);
     registry.emplace<Mesh>(e).name = "frog";
@@ -498,10 +519,12 @@ public:
 
     registry.emplace<FlyingCharacterController>(e) = {.maxSpeed = 3.5, .acceleration = 15};
     registry.emplace_or_replace<LinearVelocity>(e);
-    auto rb = Physics::AddRigidBody({registry, e}, {.shape = sphere, .layer = Physics::Layers::CHARACTER});
-    Physics::GetBodyInterface().SetGravityFactor(rb.body, 0);
-
-    auto hitboxShape = JPH::Ref(new JPH::SphereShape(0.95f));
+    registry.emplace<Physics::RigidBodySettings>(e,
+      Physics::RigidBodySettings{
+        .shape         = Physics::Sphere{0.4f},
+        .gravityFactor = 0,
+        .layer         = Physics::Layers::CHARACTER,
+      });
 
     // Make hitbox/hurtbox collider.
     auto eHitbox                         = registry.create();
@@ -515,9 +538,9 @@ public:
     tpHitbox.scale                             = 1;
     registry.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
     registry.emplace<Hierarchy>(eHitbox);
-    Physics::AddRigidBody({registry, eHitbox},
-      {
-        .shape      = hitboxShape,
+    registry.emplace<Physics::RigidBodySettings>(eHitbox,
+      Physics::RigidBodySettings{
+        .shape      = Physics::Sphere{0.95f},
         .isSensor   = true,
         .motionType = JPH::EMotionType::Kinematic,
         .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
@@ -536,11 +559,6 @@ entt::entity CreateSnake(World& world, glm::vec3, glm::quat)
   entt::entity prevEntity = entt::null;
   for (int i = 0; i < 15; i++)
   {
-    auto sphere2Settings = JPH::SphereShapeSettings(0.5f);
-    sphere2Settings.SetEmbedded();
-    sphere2Settings.mDensity = 35.0f - i * 2;
-    auto sphere2             = sphere2Settings.Create().Get();
-
     // const auto position             = glm::vec3{cos(glm::two_pi<float>() * i / 15.0f) * 4.0f, 50 + i / 5.0f, sin(glm::two_pi<float>() * i / 15.0f) * 4.0f};
     const auto position            = glm::vec3{20, 75, i / 0.8f};
     auto a                         = world.CreateRenderableEntity(position, glm::identity<glm::quat>(), i == 0 ? 0.5f : 1.0f);
@@ -549,14 +567,16 @@ entt::entity CreateSnake(World& world, glm::vec3, glm::quat)
     auto body                      = JPH::BodyID();
     if (i != 0)
     {
-      auto rb = Physics::AddRigidBody({registry, a},
-        {
-          .shape      = sphere2,
+      registry.emplace<Physics::RigidBodySettings>(a,
+        Physics::RigidBodySettings{
+          .shape      = Physics::ShapeSettings{Physics::Sphere{0.5f}, 35.0f - i * 2},
           .activate   = true,
           .isSensor   = false,
           .motionType = JPH::EMotionType::Dynamic,
           .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
         });
+
+      const auto& rb = registry.get<Physics::RigidBody>(a);
       body    = rb.body;
 
       Physics::GetBodyInterface().SetGravityFactor(rb.body, 1);
@@ -565,9 +585,9 @@ entt::entity CreateSnake(World& world, glm::vec3, glm::quat)
 
     if (i == 0)
     {
-      head     = a;
-      auto& cc = Physics::AddCharacterControllerShrimple({registry, a}, {.shape = sphere2});
-      body     = cc.character->GetBodyID();
+      head = a;
+      registry.emplace<Physics::CharacterControllerShrimpleSettings>(a, Physics::CharacterControllerShrimpleSettings{.shape = Physics::Sphere{0.5f}});
+      body = registry.get<Physics::CharacterControllerShrimple>(a).character->GetBodyID();
       // registry.emplace<NoclipCharacterController>(a);
       registry.emplace<SimplePathfindingEnemyBehavior>(a);
       registry.emplace<Pathfinding::CachedPath>(a).timeBetweenUpdates = 1;
@@ -622,8 +642,7 @@ entt::entity CreateSnake(World& world, glm::vec3, glm::quat)
       h.useLocalPositionAsGlobal = true;
       h.useLocalRotationAsGlobal = true;
       SetParent({registry, a}, prevEntity);
-
-      auto hitboxShape                     = JPH::Ref(new JPH::SphereShape(0.5f));
+      
       auto eHitbox                         = registry.create();
       registry.emplace<Name>(eHitbox).name = "Worm hitbox";
       registry.emplace<ForwardCollisionsToParent>(eHitbox);
@@ -634,9 +653,9 @@ entt::entity CreateSnake(World& world, glm::vec3, glm::quat)
       tpHitbox.scale                             = 1;
       registry.emplace<GlobalTransform>(eHitbox) = {{}, glm::identity<glm::quat>(), 1};
       registry.emplace<Hierarchy>(eHitbox);
-      Physics::AddRigidBody({registry, eHitbox},
-        {
-          .shape      = hitboxShape,
+      registry.emplace<Physics::RigidBodySettings>(eHitbox,
+        Physics::RigidBodySettings{
+          .shape      = Physics::Sphere{0.5f},
           .isSensor   = true,
           .motionType = JPH::EMotionType::Kinematic,
           .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
@@ -663,26 +682,22 @@ public:
     constexpr float WORM_SCALE   = 1.0f;
     for (int i = 0; i < 30; i++)
     {
-      auto sphere2Settings = JPH::SphereShapeSettings(WORM_SCALE);
-      sphere2Settings.SetEmbedded();
-      sphere2Settings.mDensity = 100000.0f / (1000 * i + 1.0f);
-      auto sphere2             = sphere2Settings.Create().Get();
-
       auto a = world.CreateRenderableEntity(position + glm::vec3{0, 0, 2 * WORM_SCALE * i}, glm::identity<glm::quat>(), i == 0 ? WORM_SCALE : 1.0f);
       registry.emplace<Name>(a).name = i == 0 ? "Worm head" : "Worm body";
       registry.emplace<Mesh>(a).name = "frog";
       registry.emplace<Tint>(a, glm::vec3{1, 0, 0});
       auto body                      = JPH::BodyID();
 
-      auto rb = Physics::AddRigidBody({registry, a},
-        {
-          .shape      = sphere2,
+      registry.emplace<Physics::RigidBodySettings>(a,
+        Physics::RigidBodySettings{
+          .shape      = Physics::ShapeSettings{Physics::Sphere{WORM_SCALE}, 100000.0f / (1000 * i + 1.0f)},
           .activate   = true,
           .isSensor   = true,
           .motionType = i == 0 ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic,
           .layer      = Physics::Layers::HITBOX_AND_HURTBOX,
         });
 
+      const auto& rb = registry.get<Physics::RigidBody>(a);
       body = rb.body;
 
       Physics::GetBodyInterface().SetGravityFactor(rb.body, 0.0f);
@@ -793,7 +808,7 @@ public:
     auto& registry    = world.GetRegistry();
     const auto entity = world.CreateRenderableEntity(position, rotation);
     registry.emplace<Name>(entity, "Chest");
-    registry.emplace<Inventory>(entity, world).canHaveActiveItem = false;
+    registry.emplace<Inventory>(entity).canHaveActiveItem = false;
     return entity;
   }
 };
@@ -1645,7 +1660,7 @@ void World::FixedUpdate(float dt)
           def.UsePrimary(dt, *this, inventory.activeSlotEntity, inventory.ActiveSlot());
           if (inventory.ActiveSlot().count <= 0)
           {
-            inventory.OverwriteSlot(inventory.activeSlotCoord, {}, entt::null);
+            inventory.OverwriteSlot(*this, inventory.activeSlotCoord, {}, entt::null);
           }
         }
       }
@@ -1799,8 +1814,7 @@ void World::FixedUpdate(float dt)
             registry_.emplace_or_replace<LinearVelocity>(droppedEntity, newEntityVelocity);
           }
         }
-
-        // Heroes never die!
+        
         if (registry_.all_of<Player>(entity))
         {
           KillPlayer(entity);
@@ -1842,7 +1856,7 @@ void World::FixedUpdate(float dt)
       {
         for (size_t col = 0; col < inventory.width; col++)
         {
-          if (const auto droppedEntity = inventory.DropItem({row, col}); droppedEntity != entt::null)
+          if (const auto droppedEntity = inventory.DropItem(*this, {row, col}); droppedEntity != entt::null)
           {
             registry_.get<LocalTransform>(droppedEntity).position = transform.position;
             UpdateLocalTransform({registry_, droppedEntity});
@@ -1924,6 +1938,84 @@ void World::InitializeGameState()
 
   registry_.ctx().insert_or_assign<NpcSpawnDirector>(NpcSpawnDirector{*this});
 
+  // Reset RNG
+  registry_.ctx().insert_or_assign<PCG::Rng>(1234);
+
+  // Make player entity
+  auto p = registry_.create();
+  registry_.emplace<Name>(p).name = "Player";
+  registry_.emplace<Player>(p);
+  registry_.emplace<LocalPlayer>(p);
+  registry_.emplace<InputState>(p);
+  registry_.emplace<InputLookState>(p);
+  registry_.emplace<Hierarchy>(p);
+  registry_.emplace<Health>(p) = {100, 100};
+  registry_.emplace<TeamFlags>(p, TeamFlagBits::FRIENDLY);
+
+  auto& tp = registry_.emplace<LocalTransform>(p);
+  tp.position = {60, 270, 60};
+  tp.rotation = glm::identity<glm::quat>();
+  tp.scale    = 1;
+  registry_.emplace<GlobalTransform>(p) = {tp.position, tp.rotation, tp.scale};
+  registry_.emplace<PreviousGlobalTransform>(p);
+  registry_.emplace<RenderTransform>(p);
+  registry_.emplace<WalkingMovementAttributes>(p);
+  GivePlayerCharacterController(p);
+  //GivePlayerFlyingCharacterController(p);
+  //registry_.emplace<NoclipCharacterController>(p);
+  registry_.emplace_or_replace<LinearVelocity>(p);
+  //cc.character->SetMaxStrength(10000000);
+
+  auto& items     = registry_.ctx().get<ItemRegistry>();
+  auto& inventory = registry_.emplace<Inventory>(p);
+  inventory.OverwriteSlot(*this, {0, 0}, {items.GetId("Stone Spear")}, p);
+  inventory.OverwriteSlot(*this, {0, 1}, {items.GetId("Stone Pickaxe")}, p);
+  inventory.OverwriteSlot(*this, {0, 2}, {items.GetId("Stone Axe")}, p);
+
+  GivePlayerColliders(p);
+
+  auto e = CreateRenderableEntity({0, 0, 0});
+  registry_.emplace<Name>(e).name = "Test";
+  registry_.emplace<Mesh>(e).name = "frog";
+  
+  auto pe = CreateRenderableEntity({});
+  registry_.emplace<Name>(pe).name = "Death Floor";
+  registry_.emplace<ContactDamage>(pe) = {.damage = 1000, .knockback = 0};
+  registry_.emplace<Physics::RigidBodySettings>(pe,
+    Physics::RigidBodySettings {
+      .shape      = Physics::Plane{{0, 1, 0}, 0},
+      .activate   = false,
+      .isSensor   = true,
+      .motionType = JPH::EMotionType::Static,
+      .layer      = Physics::Layers::HURTBOX,
+    });
+
+  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 5, 4}));
+
+  auto voxelMats = std::vector<TwoLevelGrid::Material>();
+  for (const auto& def : registry_.ctx().get<BlockRegistry>().GetAllDefinitions())
+  {
+    voxelMats.emplace_back(TwoLevelGrid::Material{
+      .isVisible = !def->GetMaterialDesc().isInvisible,
+      .isSolid = def->GetIsSolid(),
+    });
+  }
+  grid.SetMaterialArray(std::move(voxelMats));
+
+  auto ve                          = registry_.create();
+  registry_.emplace<Name>(ve).name = "Voxels";
+  registry_.emplace<Voxels>(ve);
+  registry_.emplace<Physics::RigidBodySettings>(ve,
+    Physics::RigidBodySettings{
+      .shape      = Physics::UseTwoLevelGrid{},
+      .activate   = false,
+      .motionType = JPH::EMotionType::Static,
+      .layer      = Physics::Layers::WORLD,
+    });
+}
+
+void World::InitializeGameDefinitions()
+{
   // Reset entity prefab registry
   auto& entityPrefabs = registry_.ctx().insert_or_assign<EntityPrefabRegistry>({});
   [[maybe_unused]] auto meleeFrogId = entityPrefabs.Add("Melee Frog", new MeleeFrogDefinition({.spawnChance = 0.095f}));
@@ -2118,10 +2210,6 @@ void World::InitializeGameState()
        {.id = mushroomId})))
      .GetItemId();
 
-  auto* head = registry_.ctx().get<Head*>();
-  auto blockDefs = blocks.GetAllDefinitions();
-  head->CreateRenderingMaterials(blockDefs);
-
   auto& prefabs = registry_.ctx().insert_or_assign<PrefabRegistry>({});
   //const auto grassId = blocks.Get("Grass").GetBlockId();
   //const auto frogLightBlockId = blocks.Get("Frog Light").GetBlockId();
@@ -2229,84 +2317,9 @@ void World::InitializeGameState()
   });
   loot.Add("worm", std::move(wormLoot));
 
-  // Reset RNG
-  registry_.ctx().insert_or_assign<PCG::Rng>(1234);
-
-  // Make player entity
-  auto p = registry_.create();
-  registry_.emplace<Name>(p).name = "Player";
-  registry_.emplace<Player>(p);
-  registry_.emplace<LocalPlayer>(p);
-  registry_.emplace<InputState>(p);
-  registry_.emplace<InputLookState>(p);
-  registry_.emplace<Hierarchy>(p);
-  registry_.emplace<Health>(p) = {100, 100};
-  registry_.emplace<TeamFlags>(p, TeamFlagBits::FRIENDLY);
-
-  auto& tp = registry_.emplace<LocalTransform>(p);
-  tp.position = {60, 270, 60};
-  tp.rotation = glm::identity<glm::quat>();
-  tp.scale    = 1;
-  registry_.emplace<GlobalTransform>(p) = {tp.position, tp.rotation, tp.scale};
-  registry_.emplace<PreviousGlobalTransform>(p);
-  registry_.emplace<RenderTransform>(p);
-  registry_.emplace<WalkingMovementAttributes>(p);
-  GivePlayerCharacterController(p);
-  //GivePlayerFlyingCharacterController(p);
-  //registry_.emplace<NoclipCharacterController>(p);
-  registry_.emplace_or_replace<LinearVelocity>(p);
-  //cc.character->SetMaxStrength(10000000);
-  auto& inventory = registry_.emplace<Inventory>(p, *this);
-  inventory.OverwriteSlot({0, 0}, {stoneSpearId}, p);
-  inventory.OverwriteSlot({0, 1}, {stonePickaxeId}, p);
-  inventory.OverwriteSlot({0, 2}, {stoneAxeId}, p);
-
-  GivePlayerColliders(p);
-
-  auto e = CreateRenderableEntity({0, 0, 0});
-  registry_.emplace<Name>(e).name = "Test";
-  registry_.emplace<Mesh>(e).name = "frog";
-
-  auto planeSettings = JPH::PlaneShapeSettings(JPH::Plane(JPH::Vec3(0, 1, 0), 0));
-  planeSettings.SetEmbedded();
-  auto plane = planeSettings.Create().Get();
-  plane->SetEmbedded();
-  
-  auto pe = CreateRenderableEntity({});
-  registry_.emplace<Name>(pe).name = "Death Floor";
-  registry_.emplace<ContactDamage>(pe) = {.damage = 1000, .knockback = 0};
-  Physics::AddRigidBody({registry_, pe}, {
-    .shape = plane.GetPtr(),
-    .activate = false,
-    .isSensor = true,
-    .motionType = JPH::EMotionType::Static,
-    .layer = Physics::Layers::HURTBOX,
-  });
-
-  auto& grid = registry_.ctx().insert_or_assign(TwoLevelGrid(glm::vec3{4, 5, 4}));
-
-  auto voxelMats = std::vector<TwoLevelGrid::Material>();
-  for (const auto& def : blockDefs)
-  {
-    voxelMats.emplace_back(TwoLevelGrid::Material{
-      .isVisible = !def->GetMaterialDesc().isInvisible,
-      .isSolid = def->GetIsSolid(),
-    });
-  }
-  grid.SetMaterialArray(std::move(voxelMats));
-
-  auto twoLevelGridShape = JPH::Ref(new Physics::TwoLevelGridShape(grid));
-
-  auto ve                          = registry_.create();
-  registry_.emplace<Name>(ve).name = "Voxels";
-  registry_.emplace<Voxels>(ve);
-  Physics::AddRigidBody({registry_, ve},
-    {
-      .shape      = twoLevelGridShape,
-      .activate   = false,
-      .motionType = JPH::EMotionType::Static,
-      .layer      = Physics::Layers::WORLD,
-    });
+  auto* head     = registry_.ctx().get<Head*>();
+  auto blockDefs = blocks.GetAllDefinitions();
+  head->CreateRenderingMaterials(blockDefs);
 }
 
 void World::GenerateMap()
@@ -2678,11 +2691,13 @@ Physics::CharacterController& World::GivePlayerCharacterController(entt::entity 
   constexpr float playerHalfHeight = 0.8f;
   constexpr float playerHalfWidth  = 0.3f;
   // auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
-  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
+  auto playerShape = Physics::Box({playerHalfWidth, playerHalfHeight, playerHalfWidth});
+  
+  registry_.emplace_or_replace<Physics::CharacterControllerSettings>(playerEntity,
+    Physics::CharacterControllerSettings{{.shape = playerShape, .translation = {0, -playerHalfHeight * 0.875f, 0}}});
 
-  auto playerShape = JPH::Ref(new JPH::RotatedTranslatedShape(JPH::Vec3(0, -playerHalfHeight * 0.875f, 0), JPH::Quat::sIdentity(), playerCapsule));
-
-  return Physics::AddCharacterController({registry_, playerEntity}, {.shape = playerShape});
+  // Adding a CharacterControllerSettings will also add a CharacterController.
+  return registry_.get<Physics::CharacterController>(playerEntity);
 }
 
 Physics::CharacterControllerShrimple& World::GivePlayerCharacterControllerShrimple(entt::entity playerEntity)
@@ -2690,11 +2705,12 @@ Physics::CharacterControllerShrimple& World::GivePlayerCharacterControllerShrimp
   constexpr float playerHalfHeight = 0.8f;
   constexpr float playerHalfWidth  = 0.3f;
   // auto playerCapsule = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
-  auto playerCapsule = JPH::Ref(new JPH::BoxShape(JPH::Vec3(playerHalfWidth, playerHalfHeight, playerHalfWidth)));
+  auto playerShape = Physics::Box({playerHalfWidth, playerHalfHeight, playerHalfWidth});
 
-  auto playerShape = JPH::Ref(new JPH::RotatedTranslatedShape(JPH::Vec3(0, -playerHalfHeight * 0.875f, 0), JPH::Quat::sIdentity(), playerCapsule));
-
-  return Physics::AddCharacterControllerShrimple({registry_, playerEntity}, {.shape = playerShape});
+  registry_.emplace<Physics::CharacterControllerShrimpleSettings>(playerEntity,
+    Physics::CharacterControllerShrimpleSettings{{.shape = playerShape, .translation = {0, -playerHalfHeight * 0.875f, 0}}});
+  
+  return registry_.get<Physics::CharacterControllerShrimple>(playerEntity);
 }
 
 FlyingCharacterController& World::GivePlayerFlyingCharacterController(entt::entity playerEntity)
@@ -2708,8 +2724,7 @@ void World::GivePlayerColliders(entt::entity playerEntity)
   constexpr float playerHalfHeight = 0.8f * 1.0f;
   constexpr float playerHalfWidth  = 0.3f * 1.0f;
   assert(playerHalfHeight - playerHalfWidth >= 0);
-  auto playerHitbox      = JPH::Ref(new JPH::CapsuleShape(playerHalfHeight - playerHalfWidth, playerHalfWidth));
-  auto playerHitboxShape = JPH::Ref(new JPH::RotatedTranslatedShape(JPH::Vec3(0, -0.8f * 0.875f, 0), JPH::Quat::sIdentity(), playerHitbox));
+  auto playerHitbox      = Physics::Capsule(playerHalfHeight - playerHalfWidth, playerHalfWidth);
 
   auto pHitbox                          = registry_.create();
   registry_.emplace<Name>(pHitbox).name = "Player hitbox";
@@ -2722,9 +2737,9 @@ void World::GivePlayerColliders(entt::entity playerEntity)
   registry_.emplace<GlobalTransform>(pHitbox) = {{}, glm::identity<glm::quat>(), 1};
 
   registry_.emplace<Hierarchy>(pHitbox).useLocalRotationAsGlobal = true; // Stay upright
-  Physics::AddRigidBody({registry_, pHitbox},
-    {
-      .shape      = playerHitboxShape,
+  registry_.emplace<Physics::RigidBodySettings>(pHitbox,
+    Physics::RigidBodySettings{
+      .shape      = Physics::ShapeSettings{.shape = playerHitbox, .translation = {0, -0.8f * 0.875f, 0}},
       .isSensor   = true,
       .motionType = JPH::EMotionType::Kinematic,
       .layer      = Physics::Layers::HITBOX,
@@ -3091,8 +3106,8 @@ bool SwapInventorySlots(World& world, entt::entity parent1, glm::ivec2 parent1Sl
   auto item1 = inventory1->slots[parent1Slot.x][parent1Slot.y];
   auto item2 = inventory2->slots[parent2Slot.x][parent2Slot.y];
 
-  inventory1->OverwriteSlot(parent1Slot, item2, parent1);
-  inventory2->OverwriteSlot(parent2Slot, item1, parent2);
+  inventory1->OverwriteSlot(world, parent1Slot, item2, parent1);
+  inventory2->OverwriteSlot(world, parent2Slot, item1, parent2);
 
   return true;
 }
@@ -3176,7 +3191,7 @@ void Hierarchy::RemoveChild(entt::entity child)
   std::erase(children, child);
 }
 
-void Inventory::SetActiveSlot(glm::ivec2 rowCol, entt::entity parent)
+void Inventory::SetActiveSlot(World& world, glm::ivec2 rowCol, entt::entity parent)
 {
   if (!canHaveActiveItem)
   {
@@ -3187,18 +3202,18 @@ void Inventory::SetActiveSlot(glm::ivec2 rowCol, entt::entity parent)
   {
     if (ActiveSlot().id != nullItem)
     {
-      world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Dematerialize(*world, activeSlotEntity);
+      world.GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Dematerialize(world, activeSlotEntity);
     }
     activeSlotCoord = rowCol;
     if (ActiveSlot().id != nullItem)
     {
-      activeSlotEntity = world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Materialize(*world);
-      SetParent({world->GetRegistry(), activeSlotEntity}, parent);
+      activeSlotEntity = world.GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Materialize(world);
+      SetParent({world.GetRegistry(), activeSlotEntity}, parent);
     }
   }
 }
 
-void Inventory::SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent)
+void Inventory::SwapSlots(World& world, glm::ivec2 first, glm::ivec2 second, entt::entity parent)
 {
   // Handle moving active item onto another slot or vice versa
   if (canHaveActiveItem)
@@ -3207,19 +3222,19 @@ void Inventory::SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity pare
     const bool secondIsActive = second == activeSlotCoord;
     if (firstIsActive)
     {
-      SetActiveSlot(second, parent);
+      SetActiveSlot(world, second, parent);
       activeSlotCoord = first;
     }
     else if (secondIsActive)
     {
-      SetActiveSlot(first, parent);
+      SetActiveSlot(world, first, parent);
       activeSlotCoord = second;
     }
   }
   std::swap(slots[second[0]][second[1]], slots[first[0]][first[1]]);
 }
 
-entt::entity Inventory::DropItem(glm::ivec2 slot)
+entt::entity Inventory::DropItem(World& world, glm::ivec2 slot)
 {
   auto& item = slots[slot[0]][slot[1]];
   if (item.id == nullItem)
@@ -3227,39 +3242,39 @@ entt::entity Inventory::DropItem(glm::ivec2 slot)
     return entt::null;
   }
 
-  const auto& def = world->GetRegistry().ctx().get<ItemRegistry>().Get(item.id);
+  const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(item.id);
 
   if (canHaveActiveItem && activeSlotCoord == slot)
   {
-    def.Dematerialize(*world, activeSlotEntity);
+    def.Dematerialize(world, activeSlotEntity);
     activeSlotEntity = entt::null;
   }
 
-  auto entity = def.Materialize(*world);
-  def.GiveCollider(*world, entity);
-  world->GetRegistry().emplace<DroppedItem>(entity).item = std::exchange(item, {});
-  world->GetRegistry().emplace<CannotBePickedUp>(entity).remainingSeconds = 1.0f;
+  auto entity = def.Materialize(world);
+  def.GiveCollider(world, entity);
+  world.GetRegistry().emplace<DroppedItem>(entity).item = std::exchange(item, {});
+  world.GetRegistry().emplace<CannotBePickedUp>(entity).remainingSeconds = 1.0f;
   return entity;
 }
 
-void Inventory::OverwriteSlot(glm::ivec2 rowCol, ItemState itemState, entt::entity parent)
+void Inventory::OverwriteSlot(World& world, glm::ivec2 rowCol, ItemState itemState, entt::entity parent)
 {
   const bool dstIsActive = rowCol == activeSlotCoord;
   if (canHaveActiveItem && dstIsActive && ActiveSlot().id != nullItem)
   {
-    world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Dematerialize(*world, activeSlotEntity);
+    world.GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Dematerialize(world, activeSlotEntity);
   }
   slots[rowCol[0]][rowCol[1]] = itemState;
   if (canHaveActiveItem && dstIsActive && itemState.id != nullItem)
   {
-    activeSlotEntity = world->GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Materialize(*world);
-    SetParent({world->GetRegistry(), activeSlotEntity}, parent);
+    activeSlotEntity = world.GetRegistry().ctx().get<ItemRegistry>().Get(ActiveSlot().id).Materialize(world);
+    SetParent({world.GetRegistry(), activeSlotEntity}, parent);
   }
 }
 
-void Inventory::TryStackItem(ItemState& item)
+void Inventory::TryStackItem(World& world, ItemState& item)
 {
-  const auto& def = world->GetRegistry().ctx().get<ItemRegistry>().Get(item.id);
+  const auto& def = world.GetRegistry().ctx().get<ItemRegistry>().Get(item.id);
   for (auto& row : slots)
   {
     for (auto& slot : row)
@@ -3323,7 +3338,7 @@ bool Inventory::CanCraftRecipe(Crafting::Recipe recipe) const
   return true;
 }
 
-void Inventory::CraftRecipe(Crafting::Recipe recipe, entt::entity parent) 
+void Inventory::CraftRecipe(World& world, Crafting::Recipe recipe, entt::entity parent) 
 {
   // For every ingredient, look at entire inventory and eat the required items. It's assumed that the required items are available.
   for (auto& ingredient : recipe.ingredients)
@@ -3341,7 +3356,7 @@ void Inventory::CraftRecipe(Crafting::Recipe recipe, entt::entity parent)
           slot.count -= consumed;
           if (slot.count <= 0)
           {
-            OverwriteSlot({rowIdx, colIdx}, {});
+            OverwriteSlot(world, {rowIdx, colIdx}, {});
           }
         }
       }
@@ -3352,17 +3367,17 @@ void Inventory::CraftRecipe(Crafting::Recipe recipe, entt::entity parent)
   for (auto& output : recipe.output)
   {
     auto item = ItemState{output.item, output.count};
-    TryStackItem(item);
+    TryStackItem(world, item);
     if (item.count > 0)
     {
       if (auto slot = GetFirstEmptySlot())
       {
-        OverwriteSlot(*slot, item, parent);
+        OverwriteSlot(world, *slot, item, parent);
       }
       else
       {
-        const auto& t = world->GetRegistry().get<GlobalTransform>(parent);
-        world->CreateDroppedItem(item, t.position, t.rotation, t.scale);
+        const auto& t = world.GetRegistry().get<GlobalTransform>(parent);
+        world.CreateDroppedItem(item, t.position, t.rotation, t.scale);
       }
     }
   }
@@ -3497,7 +3512,7 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
     const auto damage = world.DamageBlock(glm::ivec3(hit.voxelPosition), createInfo_.blockDamage, createInfo_.blockDamageTier, createInfo_.blockDamageFlags);
 
     constexpr float debrisSize = 0.0525f;
-    auto cube = JPH::Ref(new JPH::BoxShape(JPH::Vec3::sReplicate(debrisSize)));
+    auto cube = Physics::Box({debrisSize, debrisSize, debrisSize});
 
     // Make debris "particles"
     const auto numParticles = glm::clamp(glm::ceil(glm::mix(1.0f, 6.0f, damage / 20.0f)), 0.0f, 10.0f);
@@ -3509,7 +3524,7 @@ void ToolDefinition::UsePrimary(float dt, World& world, entt::entity self, ItemS
       reg.emplace<Mesh>(e).name = "cube";
       reg.emplace<Name>(e).name = "Debris";
       reg.emplace<Lifetime>(e).remainingSeconds = 2;
-      Physics::AddRigidBody({reg, e}, {.shape = cube, .layer = Physics::Layers::DEBRIS});
+      reg.emplace<Physics::RigidBodySettings>(e, Physics::RigidBodySettings{.shape = cube, .layer = Physics::Layers::DEBRIS});
       const auto velocity = Math::RandVecInCone({world.Rng().RandFloat(), world.Rng().RandFloat()}, hit.flatNormalWorld, glm::quarter_pi<float>()) * 3.0f;
       reg.emplace_or_replace<LinearVelocity>(e).v = velocity;
     }
@@ -3605,11 +3620,12 @@ Physics::RigidBody& ItemDefinition::GiveCollider(World& world, entt::entity self
 {
   assert(self != entt::null);
   world.GetRegistry().emplace<Friction>(self).axes = {.2, .1, .2};
-  return Physics::AddRigidBody({world.GetRegistry(), self},
-    {
-      .shape = JPH::Ref(new JPH::BoxShape(Physics::ToJolt(GetDroppedColliderSize()))),
+  world.GetRegistry().emplace<Physics::RigidBodySettings>(self,
+    Physics::RigidBodySettings{
+      .shape = {Physics::Box{GetDroppedColliderSize()}},
       .layer = Physics::Layers::DROPPED_ITEM,
     });
+  return world.GetRegistry().get<Physics::RigidBody>(self);
 }
 
 const ItemDefinition& ItemRegistry::Get(const std::string& name) const
@@ -3748,9 +3764,13 @@ void Spear::UsePrimary([[maybe_unused]] float dt, World& world, entt::entity sel
   reg.emplace<ContactDamage>(child) = {createInfo_.damage, createInfo_.knockback};
   SetParent({reg, child}, self);
 
-  auto sphere = JPH::Ref(new JPH::SphereShape(0.125));
-
-  Physics::AddRigidBody({world.GetRegistry(), child}, {.shape = sphere, .isSensor = true, .motionType = JPH::EMotionType::Kinematic, .layer = Physics::Layers::PROJECTILE});
+  reg.emplace<Physics::RigidBodySettings>(child,
+    Physics::RigidBodySettings{
+      .shape      = Physics::Sphere{0.125f},
+      .isSensor   = true,
+      .motionType = JPH::EMotionType::Kinematic,
+      .layer      = Physics::Layers::PROJECTILE,
+  });
 }
 
 entt::entity Spear::Materialize(World& world) const

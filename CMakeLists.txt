@@ -222,6 +222,7 @@ target_link_libraries(frogRender
     FastNoise
     unordered_dense
     choc
+    cereal
 )
 
 target_compile_definitions(glm INTERFACE GLM_FORCE_DEPTH_ZERO_TO_ONE VK_NO_PROTOTYPES GLFW_INCLUDE_NONE ImTextureID=ImU64)

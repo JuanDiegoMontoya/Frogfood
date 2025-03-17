@@ -302,6 +302,8 @@ public:
 
   void InitializeGameState();
 
+  void InitializeGameDefinitions();
+
   void GenerateMap();
 
   // Adds LocalTransform, GlobalTransform, InterpolatedTransform, RenderTransform, and Hierarchy components.
@@ -409,6 +411,8 @@ private:
   uint64_t ticks_ = 0;
   entt::registry registry_;
 };
+
+void CreateContextVariablesAndObservers(World& world);
 
 class EntityPrefabDefinition
 {
@@ -833,9 +837,6 @@ struct Crafting
 
 struct Inventory
 {
-  Inventory(World& world) : world(&world) {}
-  World* world{};
-
   static constexpr size_t height = 4;
   static constexpr size_t width  = 8;
 
@@ -854,21 +855,21 @@ struct Inventory
     return slots[activeSlotCoord.x][activeSlotCoord.y];
   }
 
-  void SetActiveSlot(glm::ivec2 rowCol, entt::entity parent);
+  void SetActiveSlot(World& world, glm::ivec2 rowCol, entt::entity parent);
   
-  void SwapSlots(glm::ivec2 first, glm::ivec2 second, entt::entity parent);
+  void SwapSlots(World& world, glm::ivec2 first, glm::ivec2 second, entt::entity parent);
 
   // If necessary, materializes the item. Then, the item is given a RigidBody and is moved into the new entity.
-  entt::entity DropItem(glm::ivec2 slot);
+  entt::entity DropItem(World& world, glm::ivec2 slot);
 
   // Completely deletes the old item, replacing it with the new. New item can be null.
-  void OverwriteSlot(glm::ivec2 rowCol, ItemState itemState, entt::entity parent = entt::null);
+  void OverwriteSlot(World& world, glm::ivec2 rowCol, ItemState itemState, entt::entity parent = entt::null);
 
-  void TryStackItem(ItemState& item);
+  void TryStackItem(World& world, ItemState& item);
   std::optional<glm::ivec2> GetFirstEmptySlot() const;
 
   bool CanCraftRecipe(Crafting::Recipe recipe) const;
-  void CraftRecipe(Crafting::Recipe recipe, entt::entity parent);
+  void CraftRecipe(World& world, Crafting::Recipe recipe, entt::entity parent);
 };
 
 // If parent1 and parent2 both have an inventory, swaps items between them.

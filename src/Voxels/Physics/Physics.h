@@ -16,8 +16,10 @@
 
 #include <optional>
 #include <vector>
+#include <variant>
 
 class World;
+struct TwoLevelGrid;
 
 namespace Physics
 {
@@ -40,12 +42,55 @@ namespace Physics
     constexpr JPH::ObjectLayer CAST_CHARACTER   = 12;
   }
 
+  struct Sphere
+  {
+    bool operator==(const Sphere&) const = default;
+    float radius{};
+  };
+
+  struct Capsule
+  {
+    bool operator==(const Capsule&) const = default;
+    float radius{};
+    float cylinderHalfHeight{};
+  };
+
+  struct Box
+  {
+    bool operator==(const Box&) const = default;
+    glm::vec3 halfExtent{};
+  };
+
+  struct Plane
+  {
+    bool operator==(const Plane&) const = default;
+    glm::vec3 normal{};
+    float constant{};
+  };
+
+  struct UseTwoLevelGrid
+  {
+    bool operator==(const UseTwoLevelGrid&) const = default;
+  };
+
+  using PolyShape = std::variant<std::monostate, Sphere, Capsule, Box, Plane, UseTwoLevelGrid>;
+
+  struct ShapeSettings
+  {
+    PolyShape shape;
+    float density         = 1000; // kg/m^3
+    glm::vec3 translation = {0, 0, 0};
+    glm::quat rotation    = glm::identity<glm::quat>();
+  };
+
   struct RigidBodySettings
   {
-    const JPH::Shape* shape{};
+    ShapeSettings shape{};
     bool activate = true;
     bool isSensor = false;
+    float gravityFactor = 1;
     JPH::EMotionType motionType = JPH::EMotionType::Dynamic;
+    JPH::EMotionQuality motionQuality  = JPH::EMotionQuality::Discrete;
     JPH::ObjectLayer layer = Layers::DEBRIS;
     JPH::EAllowedDOFs degreesOfFreedom = JPH::EAllowedDOFs::All;
   };
@@ -57,7 +102,7 @@ namespace Physics
 
   struct CharacterControllerSettings
   {
-    const JPH::Shape* shape{};
+    ShapeSettings shape;
   };
 
   struct CharacterController
@@ -68,7 +113,7 @@ namespace Physics
 
   struct CharacterControllerShrimpleSettings
   {
-    const JPH::Shape* shape{};
+    ShapeSettings shape;
   };
 
   struct CharacterControllerShrimple
@@ -82,10 +127,7 @@ namespace Physics
   {
     JPH::RefConst<JPH::Shape> shape;
   };
-
-  RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings& settings);
-  CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings);
-  CharacterControllerShrimple& AddCharacterControllerShrimple(entt::handle handle, const CharacterControllerShrimpleSettings& settings);
+  
   void RegisterConstraint(JPH::Ref<JPH::Constraint> constraint, JPH::BodyID body1, JPH::BodyID body2);
   [[nodiscard]] std::unique_ptr<JPH::IgnoreMultipleBodiesFilter> GetIgnoreEntityAndChildrenFilter(entt::handle handle);
 
@@ -131,4 +173,6 @@ namespace Physics
 
     std::vector<ResultType> unorderedHits;
   };
+
+  void CreateObservers(entt::registry& registry);
 }

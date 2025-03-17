@@ -22,6 +22,8 @@
 #include "Jolt/Physics/Collision/Shape/SphereShape.h"
 #include "Jolt/Physics/Collision/Shape/MeshShape.h"
 #include "Jolt/Physics/Collision/Shape/CapsuleShape.h"
+#include "Jolt/Physics/Collision/Shape/PlaneShape.h"
+#include "Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h"
 #include "Jolt/Physics/Body/BodyCreationSettings.h"
 #include "Jolt/Physics/Body/BodyActivationListener.h"
 #include "Jolt/Physics/Character/CharacterVirtual.h"
@@ -217,85 +219,139 @@ namespace Physics
     };
   }
 
-  RigidBody& AddRigidBody(entt::handle handle, const RigidBodySettings& settings)
+  template<class... Ts>
+  struct Overloads : Ts... { using Ts::operator()...; };
+
+  static JPH::Ref<JPH::Shape> GetShapeFromVariant(const ShapeSettings& shape, entt::registry& registry)
+  {
+    auto refShape = JPH::Ref<JPH::Shape>();
+    std::visit(
+      Overloads {
+        [](std::monostate) {},
+        [&](Sphere sphere)
+        {
+          auto settings = JPH::SphereShapeSettings(sphere.radius);
+          settings.SetEmbedded();
+          settings.mDensity =  shape.density;
+          refShape = settings.Create().Get();
+        },
+        [&](Capsule capsule)
+        {
+          auto settings = JPH::CapsuleShapeSettings(capsule.cylinderHalfHeight, capsule.radius);
+          settings.SetEmbedded();
+          settings.mDensity = shape.density;
+          refShape = settings.Create().Get();
+        },
+        [&](Box box)
+        {
+          auto settings = JPH::BoxShapeSettings(ToJolt(box.halfExtent));
+          settings.SetEmbedded();
+          settings.mDensity = shape.density;
+          refShape = settings.Create().Get();
+        },
+        [&](Plane plane) { refShape = new JPH::PlaneShape(JPH::Plane(ToJolt(plane.normal), plane.constant)); },
+        [&](UseTwoLevelGrid) { refShape = new TwoLevelGridShape(registry.ctx().get<TwoLevelGrid>()); },
+      },
+      shape.shape);
+
+    refShape->SetEmbedded();
+    auto finalShape = refShape;
+    if (shape.translation != glm::vec3() || shape.rotation != glm::identity<glm::quat>())
+    {
+      finalShape = new JPH::RotatedTranslatedShape(ToJolt(shape.translation), ToJolt(shape.rotation), refShape);
+    }
+    return finalShape;
+  }
+
+  static void OnRigidBodyConstruct(entt::registry& registry, entt::entity entity)
   {
     auto position = glm::vec3(0);
     auto rotation = glm::quat(1, 0, 0, 0);
-    if (auto* t = handle.try_get<GlobalTransform>())
+    if (auto* t = registry.try_get<GlobalTransform>(entity))
     {
       position = t->position;
       rotation = t->rotation;
     }
 
-    auto bodySettings = JPH::BodyCreationSettings(settings.shape, ToJolt(position), ToJolt(rotation), settings.motionType, settings.layer);
-    bodySettings.mIsSensor = settings.isSensor;
-    bodySettings.mAllowedDOFs = settings.degreesOfFreedom;
-    auto bodyId = s->bodyInterface->CreateAndAddBody(bodySettings, settings.activate ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+    const auto& rigidBodySettings = registry.get<RigidBodySettings>(entity);
 
-    s->bodyInterface->SetUserData(bodyId, static_cast<JPH::uint64>(handle.entity()));
+    auto shape = GetShapeFromVariant(rigidBodySettings.shape, registry);
 
-    handle.emplace_or_replace<LinearVelocity>();
-    handle.emplace_or_replace<Shape>().shape = settings.shape;
-    auto& rb                                 = handle.emplace_or_replace<RigidBody>(bodyId);
-    handle.emplace_or_replace<RigidBodySettings>(settings);
-    return rb;
+    auto bodySettings = JPH::BodyCreationSettings(shape, ToJolt(position), ToJolt(rotation), rigidBodySettings.motionType, rigidBodySettings.layer);
+    bodySettings.mIsSensor = rigidBodySettings.isSensor;
+    bodySettings.mAllowedDOFs = rigidBodySettings.degreesOfFreedom;
+    bodySettings.mMotionQuality = rigidBodySettings.motionQuality;
+    bodySettings.mGravityFactor = rigidBodySettings.gravityFactor;
+    auto bodyId = s->bodyInterface->CreateAndAddBody(bodySettings, rigidBodySettings.activate ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+
+    s->bodyInterface->SetUserData(bodyId, static_cast<JPH::uint64>(entity));
+
+    registry.emplace_or_replace<LinearVelocity>(entity);
+    registry.emplace_or_replace<Shape>(entity, shape);
+    registry.emplace_or_replace<RigidBody>(entity, bodyId);
   }
 
-  CharacterController& AddCharacterController(entt::handle handle, const CharacterControllerSettings& settings)
+  static void OnCharacterControllerConstruct(entt::registry& registry, entt::entity entity)
   {
     auto position = glm::vec3(0);
     auto rotation = glm::quat(1, 0, 0, 0);
-    if (auto* t = handle.try_get<GlobalTransform>())
+    if (auto* t = registry.try_get<GlobalTransform>(entity))
     {
       position = t->position;
       //rotation = t->rotation;
     }
 
+    const auto& settings = registry.get<CharacterControllerSettings>(entity);
+    auto shape = GetShapeFromVariant(settings.shape, registry);
+
     auto characterSettings = JPH::CharacterVirtualSettings();
     characterSettings.SetEmbedded();
-    characterSettings.mShape = settings.shape;
+    characterSettings.mShape = shape;
     characterSettings.mEnhancedInternalEdgeRemoval = true;
     //characterSettings.mPredictiveContactDistance   = 1e-3f;
     //characterSettings.mCharacterPadding = 0.00002f;
     //characterSettings.mPredictiveContactDistance = 0.22f;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -0.5f);
     // TODO: use mInnerBodyShape to give character a physical presence (to be detected by ray casts, etc.)
-    auto* character = new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
+    auto* character = new JPH::CharacterVirtual(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(entity), s->engine.get());
     character->SetListener(s->characterContactListener.get());
 
     s->allCharacters.emplace_back(character);
     s->characterCollisionInterface->Add(character);
-    handle.emplace_or_replace<Shape>().shape = settings.shape;
-    handle.emplace_or_replace<LinearVelocity>();
-    return handle.emplace_or_replace<CharacterController>(character);
+    registry.emplace_or_replace<Shape>(entity, shape);
+    registry.emplace_or_replace<LinearVelocity>(entity);
+    registry.emplace_or_replace<CharacterController>(entity, character);
   }
 
-  CharacterControllerShrimple& AddCharacterControllerShrimple(entt::handle handle, const CharacterControllerShrimpleSettings& settings)
+  static void OnCharacterControllerShrimpleConstruct(entt::registry& registry, entt::entity entity)
   {
     auto position = glm::vec3(0);
     auto rotation = glm::quat(1, 0, 0, 0);
-    if (auto* t = handle.try_get<GlobalTransform>())
+    if (auto* t = registry.try_get<GlobalTransform>(entity))
     {
       position = t->position;
       //rotation = t->rotation;
     }
 
+    auto settings = registry.get<CharacterControllerShrimpleSettings>(entity);
+    auto shape    = GetShapeFromVariant(settings.shape, registry);
+
     auto characterSettings = JPH::CharacterSettings();
     characterSettings.SetEmbedded();
     characterSettings.mLayer = Layers::CHARACTER;
     characterSettings.mUp = {0, 1, 0};
-    characterSettings.mShape = settings.shape;
+    characterSettings.mShape = shape;
     //characterSettings.mSupportingVolume = JPH::Plane(JPH::Vec3(0, 1, 0), -1);
     characterSettings.mEnhancedInternalEdgeRemoval = true;
-    auto* character = new JPH::Character(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(handle.entity()), s->engine.get());
+    auto* character = new JPH::Character(&characterSettings, ToJolt(position), ToJolt(rotation), static_cast<JPH::uint64>(entity), s->engine.get());
     character->AddToPhysicsSystem();
     s->bodyInterface->SetRestitution(character->GetBodyID(), 0);
 
     s->allCharactersShrimple.emplace_back(character);
 
-    handle.emplace_or_replace<LinearVelocity>();
-    handle.emplace_or_replace<Shape>().shape = settings.shape;
-    return handle.emplace_or_replace<CharacterControllerShrimple>(character);
+    registry.emplace_or_replace<LinearVelocity>(entity);
+    registry.emplace_or_replace<Shape>(entity, shape);
+    registry.emplace_or_replace<CharacterControllerShrimple>(entity, character);
   }
 
   void RegisterConstraint(JPH::Ref<JPH::Constraint> constraint, JPH::BodyID body1, JPH::BodyID body2)
@@ -399,6 +455,12 @@ namespace Physics
     delete c.character;
   }
 
+  static void OnCharacterControllerUpdate(entt::registry& registry, entt::entity entity)
+  {
+    OnCharacterControllerDestroy(registry, entity);
+    OnCharacterControllerConstruct(registry, entity);
+  }
+
   const JPH::NarrowPhaseQuery& GetNarrowPhaseQuery()
   {
     return s->engine->GetNarrowPhaseQuery();
@@ -419,15 +481,25 @@ namespace Physics
     return s->dispatcher;
   }
 
-  void Initialize(World& world)
+  void CreateObservers(entt::registry& registry)
   {
-    world.GetRegistry().on_destroy<RigidBody>().connect<&OnRigidBodyDestroy>();
-    world.GetRegistry().on_destroy<RigidBody>().connect<&entt::registry::remove<Shape>>();
-    world.GetRegistry().on_destroy<RigidBody>().connect<&entt::registry::remove<RigidBodySettings>>();
-    world.GetRegistry().on_destroy<CharacterController>().connect<&OnCharacterControllerDestroy>();
-    world.GetRegistry().on_destroy<CharacterController>().connect<&entt::registry::remove<Shape>>();
-    world.GetRegistry().on_destroy<CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleDestroy>();
-    world.GetRegistry().on_destroy<CharacterControllerShrimple>().connect<&entt::registry::remove<Shape>>();
+    registry.on_construct<RigidBodySettings>().connect<&OnRigidBodyConstruct>();
+    registry.on_construct<CharacterControllerSettings>().connect<&OnCharacterControllerConstruct>();
+    registry.on_update<CharacterControllerSettings>().connect<&OnCharacterControllerUpdate>();
+    registry.on_construct<CharacterControllerShrimpleSettings>().connect<&OnCharacterControllerShrimpleConstruct>();
+    registry.on_destroy<RigidBody>().connect<&OnRigidBodyDestroy>();
+    registry.on_destroy<RigidBody>().connect<&entt::registry::remove<Shape>>();
+    registry.on_destroy<RigidBody>().connect<&entt::registry::remove<RigidBodySettings>>();
+    registry.on_destroy<CharacterController>().connect<&OnCharacterControllerDestroy>();
+    registry.on_destroy<CharacterController>().connect<&entt::registry::remove<Shape>>();
+    registry.on_destroy<CharacterController>().connect<&entt::registry::remove<CharacterControllerSettings>>();
+    registry.on_destroy<CharacterControllerShrimple>().connect<&OnCharacterControllerShrimpleDestroy>();
+    registry.on_destroy<CharacterControllerShrimple>().connect<&entt::registry::remove<Shape>>();
+    registry.on_destroy<CharacterControllerShrimple>().connect<&entt::registry::remove<CharacterControllerShrimpleSettings>>();
+  }
+
+  void Initialize(World&)
+  {
     s = std::make_unique<StaticVars>();
 
     JPH::RegisterDefaultAllocator();

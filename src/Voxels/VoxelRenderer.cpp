@@ -1020,7 +1020,7 @@ static void DrawInventory(World& world, entt::entity parent, const GlobalTransfo
         const auto cursorPos = ImGui::GetCursorPos();
         if (ImGui::Selectable(("##" + nameStr).c_str(), inventory.canHaveActiveItem && inventory.activeSlotCoord == currentSlotCoord, 0, {50, 50}))
         {
-          inventory.SetActiveSlot(currentSlotCoord, parent);
+          inventory.SetActiveSlot(world, currentSlotCoord, parent);
         }
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
         {
@@ -1070,7 +1070,7 @@ static void DrawInventory(World& world, entt::entity parent, const GlobalTransfo
           {
             if (auto* plInventory = registry.try_get<Inventory>(inventoryPayload.sourceEntity))
             {
-              if (auto dropped = plInventory->DropItem(inventoryPayload.sourceRowCol); dropped != entt::null)
+              if (auto dropped = plInventory->DropItem(world, inventoryPayload.sourceRowCol); dropped != entt::null)
               {
                 const auto throwdir                                       = GetForward(userTransform.rotation);
                 const auto pos                                            = userTransform.position + throwdir * 1.0f;
@@ -1249,7 +1249,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           ImGui::BeginDisabled(!inventory.CanCraftRecipe(recipe) || !nearVoxels.contains(recipe.craftingStation));
           if (ImGui::Button("Craft"))
           {
-            inventory.CraftRecipe(recipe, playerEntity);
+            inventory.CraftRecipe(world, recipe, playerEntity);
           }
           ImGui::Text("Output");
           ImGui::Indent();
@@ -1287,6 +1287,16 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
       if (ImGui::Button("Unpause"))
       {
         gameState = GameState::GAME;
+      }
+
+      if (ImGui::Button("Save (WIP)"))
+      {
+        Core::Reflection::SaveRegistryToFile(world, "TEST.bin");
+      }
+
+      if (ImGui::Button("Load (WIP)"))
+      {
+        Core::Reflection::LoadRegistryFromFile(world, "TEST.bin");
       }
 
       if (ImGui::Button("Exit to main menu"))
@@ -1443,7 +1453,7 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
           entt::sparse_set* set;
           std::string fixupString;
         };
-        static bool isInitialized = false;
+        static bool isInitialized = false; // Naughty hack to make this sorting only happen once.
         static auto storages = std::vector<TypeInfo>();
         if (!isInitialized)
         {
@@ -1574,12 +1584,12 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
         if (ImGui::Button(itemDefinition->GetName().c_str(), {-1, 0}))
         {
           auto item = ItemState{static_cast<ItemId>(i), 1};
-          inventory.TryStackItem(item);
+          inventory.TryStackItem(world, item);
           if (item.count > 0)
           {
             if (auto slot = inventory.GetFirstEmptySlot())
             {
-              inventory.OverwriteSlot(*slot, item, playerEntity);
+              inventory.OverwriteSlot(world, *slot, item, playerEntity);
             }
             else
             {

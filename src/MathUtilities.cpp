@@ -11,6 +11,7 @@ float Math::Ease(float t, Easing easing)
   case Easing::EASE_IN_SINE: return EaseInSine(t);
   case Easing::EASE_OUT_SINE: return EaseOutSine(t);
   case Easing::EASE_IN_OUT_BACK: return EaseInOutBack(t);
+  case Easing::EASE_IN_CUBIC: return EaseInCubic(t);
   case Easing::EASE_OUT_CUBIC: return EaseOutCubic(t);
   default: assert(false); return t;
   }

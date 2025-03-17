@@ -1,15 +1,17 @@
 #include "Reflection.h"
+#include "Serialization.h"
 #include "TwoLevelGrid.h"
+#include "Game.h"
 
 #include "imgui.h"
 #include "entt/meta/container.hpp"
 #include "entt/meta/meta.hpp"
 #include "entt/meta/factory.hpp"
+#include "entt/core/hashed_string.hpp"
 
-#include "cereal/cereal.hpp"
-#include "cereal/archives/binary.hpp"
-#include "cereal/archives/xml.hpp"
-#include "cereal/types/string.hpp"
+#include "Jolt/Physics/Body/AllowedDOFs.h"
+#include "Jolt/Physics/Body/MotionQuality.h"
+#include "Jolt/Physics/Body/MotionType.h"
 
 #include "tracy/Tracy.hpp"
 
@@ -22,6 +24,8 @@
 
 namespace Core::Reflection
 {
+  using namespace entt::literals;
+
   template<typename Scalar>
   consteval ImGuiDataType ScalarToImGuiDataType()
   {
@@ -310,122 +314,11 @@ namespace Core::Reflection
       path.secondsElapsed = 1e-5f;
     }
   }
-
-  template<bool Save, typename Archive>
-  void Serialize(Archive& ar, entt::meta_any value)
-  {
-    ZoneScoped;
-    const auto archiveHash = entt::type_id<Archive>();
-    for (auto [id, func] : value.type().func())
-    {
-      if (func.arg(0).info() == archiveHash)
-      {
-        func.invoke({}, entt::forward_as_meta(ar), value.as_ref());
-        return;
-      }
-    }
-
-    for (auto [id, data] : value.type().data())
-    {
-      if (data.traits<Traits>() & Traits::SERIALIZE)
-      {
-        Serialize<Save>(ar, data.get(value).as_ref());
-      }
-    }
-
-    if (value.type().is_sequence_container())
-    {
-      auto sequence = value.as_sequence_container();
-
-      if constexpr (Save)
-      {
-        auto size = (uint32_t)sequence.size();
-        Serialize<Save>(ar, entt::forward_as_meta(size));
-      }
-      else
-      {
-        auto size = uint32_t();
-        Serialize<Save>(ar, entt::forward_as_meta(size));
-        sequence.resize(size);
-      }
-
-      for (auto element : sequence)
-      {
-        Serialize<Save>(ar, element.as_ref());
-      }
-    }
-
-    if (value.type().traits<Traits>() & Traits::VARIANT)
-    {
-      if constexpr (Save)
-      {
-        auto idFunc = value.type().func("type_hash"_hs);
-        assert(idFunc);
-        Serialize<Save>(ar, idFunc.invoke({}, value));
-        auto valueFunc = value.type().func("const_value"_hs);
-        assert(valueFunc);
-        Serialize<Save>(ar, valueFunc.invoke({}, value.as_ref()));
-      }
-      else
-      {
-        auto id = entt::id_type();
-        Serialize<Save>(ar, entt::forward_as_meta(id));
-        auto variantMeta = entt::resolve(id);
-        assert(variantMeta);
-        auto variantTypeInstance = variantMeta.construct();
-        Serialize<Save>(ar, variantTypeInstance.as_ref());
-        [[maybe_unused]] auto succ = value.assign(value.type().construct(variantTypeInstance));
-        assert(succ);
-      }
-    }
-  }
-
-  template<typename Archive, typename T>
-  void Serialize2(Archive& ar, T& value)
-  {
-    ar(value);
-  }
-
-  template<bool Save, typename Archive>
-  void Serialize(Archive& ar, std::conditional_t<Save, const TwoLevelGrid*&, TwoLevelGrid*&> grid)
-  {
-    ZoneScoped;
-    if constexpr (Save)
-    {
-      Serialize<Save>(ar, grid->materials_);
-      Serialize<Save>(ar, grid->topLevelBricksDims_);
-    }
-    else
-    {
-      auto materials = std::vector<TwoLevelGrid::Material>();
-      Serialize<Save>(ar, entt::forward_as_meta(materials));
-      auto dims = glm::ivec3();
-      Serialize<Save>(ar, entt::forward_as_meta(dims));
-      grid = new TwoLevelGrid(dims);
-      grid->SetMaterialArray(std::move(materials));
-    }
-    // TODO: Ridiculously inefficient way to serialize grid.
-    for (int z = 0; z < grid->dimensions_.z; z++)
-    for (int y = 0; y < grid->dimensions_.y; y++)
-    for (int x = 0; x < grid->dimensions_.x; x++)
-    {
-      if constexpr (Save)
-      {
-        auto voxel = grid->GetVoxelAt({x, y, z});
-        Serialize2(ar, voxel);
-      }
-      else
-      {
-        auto voxel = TwoLevelGrid::voxel_t();
-        Serialize2(ar, voxel);
-        grid->SetVoxelAt({x, y, z}, voxel);
-      }
-    }
-  }
 } // namespace Core::Reflection
 
-void Core::Reflection::InitializeReflection()
+void Core::Reflection::Initialize()
 {
+  ZoneScoped;
   entt::meta_reset();
 
 //#define MAKE_IDENTIFIER(T) [[maybe_unused]] bool reflection_for_ ## T
@@ -452,13 +345,6 @@ void Core::Reflection::InitializeReflection()
 #define ENUMERATOR(E, Member, ...) \
   .data<E :: Member>(#Member##_hs) \
   .custom<PropertiesMap>(PropertiesMap{{"name"_hs, #Member} __VA_OPT__(, __VA_ARGS__)})
-#define SERIALIZERS(T) \
-  func<Serialize2<cereal::XMLInputArchive, T>>("XMLInputArchive"_hs)   \
-  .func<Serialize2<cereal::XMLOutputArchive, const T>>("XMLOutputArchive"_hs) \
-  .func<Serialize2<cereal::BinaryInputArchive, T>>("BinaryInputArchive"_hs)   \
-  .func<Serialize2<cereal::BinaryOutputArchive, const T>>("BinaryOutputArchive"_hs)
-  //.func<Serialize2<cereal::JSONInputArchive, float>>("JSONInputArchive"_hs)
-  //.func<Serialize2<cereal::JSONOutputArchive, float>>("JSONOutputArchive"_hs)
 #define VARIANT_FUNCS(T)                                                      \
   func<[](const T& ps)                                                        \
     {                                                                         \
@@ -479,11 +365,11 @@ void Core::Reflection::InitializeReflection()
       return value;                                                           \
     }>("value"_hs)
 
-  entt::meta_factory<int>().func<&EditorWriteScalar<int>>("EditorWrite"_hs).func<&EditorReadScalar<int>>("EditorRead"_hs).SERIALIZERS(int);
-  entt::meta_factory<uint32_t>().func<&EditorWriteScalar<uint32_t>>("EditorWrite"_hs).func<&EditorReadScalar<uint32_t>>("EditorRead"_hs).SERIALIZERS(uint32_t);
-  entt::meta_factory<uint16_t>().func<&EditorWriteScalar<uint16_t>>("EditorWrite"_hs).func<&EditorReadScalar<uint16_t>>("EditorRead"_hs).SERIALIZERS(uint16_t);
-  entt::meta_factory<uint8_t>().func<&EditorWriteScalar<uint8_t>>("EditorWrite"_hs).func<&EditorReadScalar<uint8_t>>("EditorRead"_hs).SERIALIZERS(uint8_t);
-  entt::meta_factory<float>().func<&EditorWriteScalar<float>>("EditorWrite"_hs).func<&EditorReadScalar<float>>("EditorRead"_hs).SERIALIZERS(float);
+  entt::meta_factory<int>().func<&EditorWriteScalar<int>>("EditorWrite"_hs).func<&EditorReadScalar<int>>("EditorRead"_hs);
+  entt::meta_factory<uint32_t>().func<&EditorWriteScalar<uint32_t>>("EditorWrite"_hs).func<&EditorReadScalar<uint32_t>>("EditorRead"_hs);
+  entt::meta_factory<uint16_t>().func<&EditorWriteScalar<uint16_t>>("EditorWrite"_hs).func<&EditorReadScalar<uint16_t>>("EditorRead"_hs);
+  entt::meta_factory<uint8_t>().func<&EditorWriteScalar<uint8_t>>("EditorWrite"_hs).func<&EditorReadScalar<uint8_t>>("EditorRead"_hs);
+  entt::meta_factory<float>().func<&EditorWriteScalar<float>>("EditorWrite"_hs).func<&EditorReadScalar<float>>("EditorRead"_hs);
   entt::meta_factory<glm::vec3>().func<&EditorWriteVec3>("EditorWrite"_hs).func<&EditorReadVec3>("EditorRead"_hs)
     DATA(glm::vec3, x)
     TRAITS(EDITOR | SERIALIZE)
@@ -507,9 +393,9 @@ void Core::Reflection::InitializeReflection()
     TRAITS(EDITOR | SERIALIZE)
     DATA(glm::quat, z)
     TRAITS(EDITOR | SERIALIZE);
-  entt::meta_factory<std::string>().func<&EditorWriteString>("EditorWrite"_hs).func<&EditorReadString>("EditorRead"_hs).SERIALIZERS(std::string);
-  entt::meta_factory<bool>().func<&EditorWriteScalar<bool>>("EditorWrite"_hs).func<&EditorReadScalar<bool>>("EditorRead"_hs).SERIALIZERS(bool);
-  entt::meta_factory<entt::entity>().func<&EditorWriteEntity>("EditorWrite"_hs).func<&EditorReadEntity>("EditorRead"_hs).SERIALIZERS(entt::entity);
+  entt::meta_factory<std::string>().func<&EditorWriteString>("EditorWrite"_hs).func<&EditorReadString>("EditorRead"_hs);
+  entt::meta_factory<bool>().func<&EditorWriteScalar<bool>>("EditorWrite"_hs).func<&EditorReadScalar<bool>>("EditorRead"_hs);
+  entt::meta_factory<entt::entity>().func<&EditorWriteEntity>("EditorWrite"_hs).func<&EditorReadEntity>("EditorRead"_hs);
   
   REFLECT_COMPONENT(LocalTransform)
     .func<&EditorUpdateTransform>("OnUpdate"_hs)
@@ -693,18 +579,15 @@ void Core::Reflection::InitializeReflection()
     TRAITS(SERIALIZE | EDITOR_READ);
 
   REFLECT_ENUM(JPH::EMotionType)
-    .SERIALIZERS(JPH::EMotionType)
     ENUMERATOR(JPH::EMotionType, Static)
     ENUMERATOR(JPH::EMotionType, Kinematic)
     ENUMERATOR(JPH::EMotionType, Dynamic);
 
   REFLECT_ENUM(JPH::EMotionQuality)
-    .SERIALIZERS(JPH::EMotionQuality)
     ENUMERATOR(JPH::EMotionQuality, Discrete)
     ENUMERATOR(JPH::EMotionQuality, LinearCast);
 
   REFLECT_ENUM(JPH::EAllowedDOFs)
-    .SERIALIZERS(JPH::EAllowedDOFs)
     ENUMERATOR(JPH::EAllowedDOFs, None)
     ENUMERATOR(JPH::EAllowedDOFs, All)
     ENUMERATOR(JPH::EAllowedDOFs, TranslationX)
@@ -927,117 +810,6 @@ void Core::Reflection::InitializeReflection()
     ENUMERATOR(Math::Easing, EASE_IN_CUBIC)
     ENUMERATOR(Math::Easing, EASE_OUT_CUBIC);
 
-  auto stream = std::stringstream();
-  glm::ivec3 shape = {1, 2, 3};
-  {
-    cereal::XMLOutputArchive archive(stream);
-    Serialize<true>(archive, shape);
-  }
-
-  shape = {};
-  {
-    cereal::XMLInputArchive archive(stream);
-    Serialize<false>(archive, entt::forward_as_meta(shape));
-  }
-  {
-    cereal::XMLOutputArchive archive(std::cout);
-    Serialize<true>(archive, shape);
-  }
-
   // TODO: TEMP
   REFLECT_COMPONENT(LocalPlayer);
-}
-
-void Core::Reflection::SaveRegistryToFile(const World& world, const std::filesystem::path& path)
-{
-  ZoneScoped;
-  const auto& registry = world.GetRegistry();
-  auto file = std::ofstream(path, std::ios::binary | std::ios::out | std::ios::trunc);
-  auto outputArchive = cereal::BinaryOutputArchive(file);
-
-  // Save relevant context variables.
-  auto* pGrid = &registry.ctx().get<TwoLevelGrid>();
-  Serialize<true>(outputArchive, pGrid);
-
-  const auto numSets = (uint32_t)std::ranges::count_if(registry.storage(), [](const auto& p) { return entt::resolve(p.first).traits<Traits>() & Traits::COMPONENT; });
-  Serialize<true>(outputArchive, numSets);
-  for (auto [id, set] : registry.storage())
-  {
-    if (auto meta = entt::resolve(id))
-    {
-      if (meta.traits<Traits>() & Traits::COMPONENT)
-      {
-        ZoneScopedN("Component");
-        ZoneText(meta.info().name().data(), meta.info().name().size());
-        Serialize<true>(outputArchive, id);
-        Serialize<true>(outputArchive, (uint32_t)set.size());
-        for (auto entity : set)
-        {
-          Serialize<true>(outputArchive, entity);
-          Serialize<true>(outputArchive, meta.from_void(set.value(entity)));
-        }
-      }
-    }
-  }
-}
-
-// TODO: ctx.PCG
-// TODO: ctx.NpcSpawnDirector
-void Core::Reflection::LoadRegistryFromFile(World& world, const std::filesystem::path& path)
-{
-  ZoneScoped;
-  auto& registry     = world.GetRegistry();
-  auto remoteToLocal = std::unordered_map<entt::entity, entt::entity>();
-  registry.clear();
-  registry = {};
-  CreateContextVariablesAndObservers(world);
-  registry.ctx().get<GameState>() = GameState::GAME;
-  auto file         = std::ifstream(path, std::ios::binary | std::ios::in);
-  auto inputArchive = cereal::BinaryInputArchive(file);
-
-  // Load relevant context variables.
-  TwoLevelGrid* pGrid{};
-  Serialize<false>(inputArchive, pGrid);
-  assert(pGrid);
-  registry.ctx().emplace<TwoLevelGrid>(std::move(*pGrid));
-  delete pGrid;
-
-  auto numSets      = uint32_t();
-  Serialize<false>(inputArchive, entt::forward_as_meta(numSets));
-  for (uint32_t i = 0; i < numSets; i++)
-  {
-    ZoneScopedN("Component");
-    auto id = entt::id_type();
-    auto size = uint32_t();
-    Serialize<false>(inputArchive, entt::forward_as_meta(id));
-    Serialize<false>(inputArchive, entt::forward_as_meta(size));
-    auto meta = entt::resolve(id);
-    assert(meta);
-    assert(meta.traits<Traits>() & Traits::COMPONENT);
-    ZoneText(meta.info().name().data(), meta.info().name().size());
-    for (uint32_t j = 0; j < size; j++)
-    {
-      auto remoteEntity = entt::entity();
-      Serialize<false>(inputArchive, entt::forward_as_meta(remoteEntity));
-      assert(remoteEntity != entt::null);
-      auto value = meta.construct();
-      assert(value && "Type is missing default constructor");
-      Serialize<false>(inputArchive, value.as_ref());
-      auto localEntity = entt::entity();
-      if (auto it = remoteToLocal.find(remoteEntity); it != remoteToLocal.end())
-      {
-        localEntity = it->second;
-      }
-      else
-      {
-        localEntity = registry.create(remoteEntity);
-        remoteToLocal.emplace(remoteEntity, localEntity);
-      }
-
-      if (auto emplaceFunc = meta.func("EmplaceMove"_hs))
-      {
-        emplaceFunc.invoke({}, &registry, localEntity, value.as_ref());
-      }
-    }
-  }
 }

@@ -13,6 +13,7 @@
 #include "HashGrid.h"
 #include "Prefab.h"
 #include "Reflection.h"
+#include "Serialization.h"
 
 #include "entt/entity/handle.hpp"
 
@@ -337,7 +338,8 @@ Game::Game(uint32_t)
 
   CreateContextVariablesAndObservers(*world_);
 
-  Core::Reflection::InitializeReflection();
+  Core::Reflection::Initialize();
+  Core::Serialization::Initialize();
 }
 
 void CreateContextVariablesAndObservers(World& world)

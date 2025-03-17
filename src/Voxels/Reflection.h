@@ -1,11 +1,9 @@
 #pragma once
-#include "Game.h"
 
 #include "entt/fwd.hpp"
 
 #include <cstdint>
 #include <unordered_map>
-#include <filesystem>
 
 namespace Core::Reflection
 {
@@ -25,8 +23,5 @@ namespace Core::Reflection
 
   using PropertiesMap = std::unordered_map<entt::id_type, entt::meta_any>;
 
-  void InitializeReflection();
-
-  void SaveRegistryToFile(const World& world, const std::filesystem::path& path);
-  void LoadRegistryFromFile(World& world, const std::filesystem::path& path);
+  void Initialize();
 }

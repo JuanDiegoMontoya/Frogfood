@@ -9,6 +9,7 @@
 #include "Fvog/detail/Common.h"
 #include "shaders/Config.shared.h"
 #include "Reflection.h"
+#include "Serialization.h"
 
 #include "Physics/Physics.h" // TODO: remove
 #include "Jolt/Physics/Collision/Shape/BoxShape.h"
@@ -1291,12 +1292,12 @@ void VoxelRenderer::OnGui([[maybe_unused]] DeltaTime dt, World& world, [[maybe_u
 
       if (ImGui::Button("Save (WIP)"))
       {
-        Core::Reflection::SaveRegistryToFile(world, "TEST.bin");
+        Core::Serialization::SaveRegistryToFile(world, "TEST.bin");
       }
 
       if (ImGui::Button("Load (WIP)"))
       {
-        Core::Reflection::LoadRegistryFromFile(world, "TEST.bin");
+        Core::Serialization::LoadRegistryFromFile(world, "TEST.bin");
       }
 
       if (ImGui::Button("Exit to main menu"))

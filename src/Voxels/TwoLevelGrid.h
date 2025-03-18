@@ -136,6 +136,7 @@ struct TwoLevelGrid
   [[nodiscard]] uint32_t AllocateTopLevelBrickNoDirty(voxel_t initialVoxel);
   [[nodiscard]] uint32_t AllocateBottomLevelBrickNoDirty(voxel_t initialVoxel);
   void MarkTopLevelBrickAndChildrenDirty(glm::ivec3 topLevelBrickPos);
+  void MarkAllBricksDirty();
 
   SketchyBuffer buffer;
   SketchyBuffer::Alloc topLevelBrickPtrs{};

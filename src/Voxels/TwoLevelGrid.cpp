@@ -504,3 +504,18 @@ void TwoLevelGrid::MarkTopLevelBrickAndChildrenDirty(glm::ivec3 topLevelBrickPos
     buffer.MarkDirtyPages(&bottomLevelBrick);
   }
 }
+
+void TwoLevelGrid::MarkAllBricksDirty()
+{
+  ZoneScoped;
+  for (int z = 0; z < topLevelBricksDims_.z; z++)
+  {
+    for (int y = 0; y < topLevelBricksDims_.y; y++)
+    {
+      for (int x = 0; x < topLevelBricksDims_.x; x++)
+      {
+        MarkTopLevelBrickAndChildrenDirty({x, y, z});
+      }
+    }
+  }
+}

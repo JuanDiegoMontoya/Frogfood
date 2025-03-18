@@ -152,7 +152,7 @@ namespace Core::Serialization
           {
             auto voxel = TwoLevelGrid::voxel_t();
             detail::Serialize2(ar, voxel);
-            grid->SetVoxelAt({x, y, z}, voxel);
+            grid->SetVoxelAtNoDirty({x, y, z}, voxel);
           }
         }
       }
@@ -240,6 +240,7 @@ namespace Core::Serialization
     Serialize<false>(inputArchive, pGrid);
     assert(pGrid);
     pGrid->CoalesceBricksSLOW();
+    pGrid->MarkAllBricksDirty();
     registry.ctx().emplace<TwoLevelGrid>(std::move(*pGrid));
 
     auto numSets = uint32_t();

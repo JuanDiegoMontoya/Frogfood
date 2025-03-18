@@ -5,6 +5,13 @@
 
 #include <bit>
 
+namespace
+{
+  constexpr bool profileVoxelPool = true;
+
+  [[maybe_unused]] constexpr auto poolTracyHeapName = "Voxel Storage (CPU & GPU)";
+} // namespace
+
 SketchyBuffer::SketchyBuffer(size_t bufferSize, [[maybe_unused]] std::string name)
 #ifndef GAME_HEADLESS
   : gpuBuffer_({.size = bufferSize, .flag = Fvog::BufferFlagThingy::NONE}, std::move(name))
@@ -16,11 +23,33 @@ SketchyBuffer::SketchyBuffer(size_t bufferSize, [[maybe_unused]] std::string nam
   Fvog::detail::CheckVkResult(vmaCreateVirtualBlock(Fvog::detail::Address(VmaVirtualBlockCreateInfo{.size = bufferSize}), &allocator_));
 }
 
-// TODO: dtor and move ops
-//SketchyBuffer::~SketchyBuffer()
-//{
-//  vmaDestroyVirtualBlock(allocator_);
-//}
+SketchyBuffer::~SketchyBuffer()
+{
+  // March 18, 2025: waiting for next release of Tracy, which will have TracyMemoryDiscard. Without it, the client will disconnect
+  // after this call, seeing the same address allocated twice, as it has not observed the pool's destruction here.
+  if constexpr (profileVoxelPool)
+  {
+    // TracyMemoryDiscard(poolTracyHeapName);
+  }
+  vmaDestroyVirtualBlock(allocator_);
+}
+
+SketchyBuffer::SketchyBuffer(SketchyBuffer&& old) noexcept
+ : cpuBuffer_(std::move(old.cpuBuffer_)),
+   allocator_(std::exchange(old.allocator_, nullptr))
+#ifndef GAME_HEADLESS
+   , gpuBuffer_(std::move(old.gpuBuffer_)),
+   dirtyPages_(std::move(old.dirtyPages_))
+#endif
+{}
+
+SketchyBuffer& SketchyBuffer::operator=(SketchyBuffer&& old) noexcept
+{
+  if (&old == this)
+    return *this;
+  this->~SketchyBuffer();
+  return *new (this) SketchyBuffer(std::move(old));
+}
 
 SketchyBuffer::Alloc SketchyBuffer::Allocate(size_t size, size_t alignment)
 {
@@ -43,8 +72,11 @@ SketchyBuffer::Alloc SketchyBuffer::Allocate(size_t size, size_t alignment)
     &allocation,
     &offset));
   // We only expect to have one SketchyBuffer, so this should be fine.
-  TracyAllocN(allocation, size, "Voxel Pool");
-  
+  if constexpr (profileVoxelPool)
+  {
+    TracyAllocN(allocation, size, poolTracyHeapName);
+  }
+
   // Push offset forward to multiple of the true alignment, then subtract that amount from the remaining size
   auto offsetAmount = (alignment - (offset % alignment)) % alignment;
   offset += offsetAmount;
@@ -55,7 +87,10 @@ SketchyBuffer::Alloc SketchyBuffer::Allocate(size_t size, size_t alignment)
 void SketchyBuffer::Free(Alloc alloc)
 {
   ZoneScoped;
-  TracyFreeN(alloc.allocation, "Voxel Pool");
+  if constexpr (profileVoxelPool)
+  {
+    TracyFreeN(alloc.allocation, poolTracyHeapName);
+  }
   vmaVirtualFree(allocator_, alloc.allocation);
 }
 

@@ -7,7 +7,7 @@
 
 namespace
 {
-  constexpr bool profileVoxelPool = true;
+  constexpr bool profileVoxelPool = false;
 
   [[maybe_unused]] constexpr auto poolTracyHeapName = "Voxel Storage (CPU & GPU)";
 } // namespace
@@ -26,20 +26,25 @@ SketchyBuffer::SketchyBuffer(size_t bufferSize, [[maybe_unused]] std::string nam
 SketchyBuffer::~SketchyBuffer()
 {
   // March 18, 2025: waiting for next release of Tracy, which will have TracyMemoryDiscard. Without it, the client will disconnect
-  // after this call, seeing the same address allocated twice, as it has not observed the pool's destruction here.
+  // sometime later upon seeing the same address allocated twice, as it has not observed the pool's destruction here.
   if constexpr (profileVoxelPool)
   {
     // TracyMemoryDiscard(poolTracyHeapName);
   }
-  vmaDestroyVirtualBlock(allocator_);
+
+  if (allocator_)
+  {
+    vmaClearVirtualBlock(allocator_);
+    vmaDestroyVirtualBlock(allocator_);
+  }
 }
 
 SketchyBuffer::SketchyBuffer(SketchyBuffer&& old) noexcept
- : cpuBuffer_(std::move(old.cpuBuffer_)),
-   allocator_(std::exchange(old.allocator_, nullptr))
+  : cpuBuffer_(std::move(old.cpuBuffer_)),
+    allocator_(std::exchange(old.allocator_, nullptr))
 #ifndef GAME_HEADLESS
-   , gpuBuffer_(std::move(old.gpuBuffer_)),
-   dirtyPages_(std::move(old.dirtyPages_))
+    , gpuBuffer_(std::move(old.gpuBuffer_)),
+    dirtyPages_(std::move(old.dirtyPages_))
 #endif
 {}
 

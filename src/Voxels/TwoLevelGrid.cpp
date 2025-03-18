@@ -323,6 +323,46 @@ int TwoLevelGrid::FlattenVoxelCoord(glm::ivec3 coord)
   return (coord.z * BL_BRICK_SIDE_LENGTH * BL_BRICK_SIDE_LENGTH) + (coord.y * BL_BRICK_SIDE_LENGTH) + coord.x;
 }
 
+const TwoLevelGrid::TopLevelBrickPtr& TwoLevelGrid::GetTopLevelBrickPtr(uint32_t index) const
+{
+  return buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + index];
+}
+
+TwoLevelGrid::TopLevelBrickPtr& TwoLevelGrid::GetTopLevelBrickPtr(uint32_t index)
+{
+  return buffer.GetBase<TopLevelBrickPtr>()[topLevelBrickPtrsBaseIndex + index];
+}
+
+const TwoLevelGrid::TopLevelBrick& TwoLevelGrid::GetTopLevelBrick(uint32_t ptr) const
+{
+  return buffer.GetBase<TopLevelBrick>()[ptr];
+}
+
+TwoLevelGrid::TopLevelBrick& TwoLevelGrid::GetTopLevelBrick(uint32_t ptr)
+{
+  return buffer.GetBase<TopLevelBrick>()[ptr];
+}
+
+const TwoLevelGrid::BottomLevelBrickPtr& TwoLevelGrid::GetBottomLevelBrickPtr(uint32_t ptr) const
+{
+  return buffer.GetBase<BottomLevelBrickPtr>()[ptr];
+}
+
+TwoLevelGrid::BottomLevelBrickPtr& TwoLevelGrid::GetBottomLevelBrickPtr(uint32_t ptr)
+{
+  return buffer.GetBase<BottomLevelBrickPtr>()[ptr];
+}
+
+const TwoLevelGrid::BottomLevelBrick& TwoLevelGrid::GetBottomLevelBrick(uint32_t ptr) const
+{
+  return buffer.GetBase<BottomLevelBrick>()[ptr];
+}
+
+TwoLevelGrid::BottomLevelBrick& TwoLevelGrid::GetBottomLevelBrick(uint32_t ptr)
+{
+  return buffer.GetBase<BottomLevelBrick>()[ptr];
+}
+
 uint32_t TwoLevelGrid::AllocateTopLevelBrick(voxel_t initialVoxel)
 {
   ZoneScoped;

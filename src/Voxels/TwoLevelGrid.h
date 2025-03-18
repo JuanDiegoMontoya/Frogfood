@@ -105,6 +105,16 @@ struct TwoLevelGrid
   int FlattenTopLevelBrickCoord(glm::ivec3 coord) const;
   static int FlattenBottomLevelBrickCoord(glm::ivec3 coord);
   static int FlattenVoxelCoord(glm::ivec3 coord);
+
+  const TopLevelBrickPtr& GetTopLevelBrickPtr(uint32_t index) const;
+  TopLevelBrickPtr& GetTopLevelBrickPtr(uint32_t index);
+  const TopLevelBrick& GetTopLevelBrick(uint32_t ptr) const;
+  TopLevelBrick& GetTopLevelBrick(uint32_t ptr);
+  const BottomLevelBrickPtr& GetBottomLevelBrickPtr(uint32_t ptr) const;
+  BottomLevelBrickPtr& GetBottomLevelBrickPtr(uint32_t ptr);
+  const BottomLevelBrick& GetBottomLevelBrick(uint32_t ptr) const;
+  BottomLevelBrick& GetBottomLevelBrick(uint32_t ptr);
+
   [[nodiscard]] uint32_t AllocateTopLevelBrick(voxel_t initialVoxel);
   [[nodiscard]] uint32_t AllocateBottomLevelBrick(voxel_t initialVoxel);
   void FreeTopLevelBrick(uint32_t index);

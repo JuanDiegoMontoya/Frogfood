@@ -54,7 +54,7 @@ namespace Core::Serialization
       {
         auto size = uint32_t();
         Serialize<Save>(ar, entt::forward_as_meta(size));
-        sequence.resize(size);
+        sequence.resize(size); // Returns false for un-resizable containers such as std::array.
       }
 
       for (auto element : sequence)
@@ -118,6 +118,71 @@ namespace Core::Serialization
     }
   }
 
+
+  // Ugly manual serialization to improve TwoLevelGrid serialization perf.
+  namespace
+  {
+    template<typename Archive>
+    void Serialize2(Archive& ar, TwoLevelGrid::BottomLevelBrick& blBrick)
+    {
+      for (auto& bits : blBrick.occupancy.bitmask)
+      {
+        detail::Serialize2(ar, bits);
+      }
+
+      for (auto& voxel : blBrick.voxels)
+      {
+        detail::Serialize2(ar, voxel);
+      }
+    }
+
+    template<typename Archive>
+    void Serialize2(Archive& ar, const TwoLevelGrid::BottomLevelBrick& blBrick)
+    {
+      for (auto& bits : blBrick.occupancy.bitmask)
+      {
+        detail::Serialize2(ar, bits);
+      }
+
+      for (auto& voxel : blBrick.voxels)
+      {
+        detail::Serialize2(ar, voxel);
+      }
+    }
+
+    template<typename Archive>
+    void Serialize2(Archive& ar, TwoLevelGrid::BottomLevelBrickPtr& blBrickPtr)
+    {
+      detail::Serialize2(ar, blBrickPtr.voxelsDoBeAllSame);
+      detail::Serialize2(ar, blBrickPtr.bottomLevelBrick);
+    }
+
+    template<typename Archive>
+    void Serialize2(Archive& ar, const TwoLevelGrid::BottomLevelBrickPtr& blBrickPtr)
+    {
+      detail::Serialize2(ar, blBrickPtr.voxelsDoBeAllSame);
+      detail::Serialize2(ar, blBrickPtr.bottomLevelBrick);
+    }
+
+    template<typename Archive>
+    void Serialize2(Archive& ar, TwoLevelGrid::TopLevelBrick& tlBrick)
+    {
+      for (auto& blBrickPtr : tlBrick.bricks)
+      {
+        Serialize2(ar, blBrickPtr);
+      }
+    }
+
+    template<typename Archive>
+    void Serialize2(Archive& ar, const TwoLevelGrid::TopLevelBrick& tlBrick)
+    {
+      for (auto& blBrickPtr : tlBrick.bricks)
+      {
+        Serialize2(ar, blBrickPtr);
+      }
+    }
+  } // namespace
+
   template<bool Save, typename Archive>
   static void Serialize(Archive& ar, std::conditional_t<Save, const TwoLevelGrid*, std::unique_ptr<TwoLevelGrid>&> grid)
   {
@@ -136,25 +201,41 @@ namespace Core::Serialization
       grid = std::make_unique<TwoLevelGrid>(dims);
       grid->SetMaterialArray(std::move(materials));
     }
-    // TODO: Ridiculously inefficient way to serialize grid.
-    for (int z = 0; z < grid->dimensions_.z; z++)
+
+    for (int tz = 0; tz < grid->topLevelBricksDims_.z; tz++)
+    for (int ty = 0; ty < grid->topLevelBricksDims_.y; ty++)
+    for (int tx = 0; tx < grid->topLevelBricksDims_.x; tx++)
     {
-      for (int y = 0; y < grid->dimensions_.y; y++)
+      const auto tlBrickIndex = grid->FlattenTopLevelBrickCoord({tx, ty, tz});
+      auto& tlBrickPtr  = grid->GetTopLevelBrickPtr(tlBrickIndex);
+      Serialize<Save>(ar, entt::forward_as_meta(tlBrickPtr));
+      if (tlBrickPtr.voxelsDoBeAllSame)
       {
-        for (int x = 0; x < grid->dimensions_.x; x++)
+        continue;
+      }
+
+      if constexpr (!Save)
+      {
+        tlBrickPtr.topLevelBrick = grid->AllocateTopLevelBrick(0);
+      }
+      auto& tlBrick = grid->GetTopLevelBrick(tlBrickPtr.topLevelBrick);
+      Serialize2(ar, tlBrick);
+
+      // Bottom-level bricks are handled essentially the same as top-level bricks.
+      for (auto& blBrickPtr : tlBrick.bricks)
+      {
+        Serialize2(ar, blBrickPtr);
+        if (blBrickPtr.voxelsDoBeAllSame)
         {
-          if constexpr (Save)
-          {
-            auto voxel = grid->GetVoxelAt({x, y, z});
-            detail::Serialize2(ar, voxel);
-          }
-          else
-          {
-            auto voxel = TwoLevelGrid::voxel_t();
-            detail::Serialize2(ar, voxel);
-            grid->SetVoxelAtNoDirty({x, y, z}, voxel);
-          }
+          continue;
         }
+
+        if constexpr (!Save)
+        {
+          blBrickPtr.bottomLevelBrick = grid->AllocateBottomLevelBrick(0);
+        }
+        auto& blBrick = grid->GetBottomLevelBrick(blBrickPtr.bottomLevelBrick);
+        Serialize2(ar, blBrick);
       }
     }
   }

@@ -818,6 +818,32 @@ void Core::Reflection::Initialize()
     ENUMERATOR(Math::Easing, EASE_IN_CUBIC)
     ENUMERATOR(Math::Easing, EASE_OUT_CUBIC);
 
+  REFLECT_TYPE(TwoLevelGrid::TopLevelBrickPtr)
+    DATA(TwoLevelGrid::TopLevelBrickPtr, voxelsDoBeAllSame)
+    TRAITS(SERIALIZE)
+    DATA(TwoLevelGrid::TopLevelBrickPtr, voxelIfAllSame)
+    TRAITS(SERIALIZE);
+
+  REFLECT_TYPE(TwoLevelGrid::TopLevelBrick)
+    DATA(TwoLevelGrid::TopLevelBrick, bricks)
+    TRAITS(SERIALIZE);
+  
+  REFLECT_TYPE(TwoLevelGrid::BottomLevelBrickPtr)
+    DATA(TwoLevelGrid::BottomLevelBrickPtr, voxelsDoBeAllSame)
+    TRAITS(SERIALIZE)
+    DATA(TwoLevelGrid::BottomLevelBrickPtr, voxelIfAllSame)
+    TRAITS(SERIALIZE);
+  
+  REFLECT_TYPE(TwoLevelGrid::BottomLevelBrick)
+    DATA(TwoLevelGrid::BottomLevelBrick, occupancy)
+    TRAITS(SERIALIZE)
+    DATA(TwoLevelGrid::BottomLevelBrick, voxels)
+    TRAITS(SERIALIZE);
+
+  REFLECT_TYPE(TwoLevelGrid::OccupancyBitmask)
+    DATA(TwoLevelGrid::OccupancyBitmask, bitmask)
+    TRAITS(SERIALIZE);
+
   // TODO: TEMP
   REFLECT_COMPONENT(LocalPlayer);
 }

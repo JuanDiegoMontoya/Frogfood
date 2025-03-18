@@ -341,7 +341,8 @@ void Core::Reflection::Initialize()
 #define PROP_SPEED(Scalar) {"speed"_hs, Scalar}
 #define PROP_MIN(Scalar) {"min"_hs, Scalar}
 #define PROP_MAX(Scalar) {"max"_hs, Scalar}
-#define REFLECT_ENUM(T) entt::meta_factory<T>{}
+#define REFLECT_ENUM(T) entt::meta_factory<T>{}\
+  .func<[](T value) { return static_cast<std::underlying_type_t<T>>(value); }>("to_underlying"_hs)
 #define ENUMERATOR(E, Member, ...) \
   .data<E :: Member>(#Member##_hs) \
   .custom<PropertiesMap>(PropertiesMap{{"name"_hs, #Member} __VA_OPT__(, __VA_ARGS__)})
@@ -383,6 +384,11 @@ void Core::Reflection::Initialize()
     DATA(glm::ivec3, y)
     TRAITS(EDITOR | SERIALIZE)
     DATA(glm::ivec3, z)
+    TRAITS(EDITOR | SERIALIZE);
+  entt::meta_factory<glm::ivec2>()
+    DATA(glm::ivec2, x)
+    TRAITS(EDITOR | SERIALIZE)
+    DATA(glm::ivec2, y)
     TRAITS(EDITOR | SERIALIZE);
   entt::meta_factory<glm::quat>().func<&EditorWriteQuat>("EditorWrite"_hs).func<&EditorReadQuat>("EditorRead"_hs)
     DATA(glm::quat, w)
@@ -710,6 +716,8 @@ void Core::Reflection::Initialize()
 
   REFLECT_COMPONENT(Inventory)
     DATA(Inventory, activeSlotCoord)
+    TRAITS(SERIALIZE | EDITOR_READ)
+    DATA(Inventory, canHaveActiveItem)
     TRAITS(SERIALIZE | EDITOR_READ)
     DATA(Inventory, activeSlotEntity)
     TRAITS(SERIALIZE | EDITOR_READ)

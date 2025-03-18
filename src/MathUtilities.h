@@ -187,7 +187,7 @@ namespace Math
     };
   }
 
-  enum class Easing
+  enum class Easing : uint32_t
   {
     LINEAR,
     EASE_IN_SINE,

@@ -14,10 +14,6 @@
 #include "cereal/archives/xml.hpp"
 #include "cereal/types/string.hpp"
 
-#include "Jolt/Physics/Body/AllowedDOFs.h"
-#include "Jolt/Physics/Body/MotionQuality.h"
-#include "Jolt/Physics/Body/MotionType.h"
-
 #include "tracy/Tracy.hpp"
 
 #include <cstdint>
@@ -33,6 +29,8 @@ namespace Core::Serialization
   static void Serialize(Archive& ar, entt::meta_any value)
   {
     ZoneScoped;
+
+    // First, check if the type already has a bespoke serialization function.
     const auto archiveHash = entt::type_id<Archive>();
     for (auto [id, func] : value.type().func())
     {
@@ -40,14 +38,6 @@ namespace Core::Serialization
       {
         func.invoke({}, entt::forward_as_meta(ar), value.as_ref());
         return;
-      }
-    }
-
-    for (auto [id, data] : value.type().data())
-    {
-      if (data.traits<Traits>() & Traits::SERIALIZE)
-      {
-        Serialize<Save>(ar, data.get(value).as_ref());
       }
     }
 
@@ -71,6 +61,8 @@ namespace Core::Serialization
       {
         Serialize<Save>(ar, element.as_ref());
       }
+
+      return;
     }
 
     if (value.type().traits<Traits>() & Traits::VARIANT)
@@ -95,11 +87,39 @@ namespace Core::Serialization
         [[maybe_unused]] auto succ = value.assign(value.type().construct(variantTypeInstance));
         assert(succ);
       }
+      return;
+    }
+
+    if (value.type().is_enum())
+    {
+      auto toUnderlyingFunc = value.type().func("to_underlying"_hs);
+      assert(toUnderlyingFunc);
+      if constexpr (Save)
+      {
+        Serialize<Save>(ar, toUnderlyingFunc.invoke({}, value));
+      }
+      else
+      {
+        auto underlying = toUnderlyingFunc.ret().construct();
+        Serialize<Save>(ar, underlying.as_ref());
+        value.assign(underlying);
+      }
+
+      return;
+    }
+
+    // Serialize data members.
+    for (auto [id, data] : value.type().data())
+    {
+      if (data.traits<Traits>() & Traits::SERIALIZE)
+      {
+        Serialize<Save>(ar, data.get(value).as_ref());
+      }
     }
   }
 
   template<bool Save, typename Archive>
-  static void Serialize(Archive& ar, std::conditional_t<Save, std::unique_ptr<const TwoLevelGrid>&, std::unique_ptr<TwoLevelGrid>&> grid)
+  static void Serialize(Archive& ar, std::conditional_t<Save, const TwoLevelGrid*, std::unique_ptr<TwoLevelGrid>&> grid)
   {
     ZoneScoped;
     if constexpr (Save)
@@ -165,10 +185,6 @@ namespace Core::Serialization
     MAKE_SERIALIZERS(bool);
     MAKE_SERIALIZERS(std::string);
 
-    // TODO: Temp until enums are handled better in Serialize.
-    MAKE_SERIALIZERS(JPH::EMotionType);
-    MAKE_SERIALIZERS(JPH::EMotionQuality);
-    MAKE_SERIALIZERS(JPH::EAllowedDOFs);
   }
 
   void SaveRegistryToFile(const World& world, const std::filesystem::path& path)
@@ -214,7 +230,7 @@ namespace Core::Serialization
     registry.clear(); // Required to invoke on_destroy observers. In particular, for cleaning up physics objects.
     registry = {};
     CreateContextVariablesAndObservers(world);
-    registry.ctx().get<GameState>() = GameState::GAME;
+    registry.ctx().get<GameState>() = GameState::PAUSED;
 
     auto file         = std::ifstream(path, std::ios::binary | std::ios::in);
     auto inputArchive = cereal::BinaryInputArchive(file);
@@ -223,6 +239,7 @@ namespace Core::Serialization
     auto pGrid = std::unique_ptr<TwoLevelGrid>();
     Serialize<false>(inputArchive, pGrid);
     assert(pGrid);
+    pGrid->CoalesceBricksSLOW();
     registry.ctx().emplace<TwoLevelGrid>(std::move(*pGrid));
 
     auto numSets = uint32_t();
@@ -256,7 +273,7 @@ namespace Core::Serialization
           localEntity = registry.create(remoteEntity);
           remoteToLocal.emplace(remoteEntity, localEntity);
         }
-
+        
         if (auto emplaceFunc = meta.func("EmplaceMove"_hs))
         {
           emplaceFunc.invoke({}, &registry, localEntity, value.as_ref());

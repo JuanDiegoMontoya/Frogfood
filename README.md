@@ -8,6 +8,10 @@ A froggylicious renderer. Check out [the wiki!](https://github.com/JuanDiegoMont
 - Virtual shadow mapping (henceforth VSM shall stand for it and absolutely nothing else)
 - Meshlet rendering without mesh shaders
 - Visibility buffer deferred rendering (the scene is drawn to a 32-bit-per-pixel visibility buffer, then a standard G-buffer is generated)
+- Hardware-accelerated ray tracing:
+  - Path traced global illumination
+  - Ray traced ambient occlusion
+  - Ray traced shadows
 - Super basic physically-based shading
 - Granular culling:
   - Meshlets: hi-z and frustum culling

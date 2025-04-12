@@ -1,6 +1,6 @@
 # Frogfood
 
-A froggylicious renderer.
+A froggylicious renderer. Check out [the wiki!](https://github.com/JuanDiegoMontoya/Frogfood/wiki)
 
 ## Features
 

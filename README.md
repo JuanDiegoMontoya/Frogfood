@@ -26,6 +26,11 @@ This renderer was previously written in OpenGL 4.6. The last commit using OpenGL
 
 Get a modern version of CMake and do the `mkdir build && cd build && cmake ..` thing after cloning this repo. All dependencies are vendored or fetched with FetchContent. Should work on any sufficiently modern desktop GPU on Windows and Linux (I only test on Windows however).
 
+## Obligatory Sponza
+
+![A render from the lower floor of the Sponza palace's atrium, with sunlight hitting several different colored curtains and softly bouncing onto the floor](media/sponza_0.png)
+![A shot of the Sponza atrium from the second floor. Several columns are visible. The scene is bathed in a dreamy blue light emanating from the entire sky, which the columns softly occlude](media/sponza_1.png)
+
 ## Pictures That Will Become Outdated Almost Immediately
 
 ![A scene featuring the exterior of the namesake bistro from the famous Lumberyard Bistro model](media/bistro_0.png)

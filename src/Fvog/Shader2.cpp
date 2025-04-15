@@ -140,7 +140,6 @@ namespace Fvog
     detail::ShaderCompileInfo CompileShaderToSpirv(VkShaderStageFlagBits stage, std::string_view source, glslang::TShader::Includer* includer)
     {
       ZoneScoped;
-      constexpr auto compilerMessages = EShMessages(EShMessages::EShMsgSpvRules | EShMessages::EShMsgVulkanRules);
       const auto glslangStage = VkShaderStageToGlslang(stage);
 
       auto shader = glslang::TShader(glslangStage);
@@ -157,11 +156,16 @@ namespace Fvog
       }
       shader.setPreamble(preamble.c_str());
       shader.setOverrideVersion(460);
-      //shader.setDebugInfo(true);
+      if (GetDevice().supportsRelaxedExtendedInstruction)
+      {
+        shader.setDebugInfo(true);
+      }
 
       bool parseResult;
       {
         ZoneScopedN("Parse shader");
+        constexpr auto compilerMessages = EShMessages(
+          EShMsgSpvRules | EShMsgVulkanRules | EShMsgDebugInfo | EShMsgBuiltinSymbolTable | EShMsgEnhanced | EShMsgAbsolutePath | EShMsgDisplayErrorColumn);
         if (includer)
         {
           parseResult = shader.parse(GetDefaultResources(), 460, EProfile::ECoreProfile, false, false, compilerMessages, *includer);
@@ -209,8 +213,8 @@ namespace Fvog
         .generateDebugInfo = true,
         .stripDebugInfo = false,
         .disableOptimizer = true,
-        //.emitNonSemanticShaderDebugInfo = true,
-        //.emitNonSemanticShaderDebugSource = true,
+        .emitNonSemanticShaderDebugInfo = GetDevice().supportsRelaxedExtendedInstruction,
+        .emitNonSemanticShaderDebugSource = GetDevice().supportsRelaxedExtendedInstruction,
       };
 
       {

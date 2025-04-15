@@ -144,6 +144,8 @@ namespace Fvog
       .select()
       .value();
 
+    supportsRelaxedExtendedInstruction = physicalDevice_.enable_extension_if_present(VK_KHR_SHADER_RELAXED_EXTENDED_INSTRUCTION_EXTENSION_NAME);
+
     supportsRayTracing = physicalDevice_.is_extension_present(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
                          physicalDevice_.is_extension_present(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
                          physicalDevice_.is_extension_present(VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME) &&

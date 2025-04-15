@@ -74,6 +74,7 @@ namespace Fvog
     void ImmediateSubmit(const std::function<void(VkCommandBuffer)>& function) const;
 
     bool supportsRayTracing = false;
+    bool supportsRelaxedExtendedInstruction = false;
 
     void FreeUnusedResources();
 

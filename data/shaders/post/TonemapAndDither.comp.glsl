@@ -20,22 +20,22 @@ FVOG_DECLARE_STORAGE_BUFFERS(restrict readonly TonemapUniformBuffer)
 // AgX implementation from here: https://www.shadertoy.com/view/Dt3XDr
 float DualSection(float x, float linear, float peak)
 {
-	// Length of linear section
-	float S = (peak * linear);
-	if (x < S) {
-		return x;
-	} else {
-		float C = peak / (peak - S);
-		return peak - (peak - S) * exp((-C * (x - S)) / peak);
-	}
+    // Length of linear section
+    float S = (peak * linear);
+    if (x < S) {
+        return x;
+    } else {
+        float C = peak / (peak - S);
+        return peak - (peak - S) * exp((-C * (x - S)) / peak);
+    }
 }
 
 vec3 DualSection(vec3 x, float linear, float peak)
 {
-	x.x = DualSection(x.x, linear, peak);
-	x.y = DualSection(x.y, linear, peak);
-	x.z = DualSection(x.z, linear, peak);
-	return x;
+    x.x = DualSection(x.x, linear, peak);
+    x.y = DualSection(x.y, linear, peak);
+    x.z = DualSection(x.z, linear, peak);
+    return x;
 }
 
 vec3 AgX_DS(vec3 color_srgb, AgXMapperSettings agx, float maxDisplayNits)
@@ -199,7 +199,7 @@ void main()
   }
   if (uniforms.tonemapper == 2)
   {
-	  tonemappedColor = clamp(hdrColor, vec3(0), vec3(uniforms.maxDisplayNits));
+    tonemappedColor = clamp(hdrColor, vec3(0), vec3(uniforms.maxDisplayNits));
   }
 
   // Hybrid/HDR-compatible diplay mappers

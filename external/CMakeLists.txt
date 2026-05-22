@@ -32,7 +32,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     meshoptimizer
     GIT_REPOSITORY https://github.com/zeux/meshoptimizer.git
-    GIT_TAG        v0.19
+    GIT_TAG        v1.1
 )
 
 FetchContent_Declare(
@@ -51,7 +51,7 @@ option(KTX_FEATURE_STATIC_LIBRARY "" ON)
 FetchContent_Declare(
     ktx
     GIT_REPOSITORY https://github.com/KhronosGroup/KTX-Software.git
-    GIT_TAG        v4.1.0
+    GIT_TAG        v4.4.2
     SYSTEM
 )
 
